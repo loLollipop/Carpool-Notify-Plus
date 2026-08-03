@@ -1,0 +1,622 @@
+import * as React from "react"
+import { useTranslation } from "react-i18next"
+import {
+  Bar,
+  BarChart,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts"
+import {
+  CalendarDays,
+  ChartLine,
+  CircleDot,
+  Eye,
+  HandCoins,
+  Hash,
+  Pencil,
+  Search,
+  Trash2,
+  Wallet,
+} from "lucide-react"
+
+import { deleteBill } from "@/api/endpoints"
+import { useAppMutation } from "@/api/mutations"
+import { useBills } from "@/api/queries"
+import type { BillView, BillsSummary } from "@/api/types"
+import { ConfirmDialog } from "@/components/confirm-dialog"
+import { NumberTicker } from "@/components/number-ticker"
+import { PageHeader } from "@/components/page-header"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { cn } from "@/lib/utils"
+import { BillEditDialog } from "./BillEditDialog"
+import { SubscriptionViewDialog } from "./SubscriptionViewDialog"
+
+const CHART_COLORS = [
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+]
+
+function formatCents(cents: number) {
+  return `¥${(cents / 100).toLocaleString("zh-CN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`
+}
+
+function ChartTooltip({
+  active,
+  payload,
+}: {
+  active?: boolean
+  payload?: { payload: { name: string; cents: number; count?: number } }[]
+}) {
+  const { t } = useTranslation()
+  if (!active || !payload || payload.length === 0) return null
+  const item = payload[0].payload
+  return (
+    <div className="rounded-lg border bg-popover px-3 py-2 text-xs text-popover-foreground animate-fade-in">
+      <div className="font-medium">{item.name}</div>
+      <div className="mt-0.5 tabular-nums text-muted-foreground">
+        {formatCents(item.cents)}
+        {item.count !== undefined ? ` · ${t("bills.countSuffix", { count: item.count })}` : ""}
+      </div>
+    </div>
+  )
+}
+
+function KpiCard({
+  label,
+  value,
+  hint,
+  icon,
+  delay,
+}: {
+  label: string
+  value: string | number
+  hint: string
+  icon: React.ReactNode
+  delay: number
+}) {
+  return (
+    <Card className="gap-0 p-5 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
+      <div className="flex items-center justify-between text-xs font-medium tracking-wide text-muted-foreground">
+        <span>{label}</span>
+        <span className="text-muted-foreground/70">{icon}</span>
+      </div>
+      <div className="display-numeral mt-3 text-[28px] leading-none">
+        <NumberTicker value={value} />
+      </div>
+      <div className="mt-2.5 text-xs text-muted-foreground">{hint}</div>
+    </Card>
+  )
+}
+
+// ---- 金额分布 (bar list, 按订阅 / 按账号) ----------------------------------------
+
+function AmountDistributionCard({ summary }: { summary: BillsSummary }) {
+  const { t } = useTranslation()
+  const [mode, setMode] = React.useState<"subscription" | "account">("subscription")
+
+  const data = React.useMemo(() => {
+    if (mode === "subscription") {
+      return (summary.amount_by_subscription ?? []).map((bar) => ({
+        name: bar.name,
+        cents: bar.amount_cents,
+        yuan: bar.amount_yuan,
+      }))
+    }
+    return (summary.accounts ?? []).map((bar) => ({
+      name: bar.account_name,
+      cents: bar.amount_cents,
+      yuan: bar.amount_yuan,
+      count: bar.count,
+    }))
+  }, [summary, mode])
+
+  return (
+    <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "120ms" }}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold">{t("bills.chartAmountTitle")}</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {mode === "subscription" ? t("bills.chartAmountBySub") : t("bills.chartAmountByAccount")}
+          </p>
+        </div>
+        <div role="tablist" className="inline-flex items-center rounded-lg border bg-muted/50 p-0.5">
+          {(
+            [
+              { value: "subscription", label: t("bills.chartModeSub") },
+              { value: "account", label: t("bills.chartModeAccount") },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              role="tab"
+              aria-selected={mode === item.value}
+              onClick={() => setMode(item.value)}
+              className={cn(
+                "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                mode === item.value
+                  ? "border-border bg-background text-foreground"
+                  : "border-transparent text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {data.length === 0 ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">{t("bills.chartEmpty")}</p>
+      ) : (
+        <div style={{ height: Math.max(data.length * 40, 120) }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data} layout="vertical" margin={{ top: 0, right: 56, bottom: 0, left: 0 }}>
+              <XAxis type="number" hide />
+              <YAxis
+                type="category"
+                dataKey="name"
+                width={104}
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                tickFormatter={(value: string) =>
+                  value.length > 8 ? `${value.slice(0, 8)}…` : value
+                }
+              />
+              <RechartsTooltip cursor={{ fill: "var(--accent)" }} content={<ChartTooltip />} />
+              <Bar
+                dataKey="cents"
+                radius={[3, 3, 3, 3]}
+                barSize={14}
+                label={{
+                  position: "right",
+                  fontSize: 11,
+                  fill: "var(--muted-foreground)",
+                  formatter: (value: unknown) => formatCents(Number(value)),
+                }}
+              >
+                {data.map((_, index) => (
+                  <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ---- 所属账号 donut ----------------------------------------------------------------
+
+function AccountDonutCard({ summary }: { summary: BillsSummary }) {
+  const { t } = useTranslation()
+  const data = (summary.accounts ?? []).map((item) => ({
+    name: item.account_name,
+    cents: item.amount_cents,
+    yuan: item.amount_yuan,
+    count: item.count,
+  }))
+
+  return (
+    <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "180ms" }}>
+      <div>
+        <h2 className="text-sm font-semibold">{t("bills.chartAccountTitle")}</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">{t("bills.chartAccountDesc")}</p>
+      </div>
+
+      {data.length === 0 ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">
+          {t("bills.chartEmptyAccounts")}
+        </p>
+      ) : (
+        <div className="flex flex-wrap items-center gap-5">
+          <div className="h-[170px] w-[170px] shrink-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <RechartsTooltip content={<ChartTooltip />} />
+                <Pie
+                  data={data}
+                  dataKey="cents"
+                  nameKey="name"
+                  innerRadius={52}
+                  outerRadius={80}
+                  paddingAngle={3}
+                  strokeWidth={0}
+                >
+                  {data.map((_, index) => (
+                    <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                  ))}
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <ul className="grid min-w-0 flex-1 gap-2">
+            {data.map((item, index) => (
+              <li key={item.name} className="flex items-center gap-2 text-xs">
+                <i
+                  className="size-2.5 shrink-0 rounded-[3px]"
+                  style={{ background: CHART_COLORS[index % CHART_COLORS.length] }}
+                />
+                <span className="truncate">{item.name}</span>
+                <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+                  ¥{item.yuan} · {t("bills.countSuffix", { count: item.count })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ---- 近 6 个月实收 -----------------------------------------------------------------
+
+function MonthlyTrendCard({ summary }: { summary: BillsSummary }) {
+  const { t } = useTranslation()
+  const data = (summary.monthly_trend ?? []).map((item) => ({
+    name: item.month,
+    label: item.label,
+    cents: item.amount_cents,
+    count: item.count,
+  }))
+
+  return (
+    <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "240ms" }}>
+      <div>
+        <h2 className="text-sm font-semibold">{t("bills.chartTrendTitle")}</h2>
+        <p className="mt-0.5 text-xs text-muted-foreground">{t("bills.chartTrendDesc")}</p>
+      </div>
+
+      {summary.bill_count === 0 ? (
+        <p className="py-10 text-center text-sm text-muted-foreground">
+          {t("bills.chartEmptyTrend")}
+        </p>
+      ) : (
+        <div className="h-[190px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data} margin={{ top: 18, right: 8, bottom: 0, left: 8 }}>
+              <XAxis
+                dataKey="label"
+                axisLine={false}
+                tickLine={false}
+                tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+              />
+              <YAxis hide />
+              <RechartsTooltip cursor={{ fill: "var(--accent)" }} content={<ChartTooltip />} />
+              <Bar
+                dataKey="cents"
+                fill="var(--brand)"
+                radius={[4, 4, 0, 0]}
+                barSize={36}
+                label={{
+                  position: "top",
+                  fontSize: 10,
+                  fill: "var(--muted-foreground)",
+                  formatter: (value: unknown) => formatCents(Number(value)),
+                }}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </Card>
+  )
+}
+
+// ---- Page --------------------------------------------------------------------------
+
+export function BillsPage() {
+  const { t } = useTranslation()
+  const billsQuery = useBills()
+
+  const [editingBill, setEditingBill] = React.useState<BillView | null>(null)
+  const [viewingBill, setViewingBill] = React.useState<BillView | null>(null)
+  const [deleteTarget, setDeleteTarget] = React.useState<BillView | null>(null)
+  const [search, setSearch] = React.useState("")
+  const [typeFilter, setTypeFilter] = React.useState<"all" | "sale" | "resale">("all")
+
+  const deleteMutation = useAppMutation((id: number) => deleteBill(id), {
+    onSuccess: () => setDeleteTarget(null),
+  })
+
+  const billsData = billsQuery.data?.bills
+  const bills = React.useMemo(() => billsData ?? [], [billsData])
+  const summary = billsQuery.data?.summary
+
+  const filteredBills = React.useMemo(() => {
+    const byType = bills.filter((bill) => {
+      if (typeFilter === "sale") return !bill.is_resale
+      if (typeFilter === "resale") return bill.is_resale
+      return true
+    })
+    const query = search.trim().toLowerCase()
+    if (!query) return byType
+    return byType.filter((bill) =>
+      [
+        bill.subscription_name,
+        bill.account_name,
+        bill.account_email,
+        bill.account_space_name,
+        bill.seat_name,
+        bill.customer_email,
+        bill.note,
+        bill.due_date,
+        bill.amount_yuan,
+        bill.profit_yuan,
+        bill.agency_fee_yuan,
+        bill.status_label,
+      ].some((field) => field?.toLowerCase().includes(query)),
+    )
+  }, [bills, search, typeFilter])
+
+  return (
+    <>
+      <PageHeader title={t("bills.title")} description={t("bills.desc")} />
+
+      {billsQuery.isPending ? (
+        <div className="grid gap-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <Skeleton key={index} className="h-28 rounded-xl" />
+            ))}
+          </div>
+          <Skeleton className="h-72 rounded-xl" />
+          <Skeleton className="h-96 rounded-xl" />
+        </div>
+      ) : billsQuery.isError ? (
+        <Card className="items-center gap-3 py-16 text-center">
+          <p className="text-sm text-muted-foreground">{t("common.loadFailed")}</p>
+          <Button variant="outline" onClick={() => billsQuery.refetch()}>
+            {t("common.retry")}
+          </Button>
+        </Card>
+      ) : summary ? (
+        <>
+          <section aria-label={t("bills.title")} className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            <KpiCard
+              label={t("bills.kpiTotal")}
+              value={`¥${summary.total_amount_yuan}`}
+              hint={t("bills.kpiTotalHint")}
+              icon={<Wallet className="size-4" />}
+              delay={0}
+            />
+            <KpiCard
+              label={t("bills.kpiCount")}
+              value={summary.bill_count}
+              hint={t("bills.kpiCountHint", { avg: summary.average_amount_yuan })}
+              icon={<Hash className="size-4" />}
+              delay={40}
+            />
+            <KpiCard
+              label={t("bills.kpiThisMonth")}
+              value={`¥${summary.this_month_amount_yuan}`}
+              hint={t("bills.kpiThisMonthHint", { count: summary.this_month_count })}
+              icon={<CalendarDays className="size-4" />}
+              delay={80}
+            />
+            <KpiCard
+              label={t("bills.kpiAverage")}
+              value={`¥${summary.average_amount_yuan}`}
+              hint={t("bills.kpiAverageHint")}
+              icon={<ChartLine className="size-4" />}
+              delay={120}
+            />
+            <KpiCard
+              label={t("bills.kpiAgencyFee")}
+              value={`¥${summary.total_agency_fee_yuan}`}
+              hint={t("bills.kpiAgencyFeeHint", {
+                count: summary.resale_bill_count,
+                month: summary.this_month_agency_fee_yuan,
+              })}
+              icon={<HandCoins className="size-4" />}
+              delay={160}
+            />
+            <KpiCard
+              label={t("bills.kpiActive")}
+              value={summary.active_count}
+              hint={t("bills.kpiActiveHint")}
+              icon={<CircleDot className="size-4" />}
+              delay={200}
+            />
+          </section>
+
+          <div className="mb-4 grid gap-4 lg:grid-cols-2">
+            <AmountDistributionCard summary={summary} />
+            <AccountDonutCard summary={summary} />
+          </div>
+          <MonthlyTrendCard summary={summary} />
+
+          <div className="mt-8 mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between animate-fade-up">
+            <h2 className="text-lg font-semibold">{t("bills.listTitle")}</h2>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative">
+                <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  placeholder={t("bills.searchPlaceholder")}
+                  aria-label={t("bills.listTitle")}
+                  className="h-8 w-52 pl-8 text-[13px] sm:w-64"
+                />
+              </div>
+              <Select
+                value={typeFilter}
+                onValueChange={(value) => setTypeFilter(value as "all" | "sale" | "resale")}
+              >
+                <SelectTrigger className="h-8 w-28" aria-label={t("bills.filterLabel")}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">{t("bills.filterAll")}</SelectItem>
+                  <SelectItem value="sale">{t("bills.filterSale")}</SelectItem>
+                  <SelectItem value="resale">{t("bills.filterResale")}</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="shrink-0 text-xs text-muted-foreground">
+                {t("bills.listMeta", { count: filteredBills.length })}
+              </p>
+            </div>
+          </div>
+
+          {bills.length === 0 ? (
+            <Card className="items-center py-16 text-center animate-fade-up">
+              <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
+                {t("bills.empty")}
+              </p>
+            </Card>
+          ) : (
+            <Card className="gap-0 overflow-hidden p-0 animate-fade-up">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t("bills.colSubscription")}</TableHead>
+                    <TableHead>{t("bills.colStartDate")}</TableHead>
+                    <TableHead>{t("bills.colAmount")}</TableHead>
+                    <TableHead className="hidden lg:table-cell">{t("bills.colProfit")}</TableHead>
+                    <TableHead className="hidden lg:table-cell">{t("bills.colAgencyFee")}</TableHead>
+                    <TableHead className="hidden md:table-cell">{t("bills.colNote")}</TableHead>
+                    <TableHead className="hidden sm:table-cell">{t("bills.colPaidAt")}</TableHead>
+                    <TableHead>{t("bills.colStatus")}</TableHead>
+                    <TableHead className="text-right">{t("bills.colActions")}</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filteredBills.length === 0 ? (
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
+                        {t("bills.searchEmpty")}
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                  {filteredBills.map((bill) => (
+                    <TableRow key={bill.id}>
+                      <TableCell className="max-w-48">
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span className="truncate font-medium">{bill.subscription_name}</span>
+                          {bill.is_resale ? (
+                            <Badge variant="outline" className="shrink-0 font-normal">
+                              {t("cards.resale")}
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {bill.account_name}
+                          {bill.seat_name ? ` · ${bill.seat_name}` : ""}
+                        </div>
+                      </TableCell>
+                      <TableCell className="tabular-nums">{bill.due_date}</TableCell>
+                      <TableCell className="font-medium tabular-nums">¥{bill.amount_yuan}</TableCell>
+                      <TableCell className="hidden tabular-nums lg:table-cell">
+                        ¥{bill.is_resale ? "0.00" : bill.profit_yuan}
+                      </TableCell>
+                      <TableCell className="hidden tabular-nums lg:table-cell">
+                        ¥{bill.is_resale ? bill.agency_fee_yuan : "—"}
+                      </TableCell>
+                      <TableCell className="hidden max-w-52 md:table-cell">
+                        {bill.note ? (
+                          <span className="block truncate text-muted-foreground">{bill.note}</span>
+                        ) : (
+                          <span className="text-muted-foreground/50">—</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden tabular-nums text-muted-foreground sm:table-cell">
+                        {bill.paid_at_label}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={bill.archived ? "secondary" : "success"} className="font-normal">
+                          {bill.status_label}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="inline-flex items-center gap-1">
+                          <Button variant="outline" size="sm" onClick={() => setViewingBill(bill)}>
+                            <Eye data-slot="icon" />
+                            <span className="hidden lg:inline">{t("bills.viewSubscription")}</span>
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => setEditingBill(bill)}>
+                            <Pencil data-slot="icon" />
+                            <span className="hidden lg:inline">{t("bills.editBill")}</span>
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setDeleteTarget(bill)}
+                          >
+                            <Trash2 data-slot="icon" />
+                            <span className="hidden lg:inline">{t("common.delete")}</span>
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </Card>
+          )}
+        </>
+      ) : null}
+
+      <BillEditDialog
+        open={editingBill !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditingBill(null)
+        }}
+        bill={editingBill}
+      />
+      <SubscriptionViewDialog
+        open={viewingBill !== null}
+        onOpenChange={(open) => {
+          if (!open) setViewingBill(null)
+        }}
+        bill={viewingBill}
+      />
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+        title={t("confirms.deleteBillTitle")}
+        description={t("confirms.deleteBillDesc")}
+        actionLabel={t("confirms.deleteBillAction")}
+        destructive
+        pending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (deleteTarget) deleteMutation.mutate(deleteTarget.id)
+        }}
+      />
+    </>
+  )
+}

@@ -1,0 +1,210 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Minimal SaaS — cool light gray canvas, pure white cards. */
+  --background: oklch(0.978 0.002 250);
+  --foreground: oklch(0.24 0.014 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.24 0.014 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.24 0.014 260);
+  --primary: oklch(0.24 0.014 260);
+  --primary-foreground: oklch(0.985 0.002 250);
+  --secondary: oklch(0.958 0.003 250);
+  --secondary-foreground: oklch(0.32 0.014 260);
+  --muted: oklch(0.958 0.003 250);
+  --muted-foreground: oklch(0.53 0.014 255);
+  --accent: oklch(0.95 0.005 250);
+  --accent-foreground: oklch(0.26 0.014 260);
+  --brand: oklch(0.55 0.17 257);
+  --brand-foreground: oklch(0.985 0.002 250);
+  --success: oklch(0.62 0.135 152);
+  --success-foreground: oklch(0.985 0.002 250);
+  --violet: oklch(0.565 0.16 288);
+  --violet-foreground: oklch(0.985 0.002 250);
+  --warning: oklch(0.7 0.13 68);
+  --warning-foreground: oklch(0.28 0.03 68);
+  --destructive: oklch(0.575 0.2 27.3);
+  --destructive-foreground: oklch(0.985 0.002 250);
+  --border: oklch(0.924 0.004 250);
+  --input: oklch(0.906 0.005 250);
+  --ring: oklch(0.55 0.17 257);
+  --chart-1: oklch(0.55 0.17 257);
+  --chart-2: oklch(0.62 0.135 152);
+  --chart-3: oklch(0.565 0.16 288);
+  --chart-4: oklch(0.72 0.09 228);
+  --chart-5: oklch(0.72 0.012 250);
+  --radius: 0.75rem;
+}
+
+.dark {
+  /* Minimal SaaS — cool ink, same accent family. */
+  --background: oklch(0.172 0.007 260);
+  --foreground: oklch(0.93 0.005 250);
+  --card: oklch(0.208 0.008 260);
+  --card-foreground: oklch(0.93 0.005 250);
+  --popover: oklch(0.222 0.009 260);
+  --popover-foreground: oklch(0.93 0.005 250);
+  --primary: oklch(0.93 0.005 250);
+  --primary-foreground: oklch(0.2 0.008 260);
+  --secondary: oklch(0.252 0.009 260);
+  --secondary-foreground: oklch(0.9 0.005 250);
+  --muted: oklch(0.248 0.009 260);
+  --muted-foreground: oklch(0.64 0.012 255);
+  --accent: oklch(0.262 0.01 260);
+  --accent-foreground: oklch(0.93 0.005 250);
+  --brand: oklch(0.68 0.14 257);
+  --brand-foreground: oklch(0.16 0.02 260);
+  --success: oklch(0.7 0.125 152);
+  --success-foreground: oklch(0.16 0.025 152);
+  --violet: oklch(0.68 0.135 288);
+  --violet-foreground: oklch(0.16 0.025 288);
+  --warning: oklch(0.76 0.12 70);
+  --warning-foreground: oklch(0.2 0.035 70);
+  --destructive: oklch(0.66 0.185 25.7);
+  --destructive-foreground: oklch(0.985 0.002 250);
+  --border: oklch(0.285 0.009 260);
+  --input: oklch(0.305 0.01 260);
+  --ring: oklch(0.68 0.14 257);
+  --chart-1: oklch(0.68 0.14 257);
+  --chart-2: oklch(0.7 0.125 152);
+  --chart-3: oklch(0.68 0.135 288);
+  --chart-4: oklch(0.62 0.08 228);
+  --chart-5: oklch(0.55 0.012 250);
+}
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC",
+    "Microsoft YaHei", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono",
+    Menlo, Consolas, monospace;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-violet: var(--violet);
+  --color-violet-foreground: var(--violet-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --animate-fade-up: fade-up 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-fade-in: fade-in 0.4s ease both;
+  --animate-rise: rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+
+  @keyframes fade-up {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(26px) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--brand) 82%, transparent);
+    color: var(--brand-foreground);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--foreground) 16%, transparent);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer utilities {
+  /* Large display numerals (KPI values, 404, month heading). */
+  .display-numeral {
+    font-family: var(--font-sans);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 0.9;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hairline-t {
+    border-top: 1px solid var(--border);
+  }
+
+  .text-money {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+}

@@ -1,0 +1,20 @@
+[Unit]
+Description=Carpool Notify - 拼车收钱提醒
+After=network.target
+
+[Service]
+Type=simple
+User=carpool
+WorkingDirectory=/opt/carpool-notify
+# 默认读取 WorkingDirectory 下的 config.toml
+# 也可：ExecStart=/opt/carpool-notify/carpool-notify -config /etc/carpool-notify/config.toml
+ExecStart=/opt/carpool-notify/carpool-notify
+Restart=on-failure
+RestartSec=5
+
+# 可选：用环境变量覆盖 config.toml 中的个别项
+# Environment=CARPOOL_CONFIG=/etc/carpool-notify/config.toml
+# Environment=CARPOOL_PASSWORD=...
+
+[Install]
+WantedBy=multi-user.target

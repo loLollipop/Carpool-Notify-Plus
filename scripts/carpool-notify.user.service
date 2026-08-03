@@ -1,0 +1,14 @@
+[Unit]
+Description=Carpool Notify - 拼车收钱提醒
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/data/project
+ExecStart=/data/project/carpool-notify -config /data/project/config.toml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

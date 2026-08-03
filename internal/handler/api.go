@@ -1,0 +1,591 @@
+package handler
+
+import (
+	"encoding/json"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/model"
+	"carpool-notify/internal/service"
+
+	"github.com/gin-gonic/gin"
+)
+
+// ---- Data queries -----------------------------------------------------------
+
+func (server *Server) getCalendar(context *gin.Context) {
+	now := cycle.Now()
+	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, cycle.Location)
+	if rawMonth := strings.TrimSpace(context.Query("month")); rawMonth != "" {
+		parsedMonth, err := time.ParseInLocation("2006-01", rawMonth, cycle.Location)
+		if err != nil {
+			respondError(context, http.StatusBadRequest, "无效的月份，请使用 YYYY-MM")
+			return
+		}
+		month = parsedMonth
+	}
+	calendarView, err := server.Service.CalendarMonth(month)
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"calendar": calendarView})
+}
+
+func (server *Server) getDashboard(context *gin.Context) {
+	dashboard, err := server.Service.ComputeDashboard()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"dashboard": dashboard})
+}
+
+func (server *Server) getSubscriptions(context *gin.Context) {
+	views, err := server.Service.ListView()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	archived, err := server.Service.ListArchivedView()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"subscriptions": views, "archived": archived})
+}
+
+func (server *Server) getAccounts(context *gin.Context) {
+	accounts, err := server.Service.ListAccountsView()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"accounts": accounts})
+}
+
+func (server *Server) getAccountOptions(context *gin.Context) {
+	includeSeatID, _ := strconv.ParseInt(context.Query("include_seat_id"), 10, 64)
+	options, err := server.Service.ListAccountOptionsForForm(includeSeatID)
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"accounts": options})
+}
+
+func (server *Server) getBills(context *gin.Context) {
+	page, err := server.Service.ListBillsPage()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"bills": page.Bills, "summary": page.Summary})
+}
+
+type channelSettingDTO struct {
+	Key                string `json:"key"`
+	Label              string `json:"label"`
+	Enabled            bool   `json:"enabled"`
+	Configured         bool   `json:"configured"`
+	OperatorConfigured bool   `json:"operator_configured"`
+}
+
+func (server *Server) getSettings(context *gin.Context) {
+	notifyTemplate, err := server.Service.GetNotifyTemplate()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	customerTemplate, err := server.Service.GetCustomerEmailTemplate()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	enabledChannels, err := server.Service.GetEnabledChannels()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	enabledSet := map[string]struct{}{}
+	for _, channel := range enabledChannels {
+		enabledSet[channel] = struct{}{}
+	}
+	isEnabled := func(channel string) bool {
+		_, enabled := enabledSet[channel]
+		return enabled
+	}
+	channels := []channelSettingDTO{
+		{
+			Key:                model.ChannelIYUU,
+			Label:              "IYUU",
+			Enabled:            isEnabled(model.ChannelIYUU),
+			Configured:         server.Config.IYUUConfigured(),
+			OperatorConfigured: server.Config.IYUUConfigured(),
+		},
+		{
+			Key:                model.ChannelSMTP,
+			Label:              "SMTP",
+			Enabled:            isEnabled(model.ChannelSMTP),
+			Configured:         server.Config.SMTPConfigured(),
+			OperatorConfigured: server.Config.SMTPOperatorConfigured(),
+		},
+		{
+			Key:                model.ChannelGotify,
+			Label:              "Gotify",
+			Enabled:            isEnabled(model.ChannelGotify),
+			Configured:         server.Config.GotifyConfigured(),
+			OperatorConfigured: server.Config.GotifyConfigured(),
+		},
+	}
+	respondOK(context, gin.H{
+		"notify_template":         notifyTemplate,
+		"customer_email_template": customerTemplate,
+		"enabled_channels":        enabledChannels,
+		"channels":                channels,
+	})
+}
+
+func (server *Server) getCronPreview(context *gin.Context) {
+	expression := strings.TrimSpace(context.Query("cron_expr"))
+	if expression == "" {
+		respondError(context, http.StatusBadRequest, "请填写 cron 表达式")
+		return
+	}
+	boardedAt := strings.TrimSpace(context.Query("boarded_at"))
+	if boardedAt == "" {
+		boardedAt = cycle.FormatDate(cycle.Now())
+	}
+	count := 5
+	if rawCount := strings.TrimSpace(context.Query("count")); rawCount != "" {
+		parsedCount, err := strconv.Atoi(rawCount)
+		if err != nil || parsedCount < 1 || parsedCount > 20 {
+			respondError(context, http.StatusBadRequest, "count 须为 1～20 的整数")
+			return
+		}
+		count = parsedCount
+	}
+
+	schedule, err := cycle.ParseBillingSchedule(expression, boardedAt)
+	if err != nil {
+		// Invalid expression is an expected user state, keep HTTP 200 like the legacy API.
+		context.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+
+	occurrences := schedule.NextDueTimes(cycle.Now(), count)
+	formattedTimes := make([]string, 0, len(occurrences))
+	for _, occurrence := range occurrences {
+		formattedTimes = append(formattedTimes, cycle.FormatDateTime(occurrence))
+	}
+	respondOK(context, gin.H{
+		"description": cycle.DescribeCron(expression),
+		"timezone":    "Asia/Shanghai",
+		"times":       formattedTimes,
+	})
+}
+
+func (server *Server) getReminderPreview(context *gin.Context) {
+	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
+	if !ok {
+		return
+	}
+	to, subject, body, err := server.Service.PreviewCustomerEmail(subscriptionID)
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"to": to, "subject": subject, "body": body})
+}
+
+func (server *Server) getDuePeriods(context *gin.Context) {
+	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
+	if !ok {
+		return
+	}
+	preferredStart := strings.TrimSpace(context.Query("preferred"))
+	periods, err := server.Service.ListDuePeriodOptions(subscriptionID, preferredStart)
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"periods": periods})
+}
+
+func (server *Server) getExport(context *gin.Context) {
+	payload, err := server.Service.Export()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	encoded, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	filename := "carpool-export-" + cycle.Now().Format("20060102") + ".json"
+	context.Header("Content-Disposition", "attachment; filename="+filename)
+	context.Data(http.StatusOK, "application/json; charset=utf-8", encoded)
+}
+
+// ---- Subscription mutations ---------------------------------------------------
+
+type subscriptionRequest struct {
+	Name          string `json:"name"`
+	PriceYuan     string `json:"price_yuan"`
+	CostYuan      string `json:"cost_yuan"`
+	IsResale      bool   `json:"is_resale"`
+	AgencyFeeYuan string `json:"agency_fee_yuan"`
+	CronExpr      string `json:"cron_expr"`
+	NotifyOffsets []int  `json:"notify_offsets"`
+	Remark        string `json:"remark"`
+	TradeURL      string `json:"trade_url"`
+	CustomerEmail string `json:"customer_email"`
+	AccountID     int64  `json:"account_id"`
+	SeatID        int64  `json:"seat_id"`
+	BoardedAt     string `json:"boarded_at"`
+}
+
+func (request subscriptionRequest) toCreateInput() service.CreateInput {
+	offsets := make([]string, 0, len(request.NotifyOffsets))
+	for _, offset := range request.NotifyOffsets {
+		offsets = append(offsets, strconv.Itoa(offset))
+	}
+	return service.CreateInput{
+		Name:             request.Name,
+		PriceYuan:        request.PriceYuan,
+		CostYuan:         request.CostYuan,
+		IsResale:         request.IsResale,
+		AgencyFeeYuan:    request.AgencyFeeYuan,
+		CronExpr:         request.CronExpr,
+		NotifyOffsetsRaw: strings.Join(offsets, ","),
+		Remark:           request.Remark,
+		TradeURL:         request.TradeURL,
+		CustomerEmail:    request.CustomerEmail,
+		AccountID:        request.AccountID,
+		SeatID:           request.SeatID,
+		BoardedAt:        request.BoardedAt,
+	}
+}
+
+func (server *Server) postCreateSubscription(context *gin.Context) {
+	var request subscriptionRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	if _, err := server.Service.Create(request.toCreateInput()); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "已创建订阅"})
+}
+
+func (server *Server) putUpdateSubscription(context *gin.Context) {
+	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
+	if !ok {
+		return
+	}
+	var request subscriptionRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	if err := server.Service.Update(subscriptionID, request.toCreateInput()); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "已保存修改"})
+}
+
+func (server *Server) deleteSubscription(context *gin.Context) {
+	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.SoftDeleteArchived(subscriptionID); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "已伪删除该已下车订阅"})
+}
+
+func (server *Server) postArchiveSubscription(context *gin.Context) {
+	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.Archive(subscriptionID); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "已下车，订阅已归档；账单仍可在账单页查看"})
+}
+
+func (server *Server) postCopySubscription(context *gin.Context) {
+	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
+	if !ok {
+		return
+	}
+	var request struct {
+		SeatID int64 `json:"seat_id"`
+	}
+	_ = context.ShouldBindJSON(&request)
+	if request.SeatID == 0 {
+		// Prefer a free seat on the same account when the caller omits seat_id.
+		source, getErr := server.Service.Store.GetSubscriptionIncludingArchived(subscriptionID)
+		if getErr == nil && source.AccountID > 0 {
+			freeSeats, freeErr := server.Service.Store.ListFreeSeats(source.AccountID, 0)
+			if freeErr == nil && len(freeSeats) > 0 {
+				request.SeatID = freeSeats[0].ID
+			}
+		}
+	}
+	if _, err := server.Service.Copy(subscriptionID, request.SeatID); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "已复制订阅，可在列表中修改备注与金额后继续使用"})
+}
+
+func (server *Server) postTestNotify(context *gin.Context) {
+	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.TestNotify(context.Request.Context(), subscriptionID); err != nil {
+		respondError(context, http.StatusBadRequest, "测试发送失败: "+err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "测试通知已发送"})
+}
+
+func (server *Server) postSendCustomerEmail(context *gin.Context) {
+	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.SendCustomerEmail(context.Request.Context(), subscriptionID); err != nil {
+		respondError(context, http.StatusBadRequest, "发送失败: "+err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "客户邮件已发送"})
+}
+
+func (server *Server) postDuePaid(context *gin.Context) {
+	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
+	if !ok {
+		return
+	}
+	var request struct {
+		Paid bool `json:"paid"`
+	}
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的交费状态")
+		return
+	}
+	dueDate := context.Param("date")
+	if err := server.Service.SetDuePaid(subscriptionID, dueDate, request.Paid); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	payload := gin.H{"paid": request.Paid, "due_date": dueDate}
+	if request.Paid {
+		if nextDue, nextErr := server.Service.NextUnpaidDueDate(subscriptionID, dueDate); nextErr == nil && nextDue != "" {
+			payload["next_due_date"] = nextDue
+		}
+	}
+	respondOK(context, payload)
+}
+
+// ---- Account mutations ----------------------------------------------------------
+
+type accountRequest struct {
+	Name                 string `json:"name"`
+	Remark               string `json:"remark"`
+	PaymentMethod        string `json:"payment_method"`
+	Email                string `json:"email"`
+	SpaceName            string `json:"space_name"`
+	OpenedAt             string `json:"opened_at"`
+	CostYuan             string `json:"cost_yuan"`
+	ZeroRenewalNextMonth bool   `json:"zero_renewal_next_month"`
+	SeatCount            int    `json:"seat_count"`
+}
+
+func (server *Server) postCreateAccount(context *gin.Context) {
+	var request accountRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	if _, err := server.Service.CreateAccount(service.CreateAccountInput{
+		Name:                 request.Name,
+		Remark:               request.Remark,
+		PaymentMethod:        request.PaymentMethod,
+		Email:                request.Email,
+		SpaceName:            request.SpaceName,
+		OpenedAt:             request.OpenedAt,
+		CostYuan:             request.CostYuan,
+		ZeroRenewalNextMonth: request.ZeroRenewalNextMonth,
+		SeatCount:            request.SeatCount,
+	}); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "已创建账号"})
+}
+
+func (server *Server) putUpdateAccount(context *gin.Context) {
+	accountID, ok := parseIDParam(context, "id", "无效的账号 ID")
+	if !ok {
+		return
+	}
+	var request accountRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	if err := server.Service.UpdateAccount(accountID, service.UpdateAccountInput{
+		Name:                 request.Name,
+		Remark:               request.Remark,
+		PaymentMethod:        request.PaymentMethod,
+		Email:                request.Email,
+		SpaceName:            request.SpaceName,
+		OpenedAt:             request.OpenedAt,
+		CostYuan:             request.CostYuan,
+		ZeroRenewalNextMonth: request.ZeroRenewalNextMonth,
+		SeatCount:            request.SeatCount,
+	}); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "账号已保存"})
+}
+
+func (server *Server) deleteAccount(context *gin.Context) {
+	accountID, ok := parseIDParam(context, "id", "无效的账号 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.DeleteAccount(accountID); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "账号已删除"})
+}
+
+// ---- Bill mutations ------------------------------------------------------------
+
+func (server *Server) putUpdateBill(context *gin.Context) {
+	billID, ok := parseIDParam(context, "id", "无效的账单 ID")
+	if !ok {
+		return
+	}
+	var request struct {
+		AmountYuan string `json:"amount_yuan"`
+		Note       string `json:"note"`
+	}
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	if err := server.Service.UpdateBill(billID, service.BillEditInput{
+		AmountYuan: request.AmountYuan,
+		Note:       request.Note,
+	}); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "账单已保存"})
+}
+
+func (server *Server) deleteBill(context *gin.Context) {
+	billID, ok := parseIDParam(context, "id", "无效的账单 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.DeleteBill(billID); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "账单已删除，该期恢复为未交费"})
+}
+
+// ---- Settings mutations ----------------------------------------------------------
+
+func (server *Server) putSettings(context *gin.Context) {
+	var request struct {
+		NotifyTemplate        string   `json:"notify_template"`
+		CustomerEmailTemplate string   `json:"customer_email_template"`
+		Channels              []string `json:"channels"`
+	}
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	if err := server.Service.SaveNotifyTemplate(request.NotifyTemplate); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := server.Service.SaveCustomerEmailTemplate(request.CustomerEmailTemplate); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	if err := server.Service.SaveEnabledChannels(request.Channels); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "设置已保存"})
+}
+
+func (server *Server) postSettingsTestNotify(context *gin.Context) {
+	if err := server.Service.TestEnabledChannels(context.Request.Context()); err != nil {
+		respondError(context, http.StatusBadRequest, "测试发送失败: "+err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "测试通知已发送"})
+}
+
+func (server *Server) postSettingsTemplatePreview(context *gin.Context) {
+	var request struct {
+		Kind     string `json:"kind"`
+		Template string `json:"template"`
+	}
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	if strings.TrimSpace(request.Template) == "" {
+		respondError(context, http.StatusBadRequest, "模板不能为空")
+		return
+	}
+	name := "notify"
+	if request.Kind == "customer" {
+		name = "customer_email"
+	}
+	rendered, sampleName, err := server.Service.PreviewTemplate(name, request.Template)
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{
+		"rendered":    rendered,
+		"sample_name": sampleName,
+		"subject":     "拼车提醒 · " + sampleName,
+	})
+}
+
+// ---- Helpers --------------------------------------------------------------------
+
+func parseIDParam(context *gin.Context, name string, errorMessage string) (int64, bool) {
+	value, err := strconv.ParseInt(context.Param(name), 10, 64)
+	if err != nil || value <= 0 {
+		respondError(context, http.StatusBadRequest, errorMessage)
+		return 0, false
+	}
+	return value, true
+}
