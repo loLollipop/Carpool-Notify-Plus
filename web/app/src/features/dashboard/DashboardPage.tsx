@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { Link } from "react-router-dom"
 import {
   Area,
   AreaChart,
@@ -9,12 +10,27 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { ArrowUpRight, BellRing, Layers, Plus, Wallet } from "lucide-react"
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  BellRing,
+  CheckCircle2,
+  Layers,
+  Plus,
+  Wallet,
+} from "lucide-react"
 
-import { useBills, useCalendar, useDashboard } from "@/api/queries"
-import type { BillsSummary, Dashboard } from "@/api/types"
+import { useAccounts, useBills, useCalendar, useDashboard, useSubscriptions } from "@/api/queries"
+import type {
+  AccountView,
+  BillsSummary,
+  CalendarMonth,
+  Dashboard,
+  SubscriptionView,
+} from "@/api/types"
 import { NumberTicker } from "@/components/number-ticker"
 import { PageHeader } from "@/components/page-header"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -266,6 +282,287 @@ function RevenueTrendCard({ summary, className, delay }: { summary: BillsSummary
   )
 }
 
+// ---- Operations health -----------------------------------------------------------
+
+type HealthTone = "critical" | "warning" | "success"
+
+interface HealthItem {
+  key: string
+  tone: HealthTone
+  title: string
+  detail: string
+  actionLabel: string
+  to: string
+  count?: number
+}
+
+function summarizeNames(names: string[]) {
+  return names.slice(0, 3).join(" / ")
+}
+
+function buildHealthItems({
+  dashboard,
+  calendar,
+  subscriptions,
+  accounts,
+  t,
+}: {
+  dashboard: Dashboard
+  calendar: CalendarMonth | undefined
+  subscriptions: SubscriptionView[]
+  accounts: AccountView[]
+  t: ReturnType<typeof useTranslation>["t"]
+}) {
+  const items: HealthItem[] = []
+  const currentMonth = calendar?.month_value ?? ""
+  const pendingOccurrences = (calendar?.occurrences ?? []).filter(
+    (occurrence) =>
+      !occurrence.paid && (currentMonth === "" || occurrence.due_date.slice(0, 7) === currentMonth),
+  )
+  const overdue = pendingOccurrences.filter((occurrence) => occurrence.days_remaining < 0)
+  const dueSoon = pendingOccurrences.filter(
+    (occurrence) => occurrence.days_remaining >= 0 && occurrence.days_remaining <= 7,
+  )
+  const missingCustomerEmail = subscriptions.filter(
+    (view) => view.subscription.customer_email.trim() === "",
+  )
+  const missingReminderOffsets = subscriptions.filter(
+    (view) => (view.subscription.notify_offsets?.length ?? 0) === 0,
+  )
+  const activeSaleAccounts = accounts.filter((view) =>
+    (view.seats ?? []).some((seat) => seat.occupied && !seat.active_is_resale),
+  )
+  const missingAccountCost = activeSaleAccounts.filter((view) => view.account.cost_cents <= 0)
+  const missingOpenedAt = accounts.filter(
+    (view) => view.seat_used > 0 && view.account.opened_at.trim() === "",
+  )
+
+  if (overdue.length > 0) {
+    items.push({
+      key: "overdue",
+      tone: "critical",
+      title: t("dash.health.overdueTitle", { count: overdue.length }),
+      detail: t("dash.health.overdueDetail", {
+        names: summarizeNames(overdue.map((item) => item.name)),
+      }),
+      actionLabel: t("dash.health.goCalendar"),
+      to: "/calendar",
+      count: overdue.length,
+    })
+  } else if (dueSoon.length > 0) {
+    items.push({
+      key: "dueSoon",
+      tone: "warning",
+      title: t("dash.health.dueSoonTitle", { count: dueSoon.length }),
+      detail: t("dash.health.dueSoonDetail", {
+        names: summarizeNames(dueSoon.map((item) => item.name)),
+      }),
+      actionLabel: t("dash.health.goCalendar"),
+      to: "/calendar",
+      count: dueSoon.length,
+    })
+  }
+
+  if (missingCustomerEmail.length > 0) {
+    items.push({
+      key: "customerEmail",
+      tone: "warning",
+      title: t("dash.health.customerEmailTitle", { count: missingCustomerEmail.length }),
+      detail: t("dash.health.customerEmailDetail", {
+        names: summarizeNames(missingCustomerEmail.map((view) => view.subscription.name)),
+      }),
+      actionLabel: t("dash.health.goCards"),
+      to: "/cards",
+      count: missingCustomerEmail.length,
+    })
+  }
+
+  if (missingReminderOffsets.length > 0) {
+    items.push({
+      key: "reminders",
+      tone: "warning",
+      title: t("dash.health.remindersTitle", { count: missingReminderOffsets.length }),
+      detail: t("dash.health.remindersDetail", {
+        names: summarizeNames(missingReminderOffsets.map((view) => view.subscription.name)),
+      }),
+      actionLabel: t("dash.health.goCards"),
+      to: "/cards",
+      count: missingReminderOffsets.length,
+    })
+  }
+
+  if (missingAccountCost.length > 0) {
+    items.push({
+      key: "accountCost",
+      tone: "warning",
+      title: t("dash.health.accountCostTitle", { count: missingAccountCost.length }),
+      detail: t("dash.health.accountCostDetail", {
+        names: summarizeNames(missingAccountCost.map((view) => view.account.name)),
+      }),
+      actionLabel: t("dash.health.goAccounts"),
+      to: "/accounts",
+      count: missingAccountCost.length,
+    })
+  }
+
+  if (missingOpenedAt.length > 0) {
+    items.push({
+      key: "openedAt",
+      tone: "warning",
+      title: t("dash.health.openedAtTitle", { count: missingOpenedAt.length }),
+      detail: t("dash.health.openedAtDetail", {
+        names: summarizeNames(missingOpenedAt.map((view) => view.account.name)),
+      }),
+      actionLabel: t("dash.health.goAccounts"),
+      to: "/accounts",
+      count: missingOpenedAt.length,
+    })
+  }
+
+  if (dashboard.notify_failed_30d > 0) {
+    items.push({
+      key: "notify",
+      tone: "critical",
+      title: t("dash.health.notifyTitle", { count: dashboard.notify_failed_30d }),
+      detail: t("dash.health.notifyDetail"),
+      actionLabel: t("dash.health.goSettings"),
+      to: "/settings",
+      count: dashboard.notify_failed_30d,
+    })
+  }
+
+  if (subscriptions.length === 0) {
+    items.push({
+      key: "empty",
+      tone: "warning",
+      title: t("dash.health.emptyTitle"),
+      detail: t("dash.health.emptyDetail"),
+      actionLabel: t("dash.health.goAccounts"),
+      to: "/accounts",
+    })
+  }
+
+  if (items.length === 0) {
+    items.push({
+      key: "healthy",
+      tone: "success",
+      title: t("dash.health.healthyTitle"),
+      detail: t("dash.health.healthyDetail"),
+      actionLabel: t("dash.health.goCalendar"),
+      to: "/calendar",
+    })
+  }
+
+  return items
+}
+
+function OperationsHealthCard({
+  dashboard,
+  calendar,
+  subscriptions,
+  accounts,
+  pending,
+  error,
+  delay = 0,
+}: {
+  dashboard: Dashboard
+  calendar: CalendarMonth | undefined
+  subscriptions: SubscriptionView[]
+  accounts: AccountView[]
+  pending: boolean
+  error: boolean
+  delay?: number
+}) {
+  const { t } = useTranslation()
+  const toneClass: Record<HealthTone, string> = {
+    critical: "destructive",
+    warning: "warning",
+    success: "success",
+  }
+  const iconClass: Record<HealthTone, string> = {
+    critical: "bg-destructive/10 text-destructive",
+    warning: "bg-warning/15 text-warning-foreground dark:text-warning",
+    success: "bg-success/12 text-success",
+  }
+
+  const items = React.useMemo(
+    () =>
+      buildHealthItems({
+        dashboard,
+        calendar,
+        subscriptions,
+        accounts,
+        t,
+      }).slice(0, 5),
+    [accounts, calendar, dashboard, subscriptions, t],
+  )
+
+  return (
+    <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold">{t("dash.health.title")}</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">{t("dash.health.desc")}</p>
+        </div>
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand">
+          <CheckCircle2 className="size-4" />
+        </span>
+      </div>
+
+      {pending ? (
+        <div className="grid gap-2.5">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Skeleton key={index} className="h-[58px] rounded-lg" />
+          ))}
+        </div>
+      ) : error ? (
+        <div className="rounded-lg border border-dashed px-3 py-8 text-center text-sm text-muted-foreground">
+          {t("common.loadFailed")}
+        </div>
+      ) : (
+        <div className="grid gap-2.5">
+          {items.map((item) => (
+            <div
+              key={item.key}
+              className="flex items-start gap-3 rounded-lg border bg-muted/25 px-3 py-2.5"
+            >
+              <span
+                className={cn(
+                  "mt-0.5 grid size-7 shrink-0 place-items-center rounded-md",
+                  iconClass[item.tone],
+                )}
+              >
+                {item.tone === "success" ? (
+                  <CheckCircle2 className="size-3.5" />
+                ) : (
+                  <AlertTriangle className="size-3.5" />
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  <span className="truncate text-sm font-medium">{item.title}</span>
+                  {item.count !== undefined ? (
+                    <Badge
+                      variant={toneClass[item.tone] as "destructive" | "warning" | "success"}
+                      className="font-normal"
+                    >
+                      {item.count}
+                    </Badge>
+                  ) : null}
+                </div>
+                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{item.detail}</p>
+              </div>
+              <Button variant="ghost" size="sm" asChild className="shrink-0">
+                <Link to={item.to}>{item.actionLabel}</Link>
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </Card>
+  )
+}
+
 // ---- Page -------------------------------------------------------------------------
 
 export function DashboardPage() {
@@ -273,6 +570,8 @@ export function DashboardPage() {
   const dashboardQuery = useDashboard()
   const billsQuery = useBills()
   const calendarQuery = useCalendar()
+  const subscriptionsQuery = useSubscriptions()
+  const accountsQuery = useAccounts()
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
 
@@ -281,10 +580,16 @@ export function DashboardPage() {
 
   const dashboard = dashboardQuery.data
   const summary = billsQuery.data?.summary
+  const healthPending =
+    calendarQuery.isPending || subscriptionsQuery.isPending || accountsQuery.isPending
+  const healthError = calendarQuery.isError || subscriptionsQuery.isError || accountsQuery.isError
 
   const refetchAll = () => {
     void dashboardQuery.refetch()
     void billsQuery.refetch()
+    void calendarQuery.refetch()
+    void subscriptionsQuery.refetch()
+    void accountsQuery.refetch()
   }
 
   return (
@@ -324,7 +629,18 @@ export function DashboardPage() {
             pendingCount={calendarQuery.data?.pending_count ?? 0}
           />
 
-          {summary ? <RevenueTrendCard summary={summary} delay={100} /> : null}
+          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+            {summary ? <RevenueTrendCard summary={summary} delay={100} /> : null}
+            <OperationsHealthCard
+              dashboard={dashboard}
+              calendar={calendarQuery.data}
+              subscriptions={subscriptionsQuery.data?.subscriptions ?? []}
+              accounts={accountsQuery.data ?? []}
+              pending={healthPending}
+              error={healthError}
+              delay={160}
+            />
+          </div>
         </>
       ) : null}
 
