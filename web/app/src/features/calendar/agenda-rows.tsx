@@ -1,6 +1,14 @@
 import { useTranslation } from "react-i18next"
 import { Link } from "react-router-dom"
-import { ExternalLink, Mail, Pencil, Receipt, Trash2, UserRoundMinus } from "lucide-react"
+import {
+  ExternalLink,
+  Mail,
+  MessageCircle,
+  Pencil,
+  Receipt,
+  Trash2,
+  UserRoundMinus,
+} from "lucide-react"
 
 import type { CalendarOccurrence, SubscriptionView } from "@/api/types"
 import { DueStatusBadge } from "@/components/due-status-badge"
@@ -14,6 +22,34 @@ function MetaItem({ label, children }: { label: string; children: React.ReactNod
     <div className="min-w-0">
       <div className="text-[11px] font-medium tracking-wide text-muted-foreground">{label}</div>
       <div className="truncate text-[13px]">{children}</div>
+    </div>
+  )
+}
+
+function CustomerContactRow({ email, wechat }: { email: string; wechat: string }) {
+  const { t } = useTranslation()
+  if (!email && !wechat) return null
+
+  return (
+    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
+      {email ? (
+        <span
+          className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+          title={`${t("subscriptionDialog.customerEmail")}: ${email}`}
+        >
+          <Mail className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate font-mono">{email}</span>
+        </span>
+      ) : null}
+      {wechat ? (
+        <span
+          className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+          title={`${t("subscriptionDialog.customerWechat")}: ${wechat}`}
+        >
+          <MessageCircle className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">{wechat}</span>
+        </span>
+      ) : null}
     </div>
   )
 }
@@ -60,6 +96,10 @@ export function AgendaOccurrenceRow({
               </button>
             </Badge>
           </div>
+          <CustomerContactRow
+            email={occurrence.customer_email}
+            wechat={occurrence.customer_wechat}
+          />
         </div>
         <DueStatusBadge paid={occurrence.paid} daysRemaining={occurrence.days_remaining} />
       </div>
@@ -72,11 +112,6 @@ export function AgendaOccurrenceRow({
         {occurrence.boarded_at ? (
           <MetaItem label={t("calendar.boardedAt")}>
             <span className="tabular-nums">{occurrence.boarded_at}</span>
-          </MetaItem>
-        ) : null}
-        {occurrence.customer_wechat ? (
-          <MetaItem label={t("subscriptionDialog.customerWechat")}>
-            {occurrence.customer_wechat}
           </MetaItem>
         ) : null}
       </div>
@@ -160,6 +195,10 @@ export function AgendaArchivedRow({
           {t("calendar.filterArchived")}
         </Badge>
       </div>
+      <CustomerContactRow
+        email={subscription.customer_email}
+        wechat={subscription.customer_wechat}
+      />
 
       <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-3">
         <MetaItem label={t("calendar.cycle")}>{view.cycle_desc}</MetaItem>

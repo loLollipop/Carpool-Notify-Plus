@@ -1,6 +1,14 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ExternalLink, Mail, Pencil, Plus, Search, UserRoundMinus } from "lucide-react"
+import {
+  ExternalLink,
+  Mail,
+  MessageCircle,
+  Pencil,
+  Plus,
+  Search,
+  UserRoundMinus,
+} from "lucide-react"
 
 import { archiveSubscription } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
@@ -34,6 +42,34 @@ function MetaCell({ label, children }: { label: string; children: React.ReactNod
     <div className="min-w-0">
       <div className="text-[11px] font-medium tracking-wide text-muted-foreground">{label}</div>
       <div className="truncate text-[13px]">{children}</div>
+    </div>
+  )
+}
+
+function CustomerContactRow({ email, wechat }: { email: string; wechat: string }) {
+  const { t } = useTranslation()
+  if (!email && !wechat) return null
+
+  return (
+    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
+      {email ? (
+        <span
+          className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+          title={`${t("subscriptionDialog.customerEmail")}: ${email}`}
+        >
+          <Mail className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate font-mono">{email}</span>
+        </span>
+      ) : null}
+      {wechat ? (
+        <span
+          className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+          title={`${t("subscriptionDialog.customerWechat")}: ${wechat}`}
+        >
+          <MessageCircle className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate">{wechat}</span>
+        </span>
+      ) : null}
     </div>
   )
 }
@@ -80,6 +116,10 @@ function SubscriptionCard({
               {subscription.remark}
             </p>
           ) : null}
+          <CustomerContactRow
+            email={subscription.customer_email}
+            wechat={subscription.customer_wechat}
+          />
         </div>
         <DueStatusBadge paid={false} daysRemaining={view.days_remaining} />
       </div>
@@ -109,11 +149,6 @@ function SubscriptionCard({
           {(view.channel_labels ?? []).join(" · ")}
           <span className="text-muted-foreground"> {t("common.global")}</span>
         </MetaCell>
-        {subscription.customer_wechat ? (
-          <MetaCell label={t("subscriptionDialog.customerWechat")}>
-            {subscription.customer_wechat}
-          </MetaCell>
-        ) : null}
       </div>
 
       {view.last_error ? (
