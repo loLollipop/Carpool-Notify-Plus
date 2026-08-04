@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
+import { NavLink, Outlet, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import { Languages, LogOut, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
@@ -92,19 +92,15 @@ export function AppShell() {
   const { t } = useTranslation()
   const { logout } = useAuth()
   const navigate = useNavigate()
-  const location = useLocation()
 
   const navItems = [
     { to: "/", label: t("nav.dashboard"), end: true },
-    { to: "/calendar", label: t("nav.subscriptions"), end: true },
+    { to: "/calendar", label: t("nav.calendar"), end: true },
+    { to: "/users", label: t("nav.users"), end: true },
     { to: "/accounts", label: t("nav.accounts"), end: true },
     { to: "/bills", label: t("nav.bills"), end: true },
     { to: "/settings", label: t("nav.settings"), end: true },
   ]
-
-  // “订阅” covers both /calendar and /cards.
-  const isSubscriptionsActive =
-    location.pathname === "/calendar" || location.pathname.startsWith("/cards")
 
   return (
     <div className="min-h-dvh flex flex-col">
@@ -118,11 +114,10 @@ export function AppShell() {
                 to={item.to}
                 end={item.end}
                 className={({ isActive }) => {
-                  const active = item.to === "/calendar" ? isSubscriptionsActive : isActive
                   return cn(
                     "relative rounded-md px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:text-foreground",
                     "after:absolute after:inset-x-3 after:-bottom-[13px] after:h-[2px] after:rounded-full after:bg-brand after:origin-left after:scale-x-0 after:transition-transform after:duration-300",
-                    active && "text-foreground after:scale-x-100",
+                    isActive && "text-foreground after:scale-x-100",
                   )
                 }}
               >

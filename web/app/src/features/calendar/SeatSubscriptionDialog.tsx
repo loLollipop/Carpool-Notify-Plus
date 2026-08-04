@@ -1,5 +1,7 @@
+import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { ExternalLink } from "lucide-react"
+import { Link } from "react-router-dom"
+import { ExternalLink, UsersRound } from "lucide-react"
 
 import type { CalendarOccurrence, SubscriptionView } from "@/api/types"
 import { Badge } from "@/components/ui/badge"
@@ -14,6 +16,7 @@ import {
 } from "@/components/ui/dialog"
 
 export interface SeatSubscriptionInfo {
+  subscriptionId: number
   name: string
   accountName: string
   seatName: string
@@ -35,6 +38,7 @@ export interface SeatSubscriptionInfo {
   customerWechat: string
   remark: string
   tradeUrl: string
+  archived: boolean
 }
 
 type Translate = (key: string) => string
@@ -44,6 +48,7 @@ export function seatInfoFromOccurrence(
   t: Translate,
 ): SeatSubscriptionInfo {
   return {
+    subscriptionId: occurrence.subscription_id,
     name: occurrence.name,
     accountName: occurrence.account_name,
     seatName: occurrence.seat_name,
@@ -65,11 +70,13 @@ export function seatInfoFromOccurrence(
     customerWechat: occurrence.customer_wechat,
     remark: occurrence.remark,
     tradeUrl: occurrence.trade_url,
+    archived: false,
   }
 }
 
 export function seatInfoFromArchived(view: SubscriptionView, t: Translate): SeatSubscriptionInfo {
   return {
+    subscriptionId: view.subscription.id,
     name: view.subscription.name,
     accountName: view.account_name,
     seatName: view.seat_name,
@@ -91,6 +98,7 @@ export function seatInfoFromArchived(view: SubscriptionView, t: Translate): Seat
     customerWechat: view.subscription.customer_wechat,
     remark: view.subscription.remark,
     tradeUrl: view.subscription.trade_url,
+    archived: true,
   }
 }
 
@@ -124,6 +132,15 @@ export function SeatSubscriptionDialog({
   info: SeatSubscriptionInfo | null
 }) {
   const { t } = useTranslation()
+  const manageHref = React.useMemo(() => {
+    if (!info) return "/users"
+    const params = new URLSearchParams()
+    params.set("subscription", String(info.subscriptionId))
+    if (info.archived) params.set("filter", "archived")
+    const query = info.customerEmail || info.customerWechat || info.accountName || info.name
+    if (query) params.set("q", query)
+    return `/users?${params.toString()}`
+  }, [info])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -136,11 +153,10 @@ export function SeatSubscriptionDialog({
         {info ? (
           <div className="grid gap-4">
             <div>
-              <div className="text-base font-semibold">{info.name}</div>
+              <div className="text-base font-semibold">{info.accountName || info.name}</div>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <Badge variant="secondary" className="font-normal">
-                  {info.accountName}
-                  {info.seatName ? ` · ${info.seatName}` : ""}
+                  {info.customerEmail || info.name}
                 </Badge>
                 {info.isResale ? (
                   <Badge variant="outline" className="font-normal">
@@ -224,6 +240,14 @@ export function SeatSubscriptionDialog({
         ) : null}
 
         <DialogFooter>
+          {info ? (
+            <Button variant="outline" asChild>
+              <Link to={manageHref} onClick={() => onOpenChange(false)}>
+                <UsersRound data-slot="icon" />
+                {t("calendar.manageUser")}
+              </Link>
+            </Button>
+          ) : null}
           {info?.tradeUrl ? (
             <Button variant="ghost" asChild>
               <a href={info.tradeUrl} target="_blank" rel="noopener noreferrer">

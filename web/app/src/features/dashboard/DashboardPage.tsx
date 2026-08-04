@@ -372,7 +372,7 @@ function buildHealthItems({
         names: summarizeNames(missingCustomerEmail.map((view) => view.subscription.name)),
       }),
       actionLabel: t("dash.health.goCards"),
-      to: "/cards",
+      to: "/users",
       count: missingCustomerEmail.length,
     })
   }
@@ -386,7 +386,7 @@ function buildHealthItems({
         names: summarizeNames(missingReminderOffsets.map((view) => view.subscription.name)),
       }),
       actionLabel: t("dash.health.goCards"),
-      to: "/cards",
+      to: "/users",
       count: missingReminderOffsets.length,
     })
   }

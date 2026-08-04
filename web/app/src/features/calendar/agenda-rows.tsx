@@ -1,20 +1,10 @@
 import { useTranslation } from "react-i18next"
-import { Link } from "react-router-dom"
-import {
-  ExternalLink,
-  Mail,
-  MessageCircle,
-  Pencil,
-  Receipt,
-  Trash2,
-  UserRoundMinus,
-} from "lucide-react"
+import { Eye, Mail, MessageCircle } from "lucide-react"
 
 import type { CalendarOccurrence, SubscriptionView } from "@/api/types"
 import { DueStatusBadge } from "@/components/due-status-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
 
 function MetaItem({ label, children }: { label: string; children: React.ReactNode }) {
@@ -56,20 +46,10 @@ function CustomerContactRow({ email, wechat }: { email: string; wechat: string }
 
 export function AgendaOccurrenceRow({
   occurrence,
-  onEdit,
-  onSendReminder,
-  onArchive,
-  onTogglePaid,
   onView,
-  paidToggleBusy,
 }: {
   occurrence: CalendarOccurrence
-  onEdit: (occurrence: CalendarOccurrence) => void
-  onSendReminder: (occurrence: CalendarOccurrence) => void
-  onArchive: (occurrence: CalendarOccurrence) => void
-  onTogglePaid: (occurrence: CalendarOccurrence, paid: boolean) => void
   onView: (occurrence: CalendarOccurrence) => void
-  paidToggleBusy: boolean
 }) {
   const { t } = useTranslation()
 
@@ -117,44 +97,10 @@ export function AgendaOccurrenceRow({
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t pt-3">
-        <Button variant="outline" size="sm" onClick={() => onEdit(occurrence)}>
-          <Pencil data-slot="icon" />
-          {t("common.edit")}
+        <Button variant="outline" size="sm" onClick={() => onView(occurrence)}>
+          <Eye data-slot="icon" />
+          {t("calendar.viewUser")}
         </Button>
-        {occurrence.customer_email ? (
-          <Button variant="outline" size="sm" onClick={() => onSendReminder(occurrence)}>
-            <Mail data-slot="icon" />
-            {t("cards.sendReminder")}
-          </Button>
-        ) : null}
-        {occurrence.trade_url ? (
-          <Button variant="ghost" size="sm" asChild>
-            <a href={occurrence.trade_url} target="_blank" rel="noopener noreferrer">
-              <ExternalLink data-slot="icon" />
-              {t("common.openLink")}
-            </a>
-          </Button>
-        ) : null}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="text-destructive hover:text-destructive"
-          onClick={() => onArchive(occurrence)}
-        >
-          <UserRoundMinus data-slot="icon" />
-          {t("calendar.getOff")}
-        </Button>
-
-        <label className="ml-auto flex cursor-pointer items-center gap-2 text-xs text-muted-foreground select-none">
-          {t("calendar.paidInline")}
-          <Switch
-            checked={occurrence.paid}
-            disabled={paidToggleBusy}
-            title={occurrence.paid ? t("calendar.switchTitleOff") : t("calendar.switchTitleOn")}
-            aria-label={`${occurrence.name} ${occurrence.due_date} ${t("calendar.paidInline")}`}
-            onCheckedChange={(checked) => onTogglePaid(occurrence, checked === true)}
-          />
-        </label>
       </div>
     </article>
   )
@@ -162,11 +108,9 @@ export function AgendaOccurrenceRow({
 
 export function AgendaArchivedRow({
   view,
-  onSoftDelete,
   onView,
 }: {
   view: SubscriptionView
-  onSoftDelete: (view: SubscriptionView) => void
   onView: (view: SubscriptionView) => void
 }) {
   const { t } = useTranslation()
@@ -216,41 +160,10 @@ export function AgendaArchivedRow({
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t pt-3">
-        {subscription.trade_url ? (
-          <Button variant="ghost" size="sm" asChild>
-            <a href={subscription.trade_url} target="_blank" rel="noopener noreferrer">
-              <ExternalLink data-slot="icon" />
-              {t("common.openLink")}
-            </a>
-          </Button>
-        ) : null}
-        <Button variant="ghost" size="sm" asChild>
-          <Link to="/bills">
-            <Receipt data-slot="icon" />
-            {t("calendar.viewBills")}
-          </Link>
+        <Button variant="outline" size="sm" onClick={() => onView(view)}>
+          <Eye data-slot="icon" />
+          {t("calendar.viewUser")}
         </Button>
-        {view.can_soft_delete ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            onClick={() => onSoftDelete(view)}
-          >
-            <Trash2 data-slot="icon" />
-            {t("calendar.softDelete")}
-          </Button>
-        ) : (
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled
-            title={t("calendar.softDeleteBlocked", { count: view.bill_count })}
-          >
-            <Trash2 data-slot="icon" />
-            {t("calendar.softDelete")}
-          </Button>
-        )}
       </div>
     </article>
   )

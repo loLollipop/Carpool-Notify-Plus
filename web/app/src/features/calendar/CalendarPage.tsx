@@ -1,10 +1,8 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { useSearchParams } from "react-router-dom"
-import { CalendarRange, ChevronLeft, ChevronRight, Plus, X } from "lucide-react"
+import { CalendarRange, ChevronLeft, ChevronRight, X } from "lucide-react"
 
-import { archiveSubscription, setDuePaid, softDeleteSubscription } from "@/api/endpoints"
-import { useAppMutation } from "@/api/mutations"
 import { useCalendar, useDashboard } from "@/api/queries"
 import type {
   CalendarDay,
@@ -13,23 +11,14 @@ import type {
   Dashboard,
   SubscriptionView,
 } from "@/api/types"
-import { ConfirmDialog } from "@/components/confirm-dialog"
 import { KpiSection, KpiSectionSkeleton } from "@/components/kpi-section"
 import { PageHeader } from "@/components/page-header"
-import { ViewSwitcher } from "@/components/view-switcher"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { ReminderPreviewDialog } from "@/features/subscriptions/ReminderPreviewDialog"
-import { SubscriptionDialog } from "@/features/subscriptions/SubscriptionDialog"
-import {
-  prefillFromOccurrence,
-  type SubscriptionPrefill,
-} from "@/features/subscriptions/subscription-prefill"
 import { AgendaArchivedRow, AgendaOccurrenceRow } from "./agenda-rows"
-import { DuePaidDialog, type DuePaidTarget } from "./DuePaidDialog"
 import {
   SeatSubscriptionDialog,
   seatInfoFromArchived,
@@ -45,12 +34,25 @@ function isPaymentDue(occurrence: CalendarOccurrence) {
 
 // ---- Month grid -------------------------------------------------------------------
 
-function EventPill({ occurrence }: { occurrence: CalendarOccurrence }) {
+function EventPill({
+  occurrence,
+  onView,
+}: {
+  occurrence: CalendarOccurrence
+  onView: (occurrence: CalendarOccurrence) => void
+}) {
   const { t } = useTranslation()
+  const label = occurrence.customer_email || occurrence.account_name || occurrence.name
   return (
     <Tooltip delayDuration={150}>
       <TooltipTrigger asChild>
-        <span
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            onView(occurrence)
+          }}
+          onKeyDown={(event) => event.stopPropagation()}
           className={cn(
             "block w-full truncate rounded-[4px] border-l-2 px-1.5 py-0.5 text-left text-[11px] leading-4",
             occurrence.paid
@@ -58,15 +60,12 @@ function EventPill({ occurrence }: { occurrence: CalendarOccurrence }) {
               : "border-brand bg-brand/10 text-foreground dark:bg-brand/15",
           )}
         >
-          {occurrence.name}
-        </span>
+          {label}
+        </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="grid gap-0.5">
-        <span className="font-semibold">{occurrence.name}</span>
-        <span>
-          {occurrence.account_name}
-          {occurrence.seat_name ? ` / ${occurrence.seat_name}` : ""}
-        </span>
+        <span className="font-semibold">{occurrence.account_name || occurrence.name}</span>
+        {occurrence.customer_email ? <span>{occurrence.customer_email}</span> : null}
         <span className="tabular-nums">
           {occurrence.due_date} · ¥{occurrence.price_yuan}
         </span>
@@ -80,10 +79,12 @@ function MonthGrid({
   calendar,
   selectedDate,
   onSelectDay,
+  onViewOccurrence,
 }: {
   calendar: CalendarMonth
   selectedDate: string
   onSelectDay: (day: CalendarDay) => void
+  onViewOccurrence: (occurrence: CalendarOccurrence) => void
 }) {
   const { t } = useTranslation()
   const weekdays = t("calendar.weekdays", { returnObjects: true }) as string[]
@@ -150,6 +151,7 @@ function MonthGrid({
                   <EventPill
                     key={`${occurrence.subscription_id}:${occurrence.due_date}`}
                     occurrence={occurrence}
+                    onView={onViewOccurrence}
                   />
                 ))}
               </span>
@@ -167,26 +169,14 @@ function CalendarWorkspace({
   calendar,
   dashboard,
   onNavigateMonth,
-  onEdit,
-  onSendReminder,
-  onArchive,
-  onTogglePaid,
-  onSoftDelete,
   onViewOccurrence,
   onViewArchived,
-  paidToggleBusy,
 }: {
   calendar: CalendarMonth
   dashboard: Dashboard | undefined
   onNavigateMonth: (month: string) => void
-  onEdit: (occurrence: CalendarOccurrence) => void
-  onSendReminder: (occurrence: CalendarOccurrence) => void
-  onArchive: (occurrence: CalendarOccurrence) => void
-  onTogglePaid: (occurrence: CalendarOccurrence, paid: boolean) => void
-  onSoftDelete: (view: SubscriptionView) => void
   onViewOccurrence: (occurrence: CalendarOccurrence) => void
   onViewArchived: (view: SubscriptionView) => void
-  paidToggleBusy: boolean
 }) {
   const { t } = useTranslation()
   const [filter, setFilter] = React.useState<AgendaFilter>("all")
@@ -342,6 +332,7 @@ function CalendarWorkspace({
             calendar={calendar}
             selectedDate={selectedDate}
             onSelectDay={handleSelectDay}
+            onViewOccurrence={onViewOccurrence}
           />
         </Card>
 
@@ -424,19 +415,13 @@ function CalendarWorkspace({
               <AgendaOccurrenceRow
                 key={`${occurrence.subscription_id}:${occurrence.due_date}`}
                 occurrence={occurrence}
-                onEdit={onEdit}
-                onSendReminder={onSendReminder}
-                onArchive={onArchive}
-                onTogglePaid={onTogglePaid}
                 onView={onViewOccurrence}
-                paidToggleBusy={paidToggleBusy}
               />
             ))}
             {visibleArchived.map((view) => (
               <AgendaArchivedRow
                 key={view.subscription.id}
                 view={view}
-                onSoftDelete={onSoftDelete}
                 onView={onViewArchived}
               />
             ))}
@@ -460,24 +445,7 @@ export function CalendarPage() {
   const calendarQuery = useCalendar(month || undefined)
   const dashboardQuery = useDashboard()
 
-  const [dialogOpen, setDialogOpen] = React.useState(false)
-  const [editing, setEditing] = React.useState<SubscriptionPrefill | null>(null)
-  const [reminderId, setReminderId] = React.useState<number | null>(null)
-  const [archiveTarget, setArchiveTarget] = React.useState<{ id: number; name: string } | null>(null)
-  const [softDeleteTarget, setSoftDeleteTarget] = React.useState<{ id: number; name: string } | null>(null)
-  const [duePaidTarget, setDuePaidTarget] = React.useState<DuePaidTarget | null>(null)
   const [seatInfo, setSeatInfo] = React.useState<SeatSubscriptionInfo | null>(null)
-
-  const unmarkMutation = useAppMutation(
-    ({ id, due }: { id: number; due: string }) => setDuePaid(id, due, false),
-    { successMessage: t("duePaid.unmarked") },
-  )
-  const archiveMutation = useAppMutation((id: number) => archiveSubscription(id), {
-    onSuccess: () => setArchiveTarget(null),
-  })
-  const softDeleteMutation = useAppMutation((id: number) => softDeleteSubscription(id), {
-    onSuccess: () => setSoftDeleteTarget(null),
-  })
 
   const calendar = calendarQuery.data
 
@@ -485,42 +453,11 @@ export function CalendarPage() {
     setSearchParams(value ? { month: value } : {})
   }
 
-  const openCreate = () => {
-    setEditing(null)
-    setDialogOpen(true)
-  }
-  const openEdit = (occurrence: CalendarOccurrence) => {
-    setEditing(prefillFromOccurrence(occurrence))
-    setDialogOpen(true)
-  }
-  const handleTogglePaid = (occurrence: CalendarOccurrence, paid: boolean) => {
-    if (paid) {
-      setDuePaidTarget({
-        subscriptionId: occurrence.subscription_id,
-        name: occurrence.name,
-        priceYuan: occurrence.price_yuan,
-        cycleDesc: occurrence.cycle_desc,
-        dueDate: occurrence.due_date,
-      })
-    } else {
-      unmarkMutation.mutate({ id: occurrence.subscription_id, due: occurrence.due_date })
-    }
-  }
-
   return (
     <>
       <PageHeader
         title={t("calendar.title")}
         description={t("calendar.desc")}
-        actions={
-          <>
-            <ViewSwitcher />
-            <Button onClick={openCreate}>
-              <Plus data-slot="icon" />
-              {t("nav.newSubscription")}
-            </Button>
-          </>
-        }
       />
 
       {calendarQuery.isPending ? (
@@ -544,70 +481,17 @@ export function CalendarPage() {
           calendar={calendar}
           dashboard={dashboardQuery.data}
           onNavigateMonth={goToMonth}
-          onEdit={openEdit}
-          onSendReminder={(occurrence) => setReminderId(occurrence.subscription_id)}
-          onArchive={(occurrence) =>
-            setArchiveTarget({ id: occurrence.subscription_id, name: occurrence.name })
-          }
-          onTogglePaid={handleTogglePaid}
-          onSoftDelete={(view) =>
-            setSoftDeleteTarget({ id: view.subscription.id, name: view.subscription.name })
-          }
           onViewOccurrence={(occurrence) => setSeatInfo(seatInfoFromOccurrence(occurrence, t))}
           onViewArchived={(view) => setSeatInfo(seatInfoFromArchived(view, t))}
-          paidToggleBusy={unmarkMutation.isPending}
         />
       ) : null}
 
-      <SubscriptionDialog open={dialogOpen} onOpenChange={setDialogOpen} prefill={editing} />
-      <ReminderPreviewDialog
-        open={reminderId !== null}
-        onOpenChange={(open) => {
-          if (!open) setReminderId(null)
-        }}
-        subscriptionId={reminderId}
-      />
-      <DuePaidDialog
-        open={duePaidTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setDuePaidTarget(null)
-        }}
-        target={duePaidTarget}
-      />
       <SeatSubscriptionDialog
         open={seatInfo !== null}
         onOpenChange={(open) => {
           if (!open) setSeatInfo(null)
         }}
         info={seatInfo}
-      />
-      <ConfirmDialog
-        open={archiveTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setArchiveTarget(null)
-        }}
-        title={t("confirms.archiveTitle")}
-        description={t("confirms.archiveDesc", { name: archiveTarget?.name ?? "" })}
-        actionLabel={t("confirms.archiveAction")}
-        destructive
-        pending={archiveMutation.isPending}
-        onConfirm={() => {
-          if (archiveTarget) archiveMutation.mutate(archiveTarget.id)
-        }}
-      />
-      <ConfirmDialog
-        open={softDeleteTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setSoftDeleteTarget(null)
-        }}
-        title={t("confirms.softDeleteTitle")}
-        description={t("confirms.softDeleteDesc", { name: softDeleteTarget?.name ?? "" })}
-        actionLabel={t("confirms.softDeleteAction")}
-        destructive
-        pending={softDeleteMutation.isPending}
-        onConfirm={() => {
-          if (softDeleteTarget) softDeleteMutation.mutate(softDeleteTarget.id)
-        }}
       />
     </>
   )

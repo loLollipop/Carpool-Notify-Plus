@@ -1,11 +1,13 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { useSearchParams } from "react-router-dom"
 import {
   ExternalLink,
   Mail,
   MessageCircle,
   Pencil,
   Plus,
+  Receipt,
   Search,
   UserRoundMinus,
 } from "lucide-react"
@@ -13,12 +15,11 @@ import {
 import { archiveSubscription } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
 import { useCalendar, useDashboard, useSubscriptions } from "@/api/queries"
-import type { SubscriptionView } from "@/api/types"
+import type { CalendarOccurrence, SubscriptionView } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DueStatusBadge } from "@/components/due-status-badge"
 import { KpiSection, KpiSectionSkeleton } from "@/components/kpi-section"
 import { PageHeader } from "@/components/page-header"
-import { ViewSwitcher } from "@/components/view-switcher"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -31,14 +32,36 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDialog"
 import { ReminderPreviewDialog } from "./ReminderPreviewDialog"
 import { SubscriptionDialog } from "./SubscriptionDialog"
 import { prefillFromView, type SubscriptionPrefill } from "./subscription-prefill"
 
 type CardsFilter = "all" | "pending" | "paid" | "archived" | "resale"
 
+const EMPTY_SUBSCRIPTION_VIEWS: SubscriptionView[] = []
+
+function normalizeCardsFilter(value: string | null): CardsFilter {
+  if (
+    value === "pending" ||
+    value === "paid" ||
+    value === "archived" ||
+    value === "resale"
+  ) {
+    return value
+  }
+  return "all"
+}
+
 function isPaymentDueOccurrence(occurrence: { paid: boolean; days_remaining: number }) {
   return !occurrence.paid && occurrence.days_remaining <= 0
+}
+
+function shouldPreferRenewOccurrence(current: CalendarOccurrence, candidate: CalendarOccurrence) {
+  const currentActionable = isPaymentDueOccurrence(current)
+  const candidateActionable = isPaymentDueOccurrence(candidate)
+  if (currentActionable !== candidateActionable) return candidateActionable
+  return candidate.due_date < current.due_date
 }
 
 function MetaCell({ label, children }: { label: string; children: React.ReactNode }) {
@@ -82,17 +105,20 @@ function SubscriptionCard({
   view,
   index,
   onEdit,
+  onRenew,
   onSendReminder,
   onArchive,
 }: {
   view: SubscriptionView
   index: number
   onEdit: (view: SubscriptionView) => void
+  onRenew: (view: SubscriptionView) => void
   onSendReminder: (view: SubscriptionView) => void
   onArchive: (view: SubscriptionView) => void
 }) {
   const { t } = useTranslation()
   const subscription = view.subscription
+  const archived = subscription.archived_at !== null
 
   return (
     <Card
@@ -162,7 +188,13 @@ function SubscriptionCard({
           <Pencil data-slot="icon" />
           {t("common.edit")}
         </Button>
-        {subscription.customer_email ? (
+        {!archived ? (
+          <Button variant="outline" size="sm" onClick={() => onRenew(view)}>
+            <Receipt data-slot="icon" />
+            {t("cards.renew")}
+          </Button>
+        ) : null}
+        {!archived && subscription.customer_email ? (
           <Button variant="outline" size="sm" onClick={() => onSendReminder(view)}>
             <Mail data-slot="icon" />
             {t("cards.sendReminder")}
@@ -176,15 +208,17 @@ function SubscriptionCard({
             </a>
           </Button>
         ) : null}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ml-auto text-destructive hover:text-destructive"
-          onClick={() => onArchive(view)}
-        >
-          <UserRoundMinus data-slot="icon" />
-          {t("calendar.getOff")}
-        </Button>
+        {!archived ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto text-destructive hover:text-destructive"
+            onClick={() => onArchive(view)}
+          >
+            <UserRoundMinus data-slot="icon" />
+            {t("calendar.getOff")}
+          </Button>
+        ) : null}
       </div>
     </Card>
   )
@@ -192,16 +226,23 @@ function SubscriptionCard({
 
 export function CardsPage() {
   const { t } = useTranslation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const routeSearch = searchParams.get("q") ?? ""
+  const routeFilter = normalizeCardsFilter(searchParams.get("filter"))
+  const routeFocusId = Number.parseInt(searchParams.get("subscription") ?? "", 10)
+  const focusedSubscriptionId = Number.isFinite(routeFocusId) ? routeFocusId : 0
+
   const subscriptionsQuery = useSubscriptions()
   const dashboardQuery = useDashboard()
   const calendarQuery = useCalendar()
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<SubscriptionPrefill | null>(null)
+  const [duePaidTarget, setDuePaidTarget] = React.useState<DuePaidTarget | null>(null)
   const [reminderId, setReminderId] = React.useState<number | null>(null)
   const [archiveTarget, setArchiveTarget] = React.useState<{ id: number; name: string } | null>(null)
-  const [search, setSearch] = React.useState("")
-  const [filter, setFilter] = React.useState<CardsFilter>("all")
+  const search = routeSearch
+  const filter = routeFilter
 
   const archiveMutation = useAppMutation((id: number) => archiveSubscription(id), {
     onSuccess: () => setArchiveTarget(null),
@@ -215,10 +256,55 @@ export function CardsPage() {
     setEditing(prefillFromView(view))
     setDialogOpen(true)
   }
+  const updateSearch = (value: string) => {
+    const next = new URLSearchParams(searchParams)
+    if (value.trim()) {
+      next.set("q", value)
+    } else {
+      next.delete("q")
+    }
+    next.delete("subscription")
+    setSearchParams(next, { replace: true })
+  }
 
-  const activeViews = subscriptionsQuery.data?.subscriptions ?? []
-  const archivedViews = subscriptionsQuery.data?.archived ?? []
+  const updateFilter = (value: CardsFilter) => {
+    const next = new URLSearchParams(searchParams)
+    if (value === "all") {
+      next.delete("filter")
+    } else {
+      next.set("filter", value)
+    }
+    setSearchParams(next, { replace: true })
+  }
+
+  const activeViews = subscriptionsQuery.data?.subscriptions ?? EMPTY_SUBSCRIPTION_VIEWS
+  const archivedViews = subscriptionsQuery.data?.archived ?? EMPTY_SUBSCRIPTION_VIEWS
   const calendar = calendarQuery.data
+
+  const renewOccurrenceBySubscription = React.useMemo(() => {
+    const map = new Map<number, CalendarOccurrence>()
+    const month = calendar?.month_value
+    for (const occurrence of calendar?.occurrences ?? []) {
+      if (month && occurrence.due_date.slice(0, 7) !== month) continue
+      if (occurrence.paid) continue
+      const current = map.get(occurrence.subscription_id)
+      if (!current || shouldPreferRenewOccurrence(current, occurrence)) {
+        map.set(occurrence.subscription_id, occurrence)
+      }
+    }
+    return map
+  }, [calendar])
+
+  const openRenew = (view: SubscriptionView) => {
+    const occurrence = renewOccurrenceBySubscription.get(view.subscription.id)
+    setDuePaidTarget({
+      subscriptionId: view.subscription.id,
+      name: occurrence?.account_name || view.account_name || view.subscription.name,
+      priceYuan: occurrence?.price_yuan || view.price_yuan,
+      cycleDesc: occurrence?.cycle_desc || view.cycle_desc,
+      dueDate: occurrence?.due_date || view.next_due_date,
+    })
+  }
 
   const paymentDueBySubscription = React.useMemo(() => {
     const map = new Map<number, boolean>()
@@ -264,11 +350,19 @@ export function CardsPage() {
       pool = activeViews
     }
 
+    if (focusedSubscriptionId > 0) {
+      const focused = [...activeViews, ...archivedViews].filter(
+        (view) => view.subscription.id === focusedSubscriptionId,
+      )
+      if (focused.length > 0) pool = focused
+    }
+
     const query = search.trim().toLowerCase()
     if (!query) return pool
     return pool.filter((view) =>
       [
         view.subscription.name,
+        String(view.subscription.id),
         view.account_name,
         view.seat_name,
         view.subscription.remark,
@@ -283,7 +377,15 @@ export function CardsPage() {
         ...(view.channel_labels ?? []),
       ].some((field) => field?.toLowerCase().includes(query)),
     )
-  }, [activeViews, archivedViews, filter, paidBySubscription, paymentDueBySubscription, search])
+  }, [
+    activeViews,
+    archivedViews,
+    filter,
+    focusedSubscriptionId,
+    paidBySubscription,
+    paymentDueBySubscription,
+    search,
+  ])
 
   return (
     <>
@@ -296,13 +398,13 @@ export function CardsPage() {
               <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => updateSearch(event.target.value)}
                 placeholder={t("cards.searchPlaceholder")}
                 aria-label={t("cards.title")}
                 className="h-9 w-56 pl-8 text-[13px] sm:w-72"
               />
             </div>
-            <Select value={filter} onValueChange={(value) => setFilter(value as CardsFilter)}>
+            <Select value={filter} onValueChange={(value) => updateFilter(value as CardsFilter)}>
               <SelectTrigger className="h-9 w-28" aria-label={t("cards.filterLabel")}>
                 <SelectValue />
               </SelectTrigger>
@@ -314,7 +416,6 @@ export function CardsPage() {
                 <SelectItem value="resale">{t("calendar.filterResale")}</SelectItem>
               </SelectContent>
             </Select>
-            <ViewSwitcher />
             <Button onClick={openCreate}>
               <Plus data-slot="icon" />
               {t("nav.newSubscription")}
@@ -365,6 +466,7 @@ export function CardsPage() {
               view={view}
               index={index}
               onEdit={openEdit}
+              onRenew={openRenew}
               onSendReminder={(item) => setReminderId(item.subscription.id)}
               onArchive={(item) =>
                 setArchiveTarget({ id: item.subscription.id, name: item.subscription.name })
@@ -375,6 +477,13 @@ export function CardsPage() {
       )}
 
       <SubscriptionDialog open={dialogOpen} onOpenChange={setDialogOpen} prefill={editing} />
+      <DuePaidDialog
+        open={duePaidTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDuePaidTarget(null)
+        }}
+        target={duePaidTarget}
+      />
       <ReminderPreviewDialog
         open={reminderId !== null}
         onOpenChange={(open) => {

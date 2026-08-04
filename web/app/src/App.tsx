@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react"
-import { Route, Routes } from "react-router-dom"
+import { Navigate, Route, Routes } from "react-router-dom"
 
 import { AppShell } from "@/components/app-shell"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -41,7 +41,8 @@ export default function App() {
           }
         />
         <Route path="/calendar" element={<CalendarPage />} />
-        <Route path="/cards" element={<CardsPage />} />
+        <Route path="/users" element={<CardsPage />} />
+        <Route path="/cards" element={<Navigate to="/users" replace />} />
         <Route path="/accounts" element={<AccountsPage />} />
         <Route
           path="/bills"
