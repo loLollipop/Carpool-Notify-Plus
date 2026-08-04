@@ -181,9 +181,11 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 	if err != nil {
 		return Dashboard{}, err
 	}
+	var totalCostCents int64
 	accountCostCentsByID := make(map[int64]int64, len(accountRows))
 	for _, account := range accountRows {
 		accountCostCentsByID[account.ID] = account.CostCents
+		totalCostCents += account.CostCents
 	}
 
 	now := service.now()
@@ -198,23 +200,21 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 	}
 
 	var totalPriceCents int64
-	var totalCostCents int64
 	var totalAgencyFeeCents int64
 	amountBars := make([]AmountBar, 0, len(subscriptions))
 	accountTotals := map[string]struct {
 		count int
 		cents int64
 	}{}
-	saleAccountCostsByID := map[int64]int64{}
+	legacyAccountCostsByID := map[int64]int64{}
 	legacySaleAccountCostsByName := map[string]int64{}
 	recordSaleAccountCost := func(subscription model.Subscription, accountName string) {
 		if subscription.AccountID > 0 {
-			costCents, exists := accountCostCentsByID[subscription.AccountID]
-			if !exists || costCents == 0 {
-				costCents = subscription.CostCents
+			if accountCostCentsByID[subscription.AccountID] != 0 {
+				return
 			}
-			if previous, counted := saleAccountCostsByID[subscription.AccountID]; !counted || costCents > previous {
-				saleAccountCostsByID[subscription.AccountID] = costCents
+			if previous, counted := legacyAccountCostsByID[subscription.AccountID]; !counted || subscription.CostCents > previous {
+				legacyAccountCostsByID[subscription.AccountID] = subscription.CostCents
 			}
 			return
 		}
@@ -268,7 +268,7 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		return accounts[left].AmountCents > accounts[right].AmountCents
 	})
 
-	for _, costCents := range saleAccountCostsByID {
+	for _, costCents := range legacyAccountCostsByID {
 		totalCostCents += costCents
 	}
 	for _, costCents := range legacySaleAccountCostsByName {

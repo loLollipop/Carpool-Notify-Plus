@@ -499,7 +499,7 @@ func TestComputeDashboardAggregatesByAccount(t *testing.T) {
 	}
 }
 
-func TestComputeDashboardCountsAccountCostOnce(t *testing.T) {
+func TestComputeDashboardCountsAccountCostOnceAndIncludesEmptyAccounts(t *testing.T) {
 	subscriptionService := openTestService(t)
 	subscriptionService.Clock = func() time.Time {
 		return time.Date(2026, time.July, 10, 12, 0, 0, 0, cycle.Location)
@@ -542,6 +542,15 @@ func TestComputeDashboardCountsAccountCostOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, err = subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "empty@example.com",
+		Email:     "empty@example.com",
+		CostYuan:  "8.00",
+		SeatNames: []string{"seat1", "seat2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	dashboard, err := subscriptionService.ComputeDashboard()
 	if err != nil {
@@ -551,14 +560,14 @@ func TestComputeDashboardCountsAccountCostOnce(t *testing.T) {
 	if dashboard.TotalAmountYuan != "55.00" {
 		t.Fatalf("TotalAmountYuan = %q, want %q", dashboard.TotalAmountYuan, "55.00")
 	}
-	if dashboard.TotalCostYuan != "20.00" {
-		t.Fatalf("TotalCostYuan = %q, want %q", dashboard.TotalCostYuan, "20.00")
+	if dashboard.TotalCostYuan != "28.00" {
+		t.Fatalf("TotalCostYuan = %q, want %q", dashboard.TotalCostYuan, "28.00")
 	}
-	if dashboard.TotalProfitYuan != "35.00" {
-		t.Fatalf("TotalProfitYuan = %q, want %q", dashboard.TotalProfitYuan, "35.00")
+	if dashboard.TotalProfitYuan != "27.00" {
+		t.Fatalf("TotalProfitYuan = %q, want %q", dashboard.TotalProfitYuan, "27.00")
 	}
-	if dashboard.ProfitMarginPercent != "63.6%" {
-		t.Fatalf("ProfitMarginPercent = %q, want %q", dashboard.ProfitMarginPercent, "63.6%")
+	if dashboard.ProfitMarginPercent != "49.0%" {
+		t.Fatalf("ProfitMarginPercent = %q, want %q", dashboard.ProfitMarginPercent, "49.0%")
 	}
 }
 
