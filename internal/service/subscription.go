@@ -1131,9 +1131,10 @@ func (service *SubscriptionService) ProcessDueNotifications(ctx context.Context)
 		return err
 	}
 	now := service.now()
+	today := cycle.FormatDate(now)
 
 	for _, subscription := range subscriptions {
-		if err := service.planSubscription(ctx, subscription, now, enabledChannels); err != nil {
+		if err := service.planSubscription(ctx, subscription, now, today, enabledChannels); err != nil {
 			return err
 		}
 	}
@@ -1156,6 +1157,9 @@ func (service *SubscriptionService) ProcessDueNotifications(ctx context.Context)
 	groupIndex := map[string]int{}
 
 	for _, logEntry := range pendingLogs {
+		if !notificationSendDateMatches(logEntry, now, today) {
+			continue
+		}
 		if _, enabled := enabledSet[logEntry.Channel]; !enabled {
 			_ = service.Store.MarkNotificationFailure(
 				logEntry.ID,
@@ -1192,6 +1196,7 @@ func (service *SubscriptionService) planSubscription(
 	ctx context.Context,
 	subscription model.Subscription,
 	now time.Time,
+	today string,
 	enabledChannels []string,
 ) error {
 	_ = ctx
@@ -1221,7 +1226,7 @@ func (service *SubscriptionService) planSubscription(
 		}
 		for _, offsetDays := range subscription.NotifyOffsets {
 			sendAt := cycle.SendAt(dueAt, offsetDays)
-			if sendAt.After(now) {
+			if sendAt.After(now) || cycle.FormatDate(sendAt) != today {
 				continue
 			}
 			for _, channel := range enabledChannels {
@@ -1245,6 +1250,15 @@ func (service *SubscriptionService) planSubscription(
 		}
 	}
 	return nil
+}
+
+func notificationSendDateMatches(logEntry model.NotificationLog, now time.Time, today string) bool {
+	dueAt, err := time.ParseInLocation("2006-01-02", logEntry.DueDate, cycle.Location)
+	if err != nil {
+		return false
+	}
+	sendAt := cycle.SendAt(dueAt, logEntry.OffsetDays)
+	return !sendAt.After(now) && cycle.FormatDate(sendAt) == today
 }
 
 func (service *SubscriptionService) attemptDigestSend(ctx context.Context, channel string, logEntries []model.NotificationLog) error {

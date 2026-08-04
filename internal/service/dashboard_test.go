@@ -491,8 +491,8 @@ func TestComputeDashboardAggregatesByAccount(t *testing.T) {
 	if dashboard.ProfitMarginPercent != "36.8%" {
 		t.Fatalf("ProfitMarginPercent = %q, want %q", dashboard.ProfitMarginPercent, "36.8%")
 	}
-	if dashboard.NotifySuccess30d != 1 {
-		t.Fatalf("NotifySuccess30d = %d, want 1", dashboard.NotifySuccess30d)
+	if dashboard.NotifySuccess30d != 0 {
+		t.Fatalf("NotifySuccess30d = %d, want 0 test notifications excluded", dashboard.NotifySuccess30d)
 	}
 	if len(dashboard.Accounts) != 2 {
 		t.Fatalf("Accounts len = %d, want 2", len(dashboard.Accounts))

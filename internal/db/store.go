@@ -1411,8 +1411,8 @@ func (store *Store) CountFailedNotifications() (int, error) {
 	return count, err
 }
 
-// CountNotificationsByStatusSince counts notification_log rows for active subscriptions
-// with the given status whose updated_at is on or after since (UTC RFC3339 text).
+// CountNotificationsByStatusSince counts scheduled notification rows for active
+// subscriptions with the given status whose updated_at is on or after since.
 func (store *Store) CountNotificationsByStatusSince(status string, since time.Time) (int, error) {
 	var count int
 	err := store.database.QueryRow(`
@@ -1421,9 +1421,10 @@ func (store *Store) CountNotificationsByStatusSince(status string, since time.Ti
                 INNER JOIN subscriptions AS subscription ON subscription.id = log.subscription_id
                 WHERE subscription.deleted_at IS NULL
                   AND subscription.archived_at IS NULL
+                  AND log.kind = ?
                   AND log.status = ?
                   AND log.updated_at >= ?`,
-		status, formatTime(since.UTC()),
+		model.NotificationKindScheduled, status, formatTime(since.UTC()),
 	).Scan(&count)
 	return count, err
 }

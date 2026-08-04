@@ -397,6 +397,91 @@ func TestProcessDueNotificationsSkipsQueuedRetryAfterOccurrenceIsPaid(t *testing
 	}
 }
 
+func TestProcessDueNotificationsSkipsMissedReminderDate(t *testing.T) {
+	subscriptionService := openTestService(t)
+	fixedNow := time.Date(2026, time.July, 16, 10, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return fixedNow }
+	recorder := &recordingSender{}
+	subscriptionService.Notify = notify.Registry{Gotify: recorder}
+	if err := subscriptionService.SaveEnabledChannels([]string{model.ChannelGotify}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Missed reminder account", "seat1")
+	subscriptionID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "Missed reminder",
+		PriceYuan:        "35.00",
+		CronExpr:         "0 0 15 * *",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2000-01-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("notification sends = %d, want 0 for missed reminder date", recorder.calls)
+	}
+	_, err = subscriptionService.Store.GetNotificationLog(
+		subscriptionID,
+		"2026-07-15",
+		0,
+		model.ChannelGotify,
+		model.NotificationKindScheduled,
+	)
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("notification log error = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestProcessDueNotificationsSendsUpcomingReminderDate(t *testing.T) {
+	subscriptionService := openTestService(t)
+	fixedNow := time.Date(2026, time.July, 12, 10, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return fixedNow }
+	recorder := &recordingSender{}
+	subscriptionService.Notify = notify.Registry{Gotify: recorder}
+	if err := subscriptionService.SaveEnabledChannels([]string{model.ChannelGotify}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Upcoming reminder account", "seat1")
+	subscriptionID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "Upcoming reminder",
+		PriceYuan:        "35.00",
+		CronExpr:         "0 0 15 * *",
+		NotifyOffsetsRaw: "3",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2000-01-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.calls != 1 {
+		t.Fatalf("notification sends = %d, want 1 for configured reminder date", recorder.calls)
+	}
+	logEntry, err := subscriptionService.Store.GetNotificationLog(
+		subscriptionID,
+		"2026-07-15",
+		3,
+		model.ChannelGotify,
+		model.NotificationKindScheduled,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if logEntry.Status != model.NotificationStatusSuccess {
+		t.Fatalf("notification status = %q, want success", logEntry.Status)
+	}
+}
+
 func TestProcessDueNotificationsSchedulesRetryFromServiceClock(t *testing.T) {
 	subscriptionService := openTestService(t)
 	clock := time.Date(2000, time.July, 15, 10, 0, 0, 0, cycle.Location)
@@ -431,6 +516,47 @@ func TestProcessDueNotificationsSchedulesRetryFromServiceClock(t *testing.T) {
 	}
 	if recorder.calls != 1 {
 		t.Fatalf("retry sends = %d, want 1", recorder.calls)
+	}
+}
+
+func TestProcessDueNotificationsSkipsRetryAfterReminderDate(t *testing.T) {
+	subscriptionService := openTestService(t)
+	clock := time.Date(2026, time.July, 15, 10, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return clock }
+	failing := &failingSender{}
+	subscriptionService.Notify = notify.Registry{Gotify: failing}
+	if err := subscriptionService.SaveEnabledChannels([]string{model.ChannelGotify}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Expired retry account", "seat1")
+	_, err := subscriptionService.Create(service.CreateInput{
+		Name:             "Expired retry",
+		PriceYuan:        "35.00",
+		CronExpr:         "0 0 15 * *",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2000-01-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if failing.calls != 1 {
+		t.Fatalf("initial notification sends = %d, want 1", failing.calls)
+	}
+
+	clock = time.Date(2026, time.July, 16, 10, 0, 0, 0, cycle.Location)
+	recorder := &recordingSender{}
+	subscriptionService.Notify = notify.Registry{Gotify: recorder}
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("expired retry sends = %d, want 0", recorder.calls)
 	}
 }
 
