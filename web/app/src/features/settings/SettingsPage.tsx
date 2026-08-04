@@ -26,7 +26,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
-const TEMPLATE_VARS = "{{.Name}} {{.PricePerPerson}} {{.CycleDesc}} {{.NextDueDate}} {{.Remark}} {{.TradeURL}}"
+const TEMPLATE_VARS =
+  "{{.Name}} {{.AmountDue}} {{.PricePerPerson}} {{.CycleDesc}} {{.NextDueDate}} {{.Remark}} {{.TradeURL}}"
 
 function ChannelBadge({ channel }: { channel: ChannelSetting }) {
   const { t } = useTranslation()

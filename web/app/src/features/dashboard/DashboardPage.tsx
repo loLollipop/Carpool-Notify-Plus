@@ -236,7 +236,7 @@ function RevenueTrendCard({ summary, className, delay }: { summary: BillsSummary
     <ChartCard
       title={t("dash.trendTitle")}
       desc={t("dash.trendDesc")}
-      className={className}
+      className={cn("h-full", className)}
       delay={delay}
     >
       {summary.bill_count === 0 ? (
@@ -498,7 +498,7 @@ function OperationsHealthCard({
   )
 
   return (
-    <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
+    <Card className="h-full gap-4 p-5 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
       <div className="flex items-start justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold">{t("dash.health.title")}</h2>
@@ -629,7 +629,7 @@ export function DashboardPage() {
             pendingCount={calendarQuery.data?.pending_count ?? 0}
           />
 
-          <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+          <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
             {summary ? <RevenueTrendCard summary={summary} delay={100} /> : null}
             <OperationsHealthCard
               dashboard={dashboard}

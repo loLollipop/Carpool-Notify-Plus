@@ -882,6 +882,7 @@ func (service *SubscriptionService) renderTemplate(name string, templateBody str
 	data := model.TemplateData{
 		Name:           subscription.Name,
 		PricePerPerson: cycle.FormatCents(subscription.PricePerPersonCents),
+		AmountDue:      cycle.FormatCents(subscription.PricePerPersonCents),
 		CycleDesc:      cycle.DescribeCron(subscription.CronExpr),
 		NextDueDate:    cycle.FormatDate(nextDue),
 		Remark:         subscription.Remark,
