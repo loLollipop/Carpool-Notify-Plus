@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { getNextMonthlyRenewalDate } from "@/lib/account-renewal"
 
 function ViewItem({ label, mono, children }: { label: string; mono?: boolean; children: React.ReactNode }) {
   return (
@@ -33,6 +34,7 @@ export function SubscriptionViewDialog({
   bill: BillView | null
 }) {
   const { t } = useTranslation()
+  const nextRenewalDate = getNextMonthlyRenewalDate(bill?.account_opened_at ?? "")
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -109,6 +111,9 @@ export function SubscriptionViewDialog({
               </ViewItem>
               <ViewItem label={t("accounts.openedAt")}>
                 <span className="tabular-nums">{bill.account_opened_at || "—"}</span>
+              </ViewItem>
+              <ViewItem label={t("accounts.nextRenewalAt")}>
+                <span className="tabular-nums">{nextRenewalDate || "—"}</span>
               </ViewItem>
             </div>
 

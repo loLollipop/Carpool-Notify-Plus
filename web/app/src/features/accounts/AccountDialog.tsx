@@ -1,6 +1,6 @@
 import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
+import { useForm, useWatch } from "react-hook-form"
 import { useTranslation } from "react-i18next"
 import { z } from "zod"
 
@@ -26,6 +26,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { getNextMonthlyRenewalDate } from "@/lib/account-renewal"
 
 const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
@@ -115,6 +116,9 @@ export function AccountDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, prefill])
 
+  const openedAt = useWatch({ control: form.control, name: "opened_at" })
+  const nextRenewalDate = getNextMonthlyRenewalDate(openedAt ?? "")
+
   const saveMutation = useAppMutation(
     (values: FormValues) => {
       const ownerEmail = values.name.trim()
@@ -195,6 +199,11 @@ export function AccountDialog({
                     <FormControl>
                       <Input type="date" {...field} />
                     </FormControl>
+                    <FormDescription>
+                      {nextRenewalDate
+                        ? t("accounts.nextRenewalHint", { date: nextRenewalDate })
+                        : t("accounts.openedAtHint")}
+                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

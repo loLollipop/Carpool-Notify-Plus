@@ -42,6 +42,7 @@ import {
   prefillFromSeat,
   type SubscriptionPrefill,
 } from "@/features/subscriptions/subscription-prefill"
+import { getNextMonthlyRenewalDate } from "@/lib/account-renewal"
 import { AccountDialog, type AccountPrefill } from "./AccountDialog"
 
 type AccountsFilter = "all" | "sale" | "resale"
@@ -156,6 +157,7 @@ export function AccountsPage() {
         seat.active_trade_url,
         seat.active_remark,
       ])
+      const nextRenewalDate = getNextMonthlyRenewalDate(view.account.opened_at)
       return [
         view.account.name,
         view.account.remark,
@@ -163,6 +165,7 @@ export function AccountsPage() {
         view.account.email,
         view.account.space_name,
         view.account.opened_at,
+        nextRenewalDate,
         formatCents(view.account.cost_cents),
         ...seatFields,
       ].some((field) => field?.toLowerCase().includes(query))
@@ -280,6 +283,7 @@ export function AccountsPage() {
                 const accountName = view.account.name.trim()
                 const accountEmail = view.account.email.trim()
                 const showAccountEmail = accountEmail !== "" && accountEmail !== accountName
+                const nextRenewalDate = getNextMonthlyRenewalDate(view.account.opened_at)
                 return (
                   <TableRow key={view.account.id}>
                     <TableCell>
@@ -298,7 +302,18 @@ export function AccountsPage() {
                           </span>
                         ) : null}
                         {view.account.opened_at ? (
-                          <span className="font-mono tabular-nums">{view.account.opened_at}</span>
+                          <span className="inline-flex items-center gap-1">
+                            <span>{t("accounts.openedAt")}</span>
+                            <span className="font-mono tabular-nums">
+                              {view.account.opened_at}
+                            </span>
+                          </span>
+                        ) : null}
+                        {nextRenewalDate ? (
+                          <span className="inline-flex items-center gap-1 text-brand">
+                            <span>{t("accounts.nextRenewalAt")}</span>
+                            <span className="font-mono tabular-nums">{nextRenewalDate}</span>
+                          </span>
                         ) : null}
                       </div>
                     </TableCell>
