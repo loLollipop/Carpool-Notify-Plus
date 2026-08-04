@@ -44,9 +44,9 @@ export default {
     },
     dashboard: {
       subscriptions: "Subscriptions",
-      subscriptionsHint: "{{accounts}} accounts · click to show all",
+      subscriptionsHint: "{{accounts}} accounts · currently active",
       pending: "Unpaid",
-      pendingHint: "{{active}} active · click to filter this month",
+      pendingHint: "{{active}} active · due this month",
       archived: "Departed",
       archivedHint: "Archived; bills remain visible",
       notifySuccess: "Notified",
@@ -95,7 +95,7 @@ export default {
     },
     calendar: {
       title: "Carpool Calendar",
-      desc: "Weeks start Monday · dues follow each billing cycle; click a calendar item or agenda row to preview, then manage renewals and reminders in User Management.",
+      desc: "Weeks start Monday · dues follow each billing cycle; click a calendar item to preview, then manage renewals and reminders in User Management.",
       prevMonth: "Previous month",
       nextMonth: "Next month",
       today: "Today",
@@ -194,6 +194,9 @@ export default {
       searchPlaceholder: "Search name, account, email, WeChat, notes, trade link…",
       searchEmpty: "No matching subscriptions",
       filterLabel: "Filter",
+      pageStatus: "Page {{page}} / {{pageCount}} · {{start}}-{{end}} / {{total}} users",
+      prevPage: "Previous page",
+      nextPage: "Next page",
     },
     subscriptionDialog: {
       createTitle: "New subscription",

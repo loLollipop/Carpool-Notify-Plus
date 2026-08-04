@@ -2,6 +2,8 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { useSearchParams } from "react-router-dom"
 import {
+  ChevronLeft,
+  ChevronRight,
   ExternalLink,
   Mail,
   MessageCircle,
@@ -40,6 +42,7 @@ import { prefillFromView, type SubscriptionPrefill } from "./subscription-prefil
 type CardsFilter = "all" | "pending" | "paid" | "archived" | "resale"
 
 const EMPTY_SUBSCRIPTION_VIEWS: SubscriptionView[] = []
+const USERS_PER_PAGE = 9
 
 function normalizeCardsFilter(value: string | null): CardsFilter {
   if (
@@ -229,6 +232,8 @@ export function CardsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const routeSearch = searchParams.get("q") ?? ""
   const routeFilter = normalizeCardsFilter(searchParams.get("filter"))
+  const routePage = Number.parseInt(searchParams.get("page") ?? "1", 10)
+  const currentPage = Number.isFinite(routePage) && routePage > 0 ? routePage : 1
   const routeFocusId = Number.parseInt(searchParams.get("subscription") ?? "", 10)
   const focusedSubscriptionId = Number.isFinite(routeFocusId) ? routeFocusId : 0
 
@@ -263,6 +268,7 @@ export function CardsPage() {
     } else {
       next.delete("q")
     }
+    next.delete("page")
     next.delete("subscription")
     setSearchParams(next, { replace: true })
   }
@@ -274,6 +280,7 @@ export function CardsPage() {
     } else {
       next.set("filter", value)
     }
+    next.delete("page")
     setSearchParams(next, { replace: true })
   }
 
@@ -387,6 +394,23 @@ export function CardsPage() {
     search,
   ])
 
+  const pageCount = Math.max(1, Math.ceil(filteredViews.length / USERS_PER_PAGE))
+  const safePage = Math.min(currentPage, pageCount)
+  const pageStartIndex = (safePage - 1) * USERS_PER_PAGE
+  const pagedViews = filteredViews.slice(pageStartIndex, pageStartIndex + USERS_PER_PAGE)
+  const pageEndIndex = pageStartIndex + pagedViews.length
+
+  const updatePage = (value: number) => {
+    const nextPage = Math.min(Math.max(value, 1), pageCount)
+    const next = new URLSearchParams(searchParams)
+    if (nextPage <= 1) {
+      next.delete("page")
+    } else {
+      next.set("page", String(nextPage))
+    }
+    setSearchParams(next, { replace: true })
+  }
+
   return (
     <>
       <PageHeader
@@ -459,20 +483,55 @@ export function CardsPage() {
           <p className="text-sm text-muted-foreground">{t("cards.searchEmpty")}</p>
         </Card>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {filteredViews.map((view, index) => (
-            <SubscriptionCard
-              key={view.subscription.id}
-              view={view}
-              index={index}
-              onEdit={openEdit}
-              onRenew={openRenew}
-              onSendReminder={(item) => setReminderId(item.subscription.id)}
-              onArchive={(item) =>
-                setArchiveTarget({ id: item.subscription.id, name: item.subscription.name })
-              }
-            />
-          ))}
+        <div className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {pagedViews.map((view, index) => (
+              <SubscriptionCard
+                key={view.subscription.id}
+                view={view}
+                index={index}
+                onEdit={openEdit}
+                onRenew={openRenew}
+                onSendReminder={(item) => setReminderId(item.subscription.id)}
+                onArchive={(item) =>
+                  setArchiveTarget({ id: item.subscription.id, name: item.subscription.name })
+                }
+              />
+            ))}
+          </div>
+          {pageCount > 1 ? (
+            <div className="flex flex-col items-center justify-between gap-3 border-t pt-4 text-xs text-muted-foreground sm:flex-row">
+              <span>
+                {t("cards.pageStatus", {
+                  page: safePage,
+                  pageCount,
+                  start: pageStartIndex + 1,
+                  end: pageEndIndex,
+                  total: filteredViews.length,
+                })}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t("cards.prevPage")}
+                  disabled={safePage <= 1}
+                  onClick={() => updatePage(safePage - 1)}
+                >
+                  <ChevronLeft />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t("cards.nextPage")}
+                  disabled={safePage >= pageCount}
+                  onClick={() => updatePage(safePage + 1)}
+                >
+                  <ChevronRight />
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 

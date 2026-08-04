@@ -44,9 +44,9 @@ export default {
     },
     dashboard: {
       subscriptions: "拼车数",
-      subscriptionsHint: "{{accounts}} 个账号 · 点击筛选全部",
+      subscriptionsHint: "{{accounts}} 个账号 · 当前在车",
       pending: "待交费",
-      pendingHint: "活跃 {{active}} · 点击筛选本月待交费",
+      pendingHint: "活跃 {{active}} · 本月到期待处理",
       archived: "已下车",
       archivedHint: "归档订阅，账单仍可查看",
       notifySuccess: "通知成功",
@@ -95,7 +95,7 @@ export default {
     },
     calendar: {
       title: "拼车日历",
-      desc: "周一起算 · 到期按计费周期；点击日历或右侧列表中的用户可预览信息，续费和提醒操作在用户管理中处理。",
+      desc: "周一起算 · 到期按计费周期；点击日历中的用户可预览信息，续费和提醒操作在用户管理中处理。",
       prevMonth: "上个月",
       nextMonth: "下个月",
       today: "今天",
@@ -194,6 +194,9 @@ export default {
       lastError: "最近错误：{{error}}",
       sendReminder: "发送提醒",
       renew: "记账续费",
+      pageStatus: "第 {{page}} / {{pageCount}} 页 · {{start}}-{{end}} / {{total}} 个用户",
+      prevPage: "上一页",
+      nextPage: "下一页",
     },
     subscriptionDialog: {
       createTitle: "新建拼车订阅",
