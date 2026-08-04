@@ -291,6 +291,7 @@ export default {
       saveAction: "保存",
       validation: {
         nameRequired: "请填写账号名称",
+        emailRequired: "请填写母号邮箱",
         seatCountRange: "车位数量须为 1～1000 的整数",
       },
     },

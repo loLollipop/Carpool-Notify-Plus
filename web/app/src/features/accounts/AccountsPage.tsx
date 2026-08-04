@@ -116,7 +116,7 @@ export function AccountsPage() {
   const openEdit = (view: AccountView) => {
     setEditingAccount({
       id: view.account.id,
-      name: view.account.name,
+      name: view.account.email || view.account.name,
       remark: view.account.remark,
       paymentMethod: view.account.payment_method,
       email: view.account.email,
@@ -275,6 +275,9 @@ export function AccountsPage() {
               {filteredAccounts.map((view) => {
                 const isExpanded = expanded.has(view.account.id)
                 const occupants = (view.seats ?? []).filter((seat) => seat.occupied)
+                const accountName = view.account.name.trim()
+                const accountEmail = view.account.email.trim()
+                const showAccountEmail = accountEmail !== "" && accountEmail !== accountName
                 return (
                   <TableRow key={view.account.id}>
                     <TableCell>
@@ -282,9 +285,9 @@ export function AccountsPage() {
                         {view.account.name}
                       </div>
                       <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                        {view.account.email ? (
-                          <span className="max-w-full truncate" title={view.account.email}>
-                            {view.account.email}
+                        {showAccountEmail ? (
+                          <span className="max-w-full truncate" title={accountEmail}>
+                            {accountEmail}
                           </span>
                         ) : null}
                         {view.account.space_name ? (

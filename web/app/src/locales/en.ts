@@ -293,6 +293,7 @@ export default {
       saveAction: "Save",
       validation: {
         nameRequired: "Account name is required",
+        emailRequired: "Owner email is required",
         seatCountRange: "Seat capacity must be an integer between 1 and 1000",
       },
     },

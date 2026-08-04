@@ -58,15 +58,16 @@ export function AccountDialog({
   const schema = React.useMemo(
     () =>
       z.object({
-        name: z.string().trim().min(1, t("accounts.validation.nameRequired")).max(40),
-        remark: z.string(),
-        payment_method: z.string(),
-        email: z
+        name: z
           .string()
           .trim()
-          .refine((value) => value === "" || EMAIL_PATTERN.test(value), {
+          .min(1, t("accounts.validation.emailRequired"))
+          .max(120)
+          .refine((value) => EMAIL_PATTERN.test(value), {
             message: t("subscriptionDialog.validation.emailInvalid"),
           }),
+        remark: z.string(),
+        payment_method: z.string(),
         space_name: z.string(),
         opened_at: z.string(),
         cost_yuan: z
@@ -90,10 +91,9 @@ export function AccountDialog({
 
   const defaultValues = React.useCallback(
     (): FormValues => ({
-      name: prefill?.name ?? "",
+      name: prefill?.email || prefill?.name || "",
       remark: prefill?.remark ?? "",
       payment_method: prefill?.paymentMethod ?? "",
-      email: prefill?.email ?? "",
       space_name: prefill?.spaceName ?? "",
       opened_at: prefill?.openedAt ?? "",
       cost_yuan: prefill?.costYuan ?? "",
@@ -117,11 +117,12 @@ export function AccountDialog({
 
   const saveMutation = useAppMutation(
     (values: FormValues) => {
+      const ownerEmail = values.name.trim()
       const input = {
-        name: values.name.trim(),
+        name: ownerEmail,
         remark: values.remark.trim(),
         payment_method: values.payment_method.trim(),
-        email: values.email.trim(),
+        email: ownerEmail,
         space_name: values.space_name.trim(),
         opened_at: values.opened_at,
         cost_yuan: values.cost_yuan.trim(),
@@ -150,23 +151,10 @@ export function AccountDialog({
             onSubmit={form.handleSubmit((values) => saveMutation.mutate(values))}
             className="grid gap-5"
           >
-            <FormField
-              control={form.control}
-              name="name"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t("accounts.name")}</FormLabel>
-                  <FormControl>
-                    <Input maxLength={40} placeholder={t("accounts.namePlaceholder")} {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
             <div className="grid gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
-                name="email"
+                name="name"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>{t("accounts.email")}</FormLabel>
@@ -174,6 +162,7 @@ export function AccountDialog({
                       <Input
                         type="email"
                         autoComplete="email"
+                        maxLength={120}
                         placeholder={t("accounts.emailPlaceholder")}
                         {...field}
                       />
@@ -219,7 +208,6 @@ export function AccountDialog({
                     <FormControl>
                       <Input inputMode="decimal" placeholder="20.00" {...field} />
                     </FormControl>
-                    <FormDescription>{t("accounts.costHint")}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

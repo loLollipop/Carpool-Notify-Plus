@@ -26,7 +26,7 @@ const (
 	UnclassifiedAccountName = "未分类"
 
 	// MaxAccountNameLength is the max rune count for an account name.
-	MaxAccountNameLength = 40
+	MaxAccountNameLength = 120
 	// MaxSeatNameLength is the max rune count for a seat name.
 	MaxSeatNameLength = 40
 	// MinInitialSeatCount / MaxInitialSeatCount bound how many seats can be created with a new account.

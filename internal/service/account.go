@@ -196,6 +196,7 @@ func (service *SubscriptionService) CreateAccount(input CreateAccountInput) (int
 	if err != nil {
 		return 0, err
 	}
+	email = defaultAccountEmail(email, name)
 
 	accountID, err := service.Store.CreateAccount(model.Account{
 		Name:                 name,
@@ -243,6 +244,7 @@ func (service *SubscriptionService) UpdateAccount(accountID int64, input UpdateA
 	if err != nil {
 		return err
 	}
+	email = defaultAccountEmail(email, name)
 	if err := service.Store.UpdateAccount(model.Account{
 		ID:                   accountID,
 		Name:                 name,
@@ -549,6 +551,17 @@ func normalizeAccountEmail(raw string) (string, error) {
 		return "", fmt.Errorf("账号邮箱无效")
 	}
 	return strings.TrimSpace(address.Address), nil
+}
+
+func defaultAccountEmail(email string, accountName string) string {
+	if email != "" {
+		return email
+	}
+	address, err := mail.ParseAddress(strings.TrimSpace(accountName))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(address.Address)
 }
 
 func normalizeAccountOpenedAt(raw string) (string, error) {

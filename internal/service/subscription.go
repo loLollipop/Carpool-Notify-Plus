@@ -177,6 +177,14 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 	if err != nil {
 		return Dashboard{}, err
 	}
+	accountRows, err := service.Store.ListAccounts()
+	if err != nil {
+		return Dashboard{}, err
+	}
+	accountCostCentsByID := make(map[int64]int64, len(accountRows))
+	for _, account := range accountRows {
+		accountCostCentsByID[account.ID] = account.CostCents
+	}
 
 	now := service.now()
 	since := now.AddDate(0, 0, -30)
@@ -197,6 +205,23 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		count int
 		cents int64
 	}{}
+	saleAccountCostsByID := map[int64]int64{}
+	legacySaleAccountCostsByName := map[string]int64{}
+	recordSaleAccountCost := func(subscription model.Subscription, accountName string) {
+		if subscription.AccountID > 0 {
+			costCents, exists := accountCostCentsByID[subscription.AccountID]
+			if !exists || costCents == 0 {
+				costCents = subscription.CostCents
+			}
+			if previous, counted := saleAccountCostsByID[subscription.AccountID]; !counted || costCents > previous {
+				saleAccountCostsByID[subscription.AccountID] = costCents
+			}
+			return
+		}
+		if previous, counted := legacySaleAccountCostsByName[accountName]; !counted || subscription.CostCents > previous {
+			legacySaleAccountCostsByName[accountName] = subscription.CostCents
+		}
+	}
 
 	for _, subscription := range subscriptions {
 		accountName := displayAccountName(subscription)
@@ -205,7 +230,7 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		if subscription.IsResale {
 			totalAgencyFeeCents += subscription.AgencyFeeCents
 		} else {
-			totalCostCents += subscription.CostCents
+			recordSaleAccountCost(subscription, accountName)
 		}
 		amountBars = append(amountBars, AmountBar{
 			Name:        subscription.Name,
@@ -242,6 +267,13 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		}
 		return accounts[left].AmountCents > accounts[right].AmountCents
 	})
+
+	for _, costCents := range saleAccountCostsByID {
+		totalCostCents += costCents
+	}
+	for _, costCents := range legacySaleAccountCostsByName {
+		totalCostCents += costCents
+	}
 
 	totalProfitCents := totalPriceCents - totalCostCents
 	profitMarginPercent := "—"

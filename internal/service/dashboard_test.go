@@ -499,6 +499,69 @@ func TestComputeDashboardAggregatesByAccount(t *testing.T) {
 	}
 }
 
+func TestComputeDashboardCountsAccountCostOnce(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.July, 10, 12, 0, 0, 0, cycle.Location)
+	}
+
+	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "owner@example.com",
+		Email:     "owner@example.com",
+		CostYuan:  "20.00",
+		SeatNames: []string{"seat1", "seat2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := subscriptionService.Store.ListSeatsByAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seats) != 2 {
+		t.Fatalf("seat count = %d, want 2", len(seats))
+	}
+
+	_, err = subscriptionService.Create(service.CreateInput{
+		Name:             "first seat",
+		PriceYuan:        "30.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seats[0].ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = subscriptionService.Create(service.CreateInput{
+		Name:             "second seat",
+		PriceYuan:        "25.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seats[1].ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dashboard, err := subscriptionService.ComputeDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if dashboard.TotalAmountYuan != "55.00" {
+		t.Fatalf("TotalAmountYuan = %q, want %q", dashboard.TotalAmountYuan, "55.00")
+	}
+	if dashboard.TotalCostYuan != "20.00" {
+		t.Fatalf("TotalCostYuan = %q, want %q", dashboard.TotalCostYuan, "20.00")
+	}
+	if dashboard.TotalProfitYuan != "35.00" {
+		t.Fatalf("TotalProfitYuan = %q, want %q", dashboard.TotalProfitYuan, "35.00")
+	}
+	if dashboard.ProfitMarginPercent != "63.6%" {
+		t.Fatalf("ProfitMarginPercent = %q, want %q", dashboard.ProfitMarginPercent, "63.6%")
+	}
+}
+
 func TestCreateAndGetPreservesCostCents(t *testing.T) {
 	subscriptionService := openTestService(t)
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "成本账号", "位1")
