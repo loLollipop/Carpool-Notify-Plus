@@ -85,9 +85,9 @@ func TestCalendarMonthBuildsGridAndCurrentMonthSummary(t *testing.T) {
 	if len(augustFirst.Occurrences) != 1 || augustFirst.Occurrences[0].Name != "ChatGPT Team" {
 		t.Fatalf("2026-08-01 occurrences = %#v, want ChatGPT Team", augustFirst.Occurrences)
 	}
-	if view.TotalCount != 5 || view.PaidCount != 1 || view.PendingCount != 4 {
+	if view.TotalCount != 5 || view.PaidCount != 1 || view.PendingCount != 0 {
 		t.Fatalf(
-			"summary = total %d, paid %d, pending %d; want 5, 1, 4",
+			"summary = total %d, paid %d, pending %d; want 5, 1, 0",
 			view.TotalCount,
 			view.PaidCount,
 			view.PendingCount,
@@ -95,8 +95,38 @@ func TestCalendarMonthBuildsGridAndCurrentMonthSummary(t *testing.T) {
 	}
 }
 
+func TestCalendarPendingCountOnlyIncludesDueOrOverdueUnpaid(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 4, 12, 0, 0, 0, cycle.Location)
+	}
+	createTestSubscription(t, subscriptionService, "Due account", "0 0 3 * *")
+	createTestSubscription(t, subscriptionService, "Future account", "0 0 19 * *")
+
+	month := time.Date(2026, time.August, 1, 0, 0, 0, 0, cycle.Location)
+	view, err := subscriptionService.CalendarMonth(month)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if view.TotalCount != 2 || view.PaidCount != 0 || view.PendingCount != 1 {
+		t.Fatalf(
+			"summary = total %d, paid %d, pending %d; want 2, 0, 1",
+			view.TotalCount,
+			view.PaidCount,
+			view.PendingCount,
+		)
+	}
+	if len(view.Occurrences) != 2 {
+		t.Fatalf("agenda occurrences = %d, want 2 so future dues remain available for prepay", len(view.Occurrences))
+	}
+}
+
 func TestSetDuePaidOnlyChangesSelectedOccurrence(t *testing.T) {
 	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.July, 28, 12, 0, 0, 0, cycle.Location)
+	}
 	subscriptionID := createTestSubscription(t, subscriptionService, "流媒体家庭组", "0 0 * * 1")
 
 	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-13", true); err != nil {

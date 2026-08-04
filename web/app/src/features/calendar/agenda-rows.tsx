@@ -82,20 +82,16 @@ export function AgendaOccurrenceRow({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold">{occurrence.name}</h3>
-          <div className="mt-1 flex flex-wrap items-center gap-1.5">
-            <Badge variant="secondary" className="font-normal" asChild>
-              <button
-                type="button"
-                onClick={() => onView(occurrence)}
-                title={t("calendar.viewSeatHint")}
-                className="cursor-pointer transition-colors hover:bg-accent hover:text-foreground"
-              >
-                {occurrence.account_name}
-                {occurrence.seat_name ? ` · ${occurrence.seat_name}` : ""}
-              </button>
-            </Badge>
-          </div>
+          <h3 className="truncate text-sm font-semibold">
+            <button
+              type="button"
+              onClick={() => onView(occurrence)}
+              title={t("calendar.viewSeatHint")}
+              className="max-w-full cursor-pointer truncate text-left transition-colors hover:text-brand"
+            >
+              {occurrence.account_name || occurrence.name}
+            </button>
+          </h3>
           <CustomerContactRow
             email={occurrence.customer_email}
             wechat={occurrence.customer_wechat}
@@ -179,18 +175,16 @@ export function AgendaArchivedRow({
   return (
     <article className="rounded-lg border border-dashed bg-muted/30 p-3.5">
       <div className="flex flex-wrap items-center gap-1.5">
-        <h3 className="text-sm font-semibold text-muted-foreground">{subscription.name}</h3>
-        <Badge variant="secondary" asChild className="font-normal">
+        <h3 className="min-w-0 flex-1 truncate text-sm font-semibold text-muted-foreground">
           <button
             type="button"
             title={t("calendar.viewSeatHint")}
             onClick={() => onView(view)}
-            className="cursor-pointer transition-colors hover:bg-accent hover:text-accent-foreground"
+            className="max-w-full cursor-pointer truncate text-left transition-colors hover:text-foreground"
           >
-            {view.account_name}
-            {view.seat_name ? ` · ${view.seat_name}` : ""}
+            {view.account_name || subscription.name}
           </button>
-        </Badge>
+        </h3>
         <Badge variant="outline" className="font-normal text-muted-foreground">
           {t("calendar.filterArchived")}
         </Badge>

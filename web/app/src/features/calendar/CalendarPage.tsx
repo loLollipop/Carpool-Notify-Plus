@@ -39,6 +39,10 @@ import {
 
 type AgendaFilter = "all" | "pending" | "paid" | "archived" | "resale"
 
+function isPaymentDue(occurrence: CalendarOccurrence) {
+  return !occurrence.paid && occurrence.days_remaining <= 0
+}
+
 // ---- Month grid -------------------------------------------------------------------
 
 function EventPill({ occurrence }: { occurrence: CalendarOccurrence }) {
@@ -215,9 +219,10 @@ function CalendarWorkspace({
     visibleOccurrences = []
     showArchived = true
   } else if (filter === "pending") {
-    // Align with「本月待交费」: unpaid dues in the viewed month only.
+    // Keep this aligned with calendar.pending_count: due today or overdue, not future cycles.
     visibleOccurrences = focusRows.filter(
-      (occurrence) => !occurrence.paid && occurrence.due_date.slice(0, 7) === calendar.month_value,
+      (occurrence) =>
+        isPaymentDue(occurrence) && occurrence.due_date.slice(0, 7) === calendar.month_value,
     )
     showArchived = false
   } else if (filter === "paid") {

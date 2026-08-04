@@ -37,6 +37,10 @@ import { prefillFromView, type SubscriptionPrefill } from "./subscription-prefil
 
 type CardsFilter = "all" | "pending" | "paid" | "archived" | "resale"
 
+function isPaymentDueOccurrence(occurrence: { paid: boolean; days_remaining: number }) {
+  return !occurrence.paid && occurrence.days_remaining <= 0
+}
+
 function MetaCell({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
@@ -97,20 +101,16 @@ function SubscriptionCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="truncate text-[15px] font-semibold">{subscription.name}</h3>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <Badge variant="secondary" className="font-normal">
-              {view.account_name}
-            </Badge>
-            {subscription.is_resale ? (
+          <h3 className="truncate text-[15px] font-semibold">
+            {view.account_name || subscription.name}
+          </h3>
+          {subscription.is_resale ? (
+            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
               <Badge variant="outline" className="font-normal">
                 {t("cards.resale")}
               </Badge>
-            ) : null}
-            {view.seat_name ? (
-              <span className="text-xs text-muted-foreground">{view.seat_name}</span>
-            ) : null}
-          </div>
+            </div>
+          ) : null}
           {subscription.remark ? (
             <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">
               {subscription.remark}
@@ -220,12 +220,24 @@ export function CardsPage() {
   const archivedViews = subscriptionsQuery.data?.archived ?? []
   const calendar = calendarQuery.data
 
+  const paymentDueBySubscription = React.useMemo(() => {
+    const map = new Map<number, boolean>()
+    const month = calendar?.month_value
+    for (const occurrence of calendar?.occurrences ?? []) {
+      if (month && occurrence.due_date.slice(0, 7) !== month) continue
+      if (isPaymentDueOccurrence(occurrence)) {
+        map.set(occurrence.subscription_id, true)
+      }
+    }
+    return map
+  }, [calendar])
+
   const paidBySubscription = React.useMemo(() => {
     const map = new Map<number, boolean>()
     const month = calendar?.month_value
     for (const occurrence of calendar?.occurrences ?? []) {
       if (month && occurrence.due_date.slice(0, 7) !== month) continue
-      // Focus row is the authoritative pending/paid status for the card list.
+      // Paid filter follows the calendar focus row; future unpaid rows are handled separately.
       map.set(occurrence.subscription_id, occurrence.paid)
     }
     for (const occurrence of calendar?.paid_in_month_occurrences ?? []) {
@@ -243,7 +255,9 @@ export function CardsPage() {
     } else if (filter === "resale") {
       pool = [...activeViews, ...archivedViews].filter((view) => view.subscription.is_resale)
     } else if (filter === "pending") {
-      pool = activeViews.filter((view) => paidBySubscription.get(view.subscription.id) === false)
+      pool = activeViews.filter(
+        (view) => paymentDueBySubscription.get(view.subscription.id) === true,
+      )
     } else if (filter === "paid") {
       pool = activeViews.filter((view) => paidBySubscription.get(view.subscription.id) === true)
     } else {
@@ -269,7 +283,7 @@ export function CardsPage() {
         ...(view.channel_labels ?? []),
       ].some((field) => field?.toLowerCase().includes(query)),
     )
-  }, [activeViews, archivedViews, filter, paidBySubscription, search])
+  }, [activeViews, archivedViews, filter, paidBySubscription, paymentDueBySubscription, search])
 
   return (
     <>
