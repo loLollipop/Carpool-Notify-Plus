@@ -15,7 +15,7 @@ import {
   ArrowUpRight,
   BellRing,
   CheckCircle2,
-  Layers,
+  CreditCard,
   Plus,
   Wallet,
 } from "lucide-react"
@@ -160,11 +160,11 @@ function KpiCard({
 function KpiRow({
   dashboard,
   summary,
-  pendingCount,
+  accountCount,
 }: {
   dashboard: Dashboard
   summary: BillsSummary | undefined
-  pendingCount: number
+  accountCount: number
 }) {
   const { t } = useTranslation()
 
@@ -197,13 +197,13 @@ function KpiRow({
         delay={70}
       />
       <KpiCard
-        label={t("dash.kpiActive")}
-        value={dashboard.active_count}
-        hint={t("dash.kpiActiveHint", {
-          accounts: dashboard.accounts?.length ?? 0,
-          pending: pendingCount,
+        label={t("dash.kpiAccountCost")}
+        value={`¥${dashboard.total_cost_yuan}`}
+        hint={t("dash.kpiAccountCostHint", {
+          accounts: accountCount,
+          active: dashboard.active_count,
         })}
-        icon={<Layers className="size-4" />}
+        icon={<CreditCard className="size-4" />}
         tone="violet"
         delay={140}
       />
@@ -626,7 +626,7 @@ export function DashboardPage() {
           <KpiRow
             dashboard={dashboard}
             summary={summary}
-            pendingCount={calendarQuery.data?.pending_count ?? 0}
+            accountCount={accountsQuery.data?.length ?? dashboard.accounts?.length ?? 0}
           />
 
           <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
