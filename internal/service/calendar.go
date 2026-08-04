@@ -69,6 +69,7 @@ type CalendarOccurrenceView struct {
 	CronExpr       string   `json:"cron_expr"`
 	OffsetsText    string   `json:"offsets_text"`
 	CustomerEmail  string   `json:"customer_email"`
+	CustomerWechat string   `json:"customer_wechat"`
 	Channels       []string `json:"channels"`
 	Remark         string   `json:"remark"`
 	BoardedAt      string   `json:"boarded_at"`
@@ -434,6 +435,7 @@ func (service *SubscriptionService) buildOccurrenceView(
 		Channels:       append([]string(nil), enabledChannels...),
 		Remark:         subscription.Remark,
 		CustomerEmail:  subscription.CustomerEmail,
+		CustomerWechat: subscription.CustomerWechat,
 		BoardedAt:      subscription.BoardedAt,
 	}
 }

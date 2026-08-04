@@ -37,6 +37,7 @@ type SeatView struct {
 	ActiveRemark            string `json:"active_remark"`
 	ActiveTradeURL          string `json:"active_trade_url"`
 	ActiveCustomerEmail     string `json:"active_customer_email"`
+	ActiveCustomerWechat    string `json:"active_customer_wechat"`
 	ActiveAccountID         int64  `json:"active_account_id"`
 	ActiveBoardedAt         string `json:"active_boarded_at"`
 	LinkedSubscriptionCount int    `json:"linked_subscription_count"`
@@ -158,6 +159,7 @@ func (service *SubscriptionService) buildSeatView(seat model.Seat) (SeatView, er
 		view.ActiveRemark = activeSubscription.Remark
 		view.ActiveTradeURL = activeSubscription.TradeURL
 		view.ActiveCustomerEmail = activeSubscription.CustomerEmail
+		view.ActiveCustomerWechat = activeSubscription.CustomerWechat
 		view.ActiveAccountID = activeSubscription.AccountID
 		if view.ActiveAccountID == 0 {
 			view.ActiveAccountID = seat.AccountID

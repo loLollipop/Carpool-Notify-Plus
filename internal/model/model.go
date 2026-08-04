@@ -102,10 +102,11 @@ type Subscription struct {
 	NotifyOffsets  []int  `json:"notify_offsets"`
 	// Channels is a legacy per-subscription field kept for DB/export compatibility.
 	// Runtime send/display uses the global settings enabled_channels instead.
-	Channels      []string `json:"channels"`
-	Remark        string   `json:"remark"`
-	TradeURL      string   `json:"trade_url"`
-	CustomerEmail string   `json:"customer_email"`
+	Channels       []string `json:"channels"`
+	Remark         string   `json:"remark"`
+	TradeURL       string   `json:"trade_url"`
+	CustomerEmail  string   `json:"customer_email"`
+	CustomerWechat string   `json:"customer_wechat"`
 	// SeatID links this subscription to a named seat under an account.
 	// Active subscriptions must occupy a free seat; archive releases the seat.
 	SeatID int64 `json:"seat_id"`
@@ -225,6 +226,7 @@ type ExportSubscription struct {
 	Remark              string   `json:"remark"`
 	TradeURL            string   `json:"trade_url"`
 	CustomerEmail       string   `json:"customer_email"`
+	CustomerWechat      string   `json:"customer_wechat"`
 	SeatID              int64    `json:"seat_id"`
 	SeatName            string   `json:"seat_name"`
 	AccountID           int64    `json:"account_id"`

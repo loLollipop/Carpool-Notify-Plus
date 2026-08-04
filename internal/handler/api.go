@@ -234,19 +234,20 @@ func (server *Server) getExport(context *gin.Context) {
 // ---- Subscription mutations ---------------------------------------------------
 
 type subscriptionRequest struct {
-	Name          string `json:"name"`
-	PriceYuan     string `json:"price_yuan"`
-	CostYuan      string `json:"cost_yuan"`
-	IsResale      bool   `json:"is_resale"`
-	AgencyFeeYuan string `json:"agency_fee_yuan"`
-	CronExpr      string `json:"cron_expr"`
-	NotifyOffsets []int  `json:"notify_offsets"`
-	Remark        string `json:"remark"`
-	TradeURL      string `json:"trade_url"`
-	CustomerEmail string `json:"customer_email"`
-	AccountID     int64  `json:"account_id"`
-	SeatID        int64  `json:"seat_id"`
-	BoardedAt     string `json:"boarded_at"`
+	Name           string `json:"name"`
+	PriceYuan      string `json:"price_yuan"`
+	CostYuan       string `json:"cost_yuan"`
+	IsResale       bool   `json:"is_resale"`
+	AgencyFeeYuan  string `json:"agency_fee_yuan"`
+	CronExpr       string `json:"cron_expr"`
+	NotifyOffsets  []int  `json:"notify_offsets"`
+	Remark         string `json:"remark"`
+	TradeURL       string `json:"trade_url"`
+	CustomerEmail  string `json:"customer_email"`
+	CustomerWechat string `json:"customer_wechat"`
+	AccountID      int64  `json:"account_id"`
+	SeatID         int64  `json:"seat_id"`
+	BoardedAt      string `json:"boarded_at"`
 }
 
 func (request subscriptionRequest) toCreateInput() service.CreateInput {
@@ -265,6 +266,7 @@ func (request subscriptionRequest) toCreateInput() service.CreateInput {
 		Remark:           request.Remark,
 		TradeURL:         request.TradeURL,
 		CustomerEmail:    request.CustomerEmail,
+		CustomerWechat:   request.CustomerWechat,
 		AccountID:        request.AccountID,
 		SeatID:           request.SeatID,
 		BoardedAt:        request.BoardedAt,

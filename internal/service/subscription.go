@@ -322,6 +322,7 @@ type CreateInput struct {
 	Remark           string
 	TradeURL         string
 	CustomerEmail    string
+	CustomerWechat   string
 	// AccountID selects which shared account to occupy. When SeatID is 0,
 	// Create/Update auto-assigns the first free seat under this account.
 	AccountID int64
@@ -509,6 +510,7 @@ func (service *SubscriptionService) Copy(subscriptionID int64, targetSeatID int6
 		Remark:           source.Remark,
 		TradeURL:         source.TradeURL,
 		CustomerEmail:    source.CustomerEmail,
+		CustomerWechat:   source.CustomerWechat,
 		SeatID:           targetSeatID,
 		AccountID:        seat.AccountID,
 		AccountName:      account.Name,
@@ -590,6 +592,7 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 	if err != nil {
 		return model.Subscription{}, err
 	}
+	customerWechat := strings.TrimSpace(input.CustomerWechat)
 
 	seatID, err := service.resolveSeatID(input.AccountID, input.SeatID, existingSubscriptionID)
 	if err != nil {
@@ -645,6 +648,7 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 		Remark:           strings.TrimSpace(input.Remark),
 		TradeURL:         strings.TrimSpace(input.TradeURL),
 		CustomerEmail:    customerEmail,
+		CustomerWechat:   customerWechat,
 		SeatID:           seatID,
 		AccountID:        seat.AccountID,
 		AccountName:      account.Name,
@@ -1033,6 +1037,7 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 			Remark:           subscription.Remark,
 			TradeURL:         subscription.TradeURL,
 			CustomerEmail:    subscription.CustomerEmail,
+			CustomerWechat:   subscription.CustomerWechat,
 			SeatID:           subscription.SeatID,
 			SeatName:         subscription.SeatName,
 			AccountID:        subscription.AccountID,

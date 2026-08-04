@@ -156,6 +156,7 @@ export function SubscriptionDialog({
           .refine((value) => value === "" || EMAIL_PATTERN.test(value), {
             message: t("subscriptionDialog.validation.emailInvalid"),
           }),
+        customer_wechat: z.string().trim(),
         trade_url: z.string(),
         remark: z.string(),
       }),
@@ -176,6 +177,7 @@ export function SubscriptionDialog({
       notify_offsets: prefill?.offsets ?? [],
       boarded_at: prefill?.boardedAt || todayShanghai(),
       customer_email: prefill?.customerEmail ?? "",
+      customer_wechat: prefill?.customerWechat ?? "",
       trade_url: prefill?.tradeUrl ?? "",
       remark: prefill?.remark ?? "",
     }),
@@ -214,6 +216,7 @@ export function SubscriptionDialog({
         remark: values.remark.trim(),
         trade_url: values.trade_url.trim(),
         customer_email: values.customer_email.trim(),
+        customer_wechat: values.customer_wechat.trim(),
         account_id: Number(values.account_id),
         seat_id: prefill?.seatId ?? 0,
         boarded_at: values.boarded_at,
@@ -513,6 +516,24 @@ export function SubscriptionDialog({
                       type="email"
                       autoComplete="email"
                       placeholder={t("common.optional")}
+                      {...field}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="customer_wechat"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("subscriptionDialog.customerWechat")}</FormLabel>
+                  <FormControl>
+                    <Input
+                      autoComplete="off"
+                      placeholder={t("subscriptionDialog.customerWechatPlaceholder")}
                       {...field}
                     />
                   </FormControl>

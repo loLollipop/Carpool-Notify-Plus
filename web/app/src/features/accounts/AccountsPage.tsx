@@ -152,6 +152,7 @@ export function AccountsPage() {
         seat.seat.name,
         seat.active_subscription_name,
         seat.active_customer_email,
+        seat.active_customer_wechat,
         seat.active_trade_url,
         seat.active_remark,
       ])
@@ -183,6 +184,7 @@ export function AccountsPage() {
               seat.seat.name,
               seat.active_subscription_name,
               seat.active_customer_email,
+              seat.active_customer_wechat,
               seat.active_trade_url,
               seat.active_remark,
             ].some((field) => field?.toLowerCase().includes(query))

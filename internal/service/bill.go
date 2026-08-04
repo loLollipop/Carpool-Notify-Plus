@@ -22,6 +22,7 @@ type BillView struct {
 	AccountOpenedAt  string    `json:"account_opened_at"`
 	SeatName         string    `json:"seat_name"`
 	CustomerEmail    string    `json:"customer_email"`
+	CustomerWechat   string    `json:"customer_wechat"`
 	DueDate          string    `json:"due_date"`
 	AmountYuan       string    `json:"amount_yuan"`
 	AmountCents      int64     `json:"amount_cents"`
@@ -133,6 +134,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, channelLabels
 	accountOpenedAt := ""
 	seatName := ""
 	customerEmail := ""
+	customerWechat := ""
 	accountID := int64(0)
 	seatID := int64(0)
 	archived := false
@@ -153,6 +155,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, channelLabels
 		accountName = displayAccountName(subscription)
 		seatName = subscription.SeatName
 		customerEmail = subscription.CustomerEmail
+		customerWechat = subscription.CustomerWechat
 		accountID = subscription.AccountID
 		seatID = subscription.SeatID
 		archived = subscription.ArchivedAt != nil
@@ -197,6 +200,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, channelLabels
 		AccountOpenedAt:  accountOpenedAt,
 		SeatName:         seatName,
 		CustomerEmail:    customerEmail,
+		CustomerWechat:   customerWechat,
 		AccountID:        accountID,
 		SeatID:           seatID,
 		DueDate:          bill.DueDate,

@@ -13,6 +13,7 @@ export interface Subscription {
   remark: string
   trade_url: string
   customer_email: string
+  customer_wechat: string
   seat_id: number
   account_id: number
   account_name: string
@@ -71,6 +72,7 @@ export interface CalendarOccurrence {
   cron_expr: string
   offsets_text: string
   customer_email: string
+  customer_wechat: string
   channels: string[] | null
   remark: string
   boarded_at: string
@@ -168,6 +170,7 @@ export interface SeatView {
   active_remark: string
   active_trade_url: string
   active_customer_email: string
+  active_customer_wechat: string
   active_account_id: number
   active_boarded_at: string
   linked_subscription_count: number
@@ -216,6 +219,7 @@ export interface BillView {
   account_opened_at: string
   seat_name: string
   customer_email: string
+  customer_wechat: string
   due_date: string
   amount_yuan: string
   amount_cents: number
@@ -313,6 +317,7 @@ export interface SubscriptionInput {
   remark: string
   trade_url: string
   customer_email: string
+  customer_wechat: string
   account_id: number
   seat_id: number
   boarded_at: string

@@ -13,6 +13,7 @@ export interface SubscriptionPrefill {
   remark: string
   tradeUrl: string
   customerEmail: string
+  customerWechat: string
   accountId: number
   seatId: number
   boardedAt: string
@@ -40,6 +41,7 @@ export function prefillFromView(view: SubscriptionView): SubscriptionPrefill {
     remark: view.subscription.remark,
     tradeUrl: view.subscription.trade_url,
     customerEmail: view.subscription.customer_email,
+    customerWechat: view.subscription.customer_wechat,
     accountId: view.account_id,
     seatId: view.seat_id,
     boardedAt: view.boarded_at,
@@ -59,6 +61,7 @@ export function prefillFromOccurrence(occurrence: CalendarOccurrence): Subscript
     remark: occurrence.remark,
     tradeUrl: occurrence.trade_url,
     customerEmail: occurrence.customer_email,
+    customerWechat: occurrence.customer_wechat,
     accountId: occurrence.account_id,
     seatId: occurrence.seat_id,
     boardedAt: occurrence.boarded_at,
@@ -78,6 +81,7 @@ export function prefillFromSeat(seat: SeatView): SubscriptionPrefill {
     remark: seat.active_remark,
     tradeUrl: seat.active_trade_url,
     customerEmail: seat.active_customer_email,
+    customerWechat: seat.active_customer_wechat,
     accountId: seat.active_account_id,
     seatId: seat.seat.id,
     boardedAt: seat.active_boarded_at,

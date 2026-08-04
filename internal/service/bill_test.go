@@ -59,6 +59,7 @@ func TestBillViewIncludesCustomerAndAccountDetails(t *testing.T) {
 		CronExpr:         "interval:30d",
 		NotifyOffsetsRaw: "0",
 		CustomerEmail:    "customer@example.com",
+		CustomerWechat:   "wx-customer-701",
 		AccountID:        accountID,
 		BoardedAt:        "2026-07-15",
 	})
@@ -79,6 +80,9 @@ func TestBillViewIncludesCustomerAndAccountDetails(t *testing.T) {
 	bill := page.Bills[0]
 	if bill.CustomerEmail != "customer@example.com" {
 		t.Fatalf("customer email = %q, want customer@example.com", bill.CustomerEmail)
+	}
+	if bill.CustomerWechat != "wx-customer-701" {
+		t.Fatalf("customer wechat = %q, want wx-customer-701", bill.CustomerWechat)
 	}
 	if bill.AccountEmail != "owner@example.com" || bill.AccountSpaceName != "Notify Space" || bill.AccountOpenedAt != "2026-07-01" {
 		t.Fatalf("account details = email %q space %q opened %q", bill.AccountEmail, bill.AccountSpaceName, bill.AccountOpenedAt)

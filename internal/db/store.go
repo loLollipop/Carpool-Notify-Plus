@@ -155,6 +155,9 @@ func (store *Store) migrate() error {
 	if err := store.ensureCustomerEmailColumn(); err != nil {
 		return err
 	}
+	if err := store.ensureCustomerWechatColumn(); err != nil {
+		return err
+	}
 	if err := store.ensureAccountPaymentMethodColumn(); err != nil {
 		return err
 	}
@@ -351,6 +354,23 @@ func (store *Store) ensureCustomerEmailColumn() error {
 	return nil
 }
 
+func (store *Store) ensureCustomerWechatColumn() error {
+	hasColumn, err := store.subscriptionsHasColumn("customer_wechat")
+	if err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	_, err = store.database.Exec(
+		`ALTER TABLE subscriptions ADD COLUMN customer_wechat TEXT NOT NULL DEFAULT ''`,
+	)
+	if err != nil {
+		return fmt.Errorf("add customer_wechat: %w", err)
+	}
+	return nil
+}
+
 func (store *Store) ensureAccountPaymentMethodColumn() error {
 	_, err := store.ensureAccountColumn(
 		"payment_method",
@@ -487,6 +507,7 @@ const subscriptionSelectColumns = `
 	subscription.remark,
 	subscription.trade_url,
 	COALESCE(subscription.customer_email, ''),
+	COALESCE(subscription.customer_wechat, ''),
 	COALESCE(subscription.seat_id, 0),
 	COALESCE(seat.account_id, 0),
 	COALESCE(account.name, ''),
@@ -597,8 +618,8 @@ func (store *Store) CreateSubscription(subscription model.Subscription) (int64, 
 	result, err := store.database.Exec(`
                 INSERT INTO subscriptions (
                         name, price_per_person_cents, cost_cents, is_resale, agency_fee_cents, cron_expr, notify_offsets, channels,
-                        remark, trade_url, customer_email, subscription_type, seat_id, boarded_at, archived_at, deleted_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+                        remark, trade_url, customer_email, customer_wechat, subscription_type, seat_id, boarded_at, archived_at, deleted_at, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
 		subscription.Name,
 		subscription.PricePerPersonCents,
 		subscription.CostCents,
@@ -610,6 +631,7 @@ func (store *Store) CreateSubscription(subscription model.Subscription) (int64, 
 		subscription.Remark,
 		subscription.TradeURL,
 		strings.TrimSpace(subscription.CustomerEmail),
+		strings.TrimSpace(subscription.CustomerWechat),
 		subscriptionType,
 		seatID,
 		boardedAt,
@@ -652,7 +674,7 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 	result, err := store.database.Exec(`
                 UPDATE subscriptions
                 SET name = ?, price_per_person_cents = ?, cost_cents = ?, is_resale = ?, agency_fee_cents = ?, cron_expr = ?, notify_offsets = ?,
-                    channels = ?, remark = ?, trade_url = ?, customer_email = ?, subscription_type = ?, seat_id = ?, boarded_at = ?, updated_at = ?
+                    channels = ?, remark = ?, trade_url = ?, customer_email = ?, customer_wechat = ?, subscription_type = ?, seat_id = ?, boarded_at = ?, updated_at = ?
                 WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL`,
 		subscription.Name,
 		subscription.PricePerPersonCents,
@@ -665,6 +687,7 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 		subscription.Remark,
 		subscription.TradeURL,
 		strings.TrimSpace(subscription.CustomerEmail),
+		strings.TrimSpace(subscription.CustomerWechat),
 		subscriptionType,
 		seatID,
 		boardedAt,
@@ -1560,6 +1583,7 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 	var updatedAt string
 
 	var customerEmail string
+	var customerWechat string
 	err := scanner.Scan(
 		&subscription.ID,
 		&subscription.Name,
@@ -1573,6 +1597,7 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 		&subscription.Remark,
 		&subscription.TradeURL,
 		&customerEmail,
+		&customerWechat,
 		&seatID,
 		&accountID,
 		&accountName,
@@ -1589,6 +1614,7 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 	}
 	subscription.IsResale = isResale != 0
 	subscription.CustomerEmail = strings.TrimSpace(customerEmail)
+	subscription.CustomerWechat = strings.TrimSpace(customerWechat)
 	subscription.SeatID = seatID
 	subscription.AccountID = accountID
 	subscription.AccountName = strings.TrimSpace(accountName)

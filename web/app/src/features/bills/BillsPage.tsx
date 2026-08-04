@@ -371,6 +371,7 @@ export function BillsPage() {
         bill.account_space_name,
         bill.seat_name,
         bill.customer_email,
+        bill.customer_wechat,
         bill.note,
         bill.due_date,
         bill.amount_yuan,

@@ -32,6 +32,7 @@ export interface SeatSubscriptionInfo {
   extraDateLabel: string
   extraDate: string
   customerEmail: string
+  customerWechat: string
   remark: string
   tradeUrl: string
 }
@@ -61,6 +62,7 @@ export function seatInfoFromOccurrence(
     extraDateLabel: t("calendar.dueDate"),
     extraDate: occurrence.due_date,
     customerEmail: occurrence.customer_email,
+    customerWechat: occurrence.customer_wechat,
     remark: occurrence.remark,
     tradeUrl: occurrence.trade_url,
   }
@@ -86,6 +88,7 @@ export function seatInfoFromArchived(view: SubscriptionView, t: Translate): Seat
     extraDateLabel: t("calendar.archivedAt"),
     extraDate: view.archived_at_label,
     customerEmail: view.subscription.customer_email,
+    customerWechat: view.subscription.customer_wechat,
     remark: view.subscription.remark,
     tradeUrl: view.subscription.trade_url,
   }
@@ -183,6 +186,9 @@ export function SeatSubscriptionDialog({
               </ViewItem>
               <ViewItem label={t("subscriptionDialog.customerEmail")}>
                 {info.customerEmail || "—"}
+              </ViewItem>
+              <ViewItem label={t("subscriptionDialog.customerWechat")}>
+                {info.customerWechat || "—"}
               </ViewItem>
             </div>
 

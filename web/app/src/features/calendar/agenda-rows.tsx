@@ -74,6 +74,11 @@ export function AgendaOccurrenceRow({
             <span className="tabular-nums">{occurrence.boarded_at}</span>
           </MetaItem>
         ) : null}
+        {occurrence.customer_wechat ? (
+          <MetaItem label={t("subscriptionDialog.customerWechat")}>
+            {occurrence.customer_wechat}
+          </MetaItem>
+        ) : null}
       </div>
 
       <p className="mt-2 text-xs text-muted-foreground">

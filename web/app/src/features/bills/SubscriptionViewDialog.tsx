@@ -98,6 +98,9 @@ export function SubscriptionViewDialog({
               <ViewItem label={t("subscriptionDialog.customerEmail")} mono>
                 {bill.customer_email || "—"}
               </ViewItem>
+              <ViewItem label={t("subscriptionDialog.customerWechat")} mono>
+                {bill.customer_wechat || "—"}
+              </ViewItem>
               <ViewItem label={t("accounts.email")} mono>
                 {bill.account_email || "—"}
               </ViewItem>

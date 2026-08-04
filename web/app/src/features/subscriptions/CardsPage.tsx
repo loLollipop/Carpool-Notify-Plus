@@ -109,6 +109,11 @@ function SubscriptionCard({
           {(view.channel_labels ?? []).join(" · ")}
           <span className="text-muted-foreground"> {t("common.global")}</span>
         </MetaCell>
+        {subscription.customer_wechat ? (
+          <MetaCell label={t("subscriptionDialog.customerWechat")}>
+            {subscription.customer_wechat}
+          </MetaCell>
+        ) : null}
       </div>
 
       {view.last_error ? (
@@ -219,6 +224,7 @@ export function CardsPage() {
         view.seat_name,
         view.subscription.remark,
         view.subscription.customer_email,
+        view.subscription.customer_wechat,
         view.subscription.trade_url,
         view.cycle_desc,
         view.next_due_date,
