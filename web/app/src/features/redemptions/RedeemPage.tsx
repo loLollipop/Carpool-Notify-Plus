@@ -8,6 +8,7 @@ import {
   Clock3,
   Copy,
   LoaderCircle,
+  Megaphone,
   MessageCircle,
   Moon,
   Sun,
@@ -138,14 +139,35 @@ function RedeemThemeToggle() {
   )
 }
 
+function RedeemAnnouncementButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          aria-label="查看公告"
+          className="h-8 rounded-full bg-card/70 px-3 shadow-sm backdrop-blur hover:bg-card"
+          onClick={onClick}
+        >
+          <Megaphone data-slot="icon" className="size-4" />
+          公告
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>查看加入空间说明</TooltipContent>
+    </Tooltip>
+  )
+}
+
 function WechatQrBlock({ compact = false }: { compact?: boolean }) {
   return (
     <div className="grid gap-3">
-      <div className="rounded-lg border bg-white p-2">
+      <div className="rounded-lg border bg-white p-2.5">
         <img
           src={SUPPORT_WECHAT_QR_SRC}
           alt="客服微信二维码"
-          className={cn("aspect-square w-full rounded-md object-contain", compact ? "max-h-52" : "")}
+          className={cn("aspect-square w-full rounded-md object-contain", compact ? "max-h-72" : "")}
         />
       </div>
       <div className="flex items-center justify-between gap-3">
@@ -171,14 +193,14 @@ function WechatQrBlock({ compact = false }: { compact?: boolean }) {
 function SupportWechatFloating() {
   return (
     <>
-      <aside className="fixed right-5 bottom-5 z-40 hidden w-[220px] rounded-lg border bg-card/95 p-3 shadow-xl shadow-black/10 backdrop-blur lg:block dark:shadow-black/30">
+      <aside className="fixed right-6 bottom-6 z-40 hidden w-[280px] rounded-lg border bg-card/95 p-4 shadow-xl shadow-black/10 backdrop-blur lg:block dark:shadow-black/30">
         <div className="mb-3 flex items-center gap-2">
-          <div className="grid size-8 place-items-center rounded-lg bg-success/10 text-success">
-            <MessageCircle className="size-4" />
+          <div className="grid size-9 place-items-center rounded-lg bg-success/10 text-success">
+            <MessageCircle className="size-5" />
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold">客服微信</p>
-            <p className="truncate text-xs text-muted-foreground">售后与续期提醒</p>
+            <p className="text-base font-semibold">客服微信</p>
+            <p className="truncate text-sm text-muted-foreground">售后与续期提醒</p>
           </div>
         </div>
         <WechatQrBlock />
@@ -195,7 +217,7 @@ function SupportWechatFloating() {
             客服微信
           </Button>
         </DialogTrigger>
-        <DialogContent className="max-w-[360px]">
+        <DialogContent className="max-w-[390px]">
           <DialogHeader>
             <DialogTitle>添加客服微信</DialogTitle>
             <DialogDescription>
@@ -217,9 +239,9 @@ function RedeemSafetyNoticeDialog({
   onOpenChange: (open: boolean) => void
 }) {
   const noticeItems = [
-    "工作空间与个人空间记录相互独立，请先备份个人空间里的重要内容。",
+    "工作空间与个人空间记录相互独立，加入空间后请把工作空间里的重要对话、文件或资料及时备份。",
     `长期拼车用户建议添加客服微信 ${SUPPORT_WECHAT_ID}，方便售后、续期提醒和异常通知。`,
-    "到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作区内容可能无法找回。",
+    "到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。",
   ]
 
   return (
@@ -231,7 +253,7 @@ function RedeemSafetyNoticeDialog({
           </div>
           <DialogTitle className="text-2xl leading-tight">加入前请先确认</DialogTitle>
           <DialogDescription className="leading-6">
-            进入共享工作空间前，请先看完下面几点，避免后续记录、售后或续期提醒遗漏。
+            进入共享工作空间前，请先看完下面几点，避免工作空间记录、售后或续期提醒遗漏。
           </DialogDescription>
         </DialogHeader>
 
@@ -317,7 +339,8 @@ export function RedeemPage() {
       <SupportWechatFloating />
 
       <div className="mx-auto flex min-h-[calc(100dvh-3rem)] w-full max-w-[636px] flex-col justify-center">
-        <div className="mb-8 flex justify-end">
+        <div className="mb-8 flex justify-end gap-2">
+          <RedeemAnnouncementButton onClick={() => setNoticeOpen(true)} />
           <RedeemThemeToggle />
         </div>
 
