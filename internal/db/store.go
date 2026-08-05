@@ -236,9 +236,9 @@ func (store *Store) migrateTemplateNameToCustomerEmail(key string) error {
 		return nil
 	}
 	replacements := map[string]string{
-		"{{.Name}}":  "{{.CustomerEmail}}",
-		"{{ .Name}}": "{{.CustomerEmail}}",
-		"{{.Name }}": "{{.CustomerEmail}}",
+		"{{.Name}}":   "{{.CustomerEmail}}",
+		"{{ .Name}}":  "{{.CustomerEmail}}",
+		"{{.Name }}":  "{{.CustomerEmail}}",
 		"{{ .Name }}": "{{.CustomerEmail}}",
 	}
 	for oldValue, newValue := range replacements {
