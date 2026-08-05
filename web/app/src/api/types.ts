@@ -48,6 +48,43 @@ export interface SubscriptionView {
   can_soft_delete: boolean
 }
 
+export type RedemptionStatusValue = "pending" | "invited"
+
+export interface RedemptionApplication {
+  id: number
+  tracking_token: string
+  customer_email: string
+  customer_contact: string
+  redeem_code: string
+  request_note: string
+  status: RedemptionStatusValue
+  assigned_account_id: number
+  assigned_seat_id: number
+  assigned_subscription_id: number
+  operator_note: string
+  invited_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RedemptionApplicationView {
+  application: RedemptionApplication
+  created_at_label: string
+  invited_at_label: string
+  account_name: string
+  account_email: string
+  account_space_name: string
+  seat_name: string
+  subscription_name: string
+}
+
+export interface RedemptionStatus {
+  status: RedemptionStatusValue
+  customer_email: string
+  created_at_label: string
+  invited_at_label: string
+}
+
 export interface CalendarOccurrence {
   subscription_id: number
   name: string
@@ -340,6 +377,26 @@ export interface SubscriptionInput {
   account_id: number
   seat_id: number
   boarded_at: string
+}
+
+export interface RedemptionSubmitInput {
+  customer_email: string
+  customer_contact: string
+  redeem_code: string
+  request_note: string
+}
+
+export interface RedemptionInviteInput {
+  seat_id: number
+  price_yuan: string
+  is_resale: boolean
+  agency_fee_yuan: string
+  cron_expr: string
+  notify_offsets: number[]
+  boarded_at: string
+  remark: string
+  trade_url: string
+  operator_note: string
 }
 
 export interface AccountInput {

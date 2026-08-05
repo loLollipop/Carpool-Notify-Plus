@@ -21,6 +21,7 @@ export default {
       calendar: "Carpool Calendar",
       dashboard: "Overview",
       users: "User Management",
+      redemptions: "Redemptions",
       accounts: "Accounts",
       bills: "Bills",
       settings: "Settings",

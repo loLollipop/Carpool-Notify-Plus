@@ -14,6 +14,9 @@ const (
 	NotificationKindScheduled = "scheduled"
 	NotificationKindTest      = "test"
 
+	RedemptionStatusPending = "pending"
+	RedemptionStatusInvited = "invited"
+
 	SettingNotifyTemplate        = "notify_template"
 	SettingCustomerEmailTemplate = "customer_email_template"
 	SettingEnabledChannels       = "enabled_channels"
@@ -165,6 +168,25 @@ type NotificationLog struct {
 	Kind           string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+// RedemptionApplication is a customer-submitted request to redeem a paid code
+// and join one assigned account/seat.
+type RedemptionApplication struct {
+	ID                     int64      `json:"id"`
+	TrackingToken          string     `json:"tracking_token"`
+	CustomerEmail          string     `json:"customer_email"`
+	CustomerContact        string     `json:"customer_contact"`
+	RedeemCode             string     `json:"redeem_code"`
+	RequestNote            string     `json:"request_note"`
+	Status                 string     `json:"status"`
+	AssignedAccountID      int64      `json:"assigned_account_id"`
+	AssignedSeatID         int64      `json:"assigned_seat_id"`
+	AssignedSubscriptionID int64      `json:"assigned_subscription_id"`
+	OperatorNote           string     `json:"operator_note"`
+	InvitedAt              *time.Time `json:"invited_at"`
+	CreatedAt              time.Time  `json:"created_at"`
+	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
 // TemplateData is passed into Go text/template for notifications.

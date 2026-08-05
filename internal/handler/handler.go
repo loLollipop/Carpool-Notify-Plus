@@ -45,6 +45,8 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 	api := router.Group("/api")
 	api.POST("/login", server.postLogin)
 	api.GET("/session", server.getSession)
+	api.POST("/redeem", server.postRedeemApplication)
+	api.GET("/redeem/:token", server.getRedeemStatus)
 
 	authorized := api.Group("")
 	authorized.Use(server.requireAPIAuth())
@@ -53,6 +55,9 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 
 		authorized.GET("/calendar", server.getCalendar)
 		authorized.GET("/dashboard", server.getDashboard)
+
+		authorized.GET("/redemptions", server.getRedemptions)
+		authorized.POST("/redemptions/:id/invite", server.postInviteRedemption)
 
 		authorized.GET("/subscriptions", server.getSubscriptions)
 		authorized.POST("/subscriptions", server.postCreateSubscription)

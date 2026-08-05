@@ -127,6 +127,24 @@ func (store *Store) migrate() error {
                         key TEXT PRIMARY KEY,
                         value TEXT NOT NULL
                 );`,
+		`CREATE TABLE IF NOT EXISTS redemption_applications (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tracking_token TEXT NOT NULL UNIQUE,
+			customer_email TEXT NOT NULL,
+			customer_contact TEXT NOT NULL,
+			redeem_code TEXT NOT NULL,
+			request_note TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL,
+			assigned_account_id INTEGER NOT NULL DEFAULT 0,
+			assigned_seat_id INTEGER NOT NULL DEFAULT 0,
+			assigned_subscription_id INTEGER NOT NULL DEFAULT 0,
+			operator_note TEXT NOT NULL DEFAULT '',
+			invited_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_redemption_applications_status
+			ON redemption_applications(status, created_at);`,
 	}
 	for _, statement := range statements {
 		if _, err := store.database.Exec(statement); err != nil {
@@ -1086,6 +1104,149 @@ func (store *Store) SetSetting(key string, value string) error {
 	return err
 }
 
+const redemptionSelectColumns = `
+	id,
+	tracking_token,
+	customer_email,
+	customer_contact,
+	redeem_code,
+	request_note,
+	status,
+	assigned_account_id,
+	assigned_seat_id,
+	assigned_subscription_id,
+	operator_note,
+	invited_at,
+	created_at,
+	updated_at`
+
+// CreateRedemptionApplication inserts a customer-submitted redemption request.
+func (store *Store) CreateRedemptionApplication(application model.RedemptionApplication) (int64, error) {
+	now := formatTime(time.Now().UTC())
+	result, err := store.database.Exec(`
+		INSERT INTO redemption_applications (
+			tracking_token, customer_email, customer_contact, redeem_code, request_note,
+			status, assigned_account_id, assigned_seat_id, assigned_subscription_id,
+			operator_note, invited_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, '', NULL, ?, ?)`,
+		strings.TrimSpace(application.TrackingToken),
+		strings.TrimSpace(application.CustomerEmail),
+		strings.TrimSpace(application.CustomerContact),
+		strings.TrimSpace(application.RedeemCode),
+		strings.TrimSpace(application.RequestNote),
+		model.RedemptionStatusPending,
+		now,
+		now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// GetRedemptionApplication returns one redemption application by id.
+func (store *Store) GetRedemptionApplication(applicationID int64) (model.RedemptionApplication, error) {
+	row := store.database.QueryRow(`
+		SELECT `+redemptionSelectColumns+`
+		FROM redemption_applications
+		WHERE id = ?`, applicationID)
+	return scanRedemptionApplication(row)
+}
+
+// GetRedemptionApplicationByToken returns a public status view source.
+func (store *Store) GetRedemptionApplicationByToken(token string) (model.RedemptionApplication, error) {
+	row := store.database.QueryRow(`
+		SELECT `+redemptionSelectColumns+`
+		FROM redemption_applications
+		WHERE tracking_token = ?`, strings.TrimSpace(token))
+	return scanRedemptionApplication(row)
+}
+
+// ListRedemptionApplications returns redemption applications, optionally filtered by status.
+func (store *Store) ListRedemptionApplications(status string) ([]model.RedemptionApplication, error) {
+	status = strings.TrimSpace(status)
+	query := `
+		SELECT ` + redemptionSelectColumns + `
+		FROM redemption_applications`
+	args := []any{}
+	if status != "" {
+		query += ` WHERE status = ?`
+		args = append(args, status)
+	}
+	query += `
+		ORDER BY
+			CASE status WHEN 'pending' THEN 0 ELSE 1 END ASC,
+			created_at DESC,
+			id DESC`
+	rows, err := store.database.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	applications := make([]model.RedemptionApplication, 0)
+	for rows.Next() {
+		application, err := scanRedemptionApplication(rows)
+		if err != nil {
+			return nil, err
+		}
+		applications = append(applications, application)
+	}
+	return applications, rows.Err()
+}
+
+// CountRedemptionApplicationsByStatus counts applications with a given status.
+func (store *Store) CountRedemptionApplicationsByStatus(status string) (int, error) {
+	var count int
+	err := store.database.QueryRow(
+		`SELECT COUNT(1) FROM redemption_applications WHERE status = ?`,
+		strings.TrimSpace(status),
+	).Scan(&count)
+	return count, err
+}
+
+// MarkRedemptionApplicationInvited marks a pending application as invited.
+func (store *Store) MarkRedemptionApplicationInvited(
+	applicationID int64,
+	accountID int64,
+	seatID int64,
+	subscriptionID int64,
+	operatorNote string,
+) error {
+	now := formatTime(time.Now().UTC())
+	result, err := store.database.Exec(`
+		UPDATE redemption_applications
+		SET status = ?,
+			assigned_account_id = ?,
+			assigned_seat_id = ?,
+			assigned_subscription_id = ?,
+			operator_note = ?,
+			invited_at = ?,
+			updated_at = ?
+		WHERE id = ? AND status = ?`,
+		model.RedemptionStatusInvited,
+		accountID,
+		seatID,
+		subscriptionID,
+		strings.TrimSpace(operatorNote),
+		now,
+		now,
+		applicationID,
+		model.RedemptionStatusPending,
+	)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 const accountSelectColumns = `
 	id,
 	name,
@@ -1626,6 +1787,53 @@ func (store *Store) InsertTestNotificationLog(
 
 type scannable interface {
 	Scan(dest ...any) error
+}
+
+func scanRedemptionApplication(scanner scannable) (model.RedemptionApplication, error) {
+	var application model.RedemptionApplication
+	var invitedAt sql.NullString
+	var createdAt string
+	var updatedAt string
+	err := scanner.Scan(
+		&application.ID,
+		&application.TrackingToken,
+		&application.CustomerEmail,
+		&application.CustomerContact,
+		&application.RedeemCode,
+		&application.RequestNote,
+		&application.Status,
+		&application.AssignedAccountID,
+		&application.AssignedSeatID,
+		&application.AssignedSubscriptionID,
+		&application.OperatorNote,
+		&invitedAt,
+		&createdAt,
+		&updatedAt,
+	)
+	if err != nil {
+		return model.RedemptionApplication{}, err
+	}
+	application.CustomerEmail = strings.TrimSpace(application.CustomerEmail)
+	application.CustomerContact = strings.TrimSpace(application.CustomerContact)
+	application.RedeemCode = strings.TrimSpace(application.RedeemCode)
+	application.RequestNote = strings.TrimSpace(application.RequestNote)
+	application.OperatorNote = strings.TrimSpace(application.OperatorNote)
+	if invitedAt.Valid && invitedAt.String != "" {
+		parsed, err := parseTime(invitedAt.String)
+		if err != nil {
+			return model.RedemptionApplication{}, err
+		}
+		application.InvitedAt = &parsed
+	}
+	application.CreatedAt, err = parseTime(createdAt)
+	if err != nil {
+		return model.RedemptionApplication{}, err
+	}
+	application.UpdatedAt, err = parseTime(updatedAt)
+	if err != nil {
+		return model.RedemptionApplication{}, err
+	}
+	return application, nil
 }
 
 func scanAccount(scanner scannable) (model.Account, error) {

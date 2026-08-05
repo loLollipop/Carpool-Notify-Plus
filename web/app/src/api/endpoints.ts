@@ -11,6 +11,10 @@ import type {
   Dashboard,
   DuePeriodOption,
   ReminderPreview,
+  RedemptionApplicationView,
+  RedemptionInviteInput,
+  RedemptionStatus,
+  RedemptionSubmitInput,
   Settings,
   SettingsInput,
   SubscriptionInput,
@@ -53,6 +57,16 @@ export function fetchSubscriptions() {
   )
 }
 
+export function fetchRedemptions(status?: "pending" | "invited" | "all") {
+  const query = status && status !== "all" ? `?status=${encodeURIComponent(status)}` : ""
+  return api<{ redemptions: RedemptionApplicationView[] | null; pending_count: number }>(
+    `/api/redemptions${query}`,
+  ).then((r) => ({
+    redemptions: r.redemptions ?? [],
+    pending_count: r.pending_count,
+  }))
+}
+
 export function fetchAccounts() {
   return api<{ accounts: AccountView[] | null }>("/api/accounts").then((r) => r.accounts ?? [])
 }
@@ -90,6 +104,19 @@ export function fetchDuePeriods(subscriptionId: number, preferred?: string) {
   return api<{ periods: DuePeriodOption[] | null }>(
     `/api/subscriptions/${subscriptionId}/due-periods${query}`,
   ).then((r) => r.periods ?? [])
+}
+
+export function fetchRedemptionStatus(token: string) {
+  return api<{ redemption: RedemptionStatus }>(`/api/redeem/${encodeURIComponent(token)}`).then(
+    (r) => r.redemption,
+  )
+}
+
+export function submitRedemptionApplication(input: RedemptionSubmitInput) {
+  return api<MessageResult & { tracking_token: string; status: "pending" | "invited" }>(
+    "/api/redeem",
+    { method: "POST", body: input },
+  )
 }
 
 // ---- Subscription mutations ----
@@ -130,6 +157,13 @@ export function setDuePaid(id: number, dueDate: string, paid: boolean) {
     `/api/subscriptions/${id}/due/${dueDate}/paid`,
     { method: "POST", body: { paid } },
   )
+}
+
+export function inviteRedemption(id: number, input: RedemptionInviteInput) {
+  return api<MessageResult & { subscription_id: number }>(`/api/redemptions/${id}/invite`, {
+    method: "POST",
+    body: input,
+  })
 }
 
 // ---- Account mutations ----

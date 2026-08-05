@@ -97,6 +97,7 @@ export function AppShell() {
     { to: "/", label: t("nav.dashboard"), end: true },
     { to: "/calendar", label: t("nav.calendar"), end: true },
     { to: "/users", label: t("nav.users"), end: true },
+    { to: "/redemptions", label: t("nav.redemptions"), end: true },
     { to: "/accounts", label: t("nav.accounts"), end: true },
     { to: "/bills", label: t("nav.bills"), end: true },
     { to: "/settings", label: t("nav.settings"), end: true },
@@ -107,7 +108,10 @@ export function AppShell() {
       <header className="sticky top-0 z-40 border-b bg-background/85 backdrop-blur-md">
         <div className="mx-auto flex h-14 w-full max-w-[1400px] items-center gap-6 px-4 sm:px-6">
           <BrandMark />
-          <nav className="flex items-center gap-1 text-sm" aria-label="主导航">
+          <nav
+            className="flex min-w-0 items-center gap-1 overflow-x-auto text-sm"
+            aria-label="主导航"
+          >
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
@@ -115,7 +119,7 @@ export function AppShell() {
                 end={item.end}
                 className={({ isActive }) => {
                   return cn(
-                    "relative rounded-md px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:text-foreground",
+                    "relative shrink-0 rounded-md px-3 py-1.5 font-medium text-muted-foreground transition-colors hover:text-foreground",
                     "after:absolute after:inset-x-3 after:-bottom-[13px] after:h-[2px] after:rounded-full after:bg-brand after:origin-left after:scale-x-0 after:transition-transform after:duration-300",
                     isActive && "text-foreground after:scale-x-100",
                   )

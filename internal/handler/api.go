@@ -59,6 +59,20 @@ func (server *Server) getSubscriptions(context *gin.Context) {
 	respondOK(context, gin.H{"subscriptions": views, "archived": archived})
 }
 
+func (server *Server) getRedemptions(context *gin.Context) {
+	views, err := server.Service.ListRedemptionApplicationsView(context.Query("status"))
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	pendingCount, err := server.Service.Store.CountRedemptionApplicationsByStatus(model.RedemptionStatusPending)
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"redemptions": views, "pending_count": pendingCount})
+}
+
 func (server *Server) getAccounts(context *gin.Context) {
 	accounts, err := server.Service.ListAccountsView()
 	if err != nil {
@@ -233,6 +247,48 @@ func (server *Server) getExport(context *gin.Context) {
 	context.Data(http.StatusOK, "application/json; charset=utf-8", encoded)
 }
 
+// ---- Public redemption -------------------------------------------------------
+
+type redemptionSubmitRequest struct {
+	CustomerEmail   string `json:"customer_email"`
+	CustomerContact string `json:"customer_contact"`
+	RedeemCode      string `json:"redeem_code"`
+	RequestNote     string `json:"request_note"`
+}
+
+func (server *Server) postRedeemApplication(context *gin.Context) {
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
+	var request redemptionSubmitRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的申请内容")
+		return
+	}
+	result, err := server.Service.SubmitRedemptionApplication(service.RedemptionSubmitInput{
+		CustomerEmail:   request.CustomerEmail,
+		CustomerContact: request.CustomerContact,
+		RedeemCode:      request.RedeemCode,
+		RequestNote:     request.RequestNote,
+	})
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{
+		"tracking_token": result.TrackingToken,
+		"status":         result.Status,
+		"message":        "申请已提交，请耐心等待 1-2 分钟",
+	})
+}
+
+func (server *Server) getRedeemStatus(context *gin.Context) {
+	view, err := server.Service.GetRedemptionStatus(context.Param("token"))
+	if err != nil {
+		respondError(context, http.StatusNotFound, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"redemption": view})
+}
+
 // ---- Subscription mutations ---------------------------------------------------
 
 type subscriptionRequest struct {
@@ -252,11 +308,15 @@ type subscriptionRequest struct {
 	BoardedAt      string `json:"boarded_at"`
 }
 
-func (request subscriptionRequest) toCreateInput() service.CreateInput {
-	offsets := make([]string, 0, len(request.NotifyOffsets))
-	for _, offset := range request.NotifyOffsets {
-		offsets = append(offsets, strconv.Itoa(offset))
+func offsetsToRaw(offsets []int) string {
+	parts := make([]string, 0, len(offsets))
+	for _, offset := range offsets {
+		parts = append(parts, strconv.Itoa(offset))
 	}
+	return strings.Join(parts, ",")
+}
+
+func (request subscriptionRequest) toCreateInput() service.CreateInput {
 	return service.CreateInput{
 		Name:             request.Name,
 		PriceYuan:        request.PriceYuan,
@@ -264,7 +324,7 @@ func (request subscriptionRequest) toCreateInput() service.CreateInput {
 		IsResale:         request.IsResale,
 		AgencyFeeYuan:    request.AgencyFeeYuan,
 		CronExpr:         request.CronExpr,
-		NotifyOffsetsRaw: strings.Join(offsets, ","),
+		NotifyOffsetsRaw: offsetsToRaw(request.NotifyOffsets),
 		Remark:           request.Remark,
 		TradeURL:         request.TradeURL,
 		CustomerEmail:    request.CustomerEmail,
@@ -272,6 +332,34 @@ func (request subscriptionRequest) toCreateInput() service.CreateInput {
 		AccountID:        request.AccountID,
 		SeatID:           request.SeatID,
 		BoardedAt:        request.BoardedAt,
+	}
+}
+
+type redemptionInviteRequest struct {
+	SeatID        int64  `json:"seat_id"`
+	PriceYuan     string `json:"price_yuan"`
+	IsResale      bool   `json:"is_resale"`
+	AgencyFeeYuan string `json:"agency_fee_yuan"`
+	CronExpr      string `json:"cron_expr"`
+	NotifyOffsets []int  `json:"notify_offsets"`
+	BoardedAt     string `json:"boarded_at"`
+	Remark        string `json:"remark"`
+	TradeURL      string `json:"trade_url"`
+	OperatorNote  string `json:"operator_note"`
+}
+
+func (request redemptionInviteRequest) toInviteInput() service.RedemptionInviteInput {
+	return service.RedemptionInviteInput{
+		SeatID:           request.SeatID,
+		PriceYuan:        request.PriceYuan,
+		IsResale:         request.IsResale,
+		AgencyFeeYuan:    request.AgencyFeeYuan,
+		CronExpr:         request.CronExpr,
+		NotifyOffsetsRaw: offsetsToRaw(request.NotifyOffsets),
+		BoardedAt:        request.BoardedAt,
+		Remark:           request.Remark,
+		TradeURL:         request.TradeURL,
+		OperatorNote:     request.OperatorNote,
 	}
 }
 
@@ -286,6 +374,27 @@ func (server *Server) postCreateSubscription(context *gin.Context) {
 		return
 	}
 	respondOK(context, gin.H{"message": "已创建订阅"})
+}
+
+func (server *Server) postInviteRedemption(context *gin.Context) {
+	applicationID, ok := parseIDParam(context, "id", "无效的兑换申请 ID")
+	if !ok {
+		return
+	}
+	var request redemptionInviteRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的处理内容")
+		return
+	}
+	subscriptionID, err := server.Service.InviteRedemptionApplication(applicationID, request.toInviteInput())
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{
+		"message":         "已邀请，并已自动创建订阅",
+		"subscription_id": subscriptionID,
+	})
 }
 
 func (server *Server) putUpdateSubscription(context *gin.Context) {

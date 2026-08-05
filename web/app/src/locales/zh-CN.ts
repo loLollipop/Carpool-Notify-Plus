@@ -21,6 +21,7 @@ export default {
       calendar: "拼车日历",
       dashboard: "仪表盘",
       users: "用户管理",
+      redemptions: "兑换申请",
       accounts: "账号",
       bills: "账单",
       settings: "设置",

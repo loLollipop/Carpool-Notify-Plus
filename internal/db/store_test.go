@@ -143,6 +143,59 @@ func TestOpenUpdatesDueSoonDefaultTemplatesToDueInText(t *testing.T) {
 	}
 }
 
+func TestRedemptionApplicationLifecycle(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "carpool.db"))
+	defer store.Close()
+
+	applicationID, err := store.CreateRedemptionApplication(model.RedemptionApplication{
+		TrackingToken:   "token-abc",
+		CustomerEmail:   "customer@example.com",
+		CustomerContact: "wx-customer",
+		RedeemCode:      "CODE701",
+		RequestNote:     "please invite",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	application, err := store.GetRedemptionApplicationByToken("token-abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application.ID != applicationID || application.Status != model.RedemptionStatusPending {
+		t.Fatalf("application = id %d status %q, want id %d pending", application.ID, application.Status, applicationID)
+	}
+	if application.CustomerEmail != "customer@example.com" || application.CustomerContact != "wx-customer" {
+		t.Fatalf("customer fields = %q / %q", application.CustomerEmail, application.CustomerContact)
+	}
+
+	pendingCount, err := store.CountRedemptionApplicationsByStatus(model.RedemptionStatusPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pendingCount != 1 {
+		t.Fatalf("pending count = %d, want 1", pendingCount)
+	}
+
+	if err := store.MarkRedemptionApplicationInvited(applicationID, 11, 22, 33, "sent"); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := store.GetRedemptionApplication(applicationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != model.RedemptionStatusInvited {
+		t.Fatalf("status = %q, want invited", updated.Status)
+	}
+	if updated.AssignedAccountID != 11 || updated.AssignedSeatID != 22 || updated.AssignedSubscriptionID != 33 {
+		t.Fatalf("assigned ids = %d/%d/%d", updated.AssignedAccountID, updated.AssignedSeatID, updated.AssignedSubscriptionID)
+	}
+	if updated.OperatorNote != "sent" || updated.InvitedAt == nil {
+		t.Fatalf("operator note/invited_at = %q/%v", updated.OperatorNote, updated.InvitedAt)
+	}
+}
+
 func openStore(t *testing.T, databasePath string) *db.Store {
 	t.Helper()
 	store, err := db.Open(databasePath)
