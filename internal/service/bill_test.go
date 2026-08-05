@@ -42,6 +42,68 @@ func TestSetDuePaidCreatesAndDeletesBill(t *testing.T) {
 	}
 }
 
+func TestCreateWithInitialBillMarksIntervalBoardedAtPaid(t *testing.T) {
+	subscriptionService := openTestService(t)
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "initial bill account", "seat1")
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "initial bill customer",
+		PriceYuan:        "30.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-07-20",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	paid, err := subscriptionService.Store.IsDuePaid(subscriptionID, "2026-07-20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !paid {
+		t.Fatal("initial interval period should be marked paid")
+	}
+	bill, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-07-20")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bill.AmountCents != 3000 {
+		t.Fatalf("initial bill amount = %d, want 3000", bill.AmountCents)
+	}
+}
+
+func TestCreateWithInitialBillUsesFirstCronDueAfterBoardedAt(t *testing.T) {
+	subscriptionService := openTestService(t)
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "cron initial bill account", "seat1")
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "cron initial bill customer",
+		PriceYuan:        "42.50",
+		CronExpr:         "0 0 15 * *",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-07-10",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	paidAtBoarded, err := subscriptionService.Store.IsDuePaid(subscriptionID, "2026-07-10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paidAtBoarded {
+		t.Fatal("boarded_at is not a cron due date and should not be marked paid")
+	}
+	bill, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-07-15")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bill.AmountCents != 4250 {
+		t.Fatalf("initial cron bill amount = %d, want 4250", bill.AmountCents)
+	}
+}
+
 func TestBillViewIncludesCustomerAndAccountDetails(t *testing.T) {
 	subscriptionService := openTestService(t)
 	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{

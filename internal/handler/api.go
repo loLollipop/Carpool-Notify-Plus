@@ -279,7 +279,7 @@ func (server *Server) postCreateSubscription(context *gin.Context) {
 		respondError(context, http.StatusBadRequest, "无效的请求")
 		return
 	}
-	if _, err := server.Service.Create(request.toCreateInput()); err != nil {
+	if _, err := server.Service.CreateWithInitialBill(request.toCreateInput()); err != nil {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
 	}

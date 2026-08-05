@@ -376,6 +376,41 @@ func (service *SubscriptionService) Create(input CreateInput) (int64, error) {
 	return service.Store.CreateSubscription(subscription)
 }
 
+// CreateWithInitialBill creates a subscription from the operator form/import flow
+// and records the first billing period as paid.
+func (service *SubscriptionService) CreateWithInitialBill(input CreateInput) (int64, error) {
+	subscription, err := service.parseInput(input, 0)
+	if err != nil {
+		return 0, err
+	}
+	initialDueDate, err := initialBillDueDate(subscription)
+	if err != nil {
+		return 0, err
+	}
+	subscriptionID, err := service.Store.CreateSubscription(subscription)
+	if err != nil {
+		return 0, err
+	}
+	if err := service.Store.SetDuePaid(subscriptionID, initialDueDate, true, billDefaultAmountCents(subscription)); err != nil {
+		_ = service.Store.SoftDeleteSubscription(subscriptionID)
+		return 0, err
+	}
+	return subscriptionID, nil
+}
+
+func initialBillDueDate(subscription model.Subscription) (string, error) {
+	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	if err != nil {
+		return "", err
+	}
+	boardedAt, err := time.ParseInLocation("2006-01-02", subscription.BoardedAt, cycle.Location)
+	if err != nil {
+		return "", fmt.Errorf("invalid boarded_at: %w", err)
+	}
+	dueAt := schedule.NextDue(cycle.StartOfDay(boardedAt).Add(-time.Nanosecond))
+	return cycle.FormatDate(dueAt), nil
+}
+
 // Update validates and updates a subscription.
 func (service *SubscriptionService) Update(subscriptionID int64, input CreateInput) error {
 	previous, err := service.Store.GetSubscription(subscriptionID)
