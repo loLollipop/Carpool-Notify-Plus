@@ -101,3 +101,44 @@ func TestRenderMessageNamePrefersCustomerEmail(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderCustomerEmailIncludesDueInText(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.July, 12, 10, 0, 0, 0, cycle.Location)
+	}
+	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "owner@example.com",
+		Email:     "owner@example.com",
+		SeatCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscriptionID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "due text customer",
+		PriceYuan:        "42.50",
+		CronExpr:         "0 0 15 * *",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "customer@example.com",
+		AccountID:        accountID,
+		BoardedAt:        "2000-01-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SaveCustomerEmailTemplate("{{.DueInText}} / {{.DaysUntilDue}} / {{.NextDueDate}}"); err != nil {
+		t.Fatal(err)
+	}
+	subscription, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered, err := subscriptionService.RenderCustomerEmail(subscription)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rendered != "还有 3 天到期 / 3 / 2026-07-15" {
+		t.Fatalf("rendered template = %q", rendered)
+	}
+}

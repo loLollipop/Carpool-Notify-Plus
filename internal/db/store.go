@@ -206,6 +206,9 @@ func (store *Store) migrate() error {
 	if err := store.migrateDefaultCustomerEmailTemplate(); err != nil {
 		return err
 	}
+	if err := store.migrateDefaultTemplatesToDueInText(); err != nil {
+		return err
+	}
 
 	var channelsCount int
 	err = store.database.QueryRow(
@@ -237,6 +240,25 @@ const legacyDefaultCustomerEmailTemplate = `您好，这是关于「{{.CustomerE
 
 请按时缴费，谢谢。`
 
+const defaultNotifyTemplateBeforeDueInText = `【拼车收钱】{{.CustomerEmail}}
+本期应收：¥{{.AmountDue}}
+周期：{{.CycleDesc}}
+到期：{{.NextDueDate}}
+{{if .Remark}}备注：{{.Remark}}{{end}}
+{{if .TradeURL}}链接：{{.TradeURL}}{{end}}`
+
+const defaultCustomerEmailTemplateBeforeDueInText = `您好，您的拼车服务即将到期，请及时续费，以免影响正常使用。
+
+客户邮箱：{{.CustomerEmail}}
+本期应收：¥{{.AmountDue}}
+计费周期：{{.CycleDesc}}
+到期日期：{{.NextDueDate}}
+{{if .Remark}}备注：{{.Remark}}{{end}}
+{{if .TradeURL}}续费链接：{{.TradeURL}}{{end}}
+
+如需续费或有疑问，请添加 / 联系微信：Jerrylove_Bom
+谢谢。`
+
 func (store *Store) migrateDefaultCustomerEmailTemplate() error {
 	templateBody, err := store.GetSetting(model.SettingCustomerEmailTemplate)
 	if err != nil {
@@ -249,6 +271,41 @@ func (store *Store) migrateDefaultCustomerEmailTemplate() error {
 		return nil
 	}
 	return store.SetSetting(model.SettingCustomerEmailTemplate, model.DefaultCustomerEmailTemplate)
+}
+
+func (store *Store) migrateDefaultTemplatesToDueInText() error {
+	migrations := map[string]struct {
+		oldValue string
+		newValue string
+	}{
+		model.SettingNotifyTemplate: {
+			oldValue: defaultNotifyTemplateBeforeDueInText,
+			newValue: model.DefaultNotifyTemplate,
+		},
+		model.SettingCustomerEmailTemplate: {
+			oldValue: defaultCustomerEmailTemplateBeforeDueInText,
+			newValue: model.DefaultCustomerEmailTemplate,
+		},
+	}
+	for key, migration := range migrations {
+		templateBody, err := store.GetSetting(key)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				continue
+			}
+			return err
+		}
+		if strings.Contains(templateBody, ".DueInText") {
+			continue
+		}
+		if normalizeTemplateForMigration(templateBody) != normalizeTemplateForMigration(migration.oldValue) {
+			continue
+		}
+		if err := store.SetSetting(key, migration.newValue); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func normalizeTemplateForMigration(templateBody string) string {

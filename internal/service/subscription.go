@@ -29,6 +29,37 @@ type SubscriptionService struct {
 	Clock  func() time.Time
 }
 
+// NewNotifyRegistry builds senders from runtime configuration.
+func NewNotifyRegistry(configuration config.Config) notify.Registry {
+	registry := notify.Registry{}
+	if configuration.GotifyConfigured() {
+		registry.Gotify = notify.GotifySender{
+			BaseURL: configuration.GotifyURL,
+			Token:   configuration.GotifyToken,
+		}
+	}
+	if configuration.IYUUConfigured() {
+		registry.IYUU = notify.IYUUSender{Token: configuration.IYUUToken}
+	}
+	if configuration.SMTPConfigured() {
+		registry.SMTP = notify.SMTPSender{
+			Host:     configuration.SMTPHost,
+			Port:     configuration.SMTPPort,
+			Username: configuration.SMTPUsername,
+			Password: configuration.SMTPPassword,
+			From:     configuration.SMTPFrom,
+			To:       notify.ParseSMTPRecipients(configuration.SMTPTo),
+		}
+	}
+	return registry
+}
+
+// ApplyConfig refreshes runtime notification senders after config.toml changes.
+func (service *SubscriptionService) ApplyConfig(configuration config.Config) {
+	service.Config = configuration
+	service.Notify = NewNotifyRegistry(configuration)
+}
+
 func (service *SubscriptionService) now() time.Time {
 	if service.Clock != nil {
 		return service.Clock().In(cycle.Location)
@@ -902,7 +933,11 @@ func (service *SubscriptionService) RenderMessage(subscription model.Subscriptio
 	if err != nil {
 		return "", err
 	}
-	return service.renderTemplate("notify", templateBody, subscription)
+	dueAt, err := service.nextDueForTemplate(subscription)
+	if err != nil {
+		return "", err
+	}
+	return service.renderTemplateForDueDate("notify", templateBody, subscription, dueAt)
 }
 
 // RenderCustomerEmail renders the customer email template for a subscription.
@@ -911,19 +946,56 @@ func (service *SubscriptionService) RenderCustomerEmail(subscription model.Subsc
 	if err != nil {
 		return "", err
 	}
-	return service.renderTemplate("customer_email", templateBody, subscription)
+	dueAt, err := service.nextDueForTemplate(subscription)
+	if err != nil {
+		return "", err
+	}
+	return service.renderTemplateForDueDate("customer_email", templateBody, subscription, dueAt)
 }
 
-func (service *SubscriptionService) renderTemplate(name string, templateBody string, subscription model.Subscription) (string, error) {
+func (service *SubscriptionService) renderMessageForDueDate(subscription model.Subscription, dueAt time.Time) (string, error) {
+	templateBody, err := service.GetNotifyTemplate()
+	if err != nil {
+		return "", err
+	}
+	return service.renderTemplateForDueDate("notify", templateBody, subscription, dueAt)
+}
+
+func (service *SubscriptionService) renderCustomerEmailForDueDate(subscription model.Subscription, dueAt time.Time) (string, error) {
+	templateBody, err := service.GetCustomerEmailTemplate()
+	if err != nil {
+		return "", err
+	}
+	return service.renderTemplateForDueDate("customer_email", templateBody, subscription, dueAt)
+}
+
+func parseTemplateDueDate(value string) (time.Time, error) {
+	dueAt, err := time.ParseInLocation("2006-01-02", value, cycle.Location)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("invalid due date %q", value)
+	}
+	return dueAt, nil
+}
+
+func (service *SubscriptionService) nextDueForTemplate(subscription model.Subscription) (time.Time, error) {
+	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return schedule.NextDue(service.now()), nil
+}
+
+func (service *SubscriptionService) renderTemplateForDueDate(
+	name string,
+	templateBody string,
+	subscription model.Subscription,
+	dueAt time.Time,
+) (string, error) {
 	parsed, err := template.New(name).Parse(templateBody)
 	if err != nil {
 		return "", err
 	}
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
-	if err != nil {
-		return "", err
-	}
-	nextDue := schedule.NextDue(service.now())
+	daysUntilDue := cycle.DaysRemaining(dueAt, service.now())
 	data := model.TemplateData{
 		Name:             templateDisplayName(subscription),
 		SubscriptionName: subscription.Name,
@@ -934,7 +1006,9 @@ func (service *SubscriptionService) renderTemplate(name string, templateBody str
 		PricePerPerson:   cycle.FormatCents(subscription.PricePerPersonCents),
 		AmountDue:        cycle.FormatCents(subscription.PricePerPersonCents),
 		CycleDesc:        cycle.DescribeCron(subscription.CronExpr),
-		NextDueDate:      cycle.FormatDate(nextDue),
+		NextDueDate:      cycle.FormatDate(dueAt),
+		DaysUntilDue:     daysUntilDue,
+		DueInText:        dueInText(daysUntilDue),
 		Remark:           subscription.Remark,
 		TradeURL:         subscription.TradeURL,
 	}
@@ -945,6 +1019,17 @@ func (service *SubscriptionService) renderTemplate(name string, templateBody str
 	return strings.TrimSpace(buffer.String()), nil
 }
 
+func dueInText(days int) string {
+	switch {
+	case days > 0:
+		return fmt.Sprintf("还有 %d 天到期", days)
+	case days == 0:
+		return "今天到期"
+	default:
+		return fmt.Sprintf("已过期 %d 天", -days)
+	}
+}
+
 // PreviewTemplate renders an arbitrary (possibly unsaved) template body with live
 // sample data: the first active subscription, or synthetic values when none exist.
 func (service *SubscriptionService) PreviewTemplate(name string, templateBody string) (rendered string, sampleName string, err error) {
@@ -952,7 +1037,11 @@ func (service *SubscriptionService) PreviewTemplate(name string, templateBody st
 	if err != nil {
 		return "", "", err
 	}
-	rendered, err = service.renderTemplate(name, templateBody, subscription)
+	dueAt, err := service.nextDueForTemplate(subscription)
+	if err != nil {
+		return "", "", err
+	}
+	rendered, err = service.renderTemplateForDueDate(name, templateBody, subscription, dueAt)
 	if err != nil {
 		return "", "", err
 	}
@@ -1398,7 +1487,14 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 			failures = append(failures, "customer email missing")
 			continue
 		}
-		message, err := service.RenderCustomerEmail(subscription)
+		dueAt, err := parseTemplateDueDate(logEntry.DueDate)
+		if err != nil {
+			logEntry.AttemptCount = logEntry.AttemptCount + 1
+			_ = service.failWithRetry(logEntry, err.Error())
+			failures = append(failures, err.Error())
+			continue
+		}
+		message, err := service.renderCustomerEmailForDueDate(subscription, dueAt)
 		if err != nil {
 			logEntry.AttemptCount = logEntry.AttemptCount + 1
 			_ = service.failWithRetry(logEntry, err.Error())
@@ -1469,7 +1565,13 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 			}
 			return err
 		}
-		message, err := service.RenderMessage(subscription)
+		dueAt, err := parseTemplateDueDate(logEntry.DueDate)
+		if err != nil {
+			logEntry.AttemptCount = logEntry.AttemptCount + 1
+			_ = service.failWithRetry(logEntry, err.Error())
+			continue
+		}
+		message, err := service.renderMessageForDueDate(subscription, dueAt)
 		if err != nil {
 			logEntry.AttemptCount = logEntry.AttemptCount + 1
 			_ = service.failWithRetry(logEntry, err.Error())

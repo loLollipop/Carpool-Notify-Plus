@@ -13,7 +13,6 @@ import (
 	"carpool-notify/internal/config"
 	"carpool-notify/internal/db"
 	"carpool-notify/internal/handler"
-	"carpool-notify/internal/notify"
 	"carpool-notify/internal/scheduler"
 	"carpool-notify/internal/service"
 
@@ -35,31 +34,10 @@ func main() {
 	}
 	defer store.Close()
 
-	notifyRegistry := notify.Registry{}
-	if configuration.GotifyConfigured() {
-		notifyRegistry.Gotify = notify.GotifySender{
-			BaseURL: configuration.GotifyURL,
-			Token:   configuration.GotifyToken,
-		}
-	}
-	if configuration.IYUUConfigured() {
-		notifyRegistry.IYUU = notify.IYUUSender{Token: configuration.IYUUToken}
-	}
-	if configuration.SMTPConfigured() {
-		notifyRegistry.SMTP = notify.SMTPSender{
-			Host:     configuration.SMTPHost,
-			Port:     configuration.SMTPPort,
-			Username: configuration.SMTPUsername,
-			Password: configuration.SMTPPassword,
-			From:     configuration.SMTPFrom,
-			To:       notify.ParseSMTPRecipients(configuration.SMTPTo),
-		}
-	}
-
 	subscriptionService := &service.SubscriptionService{
 		Store:  store,
 		Config: configuration,
-		Notify: notifyRegistry,
+		Notify: service.NewNotifyRegistry(configuration),
 	}
 
 	workingDirectory, err := os.Getwd()

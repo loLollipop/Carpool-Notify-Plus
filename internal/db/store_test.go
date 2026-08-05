@@ -96,6 +96,53 @@ func TestOpenUpdatesLegacyDefaultCustomerEmailTemplate(t *testing.T) {
 	}
 }
 
+func TestOpenUpdatesDueSoonDefaultTemplatesToDueInText(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "carpool.db")
+	store := openStore(t, databasePath)
+	oldNotify := `【拼车收钱】{{.CustomerEmail}}
+本期应收：¥{{.AmountDue}}
+周期：{{.CycleDesc}}
+到期：{{.NextDueDate}}
+{{if .Remark}}备注：{{.Remark}}{{end}}
+{{if .TradeURL}}链接：{{.TradeURL}}{{end}}`
+	oldCustomer := `您好，您的拼车服务即将到期，请及时续费，以免影响正常使用。
+
+客户邮箱：{{.CustomerEmail}}
+本期应收：¥{{.AmountDue}}
+计费周期：{{.CycleDesc}}
+到期日期：{{.NextDueDate}}
+{{if .Remark}}备注：{{.Remark}}{{end}}
+{{if .TradeURL}}续费链接：{{.TradeURL}}{{end}}
+
+如需续费或有疑问，请添加 / 联系微信：Jerrylove_Bom
+谢谢。`
+	if err := store.SetSetting(model.SettingNotifyTemplate, oldNotify); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting(model.SettingCustomerEmailTemplate, oldCustomer); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store = openStore(t, databasePath)
+	defer store.Close()
+
+	for key, want := range map[string]string{
+		model.SettingNotifyTemplate:        model.DefaultNotifyTemplate,
+		model.SettingCustomerEmailTemplate: model.DefaultCustomerEmailTemplate,
+	} {
+		got, err := store.GetSetting(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("%s = %q, want %q", key, got, want)
+		}
+	}
+}
+
 func openStore(t *testing.T, databasePath string) *db.Store {
 	t.Helper()
 	store, err := db.Open(databasePath)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"carpool-notify/internal/config"
 	"carpool-notify/internal/cycle"
 	"carpool-notify/internal/model"
 	"carpool-notify/internal/service"
@@ -146,6 +147,7 @@ func (server *Server) getSettings(context *gin.Context) {
 		"customer_email_template": customerTemplate,
 		"enabled_channels":        enabledChannels,
 		"channels":                channels,
+		"notification_config":     server.Config.NotificationConfig(),
 	})
 }
 
@@ -521,9 +523,10 @@ func (server *Server) deleteBill(context *gin.Context) {
 
 func (server *Server) putSettings(context *gin.Context) {
 	var request struct {
-		NotifyTemplate        string   `json:"notify_template"`
-		CustomerEmailTemplate string   `json:"customer_email_template"`
-		Channels              []string `json:"channels"`
+		NotifyTemplate        string                          `json:"notify_template"`
+		CustomerEmailTemplate string                          `json:"customer_email_template"`
+		Channels              []string                        `json:"channels"`
+		NotificationConfig    *config.NotificationConfigInput `json:"notification_config"`
 	}
 	if err := context.ShouldBindJSON(&request); err != nil {
 		respondError(context, http.StatusBadRequest, "无效的请求")
@@ -540,6 +543,15 @@ func (server *Server) putSettings(context *gin.Context) {
 	if err := server.Service.SaveEnabledChannels(request.Channels); err != nil {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
+	}
+	if request.NotificationConfig != nil {
+		updatedConfig, err := config.UpdateNotificationConfig(server.Config.ConfigPath, *request.NotificationConfig)
+		if err != nil {
+			respondError(context, http.StatusBadRequest, err.Error())
+			return
+		}
+		server.Config = updatedConfig
+		server.Service.ApplyConfig(updatedConfig)
 	}
 	respondOK(context, gin.H{"message": "设置已保存"})
 }

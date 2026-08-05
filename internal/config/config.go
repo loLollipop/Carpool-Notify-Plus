@@ -28,6 +28,62 @@ type Config struct {
 	ConfigPath    string
 }
 
+// SMTPConfigView is the safe-to-display SMTP configuration shape.
+type SMTPConfigView struct {
+	Host        string `json:"host"`
+	Port        int    `json:"port"`
+	Username    string `json:"username"`
+	From        string `json:"from"`
+	To          string `json:"to"`
+	PasswordSet bool   `json:"password_set"`
+}
+
+// SecretConfigView reports whether a write-only token already exists.
+type SecretConfigView struct {
+	TokenSet bool `json:"token_set"`
+}
+
+// GotifyConfigView is the safe-to-display Gotify configuration shape.
+type GotifyConfigView struct {
+	URL      string `json:"url"`
+	TokenSet bool   `json:"token_set"`
+}
+
+// NotificationConfigView is returned by the settings API without secret values.
+type NotificationConfigView struct {
+	SMTP   SMTPConfigView   `json:"smtp"`
+	IYUU   SecretConfigView `json:"iyuu"`
+	Gotify GotifyConfigView `json:"gotify"`
+}
+
+// SMTPConfigInput is accepted by the settings API. Empty Password keeps the old secret.
+type SMTPConfigInput struct {
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	From     string `json:"from"`
+	To       string `json:"to"`
+}
+
+// SecretConfigInput updates a write-only token. Empty Token keeps the old secret.
+type SecretConfigInput struct {
+	Token string `json:"token"`
+}
+
+// GotifyConfigInput updates Gotify. Empty Token keeps the old secret.
+type GotifyConfigInput struct {
+	URL   string `json:"url"`
+	Token string `json:"token"`
+}
+
+// NotificationConfigInput is accepted by the settings API.
+type NotificationConfigInput struct {
+	SMTP   SMTPConfigInput   `json:"smtp"`
+	IYUU   SecretConfigInput `json:"iyuu"`
+	Gotify GotifyConfigInput `json:"gotify"`
+}
+
 // fileConfig is the on-disk TOML shape.
 type fileConfig struct {
 	Server struct {
@@ -135,6 +191,68 @@ func (configuration Config) SMTPOperatorConfigured() bool {
 	return configuration.SMTPConfigured() && strings.TrimSpace(configuration.SMTPTo) != ""
 }
 
+// NotificationConfig returns the safe, editable notification configuration.
+func (configuration Config) NotificationConfig() NotificationConfigView {
+	return NotificationConfigView{
+		SMTP: SMTPConfigView{
+			Host:        configuration.SMTPHost,
+			Port:        configuration.SMTPPort,
+			Username:    configuration.SMTPUsername,
+			From:        configuration.SMTPFrom,
+			To:          configuration.SMTPTo,
+			PasswordSet: strings.TrimSpace(configuration.SMTPPassword) != "",
+		},
+		IYUU: SecretConfigView{
+			TokenSet: strings.TrimSpace(configuration.IYUUToken) != "",
+		},
+		Gotify: GotifyConfigView{
+			URL:      configuration.GotifyURL,
+			TokenSet: strings.TrimSpace(configuration.GotifyToken) != "",
+		},
+	}
+}
+
+// UpdateNotificationConfig writes notification settings to config.toml and reloads
+// the effective runtime config. Secret fields are write-only: empty input keeps
+// the existing value on disk.
+func UpdateNotificationConfig(path string, input NotificationConfigInput) (Config, error) {
+	fileValues, err := loadTOMLFile(path)
+	if err != nil {
+		return Config{}, err
+	}
+
+	smtpPort := input.SMTP.Port
+	if smtpPort <= 0 {
+		smtpPort = 587
+	}
+	if smtpPort > 65535 {
+		return Config{}, fmt.Errorf("smtp port must be between 1 and 65535")
+	}
+
+	fileValues.SMTP.Host = strings.TrimSpace(input.SMTP.Host)
+	fileValues.SMTP.Port = smtpPort
+	fileValues.SMTP.Username = strings.TrimSpace(input.SMTP.Username)
+	if strings.TrimSpace(input.SMTP.Password) != "" {
+		fileValues.SMTP.Password = strings.TrimSpace(input.SMTP.Password)
+	}
+	fileValues.SMTP.From = strings.TrimSpace(input.SMTP.From)
+	fileValues.SMTP.To = strings.TrimSpace(input.SMTP.To)
+
+	if strings.TrimSpace(input.IYUU.Token) != "" {
+		fileValues.IYUU.Token = strings.TrimSpace(input.IYUU.Token)
+	}
+
+	fileValues.Gotify.URL = strings.TrimRight(strings.TrimSpace(input.Gotify.URL), "/")
+	if strings.TrimSpace(input.Gotify.Token) != "" {
+		fileValues.Gotify.Token = strings.TrimSpace(input.Gotify.Token)
+	}
+
+	if err := writeTOMLFile(path, fileValues); err != nil {
+		return Config{}, err
+	}
+	return Load()
+}
+
 func resolveConfigPath() string {
 	flagSet := flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
 	flagSet.SetOutput(os.Stderr)
@@ -168,6 +286,26 @@ func loadTOMLFile(path string) (fileConfig, error) {
 		return fileConfig{}, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	return parsed, nil
+}
+
+func writeTOMLFile(path string, values fileConfig) error {
+	raw, err := toml.Marshal(values)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	mode := os.FileMode(0o600)
+	if info, err := os.Stat(path); err == nil {
+		mode = info.Mode().Perm()
+	}
+	tempPath := path + ".tmp"
+	if err := os.WriteFile(tempPath, raw, mode); err != nil {
+		return fmt.Errorf("write config temp: %w", err)
+	}
+	if err := os.Rename(tempPath, path); err != nil {
+		_ = os.Remove(tempPath)
+		return fmt.Errorf("replace config: %w", err)
+	}
+	return nil
 }
 
 func firstNonEmpty(values ...string) string {

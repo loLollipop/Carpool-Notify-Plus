@@ -279,11 +279,30 @@ export interface ChannelSetting {
   operator_configured: boolean
 }
 
+export interface NotificationConfig {
+  smtp: {
+    host: string
+    port: number
+    username: string
+    from: string
+    to: string
+    password_set: boolean
+  }
+  iyuu: {
+    token_set: boolean
+  }
+  gotify: {
+    url: string
+    token_set: boolean
+  }
+}
+
 export interface Settings {
   notify_template: string
   customer_email_template: string
   enabled_channels: string[] | null
   channels: ChannelSetting[]
+  notification_config: NotificationConfig
 }
 
 export interface DuePeriodOption {
@@ -344,4 +363,21 @@ export interface SettingsInput {
   notify_template: string
   customer_email_template: string
   channels: string[]
+  notification_config: {
+    smtp: {
+      host: string
+      port: number
+      username: string
+      password: string
+      from: string
+      to: string
+    }
+    iyuu: {
+      token: string
+    }
+    gotify: {
+      url: string
+      token: string
+    }
+  }
 }

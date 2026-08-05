@@ -42,6 +42,7 @@ var DefaultEnabledChannels = []string{ChannelIYUU}
 
 // DefaultNotifyTemplate is the initial global operator message template.
 const DefaultNotifyTemplate = `【拼车收钱】{{.CustomerEmail}}
+到期状态：{{.DueInText}}
 本期应收：¥{{.AmountDue}}
 周期：{{.CycleDesc}}
 到期：{{.NextDueDate}}
@@ -49,12 +50,12 @@ const DefaultNotifyTemplate = `【拼车收钱】{{.CustomerEmail}}
 {{if .TradeURL}}链接：{{.TradeURL}}{{end}}`
 
 // DefaultCustomerEmailTemplate is the initial template for emails to customers.
-const DefaultCustomerEmailTemplate = `您好，您的拼车服务即将到期，请及时续费，以免影响正常使用。
+const DefaultCustomerEmailTemplate = `您好，您的拼车服务{{.DueInText}}，请及时续费，以免影响正常使用。
 
 客户邮箱：{{.CustomerEmail}}
 本期应收：¥{{.AmountDue}}
 计费周期：{{.CycleDesc}}
-到期日期：{{.NextDueDate}}
+到期日期：{{.NextDueDate}}（{{.DueInText}}）
 {{if .Remark}}备注：{{.Remark}}{{end}}
 {{if .TradeURL}}续费链接：{{.TradeURL}}{{end}}
 
@@ -177,11 +178,13 @@ type TemplateData struct {
 	PricePerPerson   string
 	// AmountDue is the amount to collect for this subscription period. It is
 	// currently an explicit alias of PricePerPerson for clearer templates.
-	AmountDue   string
-	CycleDesc   string
-	NextDueDate string
-	Remark      string
-	TradeURL    string
+	AmountDue    string
+	CycleDesc    string
+	NextDueDate  string
+	DaysUntilDue int
+	DueInText    string
+	Remark       string
+	TradeURL     string
 }
 
 // ExportPayload is the JSON export shape (no secrets).
