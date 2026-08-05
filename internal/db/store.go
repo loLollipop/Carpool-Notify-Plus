@@ -203,6 +203,9 @@ func (store *Store) migrate() error {
 			return err
 		}
 	}
+	if err := store.migrateDefaultCustomerEmailTemplate(); err != nil {
+		return err
+	}
 
 	var channelsCount int
 	err = store.database.QueryRow(
@@ -222,6 +225,34 @@ func (store *Store) migrate() error {
 		}
 	}
 	return nil
+}
+
+const legacyDefaultCustomerEmailTemplate = `您好，这是关于「{{.CustomerEmail}}」的拼车提醒。
+
+本期应收：¥{{.AmountDue}}
+周期：{{.CycleDesc}}
+到期：{{.NextDueDate}}
+{{if .Remark}}备注：{{.Remark}}{{end}}
+{{if .TradeURL}}链接：{{.TradeURL}}{{end}}
+
+请按时缴费，谢谢。`
+
+func (store *Store) migrateDefaultCustomerEmailTemplate() error {
+	templateBody, err := store.GetSetting(model.SettingCustomerEmailTemplate)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	if normalizeTemplateForMigration(templateBody) != normalizeTemplateForMigration(legacyDefaultCustomerEmailTemplate) {
+		return nil
+	}
+	return store.SetSetting(model.SettingCustomerEmailTemplate, model.DefaultCustomerEmailTemplate)
+}
+
+func normalizeTemplateForMigration(templateBody string) string {
+	return strings.TrimSpace(strings.ReplaceAll(templateBody, "\r\n", "\n"))
 }
 
 func (store *Store) migrateTemplateNameToCustomerEmail(key string) error {

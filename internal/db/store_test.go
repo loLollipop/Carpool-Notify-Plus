@@ -65,6 +65,37 @@ func TestOpenKeepsTemplateThatAlreadyUsesCustomerEmail(t *testing.T) {
 	}
 }
 
+func TestOpenUpdatesLegacyDefaultCustomerEmailTemplate(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "carpool.db")
+	store := openStore(t, databasePath)
+	legacyDefault := `您好，这是关于「{{.CustomerEmail}}」的拼车提醒。
+
+本期应收：¥{{.AmountDue}}
+周期：{{.CycleDesc}}
+到期：{{.NextDueDate}}
+{{if .Remark}}备注：{{.Remark}}{{end}}
+{{if .TradeURL}}链接：{{.TradeURL}}{{end}}
+
+请按时缴费，谢谢。`
+	if err := store.SetSetting(model.SettingCustomerEmailTemplate, legacyDefault); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store = openStore(t, databasePath)
+	defer store.Close()
+
+	got, err := store.GetSetting(model.SettingCustomerEmailTemplate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != model.DefaultCustomerEmailTemplate {
+		t.Fatalf("customer template = %q, want new default", got)
+	}
+}
+
 func openStore(t *testing.T, databasePath string) *db.Store {
 	t.Helper()
 	store, err := db.Open(databasePath)
