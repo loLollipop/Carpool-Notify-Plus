@@ -980,12 +980,15 @@ const accountSelectColumns = `
 	created_at,
 	updated_at`
 
-// ListAccounts returns all accounts ordered by name.
+// ListAccounts returns all accounts ordered by opened date, newest first.
 func (store *Store) ListAccounts() ([]model.Account, error) {
 	rows, err := store.database.Query(`
 		SELECT ` + accountSelectColumns + `
 		FROM accounts
-		ORDER BY name ASC, id ASC`)
+		ORDER BY
+			CASE WHEN COALESCE(opened_at, '') = '' THEN 1 ELSE 0 END ASC,
+			opened_at DESC,
+			id ASC`)
 	if err != nil {
 		return nil, err
 	}

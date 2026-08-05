@@ -2,6 +2,8 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleParking,
   CircleParkingOff,
   Pencil,
@@ -46,6 +48,8 @@ import { getNextMonthlyRenewalDate } from "@/lib/account-renewal"
 import { AccountDialog, type AccountPrefill } from "./AccountDialog"
 
 type AccountsFilter = "all" | "sale" | "resale"
+
+const ACCOUNTS_PER_PAGE = 9
 
 function formatCents(cents: number) {
   return (cents / 100).toFixed(2)
@@ -93,6 +97,7 @@ export function AccountsPage() {
   const [subscriptionPrefill, setSubscriptionPrefill] = React.useState<SubscriptionPrefill | null>(null)
   const [search, setSearch] = React.useState("")
   const [filter, setFilter] = React.useState<AccountsFilter>("all")
+  const [page, setPage] = React.useState(1)
 
   const deleteMutation = useAppMutation((id: number) => deleteAccount(id), {
     onSuccess: () => setDeleteTarget(null),
@@ -171,6 +176,22 @@ export function AccountsPage() {
       ].some((field) => field?.toLowerCase().includes(query))
     })
   }, [accounts, filter, search])
+
+  const pageCount = Math.max(1, Math.ceil(filteredAccounts.length / ACCOUNTS_PER_PAGE))
+  const safePage = Math.min(page, pageCount)
+  const pageStartIndex = (safePage - 1) * ACCOUNTS_PER_PAGE
+  const pagedAccounts = filteredAccounts.slice(pageStartIndex, pageStartIndex + ACCOUNTS_PER_PAGE)
+  const pageEndIndex = pageStartIndex + pagedAccounts.length
+
+  React.useEffect(() => {
+    setPage(1)
+  }, [search, filter])
+
+  React.useEffect(() => {
+    if (page !== safePage) {
+      setPage(safePage)
+    }
+  }, [page, safePage])
 
   React.useEffect(() => {
     const query = search.trim().toLowerCase()
@@ -277,7 +298,7 @@ export function AccountsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredAccounts.map((view) => {
+              {pagedAccounts.map((view) => {
                 const isExpanded = expanded.has(view.account.id)
                 const occupants = (view.seats ?? []).filter((seat) => seat.occupied)
                 const accountName = view.account.name.trim()
@@ -433,6 +454,39 @@ export function AccountsPage() {
               })}
             </TableBody>
           </Table>
+          {pageCount > 1 ? (
+            <div className="flex flex-col items-center justify-between gap-3 border-t px-4 py-3 text-xs text-muted-foreground sm:flex-row">
+              <span>
+                {t("accounts.pageStatus", {
+                  page: safePage,
+                  pageCount,
+                  start: pageStartIndex + 1,
+                  end: pageEndIndex,
+                  total: filteredAccounts.length,
+                })}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t("cards.prevPage")}
+                  disabled={safePage <= 1}
+                  onClick={() => setPage(safePage - 1)}
+                >
+                  <ChevronLeft />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t("cards.nextPage")}
+                  disabled={safePage >= pageCount}
+                  onClick={() => setPage(safePage + 1)}
+                >
+                  <ChevronRight />
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </Card>
       )}
 

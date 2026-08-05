@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -35,6 +36,57 @@ func TestCreateRequiresSeatAndPreservesAccount(t *testing.T) {
 	}
 	if subscription.AccountName != "SaaS 工具" {
 		t.Fatalf("AccountName = %q, want SaaS 工具", subscription.AccountName)
+	}
+}
+
+func TestListAccountsViewOrdersByOpenedAtThenImportOrder(t *testing.T) {
+	subscriptionService := openTestService(t)
+	if _, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "older@example.com",
+		OpenedAt:  "2026-07-20",
+		SeatCount: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "newer-first@example.com",
+		OpenedAt:  "2026-08-04",
+		SeatCount: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "newer-second@example.com",
+		OpenedAt:  "2026-08-04",
+		SeatCount: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "missing-opened-at@example.com",
+		SeatCount: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	views, err := subscriptionService.ListAccountsView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{
+		views[0].Account.Name,
+		views[1].Account.Name,
+		views[2].Account.Name,
+		views[3].Account.Name,
+	}
+	want := []string{
+		"newer-first@example.com",
+		"newer-second@example.com",
+		"older@example.com",
+		"missing-opened-at@example.com",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("account order = %#v, want %#v", got, want)
 	}
 }
 

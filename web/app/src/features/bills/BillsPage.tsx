@@ -14,6 +14,8 @@ import {
 import {
   CalendarDays,
   ChartLine,
+  ChevronLeft,
+  ChevronRight,
   CircleDot,
   Eye,
   HandCoins,
@@ -62,6 +64,8 @@ const CHART_COLORS = [
   "var(--chart-4)",
   "var(--chart-5)",
 ]
+
+const BILLS_PER_PAGE = 9
 
 function formatCents(cents: number) {
   return `¥${(cents / 100).toLocaleString("zh-CN", {
@@ -346,6 +350,7 @@ export function BillsPage() {
   const [deleteTarget, setDeleteTarget] = React.useState<BillView | null>(null)
   const [search, setSearch] = React.useState("")
   const [typeFilter, setTypeFilter] = React.useState<"all" | "sale" | "resale">("all")
+  const [page, setPage] = React.useState(1)
 
   const deleteMutation = useAppMutation((id: number) => deleteBill(id), {
     onSuccess: () => setDeleteTarget(null),
@@ -381,6 +386,22 @@ export function BillsPage() {
       ].some((field) => field?.toLowerCase().includes(query)),
     )
   }, [bills, search, typeFilter])
+
+  const pageCount = Math.max(1, Math.ceil(filteredBills.length / BILLS_PER_PAGE))
+  const safePage = Math.min(page, pageCount)
+  const pageStartIndex = (safePage - 1) * BILLS_PER_PAGE
+  const pagedBills = filteredBills.slice(pageStartIndex, pageStartIndex + BILLS_PER_PAGE)
+  const pageEndIndex = pageStartIndex + pagedBills.length
+
+  React.useEffect(() => {
+    setPage(1)
+  }, [search, typeFilter])
+
+  React.useEffect(() => {
+    if (page !== safePage) {
+      setPage(safePage)
+    }
+  }, [page, safePage])
 
   return (
     <>
@@ -521,19 +542,24 @@ export function BillsPage() {
                       </TableCell>
                     </TableRow>
                   ) : null}
-                  {filteredBills.map((bill) => (
+                  {pagedBills.map((bill) => {
+                    const primaryName = bill.account_name || bill.subscription_name
+                    const customerLine = bill.customer_email || bill.subscription_name
+                    return (
                     <TableRow key={bill.id}>
                       <TableCell className="max-w-48">
                         <div className="flex items-center gap-1.5 truncate">
-                          <span className="truncate font-medium">{bill.subscription_name}</span>
+                          <span className="truncate font-medium" title={primaryName}>
+                            {primaryName}
+                          </span>
                           {bill.is_resale ? (
                             <Badge variant="outline" className="shrink-0 font-normal">
                               {t("cards.resale")}
                             </Badge>
                           ) : null}
                         </div>
-                        <div className="truncate text-xs text-muted-foreground">
-                          {bill.account_name}
+                        <div className="truncate text-xs text-muted-foreground" title={customerLine}>
+                          {customerLine}
                           {bill.seat_name ? ` · ${bill.seat_name}` : ""}
                         </div>
                       </TableCell>
@@ -582,9 +608,42 @@ export function BillsPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  )})}
                 </TableBody>
               </Table>
+              {pageCount > 1 ? (
+                <div className="flex flex-col items-center justify-between gap-3 border-t px-4 py-3 text-xs text-muted-foreground sm:flex-row">
+                  <span>
+                    {t("bills.pageStatus", {
+                      page: safePage,
+                      pageCount,
+                      start: pageStartIndex + 1,
+                      end: pageEndIndex,
+                      total: filteredBills.length,
+                    })}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      aria-label={t("cards.prevPage")}
+                      disabled={safePage <= 1}
+                      onClick={() => setPage(safePage - 1)}
+                    >
+                      <ChevronLeft />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      aria-label={t("cards.nextPage")}
+                      disabled={safePage >= pageCount}
+                      onClick={() => setPage(safePage + 1)}
+                    >
+                      <ChevronRight />
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
             </Card>
           )}
         </>

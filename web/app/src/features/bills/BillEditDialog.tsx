@@ -39,6 +39,11 @@ export function BillEditDialog({
   bill: BillView | null
 }) {
   const { t } = useTranslation()
+  const billLabel = bill
+    ? `${bill.account_name || bill.subscription_name} · ${
+        bill.customer_email || bill.subscription_name
+      } · ${bill.due_date} · `
+    : ""
 
   const schema = React.useMemo(
     () =>
@@ -81,7 +86,7 @@ export function BillEditDialog({
         <DialogHeader>
           <DialogTitle>{t("bills.editTitle")}</DialogTitle>
           <DialogDescription>
-            {bill ? `${bill.subscription_name} · ${bill.due_date} · ` : ""}
+            {billLabel}
             {t("bills.editDesc")}
           </DialogDescription>
         </DialogHeader>

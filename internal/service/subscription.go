@@ -919,13 +919,18 @@ func (service *SubscriptionService) renderTemplate(name string, templateBody str
 	}
 	nextDue := schedule.NextDue(service.now())
 	data := model.TemplateData{
-		Name:           subscription.Name,
-		PricePerPerson: cycle.FormatCents(subscription.PricePerPersonCents),
-		AmountDue:      cycle.FormatCents(subscription.PricePerPersonCents),
-		CycleDesc:      cycle.DescribeCron(subscription.CronExpr),
-		NextDueDate:    cycle.FormatDate(nextDue),
-		Remark:         subscription.Remark,
-		TradeURL:       subscription.TradeURL,
+		Name:             templateDisplayName(subscription),
+		SubscriptionName: subscription.Name,
+		CustomerEmail:    subscription.CustomerEmail,
+		CustomerWechat:   subscription.CustomerWechat,
+		AccountName:      displayAccountName(subscription),
+		SeatName:         subscription.SeatName,
+		PricePerPerson:   cycle.FormatCents(subscription.PricePerPersonCents),
+		AmountDue:        cycle.FormatCents(subscription.PricePerPersonCents),
+		CycleDesc:        cycle.DescribeCron(subscription.CronExpr),
+		NextDueDate:      cycle.FormatDate(nextDue),
+		Remark:           subscription.Remark,
+		TradeURL:         subscription.TradeURL,
 	}
 	var buffer bytes.Buffer
 	if err := parsed.Execute(&buffer, data); err != nil {
@@ -945,7 +950,7 @@ func (service *SubscriptionService) PreviewTemplate(name string, templateBody st
 	if err != nil {
 		return "", "", err
 	}
-	return rendered, subscription.Name, nil
+	return rendered, templateDisplayName(subscription), nil
 }
 
 func (service *SubscriptionService) sampleSubscription() (model.Subscription, error) {
@@ -961,9 +966,22 @@ func (service *SubscriptionService) sampleSubscription() (model.Subscription, er
 		PricePerPersonCents: 2000,
 		CronExpr:            "interval:30d",
 		BoardedAt:           cycle.FormatDate(service.now()),
+		CustomerEmail:       "customer@example.com",
+		AccountName:         "owner@example.com",
+		SeatName:            "seat1",
 		Remark:              "示例备注",
 		TradeURL:            "https://example.com/order/123",
 	}, nil
+}
+
+func templateDisplayName(subscription model.Subscription) string {
+	if customerEmail := strings.TrimSpace(subscription.CustomerEmail); customerEmail != "" {
+		return customerEmail
+	}
+	if name := strings.TrimSpace(subscription.Name); name != "" {
+		return name
+	}
+	return displayAccountName(subscription)
 }
 
 // SendCustomerEmail sends the customer template to the subscription's customer email.
@@ -992,7 +1010,7 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 		Password: service.Config.SMTPPassword,
 		From:     service.Config.SMTPFrom,
 	}
-	title := "拼车提醒 · " + subscription.Name
+	title := "拼车提醒 · " + templateDisplayName(subscription)
 	return sender.SendTo(ctx, []string{subscription.CustomerEmail}, title, message)
 }
 
@@ -1120,7 +1138,7 @@ func (service *SubscriptionService) PreviewCustomerEmail(subscriptionID int64) (
 	if err != nil {
 		return "", "", "", err
 	}
-	return subscription.CustomerEmail, "拼车提醒 · " + subscription.Name, body, nil
+	return subscription.CustomerEmail, "拼车提醒 · " + templateDisplayName(subscription), body, nil
 }
 
 func (service *SubscriptionService) sendToEnabledChannels(ctx context.Context, title string, message string, subscriptionID int64) error {

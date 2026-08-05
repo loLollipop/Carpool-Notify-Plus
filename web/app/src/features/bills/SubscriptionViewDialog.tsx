@@ -35,6 +35,8 @@ export function SubscriptionViewDialog({
 }) {
   const { t } = useTranslation()
   const nextRenewalDate = getNextMonthlyRenewalDate(bill?.account_opened_at ?? "")
+  const primaryName = bill?.account_name || bill?.subscription_name || ""
+  const customerLine = bill?.customer_email || bill?.subscription_name || ""
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -47,10 +49,10 @@ export function SubscriptionViewDialog({
         {bill ? (
           <div className="grid gap-4">
             <div>
-              <div className="text-base font-semibold">{bill.subscription_name}</div>
+              <div className="text-base font-semibold">{primaryName}</div>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <Badge variant="secondary" className="font-normal">
-                  {bill.account_name}
+                  {customerLine}
                   {bill.seat_name ? ` · ${bill.seat_name}` : ""}
                 </Badge>
                 {bill.is_resale ? (

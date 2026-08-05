@@ -166,8 +166,13 @@ type NotificationLog struct {
 
 // TemplateData is passed into Go text/template for notifications.
 type TemplateData struct {
-	Name           string
-	PricePerPerson string
+	Name             string
+	SubscriptionName string
+	CustomerEmail    string
+	CustomerWechat   string
+	AccountName      string
+	SeatName         string
+	PricePerPerson   string
 	// AmountDue is the amount to collect for this subscription period. It is
 	// currently an explicit alias of PricePerPerson for clearer templates.
 	AmountDue   string

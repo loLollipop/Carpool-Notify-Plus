@@ -27,7 +27,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
 const TEMPLATE_VARS =
-  "{{.Name}} {{.AmountDue}} {{.PricePerPerson}} {{.CycleDesc}} {{.NextDueDate}} {{.Remark}} {{.TradeURL}}"
+  "{{.Name}} {{.CustomerEmail}} {{.CustomerWechat}} {{.AccountName}} {{.SeatName}} {{.SubscriptionName}} {{.AmountDue}} {{.PricePerPerson}} {{.CycleDesc}} {{.NextDueDate}} {{.Remark}} {{.TradeURL}}"
 
 function ChannelBadge({ channel }: { channel: ChannelSetting }) {
   const { t } = useTranslation()
