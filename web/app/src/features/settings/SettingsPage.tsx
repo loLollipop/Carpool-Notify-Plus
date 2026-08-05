@@ -54,6 +54,17 @@ function channelLabel(channel: ChannelSetting, t: (key: string) => string) {
   return channel.label
 }
 
+function isFixedRouteChannel(channel: ChannelSetting) {
+  return channel.key === "iyuu" || channel.key === "smtp"
+}
+
+function isChannelChecked(channel: ChannelSetting, enabledChannels: Set<string>) {
+  if (isFixedRouteChannel(channel)) {
+    return channel.configured
+  }
+  return enabledChannels.has(channel.key)
+}
+
 type TemplatePreviewState =
   | { status: "loading" }
   | { status: "ok"; rendered: string; sampleName: string; subject: string }
@@ -176,17 +187,21 @@ function SettingsForm({ settings }: { settings: Settings }) {
           </p>
           <div className="mt-1 flex flex-wrap gap-2">
             {settings.channels.map((channel) => {
-              const checked = enabledChannels.has(channel.key)
+              const fixedRoute = isFixedRouteChannel(channel)
+              const checked = isChannelChecked(channel, enabledChannels)
               return (
                 <label
                   key={channel.key}
                   className={cn(
-                    "flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors select-none",
+                    "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors select-none",
+                    fixedRoute ? "cursor-default" : "cursor-pointer",
                     checked ? "border-brand/40 bg-brand/8" : "hover:bg-accent",
                   )}
                 >
                   <Checkbox
                     checked={checked}
+                    disabled={fixedRoute}
+                    className="disabled:opacity-100"
                     onCheckedChange={(value) => toggleChannel(channel.key, value === true)}
                   />
                   {channelLabel(channel, t)}

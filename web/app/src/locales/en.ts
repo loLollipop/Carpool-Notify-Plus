@@ -407,16 +407,16 @@ export default {
     },
     settings: {
       title: "Settings",
-      desc: "Only templates and channel toggles are editable here. Tokens, SMTP passwords and addresses live in config.toml (or env vars) — never configured or shown in the web UI.",
+      desc: "Edit notification templates and channel display here. Tokens, SMTP passwords and addresses live in config.toml (or env vars) — never configured or shown in the web UI.",
       notifyTemplate: "Operator notification template",
       notifyTemplateHint: "Go text/template. Available: {{vars}}",
       customerTemplate: "Customer email template",
       customerTemplateHint: "Used by automatic customer emails and manual “Send reminder”. Same variables.",
       channels: "Notification channels",
       channelsHint:
-        "Operator channel switches: unpaid due-day items notify you through IYUU; X-day customer reminders are always sent by SMTP to the customer email.",
+        "Fixed routes: unpaid due-day items notify you through IYUU; X-day customer reminders are sent by SMTP to the customer email. Configured fixed routes are checked automatically.",
       channelsFootnote:
-        "IYUU / Gotify / SMTP are configured in config.toml; the web only shows configured state. Operator recipients live in smtp.to; customer email goes to each subscription's customer email.",
+        "IYUU / Gotify / SMTP are configured in config.toml; the web only shows configured state. Gotify is an optional operator channel; customer email goes to each subscription's customer email.",
       channelGotifyOptional: "Gotify (optional)",
       channelSMTP: "SMTP email",
       configured: "Configured",

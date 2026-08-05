@@ -405,16 +405,16 @@ export default {
     },
     settings: {
       title: "设置",
-      desc: "此处仅可编辑模板与启用渠道。Token、SMTP 密码、发件人/收件人等敏感项只能写在 config.toml（或环境变量），网页不可配置、也不展示明文。",
+      desc: "此处可编辑通知模板与渠道展示。Token、SMTP 密码、发件人/收件人等敏感项只能写在 config.toml（或环境变量），网页不可配置、也不展示明文。",
       notifyTemplate: "运营通知模板",
       notifyTemplateHint: "Go text/template。可用 {{vars}}",
       customerTemplate: "客户邮件模板",
       customerTemplateHint: "用于到期前自动客户邮件和手动「发送提醒」。变量同上。",
       channels: "通知渠道",
       channelsHint:
-        "运营通知渠道开关：到期当天仍未交费的订阅固定通过 IYUU 提醒你；到期前 X 天的客户邮件固定通过 SMTP 发到客户邮箱。",
+        "固定路由：到期当天仍未交费的订阅通过 IYUU 提醒你；到期前 X 天的客户邮件通过 SMTP 发到客户邮箱。已配置的固定路由会自动勾选。",
       channelsFootnote:
-        "IYUU / Gotify / SMTP 均在 config.toml 配置；网页只显示「已配置 / 未配置」。SMTP 运营收件人写在 smtp.to；客户邮件发到各订阅的客户邮箱字段。",
+        "IYUU / Gotify / SMTP 均在 config.toml 配置；网页只显示「已配置 / 未配置」。Gotify 是可选运营渠道；SMTP 客户邮件发到各订阅的客户邮箱字段。",
       channelGotifyOptional: "Gotify（可选）",
       channelSMTP: "SMTP 邮箱",
       configured: "已配置",
