@@ -4,11 +4,14 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
 	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 )
 
@@ -19,9 +22,13 @@ const (
 	maxRedemptionEmailLength        = 254
 	maxRedemptionContactLength      = 80
 	maxRedemptionCodeLength         = 120
+	maxRedemptionCodeNoteLength     = 200
 	maxRedemptionRequestNoteLength  = 500
 	maxRedemptionOperatorNoteLength = 500
 	maxRedemptionRemarkLength       = 500
+	maxGenerateRedemptionCodeCount  = 20
+
+	redemptionCodeAlphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
 )
 
 // RedemptionSubmitInput is the public customer form.
@@ -36,6 +43,21 @@ type RedemptionSubmitInput struct {
 type RedemptionSubmitResult struct {
 	TrackingToken string `json:"tracking_token"`
 	Status        string `json:"status"`
+}
+
+// RedemptionCodeGenerateInput is an operator request to mint one-time codes.
+type RedemptionCodeGenerateInput struct {
+	Count int
+	Note  string
+}
+
+// RedemptionCodeView is the operator-facing presentation for a generated code.
+type RedemptionCodeView struct {
+	Code             model.RedemptionCode `json:"code"`
+	StatusLabel      string               `json:"status_label"`
+	CreatedAtLabel   string               `json:"created_at_label"`
+	UsedAtLabel      string               `json:"used_at_label"`
+	ApplicationEmail string               `json:"application_email"`
 }
 
 // RedemptionStatusView is safe for the unauthenticated public status page.
@@ -89,7 +111,7 @@ func (service *SubscriptionService) SubmitRedemptionApplication(input Redemption
 	if err != nil {
 		return RedemptionSubmitResult{}, err
 	}
-	redeemCode, err := trimRequiredLimited("兑换码", input.RedeemCode, maxRedemptionCodeLength)
+	redeemCode, err := normalizeRedemptionCode(input.RedeemCode)
 	if err != nil {
 		return RedemptionSubmitResult{}, err
 	}
@@ -103,7 +125,7 @@ func (service *SubscriptionService) SubmitRedemptionApplication(input Redemption
 		if err != nil {
 			return RedemptionSubmitResult{}, err
 		}
-		_, err = service.Store.CreateRedemptionApplication(model.RedemptionApplication{
+		_, err = service.Store.CreateRedemptionApplicationUsingCode(model.RedemptionApplication{
 			TrackingToken:   token,
 			CustomerEmail:   customerEmail,
 			CustomerContact: customerContact,
@@ -116,11 +138,116 @@ func (service *SubscriptionService) SubmitRedemptionApplication(input Redemption
 				Status:        model.RedemptionStatusPending,
 			}, nil
 		}
-		if !strings.Contains(strings.ToLower(err.Error()), "unique") {
+		if redemptionCodeError := publicRedemptionCodeError(err); redemptionCodeError != nil {
+			return RedemptionSubmitResult{}, redemptionCodeError
+		}
+		if !strings.Contains(strings.ToLower(err.Error()), "tracking_token") {
 			return RedemptionSubmitResult{}, err
 		}
 	}
 	return RedemptionSubmitResult{}, fmt.Errorf("生成申请编号失败，请重试")
+}
+
+// GenerateRedemptionCodes mints operator-managed one-time customer codes.
+func (service *SubscriptionService) GenerateRedemptionCodes(input RedemptionCodeGenerateInput) ([]RedemptionCodeView, error) {
+	count := input.Count
+	if count == 0 {
+		count = 1
+	}
+	if count < 1 || count > maxGenerateRedemptionCodeCount {
+		return nil, fmt.Errorf("生成数量需为 1～%d", maxGenerateRedemptionCodeCount)
+	}
+	note, err := trimLimited("兑换码备注", input.Note, maxRedemptionCodeNoteLength)
+	if err != nil {
+		return nil, err
+	}
+
+	views := make([]RedemptionCodeView, 0, count)
+	for index := 0; index < count; index++ {
+		var created model.RedemptionCode
+		for attempt := 0; attempt < 8; attempt++ {
+			code, err := newRedemptionCode()
+			if err != nil {
+				return nil, err
+			}
+			codeID, err := service.Store.CreateRedemptionCode(model.RedemptionCode{
+				Code: code,
+				Note: note,
+			})
+			if err == nil {
+				created, err = service.Store.GetRedemptionCode(codeID)
+				if err != nil {
+					return nil, err
+				}
+				break
+			}
+			if !strings.Contains(strings.ToLower(err.Error()), "unique") {
+				return nil, err
+			}
+		}
+		if created.ID == 0 {
+			return nil, fmt.Errorf("生成兑换码失败，请重试")
+		}
+		view, err := service.buildRedemptionCodeView(created)
+		if err != nil {
+			return nil, err
+		}
+		views = append(views, view)
+	}
+	return views, nil
+}
+
+// ListRedemptionCodesView returns operator-generated redemption codes.
+func (service *SubscriptionService) ListRedemptionCodesView() ([]RedemptionCodeView, error) {
+	codes, err := service.Store.ListRedemptionCodes()
+	if err != nil {
+		return nil, err
+	}
+	views := make([]RedemptionCodeView, 0, len(codes))
+	for _, code := range codes {
+		view, err := service.buildRedemptionCodeView(code)
+		if err != nil {
+			return nil, err
+		}
+		views = append(views, view)
+	}
+	return views, nil
+}
+
+// DisableRedemptionCode prevents an unused code from being submitted.
+func (service *SubscriptionService) DisableRedemptionCode(codeID int64) error {
+	code, err := service.Store.GetRedemptionCode(codeID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("兑换码不存在")
+		}
+		return err
+	}
+	if code.Status == model.RedemptionCodeStatusUsed {
+		return fmt.Errorf("已使用的兑换码不能停用")
+	}
+	if code.Status == model.RedemptionCodeStatusDisabled {
+		return nil
+	}
+	return service.Store.SetRedemptionCodeStatus(code.ID, model.RedemptionCodeStatusDisabled)
+}
+
+// EnableRedemptionCode makes a disabled code usable again.
+func (service *SubscriptionService) EnableRedemptionCode(codeID int64) error {
+	code, err := service.Store.GetRedemptionCode(codeID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("兑换码不存在")
+		}
+		return err
+	}
+	if code.Status == model.RedemptionCodeStatusUsed {
+		return fmt.Errorf("已使用的兑换码不能重新启用")
+	}
+	if code.Status == model.RedemptionCodeStatusUnused {
+		return nil
+	}
+	return service.Store.SetRedemptionCodeStatus(code.ID, model.RedemptionCodeStatusUnused)
 }
 
 // GetRedemptionStatus returns the current public status for a tracking token.
@@ -283,12 +410,97 @@ func (service *SubscriptionService) buildRedemptionApplicationView(application m
 	return view, nil
 }
 
+func (service *SubscriptionService) buildRedemptionCodeView(code model.RedemptionCode) (RedemptionCodeView, error) {
+	view := RedemptionCodeView{
+		Code:           code,
+		StatusLabel:    redemptionCodeStatusLabel(code.Status),
+		CreatedAtLabel: cycle.FormatDateTime(code.CreatedAt),
+		UsedAtLabel:    formatOptionalTime(code.UsedAt),
+	}
+	if code.UsedByApplicationID > 0 {
+		application, err := service.Store.GetRedemptionApplication(code.UsedByApplicationID)
+		if err != nil && err != sql.ErrNoRows {
+			return RedemptionCodeView{}, err
+		}
+		if err == nil {
+			view.ApplicationEmail = application.CustomerEmail
+		}
+	}
+	return view, nil
+}
+
 func newRedemptionTrackingToken() (string, error) {
 	buffer := make([]byte, 24)
 	if _, err := rand.Read(buffer); err != nil {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(buffer), nil
+}
+
+func newRedemptionCode() (string, error) {
+	parts := make([]string, 0, 3)
+	for segment := 0; segment < 3; segment++ {
+		value, err := randomRedemptionCodeSegment(4)
+		if err != nil {
+			return "", err
+		}
+		parts = append(parts, value)
+	}
+	return "CPN-" + strings.Join(parts, "-"), nil
+}
+
+func randomRedemptionCodeSegment(length int) (string, error) {
+	var builder strings.Builder
+	builder.Grow(length)
+	limit := big.NewInt(int64(len(redemptionCodeAlphabet)))
+	for builder.Len() < length {
+		index, err := rand.Int(rand.Reader, limit)
+		if err != nil {
+			return "", err
+		}
+		builder.WriteByte(redemptionCodeAlphabet[index.Int64()])
+	}
+	return builder.String(), nil
+}
+
+func normalizeRedemptionCode(raw string) (string, error) {
+	value, err := trimRequiredLimited("兑换码", raw, maxRedemptionCodeLength)
+	if err != nil {
+		return "", err
+	}
+	value = strings.ToUpper(strings.ReplaceAll(value, " ", ""))
+	value = strings.ReplaceAll(value, "－", "-")
+	value = strings.ReplaceAll(value, "—", "-")
+	value = strings.ReplaceAll(value, "–", "-")
+	return value, nil
+}
+
+func publicRedemptionCodeError(err error) error {
+	switch {
+	case errors.Is(err, db.ErrRedemptionCodeNotFound):
+		return fmt.Errorf("兑换码不存在或填写错误")
+	case errors.Is(err, db.ErrRedemptionCodeUsed):
+		return fmt.Errorf("这个兑换码已经被使用")
+	case errors.Is(err, db.ErrRedemptionCodeDisabled):
+		return fmt.Errorf("这个兑换码已停用，请联系管理员")
+	case errors.Is(err, db.ErrRedemptionCodeNotUnused):
+		return fmt.Errorf("兑换码暂时不可用，请稍后重试")
+	default:
+		return nil
+	}
+}
+
+func redemptionCodeStatusLabel(status string) string {
+	switch status {
+	case model.RedemptionCodeStatusUnused:
+		return "可用"
+	case model.RedemptionCodeStatusUsed:
+		return "已使用"
+	case model.RedemptionCodeStatusDisabled:
+		return "已停用"
+	default:
+		return "未知"
+	}
 }
 
 func trimRequiredLimited(label string, raw string, maxLength int) (string, error) {

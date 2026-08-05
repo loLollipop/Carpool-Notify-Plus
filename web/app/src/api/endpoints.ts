@@ -12,6 +12,8 @@ import type {
   DuePeriodOption,
   ReminderPreview,
   RedemptionApplicationView,
+  RedemptionCodeGenerateInput,
+  RedemptionCodeView,
   RedemptionInviteInput,
   RedemptionStatus,
   RedemptionSubmitInput,
@@ -64,6 +66,20 @@ export function fetchRedemptions(status?: "pending" | "invited" | "all") {
   ).then((r) => ({
     redemptions: r.redemptions ?? [],
     pending_count: r.pending_count,
+  }))
+}
+
+export function fetchRedemptionCodes() {
+  return api<{
+    codes: RedemptionCodeView[] | null
+    available_count: number
+    used_count: number
+    disabled_count: number
+  }>("/api/redemption-codes").then((r) => ({
+    codes: r.codes ?? [],
+    available_count: r.available_count,
+    used_count: r.used_count,
+    disabled_count: r.disabled_count,
   }))
 }
 
@@ -164,6 +180,24 @@ export function inviteRedemption(id: number, input: RedemptionInviteInput) {
     method: "POST",
     body: input,
   })
+}
+
+export function generateRedemptionCodes(input: RedemptionCodeGenerateInput) {
+  return api<MessageResult & { codes: RedemptionCodeView[] | null }>("/api/redemption-codes", {
+    method: "POST",
+    body: input,
+  }).then((r) => ({
+    ...r,
+    codes: r.codes ?? [],
+  }))
+}
+
+export function disableRedemptionCode(id: number) {
+  return api<MessageResult>(`/api/redemption-codes/${id}/disable`, { method: "POST" })
+}
+
+export function enableRedemptionCode(id: number) {
+  return api<MessageResult>(`/api/redemption-codes/${id}/enable`, { method: "POST" })
 }
 
 // ---- Account mutations ----

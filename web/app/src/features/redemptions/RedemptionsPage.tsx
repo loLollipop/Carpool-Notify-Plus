@@ -1,22 +1,39 @@
 import * as React from "react"
 import { Link } from "react-router-dom"
 import {
+  Ban,
   CalendarClock,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Copy,
+  KeyRound,
   Mail,
   MessageCircle,
+  Plus,
+  RotateCcw,
   Search,
   Send,
   TicketCheck,
 } from "lucide-react"
+import { toast } from "sonner"
 
-import { inviteRedemption } from "@/api/endpoints"
+import {
+  disableRedemptionCode,
+  enableRedemptionCode,
+  generateRedemptionCodes,
+  inviteRedemption,
+} from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
-import { useAccountOptions, useRedemptions } from "@/api/queries"
-import type { AccountOption, RedemptionApplicationView, SeatOption } from "@/api/types"
+import { useAccountOptions, useRedemptionCodes, useRedemptions } from "@/api/queries"
+import type {
+  AccountOption,
+  RedemptionApplicationView,
+  RedemptionCodeStatusValue,
+  RedemptionCodeView,
+  SeatOption,
+} from "@/api/types"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -45,6 +62,7 @@ interface SelectableSeat {
 }
 
 const PAGE_SIZE = 9
+const CODE_PAGE_SIZE = 6
 const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/
 const CYCLE_PRESETS = [
   { label: "月付", cron: "interval:30d" },
@@ -54,6 +72,7 @@ const CYCLE_PRESETS = [
 ] as const
 const OFFSET_OPTIONS = [1, 2, 3, 5, 7, 14]
 const EMPTY_REDEMPTIONS: RedemptionApplicationView[] = []
+const EMPTY_CODES: RedemptionCodeView[] = []
 
 function buildSeatOptions(accounts: AccountOption[]): SelectableSeat[] {
   return accounts.flatMap((account) =>
@@ -81,6 +100,40 @@ function statusBadge(status: RedemptionApplicationView["application"]["status"])
   )
 }
 
+function redemptionCodeBadge(status: RedemptionCodeStatusValue) {
+  if (status === "unused") {
+    return (
+      <Badge variant="success">
+        <CheckCircle2 className="size-3.5" />
+        可用
+      </Badge>
+    )
+  }
+  if (status === "disabled") {
+    return (
+      <Badge variant="warning">
+        <Ban className="size-3.5" />
+        已停用
+      </Badge>
+    )
+  }
+  return (
+    <Badge variant="secondary">
+      <Clock3 className="size-3.5" />
+      已使用
+    </Badge>
+  )
+}
+
+async function copyRedemptionCode(code: string) {
+  try {
+    await navigator.clipboard.writeText(code)
+    toast.success("已复制兑换码")
+  } catch {
+    toast.error("复制失败，请手动复制")
+  }
+}
+
 function DetailPill({
   icon,
   label,
@@ -99,6 +152,213 @@ function DetailPill({
       <span className="shrink-0">{label}</span>
       <span className={cn("min-w-0 truncate text-foreground", mono && "font-mono")}>{value}</span>
     </span>
+  )
+}
+
+function RedemptionCodeManager() {
+  const [count, setCount] = React.useState("1")
+  const [note, setNote] = React.useState("")
+  const [page, setPage] = React.useState(1)
+  const codesQuery = useRedemptionCodes()
+
+  const codes = codesQuery.data?.codes ?? EMPTY_CODES
+  const pageCount = Math.max(1, Math.ceil(codes.length / CODE_PAGE_SIZE))
+  const safePage = Math.min(page, pageCount)
+  const pageStart = (safePage - 1) * CODE_PAGE_SIZE
+  const paged = codes.slice(pageStart, pageStart + CODE_PAGE_SIZE)
+  const pageEnd = pageStart + paged.length
+  const parsedCount = Number(count)
+  const countValid = Number.isInteger(parsedCount) && parsedCount >= 1 && parsedCount <= 20
+
+  const generateMutation = useAppMutation(
+    () =>
+      generateRedemptionCodes({
+        count: countValid ? parsedCount : 1,
+        note: note.trim(),
+      }),
+    {
+      successMessage: "兑换码已生成",
+      onSuccess: (result) => {
+        setNote("")
+        setPage(1)
+        const firstCode = result.codes[0]?.code.code
+        if (firstCode) {
+          void copyRedemptionCode(firstCode)
+        }
+      },
+    },
+  )
+  const disableMutation = useAppMutation((id: number) => disableRedemptionCode(id), {
+    successMessage: "兑换码已停用",
+  })
+  const enableMutation = useAppMutation((id: number) => enableRedemptionCode(id), {
+    successMessage: "兑换码已启用",
+  })
+
+  return (
+    <Card className="mb-5 gap-0 overflow-hidden p-0">
+      <div className="flex flex-col gap-4 border-b p-5 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+            <KeyRound className="size-3.5" />
+            兑换码管理
+          </div>
+          <h2 className="mt-2 text-lg font-semibold tracking-tight">生成客户可用的一次性兑换码</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            客户提交的兑换码必须和这里的可用码一致，提交成功后该码会自动标记为已使用。
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-[88px_minmax(220px,1fr)_auto] lg:w-[560px]">
+          <Input
+            type="number"
+            min={1}
+            max={20}
+            value={count}
+            onChange={(event) => setCount(event.target.value)}
+            aria-label="生成数量"
+            aria-invalid={count.trim() !== "" && !countValid}
+            className="h-9"
+          />
+          <Input
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+            placeholder="备注，比如客户来源 / 订单号"
+            className="h-9"
+          />
+          <Button disabled={!countValid || generateMutation.isPending} onClick={() => generateMutation.mutate()}>
+            <Plus data-slot="icon" />
+            生成
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-3 border-b bg-muted/20 p-5 sm:grid-cols-3">
+        <div>
+          <div className="text-xs text-muted-foreground">可用兑换码</div>
+          <div className="mt-1 text-2xl font-semibold tabular-nums">
+            {codesQuery.data?.available_count ?? 0}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">已使用</div>
+          <div className="mt-1 text-2xl font-semibold tabular-nums">
+            {codesQuery.data?.used_count ?? 0}
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-muted-foreground">已停用</div>
+          <div className="mt-1 text-2xl font-semibold tabular-nums">
+            {codesQuery.data?.disabled_count ?? 0}
+          </div>
+        </div>
+      </div>
+
+      {codesQuery.isPending ? (
+        <div className="grid gap-2 p-5">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <Skeleton key={index} className="h-14 rounded-lg" />
+          ))}
+        </div>
+      ) : codesQuery.isError ? (
+        <div className="flex items-center justify-between gap-3 p-5">
+          <p className="text-sm text-muted-foreground">兑换码加载失败</p>
+          <Button variant="outline" size="sm" onClick={() => codesQuery.refetch()}>
+            重试
+          </Button>
+        </div>
+      ) : codes.length === 0 ? (
+        <div className="p-5 text-sm text-muted-foreground">
+          还没有兑换码。先生成一个，再发给客户使用。
+        </div>
+      ) : (
+        <div className="divide-y">
+          {paged.map((view) => {
+            const code = view.code
+            const used = code.status === "used"
+            const disabled = code.status === "disabled"
+            return (
+              <div
+                key={code.id}
+                className="grid gap-3 p-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    {redemptionCodeBadge(code.status)}
+                    <span className="truncate font-mono text-[15px] font-semibold">{code.code}</span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label="复制兑换码"
+                      onClick={() => void copyRedemptionCode(code.code)}
+                    >
+                      <Copy />
+                    </Button>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>生成：{view.created_at_label}</span>
+                    {code.note ? <span>备注：{code.note}</span> : null}
+                    {used ? <span>使用：{view.used_at_label || "-"}</span> : null}
+                    {view.application_email ? <span>客户：{view.application_email}</span> : null}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 md:justify-end">
+                  {used ? null : disabled ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={enableMutation.isPending}
+                      onClick={() => enableMutation.mutate(code.id)}
+                    >
+                      <RotateCcw data-slot="icon" />
+                      启用
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={disableMutation.isPending}
+                      onClick={() => disableMutation.mutate(code.id)}
+                    >
+                      <Ban data-slot="icon" />
+                      停用
+                    </Button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+
+          {pageCount > 1 ? (
+            <div className="flex flex-col items-center justify-between gap-3 p-5 pt-4 text-xs text-muted-foreground sm:flex-row">
+              <span>
+                第 {safePage} / {pageCount} 页 · {pageStart + 1}-{pageEnd} / {codes.length} 个
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="上一页"
+                  disabled={safePage <= 1}
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                >
+                  <ChevronLeft />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label="下一页"
+                  disabled={safePage >= pageCount}
+                  onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                >
+                  <ChevronRight />
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
+    </Card>
   )
 }
 
@@ -459,6 +719,8 @@ export function RedemptionsPage() {
           </>
         }
       />
+
+      <RedemptionCodeManager />
 
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
         <div className="rounded-lg border bg-card p-4">

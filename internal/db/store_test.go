@@ -1,6 +1,7 @@
 package db_test
 
 import (
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -193,6 +194,47 @@ func TestRedemptionApplicationLifecycle(t *testing.T) {
 	}
 	if updated.OperatorNote != "sent" || updated.InvitedAt == nil {
 		t.Fatalf("operator note/invited_at = %q/%v", updated.OperatorNote, updated.InvitedAt)
+	}
+}
+
+func TestRedemptionCodeCanBeUsedOnceForApplication(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "carpool.db"))
+	defer store.Close()
+
+	codeID, err := store.CreateRedemptionCode(model.RedemptionCode{
+		Code: "CPN-TEST-CODE-701",
+		Note: "order 701",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	applicationID, err := store.CreateRedemptionApplicationUsingCode(model.RedemptionApplication{
+		TrackingToken:   "token-with-code",
+		CustomerEmail:   "customer@example.com",
+		CustomerContact: "微信：customer",
+		RedeemCode:      "CPN-TEST-CODE-701",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	code, err := store.GetRedemptionCode(codeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code.Status != model.RedemptionCodeStatusUsed || code.UsedByApplicationID != applicationID || code.UsedAt == nil {
+		t.Fatalf("code after use = %#v, want used by application %d", code, applicationID)
+	}
+
+	_, err = store.CreateRedemptionApplicationUsingCode(model.RedemptionApplication{
+		TrackingToken:   "second-token",
+		CustomerEmail:   "another@example.com",
+		CustomerContact: "QQ：123456",
+		RedeemCode:      "CPN-TEST-CODE-701",
+	})
+	if !errors.Is(err, db.ErrRedemptionCodeUsed) {
+		t.Fatalf("second use error = %v, want ErrRedemptionCodeUsed", err)
 	}
 }
 

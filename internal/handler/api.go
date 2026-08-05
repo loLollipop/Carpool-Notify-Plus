@@ -73,6 +73,33 @@ func (server *Server) getRedemptions(context *gin.Context) {
 	respondOK(context, gin.H{"redemptions": views, "pending_count": pendingCount})
 }
 
+func (server *Server) getRedemptionCodes(context *gin.Context) {
+	views, err := server.Service.ListRedemptionCodesView()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	availableCount := 0
+	usedCount := 0
+	disabledCount := 0
+	for _, view := range views {
+		switch view.Code.Status {
+		case model.RedemptionCodeStatusUnused:
+			availableCount++
+		case model.RedemptionCodeStatusUsed:
+			usedCount++
+		case model.RedemptionCodeStatusDisabled:
+			disabledCount++
+		}
+	}
+	respondOK(context, gin.H{
+		"codes":           views,
+		"available_count": availableCount,
+		"used_count":      usedCount,
+		"disabled_count":  disabledCount,
+	})
+}
+
 func (server *Server) getAccounts(context *gin.Context) {
 	accounts, err := server.Service.ListAccountsView()
 	if err != nil {
@@ -348,6 +375,11 @@ type redemptionInviteRequest struct {
 	OperatorNote  string `json:"operator_note"`
 }
 
+type redemptionCodeGenerateRequest struct {
+	Count int    `json:"count"`
+	Note  string `json:"note"`
+}
+
 func (request redemptionInviteRequest) toInviteInput() service.RedemptionInviteInput {
 	return service.RedemptionInviteInput{
 		SeatID:           request.SeatID,
@@ -360,6 +392,13 @@ func (request redemptionInviteRequest) toInviteInput() service.RedemptionInviteI
 		Remark:           request.Remark,
 		TradeURL:         request.TradeURL,
 		OperatorNote:     request.OperatorNote,
+	}
+}
+
+func (request redemptionCodeGenerateRequest) toGenerateInput() service.RedemptionCodeGenerateInput {
+	return service.RedemptionCodeGenerateInput{
+		Count: request.Count,
+		Note:  request.Note,
 	}
 }
 
@@ -395,6 +434,47 @@ func (server *Server) postInviteRedemption(context *gin.Context) {
 		"message":         "已邀请，并已自动创建订阅",
 		"subscription_id": subscriptionID,
 	})
+}
+
+func (server *Server) postGenerateRedemptionCodes(context *gin.Context) {
+	var request redemptionCodeGenerateRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的生成内容")
+		return
+	}
+	views, err := server.Service.GenerateRedemptionCodes(request.toGenerateInput())
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{
+		"codes":   views,
+		"message": "兑换码已生成",
+	})
+}
+
+func (server *Server) postDisableRedemptionCode(context *gin.Context) {
+	codeID, ok := parseIDParam(context, "id", "无效的兑换码 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.DisableRedemptionCode(codeID); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "兑换码已停用"})
+}
+
+func (server *Server) postEnableRedemptionCode(context *gin.Context) {
+	codeID, ok := parseIDParam(context, "id", "无效的兑换码 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.EnableRedemptionCode(codeID); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "兑换码已启用"})
 }
 
 func (server *Server) putUpdateSubscription(context *gin.Context) {

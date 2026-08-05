@@ -6,6 +6,7 @@ import {
   fetchBills,
   fetchCalendar,
   fetchDashboard,
+  fetchRedemptionCodes,
   fetchRedemptions,
   fetchSettings,
   fetchSubscriptions,
@@ -19,6 +20,7 @@ export const queryKeys = {
   dashboard: ["data", "dashboard"] as const,
   redemptions: (status?: "pending" | "invited" | "all") =>
     ["data", "redemptions", status ?? "all"] as const,
+  redemptionCodes: ["data", "redemption-codes"] as const,
   subscriptions: ["data", "subscriptions"] as const,
   accounts: ["data", "accounts"] as const,
   accountOptions: (includeSeatId: number) => ["data", "account-options", includeSeatId] as const,
@@ -51,6 +53,10 @@ export function useRedemptions(status?: "pending" | "invited" | "all") {
     queryKey: queryKeys.redemptions(status),
     queryFn: () => fetchRedemptions(status),
   })
+}
+
+export function useRedemptionCodes() {
+  return useQuery({ queryKey: queryKeys.redemptionCodes, queryFn: fetchRedemptionCodes })
 }
 
 export function useAccounts() {

@@ -49,6 +49,7 @@ export interface SubscriptionView {
 }
 
 export type RedemptionStatusValue = "pending" | "invited"
+export type RedemptionCodeStatusValue = "unused" | "used" | "disabled"
 
 export interface RedemptionApplication {
   id: number
@@ -65,6 +66,25 @@ export interface RedemptionApplication {
   invited_at: string | null
   created_at: string
   updated_at: string
+}
+
+export interface RedemptionCode {
+  id: number
+  code: string
+  status: RedemptionCodeStatusValue
+  note: string
+  used_by_application_id: number
+  used_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface RedemptionCodeView {
+  code: RedemptionCode
+  status_label: string
+  created_at_label: string
+  used_at_label: string
+  application_email: string
 }
 
 export interface RedemptionApplicationView {
@@ -384,6 +404,11 @@ export interface RedemptionSubmitInput {
   customer_contact: string
   redeem_code: string
   request_note: string
+}
+
+export interface RedemptionCodeGenerateInput {
+  count: number
+  note: string
 }
 
 export interface RedemptionInviteInput {

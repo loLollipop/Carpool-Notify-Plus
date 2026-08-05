@@ -17,6 +17,10 @@ const (
 	RedemptionStatusPending = "pending"
 	RedemptionStatusInvited = "invited"
 
+	RedemptionCodeStatusUnused   = "unused"
+	RedemptionCodeStatusUsed     = "used"
+	RedemptionCodeStatusDisabled = "disabled"
+
 	SettingNotifyTemplate        = "notify_template"
 	SettingCustomerEmailTemplate = "customer_email_template"
 	SettingEnabledChannels       = "enabled_channels"
@@ -187,6 +191,19 @@ type RedemptionApplication struct {
 	InvitedAt              *time.Time `json:"invited_at"`
 	CreatedAt              time.Time  `json:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at"`
+}
+
+// RedemptionCode is an operator-generated one-time code. Customers must submit
+// an unused code before a redemption application can be created.
+type RedemptionCode struct {
+	ID                  int64      `json:"id"`
+	Code                string     `json:"code"`
+	Status              string     `json:"status"`
+	Note                string     `json:"note"`
+	UsedByApplicationID int64      `json:"used_by_application_id"`
+	UsedAt              *time.Time `json:"used_at"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
 }
 
 // TemplateData is passed into Go text/template for notifications.

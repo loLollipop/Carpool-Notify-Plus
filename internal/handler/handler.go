@@ -58,6 +58,10 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 
 		authorized.GET("/redemptions", server.getRedemptions)
 		authorized.POST("/redemptions/:id/invite", server.postInviteRedemption)
+		authorized.GET("/redemption-codes", server.getRedemptionCodes)
+		authorized.POST("/redemption-codes", server.postGenerateRedemptionCodes)
+		authorized.POST("/redemption-codes/:id/disable", server.postDisableRedemptionCode)
+		authorized.POST("/redemption-codes/:id/enable", server.postEnableRedemptionCode)
 
 		authorized.GET("/subscriptions", server.getSubscriptions)
 		authorized.POST("/subscriptions", server.postCreateSubscription)

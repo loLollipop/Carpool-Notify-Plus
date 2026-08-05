@@ -16,11 +16,18 @@ func TestRedemptionInviteCreatesSubscriptionAndInitialBill(t *testing.T) {
 		return time.Date(2026, time.August, 5, 10, 0, 0, 0, cycle.Location)
 	}
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "兑换母号", "车位1")
+	codes, err := subscriptionService.GenerateRedemptionCodes(service.RedemptionCodeGenerateInput{
+		Count: 1,
+		Note:  "测试订单",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	result, err := subscriptionService.SubmitRedemptionApplication(service.RedemptionSubmitInput{
 		CustomerEmail:   "Customer <customer@example.com>",
 		CustomerContact: "wx-customer-701",
-		RedeemCode:      "CODE701",
+		RedeemCode:      strings.ToLower(codes[0].Code.Code),
 		RequestNote:     "今天购买",
 	})
 	if err != nil {
@@ -74,7 +81,7 @@ func TestRedemptionInviteCreatesSubscriptionAndInitialBill(t *testing.T) {
 	if subscription.SeatID != seatIDs[0] || subscription.PricePerPersonCents != 2550 || subscription.BoardedAt != "2026-08-05" {
 		t.Fatalf("subscription assignment/price/boarded = seat %d price %d boarded %q", subscription.SeatID, subscription.PricePerPersonCents, subscription.BoardedAt)
 	}
-	if !strings.Contains(subscription.Remark, "兑换码：CODE701") || !strings.Contains(subscription.Remark, "申请备注：今天购买") {
+	if !strings.Contains(subscription.Remark, "兑换码："+codes[0].Code.Code) || !strings.Contains(subscription.Remark, "申请备注：今天购买") {
 		t.Fatalf("remark = %q, want redemption details", subscription.Remark)
 	}
 
@@ -84,5 +91,43 @@ func TestRedemptionInviteCreatesSubscriptionAndInitialBill(t *testing.T) {
 	}
 	if !paid {
 		t.Fatal("initial redemption period should be paid")
+	}
+}
+
+func TestRedemptionSubmitRequiresUnusedGeneratedCode(t *testing.T) {
+	subscriptionService := openTestService(t)
+	codes, err := subscriptionService.GenerateRedemptionCodes(service.RedemptionCodeGenerateInput{
+		Count: 1,
+		Note:  "一次性订单",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = subscriptionService.SubmitRedemptionApplication(service.RedemptionSubmitInput{
+		CustomerEmail:   "first@example.com",
+		CustomerContact: "微信：first",
+		RedeemCode:      codes[0].Code.Code,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = subscriptionService.SubmitRedemptionApplication(service.RedemptionSubmitInput{
+		CustomerEmail:   "second@example.com",
+		CustomerContact: "微信：second",
+		RedeemCode:      codes[0].Code.Code,
+	})
+	if err == nil || !strings.Contains(err.Error(), "已经被使用") {
+		t.Fatalf("second submit error = %v, want used code message", err)
+	}
+
+	_, err = subscriptionService.SubmitRedemptionApplication(service.RedemptionSubmitInput{
+		CustomerEmail:   "missing@example.com",
+		CustomerContact: "微信：missing",
+		RedeemCode:      "CPN-NOT-A-CODE",
+	})
+	if err == nil || !strings.Contains(err.Error(), "不存在") {
+		t.Fatalf("missing code error = %v, want not found message", err)
 	}
 }

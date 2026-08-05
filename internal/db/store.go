@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,13 @@ import (
 type Store struct {
 	database *sql.DB
 }
+
+var (
+	ErrRedemptionCodeNotFound  = errors.New("redemption code not found")
+	ErrRedemptionCodeUsed      = errors.New("redemption code used")
+	ErrRedemptionCodeDisabled  = errors.New("redemption code disabled")
+	ErrRedemptionCodeNotUnused = errors.New("redemption code not unused")
+)
 
 // Open creates the database file if needed, opens a connection, and migrates.
 func Open(databasePath string) (*Store, error) {
@@ -145,6 +153,18 @@ func (store *Store) migrate() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_redemption_applications_status
 			ON redemption_applications(status, created_at);`,
+		`CREATE TABLE IF NOT EXISTS redemption_codes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			code TEXT NOT NULL UNIQUE,
+			status TEXT NOT NULL,
+			note TEXT NOT NULL DEFAULT '',
+			used_by_application_id INTEGER NOT NULL DEFAULT 0,
+			used_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_redemption_codes_status
+			ON redemption_codes(status, created_at);`,
 	}
 	for _, statement := range statements {
 		if _, err := store.database.Exec(statement); err != nil {
@@ -1120,6 +1140,96 @@ const redemptionSelectColumns = `
 	created_at,
 	updated_at`
 
+const redemptionCodeSelectColumns = `
+	id,
+	code,
+	status,
+	note,
+	used_by_application_id,
+	used_at,
+	created_at,
+	updated_at`
+
+// CreateRedemptionCode inserts one operator-generated one-time redemption code.
+func (store *Store) CreateRedemptionCode(code model.RedemptionCode) (int64, error) {
+	now := formatTime(time.Now().UTC())
+	result, err := store.database.Exec(`
+		INSERT INTO redemption_codes (code, status, note, used_by_application_id, used_at, created_at, updated_at)
+		VALUES (?, ?, ?, 0, NULL, ?, ?)`,
+		strings.TrimSpace(code.Code),
+		model.RedemptionCodeStatusUnused,
+		strings.TrimSpace(code.Note),
+		now,
+		now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// GetRedemptionCode returns one generated redemption code by id.
+func (store *Store) GetRedemptionCode(codeID int64) (model.RedemptionCode, error) {
+	row := store.database.QueryRow(`
+		SELECT `+redemptionCodeSelectColumns+`
+		FROM redemption_codes
+		WHERE id = ?`, codeID)
+	return scanRedemptionCode(row)
+}
+
+// ListRedemptionCodes returns generated codes with still-usable codes first.
+func (store *Store) ListRedemptionCodes() ([]model.RedemptionCode, error) {
+	rows, err := store.database.Query(`
+		SELECT ` + redemptionCodeSelectColumns + `
+		FROM redemption_codes
+		ORDER BY
+			CASE status
+				WHEN 'unused' THEN 0
+				WHEN 'disabled' THEN 1
+				ELSE 2
+			END ASC,
+			created_at DESC,
+			id DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	codes := make([]model.RedemptionCode, 0)
+	for rows.Next() {
+		code, err := scanRedemptionCode(rows)
+		if err != nil {
+			return nil, err
+		}
+		codes = append(codes, code)
+	}
+	return codes, rows.Err()
+}
+
+// SetRedemptionCodeStatus changes a generated code between unused/disabled.
+func (store *Store) SetRedemptionCodeStatus(codeID int64, status string) error {
+	now := formatTime(time.Now().UTC())
+	result, err := store.database.Exec(`
+		UPDATE redemption_codes
+		SET status = ?, updated_at = ?
+		WHERE id = ?`,
+		strings.TrimSpace(status),
+		now,
+		codeID,
+	)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // CreateRedemptionApplication inserts a customer-submitted redemption request.
 func (store *Store) CreateRedemptionApplication(application model.RedemptionApplication) (int64, error) {
 	now := formatTime(time.Now().UTC())
@@ -1142,6 +1252,96 @@ func (store *Store) CreateRedemptionApplication(application model.RedemptionAppl
 		return 0, err
 	}
 	return result.LastInsertId()
+}
+
+// CreateRedemptionApplicationUsingCode atomically creates an application and
+// consumes a previously generated unused redemption code.
+func (store *Store) CreateRedemptionApplicationUsingCode(application model.RedemptionApplication) (int64, error) {
+	now := formatTime(time.Now().UTC())
+	redeemCode := strings.TrimSpace(application.RedeemCode)
+
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		_ = transaction.Rollback()
+	}()
+
+	var codeID int64
+	var codeStatus string
+	err = transaction.QueryRow(`
+		SELECT id, status
+		FROM redemption_codes
+		WHERE code = ?`, redeemCode).Scan(&codeID, &codeStatus)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return 0, ErrRedemptionCodeNotFound
+		}
+		return 0, err
+	}
+	switch strings.TrimSpace(codeStatus) {
+	case model.RedemptionCodeStatusUnused:
+	case model.RedemptionCodeStatusUsed:
+		return 0, ErrRedemptionCodeUsed
+	case model.RedemptionCodeStatusDisabled:
+		return 0, ErrRedemptionCodeDisabled
+	default:
+		return 0, ErrRedemptionCodeNotUnused
+	}
+
+	result, err := transaction.Exec(`
+		INSERT INTO redemption_applications (
+			tracking_token, customer_email, customer_contact, redeem_code, request_note,
+			status, assigned_account_id, assigned_seat_id, assigned_subscription_id,
+			operator_note, invited_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, '', NULL, ?, ?)`,
+		strings.TrimSpace(application.TrackingToken),
+		strings.TrimSpace(application.CustomerEmail),
+		strings.TrimSpace(application.CustomerContact),
+		redeemCode,
+		strings.TrimSpace(application.RequestNote),
+		model.RedemptionStatusPending,
+		now,
+		now,
+	)
+	if err != nil {
+		return 0, err
+	}
+	applicationID, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+
+	result, err = transaction.Exec(`
+		UPDATE redemption_codes
+		SET status = ?,
+			used_by_application_id = ?,
+			used_at = ?,
+			updated_at = ?
+		WHERE id = ? AND status = ?`,
+		model.RedemptionCodeStatusUsed,
+		applicationID,
+		now,
+		now,
+		codeID,
+		model.RedemptionCodeStatusUnused,
+	)
+	if err != nil {
+		return 0, err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if rowsAffected == 0 {
+		return 0, ErrRedemptionCodeNotUnused
+	}
+
+	if err := transaction.Commit(); err != nil {
+		return 0, err
+	}
+	return applicationID, nil
 }
 
 // GetRedemptionApplication returns one redemption application by id.
@@ -1834,6 +2034,45 @@ func scanRedemptionApplication(scanner scannable) (model.RedemptionApplication, 
 		return model.RedemptionApplication{}, err
 	}
 	return application, nil
+}
+
+func scanRedemptionCode(scanner scannable) (model.RedemptionCode, error) {
+	var code model.RedemptionCode
+	var usedAt sql.NullString
+	var createdAt string
+	var updatedAt string
+	err := scanner.Scan(
+		&code.ID,
+		&code.Code,
+		&code.Status,
+		&code.Note,
+		&code.UsedByApplicationID,
+		&usedAt,
+		&createdAt,
+		&updatedAt,
+	)
+	if err != nil {
+		return model.RedemptionCode{}, err
+	}
+	code.Code = strings.TrimSpace(code.Code)
+	code.Status = strings.TrimSpace(code.Status)
+	code.Note = strings.TrimSpace(code.Note)
+	if usedAt.Valid && usedAt.String != "" {
+		parsed, err := parseTime(usedAt.String)
+		if err != nil {
+			return model.RedemptionCode{}, err
+		}
+		code.UsedAt = &parsed
+	}
+	code.CreatedAt, err = parseTime(createdAt)
+	if err != nil {
+		return model.RedemptionCode{}, err
+	}
+	code.UpdatedAt, err = parseTime(updatedAt)
+	if err != nil {
+		return model.RedemptionCode{}, err
+	}
+	return code, nil
 }
 
 func scanAccount(scanner scannable) (model.Account, error) {
