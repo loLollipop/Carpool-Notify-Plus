@@ -796,6 +796,7 @@ func TestProcessDueNotificationsGroupsSaleAndResale(t *testing.T) {
 		PriceYuan:        "10.00",
 		CronExpr:         "0 0 15 * *",
 		NotifyOffsetsRaw: "0",
+		CustomerEmail:    "sale@example.com",
 		SeatID:           seatA[0],
 		BoardedAt:        "2000-01-01",
 	}); err != nil {
@@ -808,6 +809,7 @@ func TestProcessDueNotificationsGroupsSaleAndResale(t *testing.T) {
 		AgencyFeeYuan:    "0",
 		CronExpr:         "0 0 15 * *",
 		NotifyOffsetsRaw: "0",
+		CustomerEmail:    "resale@example.com",
 		SeatID:           seatB[0],
 		BoardedAt:        "2000-01-01",
 	}); err != nil {
@@ -831,10 +833,10 @@ func TestProcessDueNotificationsGroupsSaleAndResale(t *testing.T) {
 	if saleIdx > resaleIdx {
 		t.Fatalf("出售 section should appear before 串货: %q", recorder.lastBody)
 	}
-	if !strings.Contains(recorder.lastBody[saleIdx:resaleIdx], "出售订阅") {
-		t.Fatalf("sale section should contain 出售订阅: %q", recorder.lastBody)
+	if !strings.Contains(recorder.lastBody[saleIdx:resaleIdx], "sale@example.com") {
+		t.Fatalf("sale section should contain customer email: %q", recorder.lastBody)
 	}
-	if !strings.Contains(recorder.lastBody[resaleIdx:], "串货订阅") {
-		t.Fatalf("resale section should contain 串货订阅: %q", recorder.lastBody)
+	if !strings.Contains(recorder.lastBody[resaleIdx:], "resale@example.com") {
+		t.Fatalf("resale section should contain customer email: %q", recorder.lastBody)
 	}
 }
