@@ -43,7 +43,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "carpool-notify:redemption-token"
-const NOTICE_STORAGE_KEY = "carpool-notify:redeem-notice-confirmed"
 const SUPPORT_WECHAT_ID = "Jerrylove_Bom"
 const SUPPORT_WECHAT_QR_SRC = "/wechat-support-qr.png"
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
@@ -82,22 +81,6 @@ function writeStoredToken(token: string) {
     } else {
       window.localStorage.removeItem(STORAGE_KEY)
     }
-  } catch {
-    // localStorage may be unavailable in private browsing.
-  }
-}
-
-function readNoticeConfirmed() {
-  try {
-    return window.localStorage.getItem(NOTICE_STORAGE_KEY) === "1"
-  } catch {
-    return false
-  }
-}
-
-function writeNoticeConfirmed() {
-  try {
-    window.localStorage.setItem(NOTICE_STORAGE_KEY, "1")
   } catch {
     // localStorage may be unavailable in private browsing.
   }
@@ -278,7 +261,7 @@ function RedeemSafetyNoticeDialog({
 
 export function RedeemPage() {
   const [trackingToken, setTrackingToken] = React.useState(readStoredToken)
-  const [noticeOpen, setNoticeOpen] = React.useState(() => !readNoticeConfirmed())
+  const [noticeOpen, setNoticeOpen] = React.useState(true)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -326,16 +309,10 @@ export function RedeemPage() {
   const invited = status === "invited"
   const statusLoadFailed = trackingToken !== "" && statusQuery.isError
   const activeContact = CONTACT_OPTIONS.find((option) => option.value === contactType)
-  const handleNoticeOpenChange = (open: boolean) => {
-    if (!open) {
-      writeNoticeConfirmed()
-    }
-    setNoticeOpen(open)
-  }
 
   return (
     <main className="min-h-dvh bg-[#f6f7f9] px-4 py-6 pb-24 text-foreground dark:bg-background sm:px-6 lg:pb-6">
-      <RedeemSafetyNoticeDialog open={noticeOpen} onOpenChange={handleNoticeOpenChange} />
+      <RedeemSafetyNoticeDialog open={noticeOpen} onOpenChange={setNoticeOpen} />
       <SupportWechatFloating />
 
       <div className="mx-auto flex min-h-[calc(100dvh-3rem)] w-full max-w-[636px] flex-col justify-center">
