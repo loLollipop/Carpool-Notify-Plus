@@ -2,9 +2,11 @@ import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import {
+  AlertTriangle,
   Car,
   CheckCircle2,
   Clock3,
+  Copy,
   LoaderCircle,
   MessageCircle,
   Moon,
@@ -20,6 +22,14 @@ import { fetchRedemptionStatus, submitRedemptionApplication } from "@/api/endpoi
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
   Form,
   FormControl,
   FormField,
@@ -32,6 +42,9 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "carpool-notify:redemption-token"
+const NOTICE_STORAGE_KEY = "carpool-notify:redeem-notice-confirmed"
+const SUPPORT_WECHAT_ID = "Jerrylove_Bom"
+const SUPPORT_WECHAT_QR_SRC = "/wechat-support-qr.png"
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const CONTACT_OPTIONS = [
   { value: "wechat", label: "微信", placeholder: "字母开头，6-20 位", tone: "text-success" },
@@ -73,8 +86,33 @@ function writeStoredToken(token: string) {
   }
 }
 
+function readNoticeConfirmed() {
+  try {
+    return window.localStorage.getItem(NOTICE_STORAGE_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+function writeNoticeConfirmed() {
+  try {
+    window.localStorage.setItem(NOTICE_STORAGE_KEY, "1")
+  } catch {
+    // localStorage may be unavailable in private browsing.
+  }
+}
+
 function contactLabel(value: ContactType) {
   return CONTACT_OPTIONS.find((option) => option.value === value)?.label ?? "微信"
+}
+
+async function copySupportWechatId() {
+  try {
+    await navigator.clipboard.writeText(SUPPORT_WECHAT_ID)
+    toast.success("已复制客服微信号")
+  } catch {
+    toast.error(`复制失败，请手动输入 ${SUPPORT_WECHAT_ID}`)
+  }
 }
 
 function RedeemThemeToggle() {
@@ -100,8 +138,125 @@ function RedeemThemeToggle() {
   )
 }
 
+function WechatQrBlock({ compact = false }: { compact?: boolean }) {
+  return (
+    <div className="grid gap-3">
+      <div className="rounded-lg border bg-white p-2">
+        <img
+          src={SUPPORT_WECHAT_QR_SRC}
+          alt="客服微信二维码"
+          className={cn("aspect-square w-full rounded-md object-contain", compact ? "max-h-52" : "")}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-muted-foreground">微信号</p>
+          <p className="truncate font-mono text-sm font-semibold">{SUPPORT_WECHAT_ID}</p>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0"
+          onClick={() => void copySupportWechatId()}
+        >
+          <Copy data-slot="icon" />
+          复制
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function SupportWechatFloating() {
+  return (
+    <>
+      <aside className="fixed right-5 bottom-5 z-40 hidden w-[220px] rounded-lg border bg-card/95 p-3 shadow-xl shadow-black/10 backdrop-blur lg:block dark:shadow-black/30">
+        <div className="mb-3 flex items-center gap-2">
+          <div className="grid size-8 place-items-center rounded-lg bg-success/10 text-success">
+            <MessageCircle className="size-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">客服微信</p>
+            <p className="truncate text-xs text-muted-foreground">售后与续期提醒</p>
+          </div>
+        </div>
+        <WechatQrBlock />
+      </aside>
+
+      <Dialog>
+        <DialogTrigger asChild>
+          <Button
+            type="button"
+            variant="brand"
+            className="fixed right-4 bottom-4 z-40 h-12 rounded-full px-4 shadow-lg lg:hidden"
+          >
+            <MessageCircle data-slot="icon" />
+            客服微信
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="max-w-[360px]">
+          <DialogHeader>
+            <DialogTitle>添加客服微信</DialogTitle>
+            <DialogDescription>
+              长期拼车、续费提醒或售后问题，可以扫码添加微信联系。
+            </DialogDescription>
+          </DialogHeader>
+          <WechatQrBlock compact />
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+function RedeemSafetyNoticeDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const noticeItems = [
+    "工作空间与个人空间记录相互独立，请先备份个人空间里的重要内容。",
+    `长期拼车用户建议添加客服微信 ${SUPPORT_WECHAT_ID}，方便售后、续期提醒和异常通知。`,
+    "到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作区内容可能无法找回。",
+  ]
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent showCloseButton={false} className="sm:max-w-[520px]">
+        <DialogHeader>
+          <div className="mb-2 grid size-11 place-items-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+            <AlertTriangle className="size-6" />
+          </div>
+          <DialogTitle className="text-2xl leading-tight">加入前请先确认</DialogTitle>
+          <DialogDescription className="leading-6">
+            进入共享工作空间前，请先看完下面几点，避免后续记录、售后或续期提醒遗漏。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-3 text-sm leading-6">
+          {noticeItems.map((item, index) => (
+            <div key={item} className="flex gap-3 rounded-lg border bg-muted/30 p-3">
+              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-background text-xs font-semibold text-muted-foreground">
+                {index + 1}
+              </span>
+              <p>{item}</p>
+            </div>
+          ))}
+        </div>
+
+        <Button type="button" className="h-11 w-full" onClick={() => onOpenChange(false)}>
+          我已了解，继续兑换
+        </Button>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 export function RedeemPage() {
   const [trackingToken, setTrackingToken] = React.useState(readStoredToken)
+  const [noticeOpen, setNoticeOpen] = React.useState(() => !readNoticeConfirmed())
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -149,9 +304,18 @@ export function RedeemPage() {
   const invited = status === "invited"
   const statusLoadFailed = trackingToken !== "" && statusQuery.isError
   const activeContact = CONTACT_OPTIONS.find((option) => option.value === contactType)
+  const handleNoticeOpenChange = (open: boolean) => {
+    if (!open) {
+      writeNoticeConfirmed()
+    }
+    setNoticeOpen(open)
+  }
 
   return (
-    <main className="min-h-dvh bg-[#f6f7f9] px-4 py-6 text-foreground dark:bg-background sm:px-6">
+    <main className="min-h-dvh bg-[#f6f7f9] px-4 py-6 pb-24 text-foreground dark:bg-background sm:px-6 lg:pb-6">
+      <RedeemSafetyNoticeDialog open={noticeOpen} onOpenChange={handleNoticeOpenChange} />
+      <SupportWechatFloating />
+
       <div className="mx-auto flex min-h-[calc(100dvh-3rem)] w-full max-w-[636px] flex-col justify-center">
         <div className="mb-8 flex justify-end">
           <RedeemThemeToggle />
