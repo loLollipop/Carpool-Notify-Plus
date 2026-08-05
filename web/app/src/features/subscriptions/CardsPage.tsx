@@ -417,18 +417,18 @@ export function CardsPage() {
         description={t("cards.desc")}
         actions={
           <>
-            <div className="relative">
+            <div className="relative w-full sm:w-auto">
               <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(event) => updateSearch(event.target.value)}
                 placeholder={t("cards.searchPlaceholder")}
                 aria-label={t("cards.title")}
-                className="h-9 w-56 pl-8 text-[13px] sm:w-72"
+                className="h-9 w-full pl-8 text-[13px] sm:w-72"
               />
             </div>
             <Select value={filter} onValueChange={(value) => updateFilter(value as CardsFilter)}>
-              <SelectTrigger className="h-9 w-28" aria-label={t("cards.filterLabel")}>
+              <SelectTrigger className="h-9 flex-1 sm:w-28 sm:flex-none" aria-label={t("cards.filterLabel")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -439,7 +439,7 @@ export function CardsPage() {
                 <SelectItem value="resale">{t("calendar.filterResale")}</SelectItem>
               </SelectContent>
             </Select>
-            <Button onClick={openCreate}>
+            <Button className="flex-1 sm:flex-none" onClick={openCreate}>
               <Plus data-slot="icon" />
               {t("nav.newSubscription")}
             </Button>

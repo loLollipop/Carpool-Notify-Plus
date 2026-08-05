@@ -5,58 +5,58 @@
 
 :root {
   /* Minimal SaaS — cool light gray canvas, pure white cards. */
-  --background: oklch(0.978 0.002 250);
-  --foreground: oklch(0.24 0.014 260);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.24 0.014 260);
+  --background: oklch(0.974 0.006 250);
+  --foreground: oklch(0.22 0.02 258);
+  --card: oklch(0.998 0.002 250);
+  --card-foreground: oklch(0.22 0.02 258);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.24 0.014 260);
-  --primary: oklch(0.24 0.014 260);
+  --primary: oklch(0.56 0.18 257);
   --primary-foreground: oklch(0.985 0.002 250);
-  --secondary: oklch(0.958 0.003 250);
-  --secondary-foreground: oklch(0.32 0.014 260);
-  --muted: oklch(0.958 0.003 250);
-  --muted-foreground: oklch(0.53 0.014 255);
-  --accent: oklch(0.95 0.005 250);
-  --accent-foreground: oklch(0.26 0.014 260);
-  --brand: oklch(0.55 0.17 257);
+  --secondary: oklch(0.95 0.009 250);
+  --secondary-foreground: oklch(0.3 0.02 258);
+  --muted: oklch(0.952 0.008 250);
+  --muted-foreground: oklch(0.5 0.02 255);
+  --accent: oklch(0.94 0.02 250);
+  --accent-foreground: oklch(0.26 0.025 258);
+  --brand: oklch(0.56 0.18 257);
   --brand-foreground: oklch(0.985 0.002 250);
-  --success: oklch(0.62 0.135 152);
+  --success: oklch(0.62 0.15 152);
   --success-foreground: oklch(0.985 0.002 250);
-  --violet: oklch(0.565 0.16 288);
+  --violet: oklch(0.58 0.17 294);
   --violet-foreground: oklch(0.985 0.002 250);
-  --warning: oklch(0.7 0.13 68);
+  --warning: oklch(0.74 0.14 75);
   --warning-foreground: oklch(0.28 0.03 68);
   --destructive: oklch(0.575 0.2 27.3);
   --destructive-foreground: oklch(0.985 0.002 250);
-  --border: oklch(0.924 0.004 250);
-  --input: oklch(0.906 0.005 250);
-  --ring: oklch(0.55 0.17 257);
-  --chart-1: oklch(0.55 0.17 257);
-  --chart-2: oklch(0.62 0.135 152);
-  --chart-3: oklch(0.565 0.16 288);
+  --border: oklch(0.9 0.01 250);
+  --input: oklch(0.87 0.012 250);
+  --ring: oklch(0.56 0.18 257);
+  --chart-1: oklch(0.56 0.18 257);
+  --chart-2: oklch(0.62 0.15 152);
+  --chart-3: oklch(0.58 0.17 294);
   --chart-4: oklch(0.72 0.09 228);
-  --chart-5: oklch(0.72 0.012 250);
-  --radius: 0.75rem;
+  --chart-5: oklch(0.74 0.14 75);
+  --radius: 0.5rem;
 }
 
 .dark {
   /* Minimal SaaS — cool ink, same accent family. */
-  --background: oklch(0.172 0.007 260);
+  --background: oklch(0.16 0.008 260);
   --foreground: oklch(0.93 0.005 250);
-  --card: oklch(0.208 0.008 260);
+  --card: oklch(0.195 0.01 260);
   --card-foreground: oklch(0.93 0.005 250);
-  --popover: oklch(0.222 0.009 260);
+  --popover: oklch(0.215 0.012 260);
   --popover-foreground: oklch(0.93 0.005 250);
   --primary: oklch(0.93 0.005 250);
   --primary-foreground: oklch(0.2 0.008 260);
-  --secondary: oklch(0.252 0.009 260);
+  --secondary: oklch(0.25 0.012 260);
   --secondary-foreground: oklch(0.9 0.005 250);
-  --muted: oklch(0.248 0.009 260);
+  --muted: oklch(0.245 0.012 260);
   --muted-foreground: oklch(0.64 0.012 255);
-  --accent: oklch(0.262 0.01 260);
+  --accent: oklch(0.27 0.02 257);
   --accent-foreground: oklch(0.93 0.005 250);
-  --brand: oklch(0.68 0.14 257);
+  --brand: oklch(0.68 0.16 257);
   --brand-foreground: oklch(0.16 0.02 260);
   --success: oklch(0.7 0.125 152);
   --success-foreground: oklch(0.16 0.025 152);
@@ -68,8 +68,8 @@
   --destructive-foreground: oklch(0.985 0.002 250);
   --border: oklch(0.285 0.009 260);
   --input: oklch(0.305 0.01 260);
-  --ring: oklch(0.68 0.14 257);
-  --chart-1: oklch(0.68 0.14 257);
+  --ring: oklch(0.68 0.16 257);
+  --chart-1: oklch(0.68 0.16 257);
   --chart-2: oklch(0.7 0.125 152);
   --chart-3: oklch(0.68 0.135 288);
   --chart-4: oklch(0.62 0.08 228);
@@ -77,9 +77,8 @@
 }
 
 @theme inline {
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text",
-    "SF Pro Display", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC",
-    "Microsoft YaHei", sans-serif;
+  --font-sans: "Segoe UI Variable Text", "SF Pro Text", "PingFang SC",
+    "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono",
     Menlo, Consolas, monospace;
 
@@ -158,6 +157,7 @@
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    letter-spacing: 0;
   }
 
   html {
@@ -166,7 +166,16 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+    min-width: 320px;
+    min-height: 100dvh;
     text-rendering: optimizeLegibility;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
   }
 
   ::selection {
@@ -193,8 +202,8 @@
   /* Large display numerals (KPI values, 404, month heading). */
   .display-numeral {
     font-family: var(--font-sans);
-    font-weight: 600;
-    letter-spacing: -0.02em;
+    font-weight: 650;
+    letter-spacing: 0;
     line-height: 0.9;
     font-variant-numeric: tabular-nums;
   }
@@ -205,7 +214,7 @@
 
   .text-money {
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
+    letter-spacing: 0;
   }
 
   .scrollbar-none {
@@ -215,5 +224,16 @@
 
   .scrollbar-none::-webkit-scrollbar {
     display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

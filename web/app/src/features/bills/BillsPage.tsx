@@ -122,6 +122,97 @@ function KpiCard({
   )
 }
 
+function BillMobileCard({
+  bill,
+  onView,
+  onEdit,
+  onDelete,
+}: {
+  bill: BillView
+  onView: () => void
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const { t } = useTranslation()
+  const primaryName = bill.account_name || bill.subscription_name
+  const customerLine = bill.customer_email || bill.subscription_name
+
+  return (
+    <Card className="gap-0 overflow-hidden p-0 animate-fade-up">
+      <div className="p-4">
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold" title={primaryName}>
+              {primaryName}
+            </h3>
+            <p className="mt-1 break-all text-xs text-muted-foreground">
+              {customerLine}
+              {bill.seat_name ? ` · ${bill.seat_name}` : ""}
+            </p>
+          </div>
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <Badge variant={bill.archived ? "secondary" : "success"} className="font-normal">
+              {bill.status_label}
+            </Badge>
+            {bill.is_resale ? (
+              <Badge variant="outline" className="font-normal">
+                {t("cards.resale")}
+              </Badge>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md bg-muted/55 p-3 text-xs">
+          <div>
+            <div className="text-muted-foreground">{t("bills.colAmount")}</div>
+            <div className="mt-1 text-base font-semibold tabular-nums">¥{bill.amount_yuan}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">{t("bills.colStartDate")}</div>
+            <div className="mt-1 font-medium tabular-nums">{bill.due_date}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">{t("bills.colProfit")}</div>
+            <div className="mt-1 tabular-nums">
+              ¥{bill.is_resale ? "0.00" : bill.profit_yuan}
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">{t("bills.colPaidAt")}</div>
+            <div className="mt-1 tabular-nums">{bill.paid_at_label || "-"}</div>
+          </div>
+          {bill.note ? (
+            <div className="col-span-2">
+              <div className="text-muted-foreground">{t("bills.colNote")}</div>
+              <div className="mt-1 break-words leading-5">{bill.note}</div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 border-t bg-muted/20 px-3 py-3">
+        <Button variant="outline" size="sm" onClick={onView}>
+          <Eye data-slot="icon" />
+          <span className="truncate">{t("bills.viewSubscription")}</span>
+        </Button>
+        <Button variant="outline" size="sm" onClick={onEdit}>
+          <Pencil data-slot="icon" />
+          <span className="truncate">{t("bills.editBill")}</span>
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="text-destructive hover:text-destructive"
+          onClick={onDelete}
+        >
+          <Trash2 data-slot="icon" />
+          {t("common.delete")}
+        </Button>
+      </div>
+    </Card>
+  )
+}
+
 // ---- 金额分布 (bar list, 按订阅 / 按账号) ----------------------------------------
 
 function AmountDistributionCard({ summary }: { summary: BillsSummary }) {
@@ -244,36 +335,35 @@ function AccountDonutCard({ summary }: { summary: BillsSummary }) {
           {t("bills.chartEmptyAccounts")}
         </p>
       ) : (
-        <div className="flex flex-wrap items-center gap-5">
-          <div className="h-[170px] w-[170px] shrink-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <RechartsTooltip content={<ChartTooltip />} />
-                <Pie
-                  data={data}
-                  dataKey="cents"
-                  nameKey="name"
-                  innerRadius={52}
-                  outerRadius={80}
-                  paddingAngle={3}
-                  strokeWidth={0}
-                >
-                  {data.map((_, index) => (
-                    <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                  ))}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
+        <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:gap-5">
+          <div className="mx-auto h-[170px] w-[170px] shrink-0 sm:mx-0">
+            <PieChart width={170} height={170}>
+              <RechartsTooltip content={<ChartTooltip />} />
+              <Pie
+                data={data}
+                dataKey="cents"
+                nameKey="name"
+                innerRadius={52}
+                outerRadius={80}
+                paddingAngle={3}
+                strokeWidth={0}
+                isAnimationActive={false}
+              >
+                {data.map((_, index) => (
+                  <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                ))}
+              </Pie>
+            </PieChart>
           </div>
           <ul className="grid min-w-0 flex-1 gap-2">
             {data.map((item, index) => (
-              <li key={item.name} className="flex items-center gap-2 text-xs">
+              <li key={item.name} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-xs">
                 <i
                   className="size-2.5 shrink-0 rounded-[3px]"
                   style={{ background: CHART_COLORS[index % CHART_COLORS.length] }}
                 />
                 <span className="truncate">{item.name}</span>
-                <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+                <span className="shrink-0 tabular-nums text-muted-foreground">
                   ¥{item.yuan} · {t("bills.countSuffix", { count: item.count })}
                 </span>
               </li>
@@ -393,16 +483,6 @@ export function BillsPage() {
   const pagedBills = filteredBills.slice(pageStartIndex, pageStartIndex + BILLS_PER_PAGE)
   const pageEndIndex = pageStartIndex + pagedBills.length
 
-  React.useEffect(() => {
-    setPage(1)
-  }, [search, typeFilter])
-
-  React.useEffect(() => {
-    if (page !== safePage) {
-      setPage(safePage)
-    }
-  }, [page, safePage])
-
   return (
     <>
       <PageHeader title={t("bills.title")} description={t("bills.desc")} />
@@ -487,7 +567,10 @@ export function BillsPage() {
                 <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={search}
-                  onChange={(event) => setSearch(event.target.value)}
+                  onChange={(event) => {
+                    setSearch(event.target.value)
+                    setPage(1)
+                  }}
                   placeholder={t("bills.searchPlaceholder")}
                   aria-label={t("bills.listTitle")}
                   className="h-8 w-52 pl-8 text-[13px] sm:w-64"
@@ -495,7 +578,10 @@ export function BillsPage() {
               </div>
               <Select
                 value={typeFilter}
-                onValueChange={(value) => setTypeFilter(value as "all" | "sale" | "resale")}
+                onValueChange={(value) => {
+                  setTypeFilter(value as "all" | "sale" | "resale")
+                  setPage(1)
+                }}
               >
                 <SelectTrigger className="h-8 w-28" aria-label={t("bills.filterLabel")}>
                   <SelectValue />
@@ -519,7 +605,20 @@ export function BillsPage() {
               </p>
             </Card>
           ) : (
-            <Card className="gap-0 overflow-hidden p-0 animate-fade-up">
+            <div className="space-y-3">
+              <div className="grid gap-3 md:hidden">
+                {pagedBills.map((bill) => (
+                  <BillMobileCard
+                    key={bill.id}
+                    bill={bill}
+                    onView={() => setViewingBill(bill)}
+                    onEdit={() => setEditingBill(bill)}
+                    onDelete={() => setDeleteTarget(bill)}
+                  />
+                ))}
+              </div>
+
+              <Card className="hidden gap-0 overflow-hidden p-0 animate-fade-up md:flex">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -644,7 +743,42 @@ export function BillsPage() {
                   </div>
                 </div>
               ) : null}
-            </Card>
+              </Card>
+
+              {pageCount > 1 ? (
+                <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground md:hidden">
+                  <span>
+                    {t("bills.pageStatus", {
+                      page: safePage,
+                      pageCount,
+                      start: pageStartIndex + 1,
+                      end: pageEndIndex,
+                      total: filteredBills.length,
+                    })}
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      aria-label={t("cards.prevPage")}
+                      disabled={safePage <= 1}
+                      onClick={() => setPage(safePage - 1)}
+                    >
+                      <ChevronLeft />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      aria-label={t("cards.nextPage")}
+                      disabled={safePage >= pageCount}
+                      onClick={() => setPage(safePage + 1)}
+                    >
+                      <ChevronRight />
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
           )}
         </>
       ) : null}

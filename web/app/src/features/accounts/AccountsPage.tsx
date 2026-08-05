@@ -85,6 +85,160 @@ function AccountStatus({ view }: { view: AccountView }) {
   )
 }
 
+function AccountMobileCard({
+  view,
+  isExpanded,
+  onToggle,
+  onOpenSeat,
+  onEdit,
+  onDelete,
+}: {
+  view: AccountView
+  isExpanded: boolean
+  onToggle: () => void
+  onOpenSeat: (seat: NonNullable<AccountView["seats"]>[number]) => void
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const { t } = useTranslation()
+  const occupants = (view.seats ?? []).filter((seat) => seat.occupied)
+  const accountName = view.account.name.trim()
+  const accountEmail = view.account.email.trim()
+  const showAccountEmail = accountEmail !== "" && accountEmail !== accountName
+  const nextRenewalDate = getNextMonthlyRenewalDate(view.account.opened_at)
+
+  return (
+    <Card className="gap-0 overflow-hidden p-0 animate-fade-up">
+      <div className="p-4">
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="break-all text-sm font-semibold leading-5">{view.account.name}</h2>
+            {showAccountEmail ? (
+              <p className="mt-1 break-all text-xs text-muted-foreground">{accountEmail}</p>
+            ) : null}
+            {view.account.space_name ? (
+              <p className="mt-1 truncate text-xs text-muted-foreground">
+                {view.account.space_name}
+              </p>
+            ) : null}
+          </div>
+          <AccountStatus view={view} />
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md bg-muted/55 p-3 text-xs">
+          <div>
+            <div className="text-muted-foreground">{t("accounts.colOccupancy")}</div>
+            <div className="mt-1 font-semibold tabular-nums">
+              {view.seat_used} / {view.seat_total}
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">{t("accounts.costShort")}</div>
+            <div className="mt-1 font-semibold tabular-nums">
+              ¥{formatCents(view.account.cost_cents)}
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">{t("accounts.openedAt")}</div>
+            <div className="mt-1 tabular-nums">{view.account.opened_at || "-"}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">{t("accounts.nextRenewalAt")}</div>
+            <div className="mt-1 font-medium text-brand tabular-nums">
+              {nextRenewalDate || "-"}
+            </div>
+          </div>
+          <div className="col-span-2">
+            <div className="text-muted-foreground">{t("accounts.colPaymentMethod")}</div>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <span>{view.account.payment_method || "-"}</span>
+              {view.account.zero_renewal_next_month ? (
+                <Badge variant="outline" className="font-normal">
+                  {t("accounts.zeroRenewalBadge")}
+                </Badge>
+              ) : null}
+            </div>
+          </div>
+          {view.account.remark ? (
+            <div className="col-span-2">
+              <div className="text-muted-foreground">{t("accounts.colRemark")}</div>
+              <div className="mt-1 break-words leading-5">{view.account.remark}</div>
+            </div>
+          ) : null}
+        </div>
+
+        {occupants.length > 0 ? (
+          <div className="mt-3">
+            <button
+              type="button"
+              aria-expanded={isExpanded}
+              onClick={onToggle}
+              className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-xs font-medium transition-colors hover:bg-accent"
+            >
+              <span>{t("accounts.occupancyTitle")}</span>
+              <ChevronDown
+                className={cn(
+                  "size-4 text-muted-foreground transition-transform",
+                  isExpanded && "rotate-180",
+                )}
+              />
+            </button>
+            <div
+              className={cn(
+                "grid transition-[grid-template-rows] duration-300 ease-out",
+                isExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+              )}
+            >
+              <div className="overflow-hidden">
+                <div className="grid gap-1.5 pt-1">
+                  {occupants.map((seat) => {
+                    const occupantLabel =
+                      seat.active_customer_email.trim() ||
+                      seat.active_subscription_name.trim() ||
+                      seat.seat.name
+                    return (
+                      <button
+                        key={seat.seat.id}
+                        type="button"
+                        onClick={() => onOpenSeat(seat)}
+                        className="truncate rounded-md border bg-card px-3 py-2 text-left text-xs transition-colors hover:border-brand/40 hover:text-brand"
+                      >
+                        {occupantLabel}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="flex items-center gap-2 border-t bg-muted/20 px-4 py-3">
+        <Button variant="outline" size="sm" onClick={onEdit}>
+          <Pencil data-slot="icon" />
+          {t("common.edit")}
+        </Button>
+        {view.can_delete ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="ml-auto text-destructive hover:text-destructive"
+            onClick={onDelete}
+          >
+            <Trash2 data-slot="icon" />
+            {t("common.delete")}
+          </Button>
+        ) : (
+          <span className="ml-auto text-xs text-muted-foreground">
+            {t("accounts.occupiedLock")}
+          </span>
+        )}
+      </div>
+    </Card>
+  )
+}
+
 export function AccountsPage() {
   const { t } = useTranslation()
   const accountsQuery = useAccounts()
@@ -184,16 +338,6 @@ export function AccountsPage() {
   const pageEndIndex = pageStartIndex + pagedAccounts.length
 
   React.useEffect(() => {
-    setPage(1)
-  }, [search, filter])
-
-  React.useEffect(() => {
-    if (page !== safePage) {
-      setPage(safePage)
-    }
-  }, [page, safePage])
-
-  React.useEffect(() => {
     const query = search.trim().toLowerCase()
     if (!query && filter === "all") return
     const timer = window.setTimeout(() => {
@@ -228,21 +372,27 @@ export function AccountsPage() {
         description={t("accounts.desc")}
         actions={
           <>
-            <div className="relative">
+            <div className="relative w-full sm:w-auto">
               <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => {
+                  setSearch(event.target.value)
+                  setPage(1)
+                }}
                 placeholder={t("accounts.searchPlaceholder")}
                 aria-label={t("accounts.title")}
-                className="h-9 w-56 pl-8 text-[13px] sm:w-72"
+                className="h-9 w-full pl-8 text-[13px] sm:w-72"
               />
             </div>
             <Select
               value={filter}
-              onValueChange={(value) => setFilter(value as AccountsFilter)}
+              onValueChange={(value) => {
+                setFilter(value as AccountsFilter)
+                setPage(1)
+              }}
             >
-              <SelectTrigger className="h-9 w-28" aria-label={t("accounts.filterLabel")}>
+              <SelectTrigger className="h-9 flex-1 sm:w-28 sm:flex-none" aria-label={t("accounts.filterLabel")}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -251,7 +401,7 @@ export function AccountsPage() {
                 <SelectItem value="resale">{t("calendar.filterResale")}</SelectItem>
               </SelectContent>
             </Select>
-            <Button onClick={openCreate}>
+            <Button className="flex-1 sm:flex-none" onClick={openCreate}>
               <Plus data-slot="icon" />
               {t("accounts.newAccount")}
             </Button>
@@ -281,7 +431,27 @@ export function AccountsPage() {
           <p className="text-sm text-muted-foreground">{t("accounts.searchEmpty")}</p>
         </Card>
       ) : (
-        <Card className="gap-0 overflow-hidden p-0 animate-fade-up">
+        <div className="space-y-3">
+          <div className="grid gap-3 sm:hidden">
+            {pagedAccounts.map((view) => (
+              <AccountMobileCard
+                key={view.account.id}
+                view={view}
+                isExpanded={expanded.has(view.account.id)}
+                onToggle={() => toggleExpanded(view.account.id)}
+                onOpenSeat={(seat) => {
+                  setSubscriptionPrefill(prefillFromSeat(seat))
+                  setSubscriptionDialogOpen(true)
+                }}
+                onEdit={() => openEdit(view)}
+                onDelete={() =>
+                  setDeleteTarget({ id: view.account.id, name: view.account.name })
+                }
+              />
+            ))}
+          </div>
+
+          <Card className="hidden gap-0 overflow-hidden p-0 animate-fade-up sm:flex">
           <Table className="table-fixed">
             <TableHeader>
               <TableRow>
@@ -494,7 +664,42 @@ export function AccountsPage() {
               </div>
             </div>
           ) : null}
-        </Card>
+          </Card>
+
+          {pageCount > 1 ? (
+            <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground sm:hidden">
+              <span>
+                {t("accounts.pageStatus", {
+                  page: safePage,
+                  pageCount,
+                  start: pageStartIndex + 1,
+                  end: pageEndIndex,
+                  total: filteredAccounts.length,
+                })}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t("cards.prevPage")}
+                  disabled={safePage <= 1}
+                  onClick={() => setPage(safePage - 1)}
+                >
+                  <ChevronLeft />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t("cards.nextPage")}
+                  disabled={safePage >= pageCount}
+                  onClick={() => setPage(safePage + 1)}
+                >
+                  <ChevronRight />
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </div>
       )}
 
       <AccountDialog

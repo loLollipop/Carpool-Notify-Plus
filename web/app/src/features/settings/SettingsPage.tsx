@@ -919,8 +919,8 @@ function SettingsForm({ settings }: { settings: Settings }) {
         onToggleChannel={toggleChannel}
       />
 
-      <div>
-        <Button type="submit" disabled={saveMutation.isPending}>
+      <div className="flex justify-end">
+        <Button type="submit" className="w-full sm:w-auto" disabled={saveMutation.isPending}>
           {t("settings.saveSettings")}
         </Button>
       </div>
