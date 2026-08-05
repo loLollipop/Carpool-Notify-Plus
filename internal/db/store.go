@@ -195,6 +195,14 @@ func (store *Store) migrate() error {
 			return err
 		}
 	}
+	for _, templateKey := range []string{
+		model.SettingNotifyTemplate,
+		model.SettingCustomerEmailTemplate,
+	} {
+		if err := store.migrateTemplateNameToCustomerEmail(templateKey); err != nil {
+			return err
+		}
+	}
 
 	var channelsCount int
 	err = store.database.QueryRow(
@@ -214,6 +222,29 @@ func (store *Store) migrate() error {
 		}
 	}
 	return nil
+}
+
+func (store *Store) migrateTemplateNameToCustomerEmail(key string) error {
+	templateBody, err := store.GetSetting(key)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		return err
+	}
+	if strings.Contains(templateBody, ".CustomerEmail") || !strings.Contains(templateBody, ".Name") {
+		return nil
+	}
+	replacements := map[string]string{
+		"{{.Name}}":  "{{.CustomerEmail}}",
+		"{{ .Name}}": "{{.CustomerEmail}}",
+		"{{.Name }}": "{{.CustomerEmail}}",
+		"{{ .Name }}": "{{.CustomerEmail}}",
+	}
+	for oldValue, newValue := range replacements {
+		templateBody = strings.ReplaceAll(templateBody, oldValue, newValue)
+	}
+	return store.SetSetting(key, templateBody)
 }
 
 func (store *Store) ensureSubscriptionTypeColumn() error {

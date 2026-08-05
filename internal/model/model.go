@@ -41,7 +41,7 @@ const (
 var DefaultEnabledChannels = []string{ChannelIYUU}
 
 // DefaultNotifyTemplate is the initial global operator message template.
-const DefaultNotifyTemplate = `【拼车收钱】{{.Name}}
+const DefaultNotifyTemplate = `【拼车收钱】{{.CustomerEmail}}
 本期应收：¥{{.AmountDue}}
 周期：{{.CycleDesc}}
 到期：{{.NextDueDate}}
@@ -49,7 +49,7 @@ const DefaultNotifyTemplate = `【拼车收钱】{{.Name}}
 {{if .TradeURL}}链接：{{.TradeURL}}{{end}}`
 
 // DefaultCustomerEmailTemplate is the initial template for emails to customers.
-const DefaultCustomerEmailTemplate = `您好，这是关于「{{.Name}}」的拼车提醒。
+const DefaultCustomerEmailTemplate = `您好，这是关于「{{.CustomerEmail}}」的拼车提醒。
 
 本期应收：¥{{.AmountDue}}
 周期：{{.CycleDesc}}
