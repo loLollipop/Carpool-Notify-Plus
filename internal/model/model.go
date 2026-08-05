@@ -49,15 +49,17 @@ const DefaultNotifyTemplate = `【拼车收钱】{{.CustomerEmail}}
 {{if .TradeURL}}链接：{{.TradeURL}}{{end}}`
 
 // DefaultCustomerEmailTemplate is the initial template for emails to customers.
-const DefaultCustomerEmailTemplate = `您好，这是关于「{{.CustomerEmail}}」的拼车提醒。
+const DefaultCustomerEmailTemplate = `您好，您的拼车服务即将到期，请及时续费，以免影响正常使用。
 
+客户邮箱：{{.CustomerEmail}}
 本期应收：¥{{.AmountDue}}
-周期：{{.CycleDesc}}
-到期：{{.NextDueDate}}
+计费周期：{{.CycleDesc}}
+到期日期：{{.NextDueDate}}
 {{if .Remark}}备注：{{.Remark}}{{end}}
-{{if .TradeURL}}链接：{{.TradeURL}}{{end}}
+{{if .TradeURL}}续费链接：{{.TradeURL}}{{end}}
 
-请按时缴费，谢谢。`
+如需续费或有疑问，请添加 / 联系微信：Jerrylove_Bom
+谢谢。`
 
 // Account is a carpool identity (e.g. a ChatGPT Team owner account) that owns seats.
 type Account struct {

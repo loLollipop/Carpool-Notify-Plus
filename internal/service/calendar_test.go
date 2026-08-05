@@ -351,7 +351,7 @@ func TestProcessDueNotificationsSkipsPaidOccurrence(t *testing.T) {
 	fixedNow := time.Date(2026, time.July, 15, 10, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return fixedNow }
 	recorder := &recordingSender{}
-	subscriptionService.Notify = notify.Registry{Gotify: recorder}
+	subscriptionService.Notify = notify.Registry{IYUU: recorder}
 
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Cursor账号", "车位1")
 	subscriptionID, err := subscriptionService.Create(service.CreateInput{
@@ -379,7 +379,7 @@ func TestProcessDueNotificationsSkipsPaidOccurrence(t *testing.T) {
 		subscriptionID,
 		"2026-07-15",
 		0,
-		model.ChannelGotify,
+		model.ChannelIYUU,
 		model.NotificationKindScheduled,
 	)
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -392,7 +392,7 @@ func TestProcessDueNotificationsSkipsQueuedRetryAfterOccurrenceIsPaid(t *testing
 	clock := time.Date(2026, time.July, 15, 10, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return clock }
 	failing := &failingSender{}
-	subscriptionService.Notify = notify.Registry{Gotify: failing}
+	subscriptionService.Notify = notify.Registry{IYUU: failing}
 
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Cursor重试账号", "车位1")
 	subscriptionID, err := subscriptionService.Create(service.CreateInput{
@@ -418,7 +418,7 @@ func TestProcessDueNotificationsSkipsQueuedRetryAfterOccurrenceIsPaid(t *testing
 	}
 	clock = clock.Add(2 * time.Minute)
 	recorder := &recordingSender{}
-	subscriptionService.Notify = notify.Registry{Gotify: recorder}
+	subscriptionService.Notify = notify.Registry{IYUU: recorder}
 	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -432,10 +432,7 @@ func TestProcessDueNotificationsSkipsMissedReminderDate(t *testing.T) {
 	fixedNow := time.Date(2026, time.July, 16, 10, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return fixedNow }
 	recorder := &recordingSender{}
-	subscriptionService.Notify = notify.Registry{Gotify: recorder}
-	if err := subscriptionService.SaveEnabledChannels([]string{model.ChannelGotify}); err != nil {
-		t.Fatal(err)
-	}
+	subscriptionService.Notify = notify.Registry{IYUU: recorder}
 
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Missed reminder account", "seat1")
 	subscriptionID, err := subscriptionService.Create(service.CreateInput{
@@ -460,7 +457,7 @@ func TestProcessDueNotificationsSkipsMissedReminderDate(t *testing.T) {
 		subscriptionID,
 		"2026-07-15",
 		0,
-		model.ChannelGotify,
+		model.ChannelIYUU,
 		model.NotificationKindScheduled,
 	)
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -473,10 +470,7 @@ func TestProcessDueNotificationsSendsUpcomingReminderDate(t *testing.T) {
 	fixedNow := time.Date(2026, time.July, 12, 10, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return fixedNow }
 	recorder := &recordingSender{}
-	subscriptionService.Notify = notify.Registry{Gotify: recorder}
-	if err := subscriptionService.SaveEnabledChannels([]string{model.ChannelGotify}); err != nil {
-		t.Fatal(err)
-	}
+	subscriptionService.Notify = notify.Registry{SMTP: recorder}
 
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Upcoming reminder account", "seat1")
 	subscriptionID, err := subscriptionService.Create(service.CreateInput{
@@ -484,6 +478,7 @@ func TestProcessDueNotificationsSendsUpcomingReminderDate(t *testing.T) {
 		PriceYuan:        "35.00",
 		CronExpr:         "0 0 15 * *",
 		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "customer@example.com",
 		SeatID:           seatIDs[0],
 		BoardedAt:        "2000-01-01",
 	})
@@ -497,11 +492,62 @@ func TestProcessDueNotificationsSendsUpcomingReminderDate(t *testing.T) {
 	if recorder.calls != 1 {
 		t.Fatalf("notification sends = %d, want 1 for configured reminder date", recorder.calls)
 	}
+	if !reflect.DeepEqual(recorder.lastRecipients, []string{"customer@example.com"}) {
+		t.Fatalf("recipients = %#v, want customer email", recorder.lastRecipients)
+	}
+	if !strings.Contains(recorder.lastTitle, "拼车续费提醒") {
+		t.Fatalf("title = %q, want renewal subject", recorder.lastTitle)
+	}
+	if !strings.Contains(recorder.lastBody, "Jerrylove_Bom") {
+		t.Fatalf("body = %q, want renewal WeChat", recorder.lastBody)
+	}
 	logEntry, err := subscriptionService.Store.GetNotificationLog(
 		subscriptionID,
 		"2026-07-15",
 		3,
-		model.ChannelGotify,
+		model.ChannelSMTP,
+		model.NotificationKindScheduled,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if logEntry.Status != model.NotificationStatusSuccess {
+		t.Fatalf("notification status = %q, want success", logEntry.Status)
+	}
+}
+
+func TestProcessDueNotificationsSendsDueDayIYUUWithoutTodayOffset(t *testing.T) {
+	subscriptionService := openTestService(t)
+	fixedNow := time.Date(2026, time.July, 15, 10, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return fixedNow }
+	recorder := &recordingSender{}
+	subscriptionService.Notify = notify.Registry{IYUU: recorder}
+
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Due day account", "seat1")
+	subscriptionID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "Due day reminder",
+		PriceYuan:        "35.00",
+		CronExpr:         "0 0 15 * *",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "customer@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2000-01-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.calls != 1 {
+		t.Fatalf("notification sends = %d, want 1 due-day IYUU send", recorder.calls)
+	}
+	logEntry, err := subscriptionService.Store.GetNotificationLog(
+		subscriptionID,
+		"2026-07-15",
+		0,
+		model.ChannelIYUU,
 		model.NotificationKindScheduled,
 	)
 	if err != nil {
@@ -517,7 +563,7 @@ func TestProcessDueNotificationsSchedulesRetryFromServiceClock(t *testing.T) {
 	clock := time.Date(2000, time.July, 15, 10, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return clock }
 	failing := &failingSender{}
-	subscriptionService.Notify = notify.Registry{Gotify: failing}
+	subscriptionService.Notify = notify.Registry{IYUU: failing}
 
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Cursor时钟账号", "车位1")
 	_, err := subscriptionService.Create(service.CreateInput{
@@ -540,7 +586,7 @@ func TestProcessDueNotificationsSchedulesRetryFromServiceClock(t *testing.T) {
 
 	clock = clock.Add(2 * time.Minute)
 	recorder := &recordingSender{}
-	subscriptionService.Notify = notify.Registry{Gotify: recorder}
+	subscriptionService.Notify = notify.Registry{IYUU: recorder}
 	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -554,10 +600,7 @@ func TestProcessDueNotificationsSkipsRetryAfterReminderDate(t *testing.T) {
 	clock := time.Date(2026, time.July, 15, 10, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return clock }
 	failing := &failingSender{}
-	subscriptionService.Notify = notify.Registry{Gotify: failing}
-	if err := subscriptionService.SaveEnabledChannels([]string{model.ChannelGotify}); err != nil {
-		t.Fatal(err)
-	}
+	subscriptionService.Notify = notify.Registry{IYUU: failing}
 
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Expired retry account", "seat1")
 	_, err := subscriptionService.Create(service.CreateInput{
@@ -581,7 +624,7 @@ func TestProcessDueNotificationsSkipsRetryAfterReminderDate(t *testing.T) {
 
 	clock = time.Date(2026, time.July, 16, 10, 0, 0, 0, cycle.Location)
 	recorder := &recordingSender{}
-	subscriptionService.Notify = notify.Registry{Gotify: recorder}
+	subscriptionService.Notify = notify.Registry{IYUU: recorder}
 	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -591,13 +634,22 @@ func TestProcessDueNotificationsSkipsRetryAfterReminderDate(t *testing.T) {
 }
 
 type recordingSender struct {
-	calls     int
-	lastTitle string
-	lastBody  string
+	calls          int
+	lastRecipients []string
+	lastTitle      string
+	lastBody       string
 }
 
 func (sender *recordingSender) Send(_ context.Context, title string, body string) error {
 	sender.calls++
+	sender.lastTitle = title
+	sender.lastBody = body
+	return nil
+}
+
+func (sender *recordingSender) SendTo(_ context.Context, recipients []string, title string, body string) error {
+	sender.calls++
+	sender.lastRecipients = append([]string(nil), recipients...)
 	sender.lastTitle = title
 	sender.lastBody = body
 	return nil
@@ -682,7 +734,8 @@ func openTestService(t *testing.T) *service.SubscriptionService {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	subscriptionService := &service.SubscriptionService{Store: store}
-	// Tests often wire only Gotify; enable it explicitly (defaults are IYUU-only).
+	// Keep legacy operator-channel settings available for tests that exercise
+	// manual operator notifications; scheduled reminders now use fixed channels.
 	if err := subscriptionService.SaveEnabledChannels([]string{model.ChannelGotify, model.ChannelIYUU}); err != nil {
 		t.Fatal(err)
 	}
@@ -734,10 +787,7 @@ func TestProcessDueNotificationsMergesSameDaySends(t *testing.T) {
 	fixedNow := time.Date(2026, time.July, 15, 10, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return fixedNow }
 	recorder := &recordingSender{}
-	subscriptionService.Notify = notify.Registry{Gotify: recorder}
-	if err := subscriptionService.SaveEnabledChannels([]string{model.ChannelGotify}); err != nil {
-		t.Fatal(err)
-	}
+	subscriptionService.Notify = notify.Registry{IYUU: recorder}
 
 	_, seatA := createTestAccountWithSeats(t, subscriptionService, "合并账号A", "车位1")
 	_, seatB := createTestAccountWithSeats(t, subscriptionService, "合并账号B", "车位1")
@@ -784,10 +834,7 @@ func TestProcessDueNotificationsGroupsSaleAndResale(t *testing.T) {
 	fixedNow := time.Date(2026, time.July, 15, 10, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return fixedNow }
 	recorder := &recordingSender{}
-	subscriptionService.Notify = notify.Registry{Gotify: recorder}
-	if err := subscriptionService.SaveEnabledChannels([]string{model.ChannelGotify}); err != nil {
-		t.Fatal(err)
-	}
+	subscriptionService.Notify = notify.Registry{IYUU: recorder}
 
 	_, seatA := createTestAccountWithSeats(t, subscriptionService, "分组账号A", "车位1")
 	_, seatB := createTestAccountWithSeats(t, subscriptionService, "分组账号B", "车位1")

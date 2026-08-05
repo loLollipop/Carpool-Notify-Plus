@@ -577,7 +577,7 @@ func (server *Server) postSettingsTemplatePreview(context *gin.Context) {
 	respondOK(context, gin.H{
 		"rendered":    rendered,
 		"sample_name": sampleName,
-		"subject":     "拼车提醒 · " + sampleName,
+		"subject":     "拼车续费提醒 · " + sampleName,
 	})
 }
 
