@@ -109,7 +109,7 @@ export function AppShell() {
         <div className="mx-auto flex h-14 w-full max-w-[1400px] items-center gap-6 px-4 sm:px-6">
           <BrandMark />
           <nav
-            className="flex min-w-0 items-center gap-1 overflow-x-auto text-sm"
+            className="scrollbar-none flex min-w-0 items-center gap-1 overflow-x-auto text-sm"
             aria-label="主导航"
           >
             {navItems.map((item) => (

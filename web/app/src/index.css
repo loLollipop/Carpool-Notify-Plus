@@ -207,4 +207,13 @@
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.01em;
   }
+
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 }
