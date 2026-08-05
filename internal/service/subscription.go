@@ -71,15 +71,11 @@ func (service *SubscriptionService) ListView() ([]SubscriptionView, error) {
 	if err != nil {
 		return nil, err
 	}
-	enabledChannels, err := service.GetEnabledChannels()
-	if err != nil {
-		return nil, err
-	}
 
 	now := service.now()
 	views := make([]SubscriptionView, 0, len(subscriptions))
 	for _, subscription := range subscriptions {
-		view, err := service.buildView(subscription, now, errorsBySubscription[subscription.ID], enabledChannels)
+		view, err := service.buildView(subscription, now, errorsBySubscription[subscription.ID])
 		if err != nil {
 			return nil, err
 		}
@@ -92,7 +88,6 @@ func (service *SubscriptionService) buildView(
 	subscription model.Subscription,
 	now time.Time,
 	lastError string,
-	enabledChannels []string,
 ) (SubscriptionView, error) {
 	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
 	if err != nil {
@@ -113,7 +108,7 @@ func (service *SubscriptionService) buildView(
 		CycleDesc:       cycle.DescribeCron(subscription.CronExpr),
 		NextDueDate:     cycle.FormatDate(nextDue),
 		DaysRemaining:   cycle.DaysRemaining(nextDue, now),
-		ChannelLabels:   channelDisplayLabels(enabledChannels),
+		ChannelLabels:   scheduledNotificationLabels(subscription.NotifyOffsets),
 		OffsetsText:     cycle.FormatOffsets(subscription.NotifyOffsets),
 		LastError:       lastError,
 		AccountID:       subscription.AccountID,
@@ -140,6 +135,21 @@ func channelDisplayLabels(channels []string) []string {
 		}
 	}
 	return labels
+}
+
+func scheduledNotificationLabels(offsets []int) []string {
+	labels := make([]string, 0, 2)
+	for _, offset := range offsets {
+		if offset > 0 {
+			labels = append(labels, "SMTP 客户邮件")
+			break
+		}
+	}
+	return append(labels, "IYUU 到期当天")
+}
+
+func scheduledNotificationLabelText(offsets []int) string {
+	return strings.Join(scheduledNotificationLabels(offsets), " · ")
 }
 
 // Stats holds dashboard counters.
@@ -563,14 +573,10 @@ func (service *SubscriptionService) ListArchivedView() ([]SubscriptionView, erro
 	if err != nil {
 		return nil, err
 	}
-	enabledChannels, err := service.GetEnabledChannels()
-	if err != nil {
-		return nil, err
-	}
 	now := service.now()
 	views := make([]SubscriptionView, 0, len(subscriptions))
 	for _, subscription := range subscriptions {
-		view, err := service.buildView(subscription, now, "", enabledChannels)
+		view, err := service.buildView(subscription, now, "")
 		if err != nil {
 			return nil, err
 		}

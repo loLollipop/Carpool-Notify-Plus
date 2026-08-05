@@ -198,7 +198,6 @@ export function SeatSubscriptionDialog({
               </ViewItem>
               <ViewItem label={t("bills.viewChannels")}>
                 {info.channelLabels}
-                <span className="text-muted-foreground"> {t("common.global")}</span>
               </ViewItem>
               <ViewItem label={t("subscriptionDialog.customerEmail")}>
                 {info.customerEmail || "—"}

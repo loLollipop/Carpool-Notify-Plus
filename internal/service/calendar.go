@@ -294,11 +294,6 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 	if err != nil {
 		return CalendarMonthView{}, err
 	}
-	enabledChannels, err := service.GetEnabledChannels()
-	if err != nil {
-		return CalendarMonthView{}, err
-	}
-	channelLabels := strings.Join(channelDisplayLabels(enabledChannels), " · ")
 	paidOccurrences, err := service.Store.ListPaidDueOccurrences(
 		cycle.FormatDate(gridStart),
 		cycle.FormatDate(gridEnd),
@@ -335,8 +330,6 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 				subscription,
 				dueAt,
 				paid,
-				channelLabels,
-				enabledChannels,
 			))
 			cursor = cycle.StartOfDay(dueAt).AddDate(0, 0, 1).Add(-time.Nanosecond)
 		}
@@ -409,8 +402,6 @@ func (service *SubscriptionService) buildOccurrenceView(
 	subscription model.Subscription,
 	dueAt time.Time,
 	paid bool,
-	channelLabels string,
-	enabledChannels []string,
 ) CalendarOccurrenceView {
 	profitCents := countedProfitCents(subscription)
 	return CalendarOccurrenceView{
@@ -426,7 +417,7 @@ func (service *SubscriptionService) buildOccurrenceView(
 		ProfitYuan:     cycle.FormatCents(profitCents),
 		CycleDesc:      cycle.DescribeCron(subscription.CronExpr),
 		ReminderLabel:  calendarReminderLabel(subscription.NotifyOffsets),
-		ChannelLabels:  channelLabels,
+		ChannelLabels:  scheduledNotificationLabelText(subscription.NotifyOffsets),
 		Paid:           paid,
 		AccountName:    displayAccountName(subscription),
 		SeatName:       subscription.SeatName,
@@ -436,7 +427,7 @@ func (service *SubscriptionService) buildOccurrenceView(
 		TradeURL:       subscription.TradeURL,
 		CronExpr:       subscription.CronExpr,
 		OffsetsText:    cycle.FormatOffsets(subscription.NotifyOffsets),
-		Channels:       append([]string(nil), enabledChannels...),
+		Channels:       append([]string(nil), subscription.Channels...),
 		Remark:         subscription.Remark,
 		CustomerEmail:  subscription.CustomerEmail,
 		CustomerWechat: subscription.CustomerWechat,

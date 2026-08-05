@@ -95,15 +95,9 @@ func (service *SubscriptionService) ListBillsPage() (BillsPage, error) {
 		return BillsPage{}, err
 	}
 
-	enabledChannels, err := service.GetEnabledChannels()
-	if err != nil {
-		return BillsPage{}, err
-	}
-	channelLabels := strings.Join(channelDisplayLabels(enabledChannels), " · ")
-
 	views := make([]BillView, 0, len(bills))
 	for _, bill := range bills {
-		view, err := service.buildBillView(bill, channelLabels)
+		view, err := service.buildBillView(bill)
 		if err != nil {
 			return BillsPage{}, err
 		}
@@ -125,7 +119,7 @@ func (service *SubscriptionService) ListBillsView() ([]BillView, error) {
 	return page.Bills, nil
 }
 
-func (service *SubscriptionService) buildBillView(bill model.Bill, channelLabels string) (BillView, error) {
+func (service *SubscriptionService) buildBillView(bill model.Bill) (BillView, error) {
 	subscription, err := service.Store.GetSubscriptionIncludingArchived(bill.SubscriptionID)
 	subscriptionName := fmt.Sprintf("订阅 #%d", bill.SubscriptionID)
 	accountName := model.UnclassifiedAccountName
@@ -150,6 +144,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, channelLabels
 	remark := ""
 	boardedAt := ""
 	archivedAtLabel := ""
+	channelLabels := ""
 	if err == nil {
 		subscriptionName = subscription.Name
 		accountName = displayAccountName(subscription)
@@ -168,6 +163,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, channelLabels
 		cycleDesc = cycle.DescribeCron(subscription.CronExpr)
 		cronExpr = subscription.CronExpr
 		offsetsText = cycle.FormatOffsets(subscription.NotifyOffsets)
+		channelLabels = scheduledNotificationLabelText(subscription.NotifyOffsets)
 		remark = subscription.Remark
 		boardedAt = subscription.BoardedAt
 		if subscription.ArchivedAt != nil {
@@ -433,10 +429,5 @@ func (service *SubscriptionService) GetBillView(billID int64) (BillView, error) 
 		}
 		return BillView{}, err
 	}
-	enabledChannels, err := service.GetEnabledChannels()
-	if err != nil {
-		return BillView{}, err
-	}
-	channelLabels := strings.Join(channelDisplayLabels(enabledChannels), " · ")
-	return service.buildBillView(bill, channelLabels)
+	return service.buildBillView(bill)
 }

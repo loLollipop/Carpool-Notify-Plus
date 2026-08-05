@@ -122,6 +122,51 @@ func TestCalendarPendingCountOnlyIncludesDueOrOverdueUnpaid(t *testing.T) {
 	}
 }
 
+func TestSubscriptionViewsShowScheduledNotificationRoutes(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.July, 12, 12, 0, 0, 0, cycle.Location)
+	}
+	if err := subscriptionService.SaveEnabledChannels([]string{model.ChannelIYUU}); err != nil {
+		t.Fatal(err)
+	}
+	subscriptionID := createTestSubscription(t, subscriptionService, "路由展示", "0 0 15 * *")
+
+	views, err := subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var foundView *service.SubscriptionView
+	for index := range views {
+		if views[index].Subscription.ID == subscriptionID {
+			foundView = &views[index]
+			break
+		}
+	}
+	if foundView == nil {
+		t.Fatal("subscription view not found")
+	}
+	wantLabels := []string{"SMTP 客户邮件", "IYUU 到期当天"}
+	if !reflect.DeepEqual(foundView.ChannelLabels, wantLabels) {
+		t.Fatalf("channel labels = %#v, want %#v", foundView.ChannelLabels, wantLabels)
+	}
+
+	month := time.Date(2026, time.July, 1, 0, 0, 0, 0, cycle.Location)
+	calendarView, err := subscriptionService.CalendarMonth(month)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, occurrence := range calendarView.Occurrences {
+		if occurrence.SubscriptionID == subscriptionID {
+			if occurrence.ChannelLabels != "SMTP 客户邮件 · IYUU 到期当天" {
+				t.Fatalf("occurrence channel labels = %q", occurrence.ChannelLabels)
+			}
+			return
+		}
+	}
+	t.Fatal("calendar occurrence not found")
+}
+
 func TestSetDuePaidOnlyChangesSelectedOccurrence(t *testing.T) {
 	subscriptionService := openTestService(t)
 	subscriptionService.Clock = func() time.Time {

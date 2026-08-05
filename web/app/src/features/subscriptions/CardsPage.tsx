@@ -176,7 +176,6 @@ function SubscriptionCard({
         ) : null}
         <MetaCell label={t("cards.channels")}>
           {(view.channel_labels ?? []).join(" · ")}
-          <span className="text-muted-foreground"> {t("common.global")}</span>
         </MetaCell>
       </div>
 
