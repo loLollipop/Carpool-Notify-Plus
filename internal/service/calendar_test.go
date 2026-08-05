@@ -543,8 +543,8 @@ func TestProcessDueNotificationsSendsUpcomingReminderDate(t *testing.T) {
 	if !strings.Contains(recorder.lastTitle, "拼车续费提醒") {
 		t.Fatalf("title = %q, want renewal subject", recorder.lastTitle)
 	}
-	if !strings.Contains(recorder.lastBody, "Jerrylove_Bom") {
-		t.Fatalf("body = %q, want renewal WeChat", recorder.lastBody)
+	if !strings.Contains(recorder.lastBody, "联系管理员") {
+		t.Fatalf("body = %q, want renewal contact text", recorder.lastBody)
 	}
 	logEntry, err := subscriptionService.Store.GetNotificationLog(
 		subscriptionID,

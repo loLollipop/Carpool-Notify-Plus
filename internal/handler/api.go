@@ -152,6 +152,11 @@ func (server *Server) getSettings(context *gin.Context) {
 		respondError(context, http.StatusInternalServerError, err.Error())
 		return
 	}
+	redeemPageSettings, err := server.Service.GetRedeemPageSettings()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
 	enabledSet := map[string]struct{}{}
 	for _, channel := range enabledChannels {
 		enabledSet[channel] = struct{}{}
@@ -189,7 +194,17 @@ func (server *Server) getSettings(context *gin.Context) {
 		"enabled_channels":        enabledChannels,
 		"channels":                channels,
 		"notification_config":     server.Config.NotificationConfig(),
+		"redeem_page":             redeemPageSettings,
 	})
+}
+
+func (server *Server) getRedeemSettings(context *gin.Context) {
+	redeemPageSettings, err := server.Service.GetRedeemPageSettings()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"redeem_page": redeemPageSettings})
 }
 
 func (server *Server) getCronPreview(context *gin.Context) {
@@ -728,6 +743,7 @@ func (server *Server) putSettings(context *gin.Context) {
 		CustomerEmailTemplate string                          `json:"customer_email_template"`
 		Channels              []string                        `json:"channels"`
 		NotificationConfig    *config.NotificationConfigInput `json:"notification_config"`
+		RedeemPage            *model.RedeemPageSettings       `json:"redeem_page"`
 	}
 	if err := context.ShouldBindJSON(&request); err != nil {
 		respondError(context, http.StatusBadRequest, "无效的请求")
@@ -744,6 +760,12 @@ func (server *Server) putSettings(context *gin.Context) {
 	if err := server.Service.SaveEnabledChannels(request.Channels); err != nil {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
+	}
+	if request.RedeemPage != nil {
+		if err := server.Service.SaveRedeemPageSettings(*request.RedeemPage); err != nil {
+			respondError(context, http.StatusBadRequest, err.Error())
+			return
+		}
 	}
 	if request.NotificationConfig != nil {
 		updatedConfig, err := config.UpdateNotificationConfig(server.Config.ConfigPath, *request.NotificationConfig)

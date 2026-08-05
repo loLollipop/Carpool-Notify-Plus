@@ -19,7 +19,19 @@ import (
 	"carpool-notify/internal/notify"
 )
 
-const maxAttempts = 5
+const (
+	maxAttempts = 5
+
+	maxRedeemAnnouncementTitleLength   = 80
+	maxRedeemAnnouncementIntroLength   = 300
+	maxRedeemAnnouncementItemLength    = 300
+	maxRedeemAnnouncementItemCount     = 6
+	maxRedeemSupportTitleLength        = 60
+	maxRedeemSupportDescriptionLength  = 160
+	maxRedeemSupportContactLabelLength = 30
+	maxRedeemSupportWechatIDLength     = 80
+	maxRedeemQRCodeDataURLLength       = 1500000
+)
 
 // SubscriptionService handles subscription CRUD and presentation helpers.
 type SubscriptionService struct {
@@ -927,6 +939,129 @@ func (service *SubscriptionService) SaveEnabledChannels(channels []string) error
 	return service.Store.SetSetting(model.SettingEnabledChannels, string(encoded))
 }
 
+// GetRedeemPageSettings returns the public redemption-page copy and contact details.
+func (service *SubscriptionService) GetRedeemPageSettings() (model.RedeemPageSettings, error) {
+	raw, err := service.Store.GetSetting(model.SettingRedeemPageSettings)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return model.DefaultRedeemPageSettings, nil
+		}
+		return model.RedeemPageSettings{}, err
+	}
+	if strings.TrimSpace(raw) == "" {
+		return model.DefaultRedeemPageSettings, nil
+	}
+
+	var settings model.RedeemPageSettings
+	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
+		return model.RedeemPageSettings{}, fmt.Errorf("decode redeem page settings: %w", err)
+	}
+	return redeemPageSettingsWithDefaults(settings), nil
+}
+
+// SaveRedeemPageSettings validates and stores public redemption-page settings.
+func (service *SubscriptionService) SaveRedeemPageSettings(input model.RedeemPageSettings) error {
+	settings, err := normalizeRedeemPageSettings(input)
+	if err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(settings)
+	if err != nil {
+		return err
+	}
+	return service.Store.SetSetting(model.SettingRedeemPageSettings, string(encoded))
+}
+
+func redeemPageSettingsWithDefaults(input model.RedeemPageSettings) model.RedeemPageSettings {
+	defaults := model.DefaultRedeemPageSettings
+	if strings.TrimSpace(input.AnnouncementTitle) == "" {
+		input.AnnouncementTitle = defaults.AnnouncementTitle
+	}
+	if strings.TrimSpace(input.AnnouncementIntro) == "" {
+		input.AnnouncementIntro = defaults.AnnouncementIntro
+	}
+	if len(trimNonEmptyStrings(input.AnnouncementItems)) == 0 {
+		input.AnnouncementItems = append([]string(nil), defaults.AnnouncementItems...)
+	}
+	if strings.TrimSpace(input.SupportTitle) == "" {
+		input.SupportTitle = defaults.SupportTitle
+	}
+	if strings.TrimSpace(input.SupportDescription) == "" {
+		input.SupportDescription = defaults.SupportDescription
+	}
+	if strings.TrimSpace(input.SupportContactLabel) == "" {
+		input.SupportContactLabel = defaults.SupportContactLabel
+	}
+	return input
+}
+
+func normalizeRedeemPageSettings(input model.RedeemPageSettings) (model.RedeemPageSettings, error) {
+	input = redeemPageSettingsWithDefaults(input)
+
+	var err error
+	if input.AnnouncementTitle, err = trimRequiredLimited("兑换页公告标题", input.AnnouncementTitle, maxRedeemAnnouncementTitleLength); err != nil {
+		return model.RedeemPageSettings{}, err
+	}
+	if input.AnnouncementIntro, err = trimRequiredLimited("兑换页公告说明", input.AnnouncementIntro, maxRedeemAnnouncementIntroLength); err != nil {
+		return model.RedeemPageSettings{}, err
+	}
+
+	items := trimNonEmptyStrings(input.AnnouncementItems)
+	if len(items) == 0 {
+		items = append([]string(nil), model.DefaultRedeemPageSettings.AnnouncementItems...)
+	}
+	if len(items) > maxRedeemAnnouncementItemCount {
+		return model.RedeemPageSettings{}, fmt.Errorf("兑换页公告最多 %d 条", maxRedeemAnnouncementItemCount)
+	}
+	for _, item := range items {
+		if len([]rune(item)) > maxRedeemAnnouncementItemLength {
+			return model.RedeemPageSettings{}, fmt.Errorf("兑换页公告单条最多 %d 个字", maxRedeemAnnouncementItemLength)
+		}
+	}
+	input.AnnouncementItems = items
+
+	if input.SupportTitle, err = trimRequiredLimited("客服标题", input.SupportTitle, maxRedeemSupportTitleLength); err != nil {
+		return model.RedeemPageSettings{}, err
+	}
+	if input.SupportDescription, err = trimLimited("客服说明", input.SupportDescription, maxRedeemSupportDescriptionLength); err != nil {
+		return model.RedeemPageSettings{}, err
+	}
+	if input.SupportContactLabel, err = trimRequiredLimited("客服联系方式标签", input.SupportContactLabel, maxRedeemSupportContactLabelLength); err != nil {
+		return model.RedeemPageSettings{}, err
+	}
+	if input.SupportWechatID, err = trimLimited("客服微信号", input.SupportWechatID, maxRedeemSupportWechatIDLength); err != nil {
+		return model.RedeemPageSettings{}, err
+	}
+	input.SupportQRCodeDataURL = strings.TrimSpace(input.SupportQRCodeDataURL)
+	if input.SupportQRCodeDataURL != "" {
+		if len(input.SupportQRCodeDataURL) > maxRedeemQRCodeDataURLLength {
+			return model.RedeemPageSettings{}, fmt.Errorf("客服二维码图片太大，请压缩到 1MB 左右后再上传")
+		}
+		if !isAllowedImageDataURL(input.SupportQRCodeDataURL) {
+			return model.RedeemPageSettings{}, fmt.Errorf("客服二维码仅支持 PNG、JPG 或 WebP 图片")
+		}
+	}
+	return input, nil
+}
+
+func trimNonEmptyStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+func isAllowedImageDataURL(value string) bool {
+	return strings.HasPrefix(value, "data:image/png;base64,") ||
+		strings.HasPrefix(value, "data:image/jpeg;base64,") ||
+		strings.HasPrefix(value, "data:image/jpg;base64,") ||
+		strings.HasPrefix(value, "data:image/webp;base64,")
+}
+
 // RenderMessage renders the operator notify template for a subscription.
 func (service *SubscriptionService) RenderMessage(subscription model.Subscription) (string, error) {
 	templateBody, err := service.GetNotifyTemplate()
@@ -1123,7 +1258,15 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 	if err != nil {
 		return model.ExportPayload{}, err
 	}
+	customerTemplateBody, err := service.GetCustomerEmailTemplate()
+	if err != nil {
+		return model.ExportPayload{}, err
+	}
 	enabledChannels, err := service.GetEnabledChannels()
+	if err != nil {
+		return model.ExportPayload{}, err
+	}
+	redeemPageSettings, err := service.GetRedeemPageSettings()
 	if err != nil {
 		return model.ExportPayload{}, err
 	}
@@ -1161,11 +1304,13 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 	}
 
 	payload := model.ExportPayload{
-		ExportedAt:      cycle.Now().Format(time.RFC3339),
-		NotifyTemplate:  templateBody,
-		EnabledChannels: enabledChannels,
-		Accounts:        exportAccounts,
-		Subscriptions:   make([]model.ExportSubscription, 0, len(subscriptions)),
+		ExportedAt:            cycle.Now().Format(time.RFC3339),
+		NotifyTemplate:        templateBody,
+		CustomerEmailTemplate: customerTemplateBody,
+		EnabledChannels:       enabledChannels,
+		RedeemPageSettings:    redeemPageSettings,
+		Accounts:              exportAccounts,
+		Subscriptions:         make([]model.ExportSubscription, 0, len(subscriptions)),
 	}
 	for _, subscription := range subscriptions {
 		profitCents := countedProfitCents(subscription)

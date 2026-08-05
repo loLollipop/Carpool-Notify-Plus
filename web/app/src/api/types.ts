@@ -360,6 +360,18 @@ export interface Settings {
   enabled_channels: string[] | null
   channels: ChannelSetting[]
   notification_config: NotificationConfig
+  redeem_page: RedeemPageSettings
+}
+
+export interface RedeemPageSettings {
+  announcement_title: string
+  announcement_intro: string
+  announcement_items: string[]
+  support_title: string
+  support_description: string
+  support_contact_label: string
+  support_wechat_id: string
+  support_qr_data_url: string
 }
 
 export interface DuePeriodOption {
@@ -445,6 +457,7 @@ export interface SettingsInput {
   notify_template: string
   customer_email_template: string
   channels: string[]
+  redeem_page: RedeemPageSettings
   notification_config: {
     smtp: {
       host: string

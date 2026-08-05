@@ -94,6 +94,83 @@ func TestRedemptionInviteCreatesSubscriptionAndInitialBill(t *testing.T) {
 	}
 }
 
+func TestArchiveRemovesLinkedRedemptionRecordAndCode(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 5, 10, 0, 0, 0, cycle.Location)
+	}
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "redemption account", "seat1")
+	codes, err := subscriptionService.GenerateRedemptionCodes(service.RedemptionCodeGenerateInput{
+		Count: 1,
+		Note:  "cleanup",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := subscriptionService.SubmitRedemptionApplication(service.RedemptionSubmitInput{
+		CustomerEmail:   "customer@example.com",
+		CustomerContact: "wechat701",
+		RedeemCode:      codes[0].Code.Code,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applications, err := subscriptionService.ListRedemptionApplicationsView(model.RedemptionStatusPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscriptionID, err := subscriptionService.InviteRedemptionApplication(
+		applications[0].Application.ID,
+		service.RedemptionInviteInput{
+			SeatID:           seatIDs[0],
+			PriceYuan:        "25.00",
+			CronExpr:         "interval:30d",
+			NotifyOffsetsRaw: "3",
+			BoardedAt:        "2026-08-05",
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := subscriptionService.Archive(subscriptionID); err != nil {
+		t.Fatal(err)
+	}
+
+	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.ArchivedAt == nil {
+		t.Fatal("subscription should be archived")
+	}
+	paid, err := subscriptionService.Store.IsDuePaid(subscriptionID, "2026-08-05")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !paid {
+		t.Fatal("archive should keep paid bills")
+	}
+	if _, err := subscriptionService.GetRedemptionStatus(result.TrackingToken); err == nil {
+		t.Fatal("redemption status should be removed after archive")
+	}
+	remainingApplications, err := subscriptionService.ListRedemptionApplicationsView("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remainingApplications) != 0 {
+		t.Fatalf("remaining applications = %d, want 0", len(remainingApplications))
+	}
+	remainingCodes, err := subscriptionService.ListRedemptionCodesView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remainingCodes) != 0 {
+		t.Fatalf("remaining codes = %d, want 0", len(remainingCodes))
+	}
+}
+
 func TestRedemptionSubmitRequiresUnusedGeneratedCode(t *testing.T) {
 	subscriptionService := openTestService(t)
 	codes, err := subscriptionService.GenerateRedemptionCodes(service.RedemptionCodeGenerateInput{

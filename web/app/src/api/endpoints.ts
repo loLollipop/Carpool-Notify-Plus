@@ -14,6 +14,7 @@ import type {
   RedemptionApplicationView,
   RedemptionCodeGenerateInput,
   RedemptionCodeView,
+  RedeemPageSettings,
   RedemptionInviteInput,
   RedemptionStatus,
   RedemptionSubmitInput,
@@ -125,6 +126,12 @@ export function fetchDuePeriods(subscriptionId: number, preferred?: string) {
 export function fetchRedemptionStatus(token: string) {
   return api<{ redemption: RedemptionStatus }>(`/api/redeem/${encodeURIComponent(token)}`).then(
     (r) => r.redemption,
+  )
+}
+
+export function fetchRedeemPageSettings() {
+  return api<{ redeem_page: RedeemPageSettings }>("/api/redeem-settings").then(
+    (r) => r.redeem_page,
   )
 }
 

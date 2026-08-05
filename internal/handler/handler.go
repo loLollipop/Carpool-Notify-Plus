@@ -45,6 +45,7 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 	api := router.Group("/api")
 	api.POST("/login", server.postLogin)
 	api.GET("/session", server.getSession)
+	api.GET("/redeem-settings", server.getRedeemSettings)
 	api.POST("/redeem", server.postRedeemApplication)
 	api.GET("/redeem/:token", server.getRedeemStatus)
 

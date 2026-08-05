@@ -294,7 +294,7 @@ const defaultCustomerEmailTemplateBeforeDueInText = `您好，您的拼车服务
 {{if .Remark}}备注：{{.Remark}}{{end}}
 {{if .TradeURL}}续费链接：{{.TradeURL}}{{end}}
 
-如需续费或有疑问，请添加 / 联系微信：Jerrylove_Bom
+如需续费或有疑问，请联系管理员。
 谢谢。`
 
 func (store *Store) migrateDefaultCustomerEmailTemplate() error {
@@ -921,11 +921,20 @@ func (store *Store) CountBillsForSubscription(subscriptionID int64) (int, error)
 	return count, err
 }
 
-// ArchiveSubscription marks a subscription as archived (下车).
+// ArchiveSubscription marks a subscription as archived (下车) and removes any
+// redemption application/code records that created this subscription.
 // Works for active non-deleted subscriptions; already-archived is a no-op success.
 func (store *Store) ArchiveSubscription(subscriptionID int64) error {
 	now := formatTime(time.Now().UTC())
-	result, err := store.database.Exec(`
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = transaction.Rollback()
+	}()
+
+	result, err := transaction.Exec(`
                 UPDATE subscriptions
                 SET archived_at = COALESCE(archived_at, ?), updated_at = ?
                 WHERE id = ? AND deleted_at IS NULL`,
@@ -941,7 +950,26 @@ func (store *Store) ArchiveSubscription(subscriptionID int64) error {
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
 	}
-	return nil
+
+	if _, err := transaction.Exec(`
+		DELETE FROM redemption_codes
+		WHERE used_by_application_id IN (
+			SELECT id FROM redemption_applications
+			WHERE assigned_subscription_id = ?
+		)`,
+		subscriptionID,
+	); err != nil {
+		return err
+	}
+	if _, err := transaction.Exec(`
+		DELETE FROM redemption_applications
+		WHERE assigned_subscription_id = ?`,
+		subscriptionID,
+	); err != nil {
+		return err
+	}
+
+	return transaction.Commit()
 }
 
 // SetDuePaid marks or unmarks one subscription due date as paid via bills.

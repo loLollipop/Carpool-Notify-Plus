@@ -1,12 +1,30 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
-import { BellRing, Download, Eye, Mail, MessageSquare, Send, ShieldCheck } from "lucide-react"
+import {
+  BellRing,
+  Download,
+  ExternalLink,
+  Eye,
+  ImageUp,
+  Mail,
+  Megaphone,
+  MessageSquare,
+  Send,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react"
 
 import { previewSettingsTemplate, saveSettings, testSettingsNotify } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
 import { useSettings } from "@/api/queries"
-import type { ChannelSetting, NotificationConfig, Settings, SettingsInput } from "@/api/types"
+import type {
+  ChannelSetting,
+  NotificationConfig,
+  RedeemPageSettings,
+  Settings,
+  SettingsInput,
+} from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -92,6 +110,24 @@ type TemplatePreviewState =
   | { status: "ok"; rendered: string; sampleName: string; subject: string }
   | { status: "error"; message: string }
 
+const MAX_QR_UPLOAD_BYTES = 1024 * 1024
+
+const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
+  announcement_title: "加入前请先确认",
+  announcement_intro:
+    "进入共享工作空间前，请先看完下面几点，避免工作空间记录、售后或续期提醒遗漏。",
+  announcement_items: [
+    "工作空间与个人空间记录相互独立，加入空间后请把工作空间里的重要对话、文件或资料及时备份。",
+    "长期使用建议保存管理员联系方式，方便售后、续期提醒和异常通知。",
+    "到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。",
+  ],
+  support_title: "客服微信",
+  support_description: "售后与续期提醒",
+  support_contact_label: "微信号",
+  support_wechat_id: "",
+  support_qr_data_url: "",
+}
+
 function ChannelBadge({ channel }: { channel: ChannelSetting }) {
   const { t } = useTranslation()
   return channel.configured ? (
@@ -125,7 +161,7 @@ function defaultTemplateDraft(kind: TemplateKind): VisualTemplateDraft {
       duePrefix: "您好，您的拼车服务",
       dueSuffix: "，请及时续费，以免影响正常使用。",
       fields: DEFAULT_FIELDS,
-      footer: "如需续费或有疑问，请添加 / 联系微信：Jerrylove_Bom\n谢谢。",
+      footer: "如需续费或有疑问，请联系管理员。\n谢谢。",
     }
   }
   return {
@@ -137,6 +173,27 @@ function defaultTemplateDraft(kind: TemplateKind): VisualTemplateDraft {
   }
 }
 
+function inferFooterFromTemplate(templateBody: string) {
+  const lines = templateBody.split("\n")
+  const signatures = [
+    ".DueInText",
+    ...TEMPLATE_FIELDS.flatMap((field) => field.signatures),
+  ]
+  let lastManagedLine = -1
+  lines.forEach((line, index) => {
+    if (signatures.some((signature) => line.includes(signature))) {
+      lastManagedLine = index
+    }
+  })
+  if (lastManagedLine < 0 || lastManagedLine >= lines.length - 1) {
+    return ""
+  }
+  return lines
+    .slice(lastManagedLine + 1)
+    .join("\n")
+    .trim()
+}
+
 function draftFromTemplate(kind: TemplateKind, templateBody: string): VisualTemplateDraft {
   const draft = defaultTemplateDraft(kind)
   const fields = TEMPLATE_FIELDS.filter((field) =>
@@ -146,8 +203,9 @@ function draftFromTemplate(kind: TemplateKind, templateBody: string): VisualTemp
   if (fields.length > 0) {
     draft.fields = fields
   }
-  if (kind === "customer" && templateBody.includes("Jerrylove_Bom")) {
-    draft.footer = "如需续费或有疑问，请添加 / 联系微信：Jerrylove_Bom\n谢谢。"
+  const footer = inferFooterFromTemplate(templateBody)
+  if (footer !== "") {
+    draft.footer = footer
   }
   return draft
 }
@@ -343,6 +401,190 @@ function SecretHint({ configured }: { configured: boolean }) {
     <span className="text-xs text-muted-foreground">
       {configured ? t("settings.secretKeepHint") : t("settings.secretMissingHint")}
     </span>
+  )
+}
+
+function normalizeRedeemPageSettings(settings?: RedeemPageSettings | null): RedeemPageSettings {
+  const merged = { ...DEFAULT_REDEEM_PAGE_SETTINGS, ...(settings ?? {}) }
+  const items = (merged.announcement_items ?? [])
+    .map((item) => item.trim())
+    .filter((item) => item !== "")
+  return {
+    ...merged,
+    announcement_items:
+      items.length > 0 ? items : DEFAULT_REDEEM_PAGE_SETTINGS.announcement_items,
+  }
+}
+
+function RedeemPageSettingsEditor({
+  value,
+  onChange,
+}: {
+  value: RedeemPageSettings
+  onChange: (value: RedeemPageSettings) => void
+}) {
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null)
+  const announcementItemsText = value.announcement_items.join("\n")
+
+  const update = (patch: Partial<RedeemPageSettings>) => {
+    onChange({ ...value, ...patch })
+  }
+
+  const handleUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    event.target.value = ""
+    if (!file) return
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      toast.error("二维码仅支持 PNG、JPG 或 WebP")
+      return
+    }
+    if (file.size > MAX_QR_UPLOAD_BYTES) {
+      toast.error("二维码图片太大，请压缩到 1MB 以内")
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const dataURL = typeof reader.result === "string" ? reader.result : ""
+      if (!dataURL.startsWith("data:image/")) {
+        toast.error("二维码读取失败，请换一张图片")
+        return
+      }
+      update({ support_qr_data_url: dataURL })
+      toast.success("二维码已载入，保存设置后生效")
+    }
+    reader.onerror = () => toast.error("二维码读取失败，请重试")
+    reader.readAsDataURL(file)
+  }
+
+  return (
+    <Card className="gap-5 p-6 animate-fade-up" style={{ animationDelay: "90ms" }}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Megaphone className="size-4" />
+          <h2 className="text-sm font-semibold">兑换页设置</h2>
+        </div>
+        <Button type="button" variant="outline" size="sm" asChild>
+          <a href="/redeem" target="_blank" rel="noopener noreferrer">
+            <ExternalLink data-slot="icon" />
+            预览兑换页
+          </a>
+        </Button>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
+        <div className="grid gap-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="redeem-announcement-title">公告标题</Label>
+            <Input
+              id="redeem-announcement-title"
+              value={value.announcement_title}
+              onChange={(event) => update({ announcement_title: event.target.value })}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="redeem-announcement-intro">公告说明</Label>
+            <Textarea
+              id="redeem-announcement-intro"
+              rows={3}
+              value={value.announcement_intro}
+              onChange={(event) => update({ announcement_intro: event.target.value })}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="redeem-announcement-items">公告条目</Label>
+            <Textarea
+              id="redeem-announcement-items"
+              rows={5}
+              value={announcementItemsText}
+              placeholder="一行一条公告"
+              onChange={(event) =>
+                update({
+                  announcement_items: event.target.value
+                    .split("\n")
+                    .map((item) => item.trim())
+                    .filter((item) => item !== ""),
+                })
+              }
+            />
+            <p className="text-xs text-muted-foreground">一行一条，最多 6 条；打开或刷新兑换页会自动弹窗。</p>
+          </div>
+        </div>
+
+        <div className="grid content-start gap-4 rounded-lg border bg-muted/20 p-4">
+          <div className="grid gap-1.5">
+            <Label htmlFor="redeem-support-title">客服标题</Label>
+            <Input
+              id="redeem-support-title"
+              value={value.support_title}
+              onChange={(event) => update({ support_title: event.target.value })}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="redeem-support-description">客服说明</Label>
+            <Input
+              id="redeem-support-description"
+              value={value.support_description}
+              onChange={(event) => update({ support_description: event.target.value })}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="redeem-support-wechat">客服微信号</Label>
+            <Input
+              id="redeem-support-wechat"
+              value={value.support_wechat_id}
+              placeholder="不填写则不显示复制按钮"
+              onChange={(event) => update({ support_wechat_id: event.target.value })}
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <Label>客服微信二维码</Label>
+            {value.support_qr_data_url ? (
+              <div className="rounded-lg border bg-white p-3">
+                <img
+                  src={value.support_qr_data_url}
+                  alt="客服微信二维码预览"
+                  className="mx-auto aspect-square max-h-64 rounded-md object-contain"
+                />
+              </div>
+            ) : (
+              <div className="grid aspect-square max-h-64 place-items-center rounded-lg border border-dashed bg-background text-center text-sm text-muted-foreground">
+                未上传二维码
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              onChange={handleUpload}
+            />
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                <ImageUp data-slot="icon" />
+                上传图片
+              </Button>
+              {value.support_qr_data_url ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => update({ support_qr_data_url: "" })}
+                >
+                  <Trash2 data-slot="icon" />
+                  移除
+                </Button>
+              ) : null}
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              图片会保存为公开展示用配置，不要上传包含敏感信息的截图。
+            </p>
+          </div>
+        </div>
+      </div>
+    </Card>
   )
 }
 
@@ -553,6 +795,9 @@ function SettingsForm({ settings }: { settings: Settings }) {
   const [deliveryConfig, setDeliveryConfig] = React.useState(() =>
     initialNotificationConfigState(settings.notification_config),
   )
+  const [redeemPage, setRedeemPage] = React.useState(() =>
+    normalizeRedeemPageSettings(settings.redeem_page),
+  )
   const [previewKind, setPreviewKind] = React.useState<TemplateKind | null>(null)
   const [preview, setPreview] = React.useState<TemplatePreviewState>({ status: "loading" })
 
@@ -619,6 +864,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
       notify_template: notifyTemplate,
       customer_email_template: customerTemplate,
       channels: Array.from(enabledChannels),
+      redeem_page: normalizeRedeemPageSettings(redeemPage),
       notification_config: {
         smtp: {
           host: deliveryConfig.smtp.host,
@@ -662,6 +908,8 @@ function SettingsForm({ settings }: { settings: Settings }) {
           />
         </div>
       </Card>
+
+      <RedeemPageSettingsEditor value={redeemPage} onChange={setRedeemPage} />
 
       <NotificationConfigEditor
         settings={settings}

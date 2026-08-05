@@ -115,7 +115,7 @@ func TestOpenUpdatesDueSoonDefaultTemplatesToDueInText(t *testing.T) {
 {{if .Remark}}备注：{{.Remark}}{{end}}
 {{if .TradeURL}}续费链接：{{.TradeURL}}{{end}}
 
-如需续费或有疑问，请添加 / 联系微信：Jerrylove_Bom
+如需续费或有疑问，请联系管理员。
 谢谢。`
 	if err := store.SetSetting(model.SettingNotifyTemplate, oldNotify); err != nil {
 		t.Fatal(err)

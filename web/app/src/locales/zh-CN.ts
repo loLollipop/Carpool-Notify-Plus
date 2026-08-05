@@ -261,7 +261,7 @@ export default {
     confirms: {
       archiveTitle: "确认下车？",
       archiveDesc:
-        "「{{name}}」将从月历、卡片与提醒调度中移除（归档）。已生成的账单会保留，可在账单页查看或复制订阅重新发布。",
+        "「{{name}}」将从月历、卡片与提醒调度中移除（归档），并删除对应兑换申请与已使用兑换码记录。已生成的账单会保留，可在账单页查看或复制订阅重新发布。",
       archiveAction: "下车",
       softDeleteTitle: "伪删除已下车订阅？",
       softDeleteDesc:
@@ -406,7 +406,7 @@ export default {
     },
     settings: {
       title: "设置",
-      desc: "此处可编辑通知模板、SMTP、IYUU 与 Gotify 配置。授权码和 Token 不会明文回显，留空保存会保留原值。",
+      desc: "此处可编辑通知模板、兑换页、SMTP、IYUU 与 Gotify 配置。授权码和 Token 不会明文回显，留空保存会保留原值。",
       notifyTemplate: "运营通知模板",
       notifyTemplateHint: "Go text/template。可用 {{vars}}",
       customerTemplate: "客户邮件模板",

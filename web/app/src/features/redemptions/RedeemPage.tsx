@@ -19,7 +19,12 @@ import { useForm, useWatch } from "react-hook-form"
 import { toast } from "sonner"
 import { z } from "zod"
 
-import { fetchRedemptionStatus, submitRedemptionApplication } from "@/api/endpoints"
+import {
+  fetchRedeemPageSettings,
+  fetchRedemptionStatus,
+  submitRedemptionApplication,
+} from "@/api/endpoints"
+import type { RedeemPageSettings } from "@/api/types"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
@@ -43,9 +48,22 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "carpool-notify:redemption-token"
-const SUPPORT_WECHAT_ID = "Jerrylove_Bom"
-const SUPPORT_WECHAT_QR_SRC = "/wechat-support-qr.png"
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
+  announcement_title: "加入前请先确认",
+  announcement_intro:
+    "进入共享工作空间前，请先看完下面几点，避免工作空间记录、售后或续期提醒遗漏。",
+  announcement_items: [
+    "工作空间与个人空间记录相互独立，加入空间后请把工作空间里的重要对话、文件或资料及时备份。",
+    "长期使用建议保存管理员联系方式，方便售后、续期提醒和异常通知。",
+    "到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。",
+  ],
+  support_title: "客服微信",
+  support_description: "售后与续期提醒",
+  support_contact_label: "微信号",
+  support_wechat_id: "",
+  support_qr_data_url: "",
+}
 const CONTACT_OPTIONS = [
   { value: "wechat", label: "微信", placeholder: "字母开头，6-20 位", tone: "text-success" },
   { value: "qq", label: "QQ", placeholder: "请输入 QQ 号", tone: "text-brand" },
@@ -90,12 +108,33 @@ function contactLabel(value: ContactType) {
   return CONTACT_OPTIONS.find((option) => option.value === value)?.label ?? "微信"
 }
 
-async function copySupportWechatId() {
+function normalizeRedeemPageSettings(settings?: RedeemPageSettings | null): RedeemPageSettings {
+  const merged = { ...DEFAULT_REDEEM_PAGE_SETTINGS, ...(settings ?? {}) }
+  const items = (merged.announcement_items ?? [])
+    .map((item) => item.trim())
+    .filter((item) => item !== "")
+  return {
+    ...merged,
+    announcement_items:
+      items.length > 0 ? items : DEFAULT_REDEEM_PAGE_SETTINGS.announcement_items,
+  }
+}
+
+function hasSupportContact(settings: RedeemPageSettings) {
+  return settings.support_wechat_id.trim() !== "" || settings.support_qr_data_url.trim() !== ""
+}
+
+async function copySupportWechatId(wechatId: string) {
+  const value = wechatId.trim()
+  if (!value) {
+    toast.error("暂未配置客服微信号")
+    return
+  }
   try {
-    await navigator.clipboard.writeText(SUPPORT_WECHAT_ID)
+    await navigator.clipboard.writeText(value)
     toast.success("已复制客服微信号")
   } catch {
-    toast.error(`复制失败，请手动输入 ${SUPPORT_WECHAT_ID}`)
+    toast.error(`复制失败，请手动输入 ${value}`)
   }
 }
 
@@ -143,50 +182,69 @@ function RedeemAnnouncementButton({ onClick }: { onClick: () => void }) {
   )
 }
 
-function WechatQrBlock({ compact = false }: { compact?: boolean }) {
+function WechatQrBlock({
+  settings,
+  compact = false,
+}: {
+  settings: RedeemPageSettings
+  compact?: boolean
+}) {
+  const wechatId = settings.support_wechat_id.trim()
+  const qrDataURL = settings.support_qr_data_url.trim()
+
   return (
     <div className="grid gap-3">
-      <div className="rounded-lg border bg-white p-2.5">
-        <img
-          src={SUPPORT_WECHAT_QR_SRC}
-          alt="客服微信二维码"
-          className={cn("aspect-square w-full rounded-md object-contain", compact ? "max-h-72" : "")}
-        />
-      </div>
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-muted-foreground">微信号</p>
-          <p className="truncate font-mono text-sm font-semibold">{SUPPORT_WECHAT_ID}</p>
+      {qrDataURL ? (
+        <div className="rounded-lg border bg-white p-3">
+          <img
+            src={qrDataURL}
+            alt="客服微信二维码"
+            className={cn("aspect-square w-full rounded-md object-contain", compact ? "max-h-80" : "")}
+          />
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="shrink-0"
-          onClick={() => void copySupportWechatId()}
-        >
-          <Copy data-slot="icon" />
-          复制
-        </Button>
-      </div>
+      ) : null}
+      {wechatId ? (
+        <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-muted-foreground">
+              {settings.support_contact_label || "微信号"}
+            </p>
+            <p className="truncate font-mono text-sm font-semibold">{wechatId}</p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => void copySupportWechatId(wechatId)}
+          >
+            <Copy data-slot="icon" />
+            复制
+          </Button>
+        </div>
+      ) : null}
     </div>
   )
 }
 
-function SupportWechatFloating() {
+function SupportWechatFloating({ settings }: { settings: RedeemPageSettings }) {
+  if (!hasSupportContact(settings)) {
+    return null
+  }
+
   return (
     <>
-      <aside className="fixed right-6 bottom-6 z-40 hidden w-[280px] rounded-lg border bg-card/95 p-4 shadow-xl shadow-black/10 backdrop-blur lg:block dark:shadow-black/30">
+      <aside className="fixed right-6 bottom-6 z-40 hidden w-[320px] rounded-lg border bg-card/95 p-4 shadow-xl shadow-black/10 backdrop-blur lg:block dark:shadow-black/30">
         <div className="mb-3 flex items-center gap-2">
           <div className="grid size-9 place-items-center rounded-lg bg-success/10 text-success">
             <MessageCircle className="size-5" />
           </div>
           <div className="min-w-0">
-            <p className="text-base font-semibold">客服微信</p>
-            <p className="truncate text-sm text-muted-foreground">售后与续期提醒</p>
+            <p className="text-base font-semibold">{settings.support_title}</p>
+            <p className="truncate text-sm text-muted-foreground">{settings.support_description}</p>
           </div>
         </div>
-        <WechatQrBlock />
+        <WechatQrBlock settings={settings} />
       </aside>
 
       <Dialog>
@@ -202,12 +260,10 @@ function SupportWechatFloating() {
         </DialogTrigger>
         <DialogContent className="max-w-[390px]">
           <DialogHeader>
-            <DialogTitle>添加客服微信</DialogTitle>
-            <DialogDescription>
-              长期拼车、续费提醒或售后问题，可以扫码添加微信联系。
-            </DialogDescription>
+            <DialogTitle>{settings.support_title}</DialogTitle>
+            <DialogDescription>{settings.support_description}</DialogDescription>
           </DialogHeader>
-          <WechatQrBlock compact />
+          <WechatQrBlock settings={settings} compact />
         </DialogContent>
       </Dialog>
     </>
@@ -217,16 +273,12 @@ function SupportWechatFloating() {
 function RedeemSafetyNoticeDialog({
   open,
   onOpenChange,
+  settings,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
+  settings: RedeemPageSettings
 }) {
-  const noticeItems = [
-    "工作空间与个人空间记录相互独立，加入空间后请把工作空间里的重要对话、文件或资料及时备份。",
-    `长期拼车用户建议添加客服微信 ${SUPPORT_WECHAT_ID}，方便售后、续期提醒和异常通知。`,
-    "到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。",
-  ]
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent showCloseButton={false} className="sm:max-w-[520px]">
@@ -234,14 +286,14 @@ function RedeemSafetyNoticeDialog({
           <div className="mb-2 grid size-11 place-items-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
             <AlertTriangle className="size-6" />
           </div>
-          <DialogTitle className="text-2xl leading-tight">加入前请先确认</DialogTitle>
+          <DialogTitle className="text-2xl leading-tight">{settings.announcement_title}</DialogTitle>
           <DialogDescription className="leading-6">
-            进入共享工作空间前，请先看完下面几点，避免工作空间记录、售后或续期提醒遗漏。
+            {settings.announcement_intro}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-3 text-sm leading-6">
-          {noticeItems.map((item, index) => (
+          {settings.announcement_items.map((item, index) => (
             <div key={item} className="flex gap-3 rounded-lg border bg-muted/30 p-3">
               <span className="grid size-6 shrink-0 place-items-center rounded-full bg-background text-xs font-semibold text-muted-foreground">
                 {index + 1}
@@ -262,6 +314,13 @@ function RedeemSafetyNoticeDialog({
 export function RedeemPage() {
   const [trackingToken, setTrackingToken] = React.useState(readStoredToken)
   const [noticeOpen, setNoticeOpen] = React.useState(true)
+
+  const settingsQuery = useQuery({
+    queryKey: ["public-redeem-settings"],
+    queryFn: fetchRedeemPageSettings,
+    staleTime: 5 * 60 * 1000,
+  })
+  const redeemSettings = normalizeRedeemPageSettings(settingsQuery.data)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -312,8 +371,12 @@ export function RedeemPage() {
 
   return (
     <main className="min-h-dvh bg-[#f6f7f9] px-4 py-6 pb-24 text-foreground dark:bg-background sm:px-6 lg:pb-6">
-      <RedeemSafetyNoticeDialog open={noticeOpen} onOpenChange={setNoticeOpen} />
-      <SupportWechatFloating />
+      <RedeemSafetyNoticeDialog
+        open={noticeOpen}
+        onOpenChange={setNoticeOpen}
+        settings={redeemSettings}
+      />
+      <SupportWechatFloating settings={redeemSettings} />
 
       <div className="mx-auto flex min-h-[calc(100dvh-3rem)] w-full max-w-[636px] flex-col justify-center">
         <div className="mb-8 flex justify-end gap-2">

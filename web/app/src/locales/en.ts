@@ -263,7 +263,7 @@ export default {
     confirms: {
       archiveTitle: "Depart this subscription?",
       archiveDesc:
-        "“{{name}}” will leave the calendar, cards and reminder schedule (archived). Existing bills are kept and the subscription can be duplicated later.",
+        "“{{name}}” will leave the calendar, cards and reminder schedule (archived). Linked redemption applications and used code records are deleted; existing bills are kept.",
       archiveAction: "Depart",
       softDeleteTitle: "Soft-delete departed subscription?",
       softDeleteDesc:
@@ -408,7 +408,7 @@ export default {
     },
     settings: {
       title: "Settings",
-      desc: "Edit templates, SMTP, IYUU and Gotify here. App passwords and tokens are write-only; leaving them blank keeps the saved value.",
+      desc: "Edit templates, redemption page, SMTP, IYUU and Gotify here. App passwords and tokens are write-only; leaving them blank keeps the saved value.",
       notifyTemplate: "Operator notification template",
       notifyTemplateHint: "Go text/template. Available: {{vars}}",
       customerTemplate: "Customer email template",

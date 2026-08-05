@@ -24,6 +24,7 @@ const (
 	SettingNotifyTemplate        = "notify_template"
 	SettingCustomerEmailTemplate = "customer_email_template"
 	SettingEnabledChannels       = "enabled_channels"
+	SettingRedeemPageSettings    = "redeem_page_settings"
 
 	// SubscriptionTypeOther is a legacy default for the deprecated subscription_type column.
 	// New code uses AccountName for display; this remains for migration/export compatibility.
@@ -66,8 +67,36 @@ const DefaultCustomerEmailTemplate = `您好，您的拼车服务{{.DueInText}}�
 {{if .Remark}}备注：{{.Remark}}{{end}}
 {{if .TradeURL}}续费链接：{{.TradeURL}}{{end}}
 
-如需续费或有疑问，请添加 / 联系微信：Jerrylove_Bom
+如需续费或有疑问，请联系管理员。
 谢谢。`
+
+// RedeemPageSettings is public, non-secret copy shown on the customer redemption page.
+type RedeemPageSettings struct {
+	AnnouncementTitle    string   `json:"announcement_title"`
+	AnnouncementIntro    string   `json:"announcement_intro"`
+	AnnouncementItems    []string `json:"announcement_items"`
+	SupportTitle         string   `json:"support_title"`
+	SupportDescription   string   `json:"support_description"`
+	SupportContactLabel  string   `json:"support_contact_label"`
+	SupportWechatID      string   `json:"support_wechat_id"`
+	SupportQRCodeDataURL string   `json:"support_qr_data_url"`
+}
+
+// DefaultRedeemPageSettings keeps open-source installs free of operator-specific data.
+var DefaultRedeemPageSettings = RedeemPageSettings{
+	AnnouncementTitle: "加入前请先确认",
+	AnnouncementIntro: "进入共享工作空间前，请先看完下面几点，避免工作空间记录、售后或续期提醒遗漏。",
+	AnnouncementItems: []string{
+		"工作空间与个人空间记录相互独立，加入空间后请把工作空间里的重要对话、文件或资料及时备份。",
+		"长期使用建议保存管理员联系方式，方便售后、续期提醒和异常通知。",
+		"到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。",
+	},
+	SupportTitle:         "客服微信",
+	SupportDescription:   "售后与续期提醒",
+	SupportContactLabel:  "微信号",
+	SupportWechatID:      "",
+	SupportQRCodeDataURL: "",
+}
 
 // Account is a carpool identity (e.g. a ChatGPT Team owner account) that owns seats.
 type Account struct {
@@ -228,11 +257,13 @@ type TemplateData struct {
 
 // ExportPayload is the JSON export shape (no secrets).
 type ExportPayload struct {
-	ExportedAt      string               `json:"exported_at"`
-	NotifyTemplate  string               `json:"notify_template"`
-	EnabledChannels []string             `json:"enabled_channels"`
-	Accounts        []ExportAccount      `json:"accounts"`
-	Subscriptions   []ExportSubscription `json:"subscriptions"`
+	ExportedAt            string               `json:"exported_at"`
+	NotifyTemplate        string               `json:"notify_template"`
+	CustomerEmailTemplate string               `json:"customer_email_template"`
+	EnabledChannels       []string             `json:"enabled_channels"`
+	RedeemPageSettings    RedeemPageSettings   `json:"redeem_page_settings"`
+	Accounts              []ExportAccount      `json:"accounts"`
+	Subscriptions         []ExportSubscription `json:"subscriptions"`
 }
 
 // ExportAccount is one account with seats in an export file.
