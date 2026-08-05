@@ -364,19 +364,26 @@ export function AccountsPage() {
                           >
                             <div className="overflow-hidden">
                               <div className="flex flex-wrap gap-1 pt-1.5">
-                                {occupants.map((seat) => (
-                                  <button
-                                    key={seat.seat.id}
-                                    type="button"
-                                    onClick={() => {
-                                      setSubscriptionPrefill(prefillFromSeat(seat))
-                                      setSubscriptionDialogOpen(true)
-                                    }}
-                                    className="max-w-full truncate rounded-md border bg-muted/50 px-2 py-0.5 text-xs transition-colors hover:border-brand/40 hover:text-brand"
-                                  >
-                                    {seat.active_subscription_name}
-                                  </button>
-                                ))}
+                                {occupants.map((seat) => {
+                                  const occupantLabel =
+                                    seat.active_customer_email.trim() ||
+                                    seat.active_subscription_name.trim() ||
+                                    seat.seat.name
+                                  return (
+                                    <button
+                                      key={seat.seat.id}
+                                      type="button"
+                                      title={occupantLabel}
+                                      onClick={() => {
+                                        setSubscriptionPrefill(prefillFromSeat(seat))
+                                        setSubscriptionDialogOpen(true)
+                                      }}
+                                      className="max-w-full truncate rounded-md border bg-muted/50 px-2 py-0.5 text-xs transition-colors hover:border-brand/40 hover:text-brand"
+                                    >
+                                      {occupantLabel}
+                                    </button>
+                                  )
+                                })}
                               </div>
                             </div>
                           </div>

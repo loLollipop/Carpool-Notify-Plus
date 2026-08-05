@@ -1019,7 +1019,7 @@ func (store *Store) ListAccounts() ([]model.Account, error) {
 		ORDER BY
 			CASE WHEN COALESCE(opened_at, '') = '' THEN 1 ELSE 0 END ASC,
 			opened_at DESC,
-			id ASC`)
+			id DESC`)
 	if err != nil {
 		return nil, err
 	}

@@ -80,8 +80,8 @@ func TestListAccountsViewOrdersByOpenedAtThenImportOrder(t *testing.T) {
 		views[3].Account.Name,
 	}
 	want := []string{
-		"newer-first@example.com",
 		"newer-second@example.com",
+		"newer-first@example.com",
 		"older@example.com",
 		"missing-opened-at@example.com",
 	}
