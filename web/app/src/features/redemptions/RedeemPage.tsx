@@ -1,29 +1,42 @@
 import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { CheckCircle2, Clock3, Mail, MessageCircle, RotateCcw, TicketCheck } from "lucide-react"
-import { useForm } from "react-hook-form"
+import {
+  Car,
+  CheckCircle2,
+  Clock3,
+  LoaderCircle,
+  MessageCircle,
+  Moon,
+  Sun,
+  TicketCheck,
+} from "lucide-react"
+import { useTheme } from "next-themes"
+import { useForm, useWatch } from "react-hook-form"
 import { toast } from "sonner"
 import { z } from "zod"
 
 import { fetchRedemptionStatus, submitRedemptionApplication } from "@/api/endpoints"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "carpool-notify:redemption-token"
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+const CONTACT_OPTIONS = [
+  { value: "wechat", label: "微信", placeholder: "字母开头，6-20 位", tone: "text-success" },
+  { value: "qq", label: "QQ", placeholder: "请输入 QQ 号", tone: "text-brand" },
+] as const
 
 const schema = z.object({
   customer_email: z
@@ -33,11 +46,12 @@ const schema = z.object({
     .regex(EMAIL_PATTERN, "邮箱格式不正确")
     .max(254, "邮箱太长"),
   redeem_code: z.string().trim().min(1, "请填写兑换码").max(120, "兑换码太长"),
-  customer_contact: z.string().trim().min(1, "请填写微信号或 QQ 号").max(80, "联系方式太长"),
-  request_note: z.string().trim().max(500, "备注最多 500 个字"),
+  contact_type: z.enum(["wechat", "qq"]),
+  customer_contact: z.string().trim().min(1, "请填写联系方式").max(80, "联系方式太长"),
 })
 
 type FormValues = z.infer<typeof schema>
+type ContactType = FormValues["contact_type"]
 
 function readStoredToken() {
   try {
@@ -59,6 +73,33 @@ function writeStoredToken(token: string) {
   }
 }
 
+function contactLabel(value: ContactType) {
+  return CONTACT_OPTIONS.find((option) => option.value === value)?.label ?? "微信"
+}
+
+function RedeemThemeToggle() {
+  const { resolvedTheme, setTheme } = useTheme()
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon-sm"
+          aria-label="切换深浅色"
+          className="rounded-full bg-card/70 shadow-sm backdrop-blur hover:bg-card"
+          onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+        >
+          <Sun className="size-4 scale-100 rotate-0 transition-all duration-300 dark:scale-0 dark:-rotate-90" />
+          <Moon className="absolute size-4 scale-0 rotate-90 transition-all duration-300 dark:scale-100 dark:rotate-0" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>切换深浅色</TooltipContent>
+    </Tooltip>
+  )
+}
+
 export function RedeemPage() {
   const [trackingToken, setTrackingToken] = React.useState(readStoredToken)
 
@@ -67,10 +108,11 @@ export function RedeemPage() {
     defaultValues: {
       customer_email: "",
       redeem_code: "",
+      contact_type: "wechat",
       customer_contact: "",
-      request_note: "",
     },
   })
+  const contactType = useWatch({ control: form.control, name: "contact_type" })
 
   const statusQuery = useQuery({
     queryKey: ["public-redemption-status", trackingToken],
@@ -84,9 +126,9 @@ export function RedeemPage() {
     mutationFn: (values: FormValues) =>
       submitRedemptionApplication({
         customer_email: values.customer_email.trim(),
-        customer_contact: values.customer_contact.trim(),
+        customer_contact: `${contactLabel(values.contact_type)}：${values.customer_contact.trim()}`,
         redeem_code: values.redeem_code.trim(),
-        request_note: values.request_note.trim(),
+        request_note: "",
       }),
     onSuccess: (result) => {
       setTrackingToken(result.tracking_token)
@@ -105,65 +147,72 @@ export function RedeemPage() {
 
   const status = statusQuery.data?.status ?? (trackingToken ? "pending" : null)
   const invited = status === "invited"
+  const statusLoadFailed = trackingToken !== "" && statusQuery.isError
+  const activeContact = CONTACT_OPTIONS.find((option) => option.value === contactType)
 
   return (
-    <main className="min-h-dvh bg-background px-4 py-8 text-foreground sm:px-6">
-      <div className="mx-auto flex min-h-[calc(100dvh-4rem)] w-full max-w-5xl items-center">
-        <div className="grid w-full gap-5 lg:grid-cols-[0.92fr_1.08fr]">
-          <section className="flex flex-col justify-between rounded-xl border bg-card p-6 shadow-sm animate-fade-up">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-md border bg-muted/50 px-2.5 py-1 text-xs font-medium text-muted-foreground">
-                <TicketCheck className="size-3.5" />
-                Carpool Notify
-              </div>
-              <h1 className="mt-6 text-3xl font-semibold tracking-tight sm:text-4xl">
-                兑换加入空间
-              </h1>
-              <p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
-                填写购买时使用的信息后，系统会把申请同步到管理后台。
-              </p>
-            </div>
+    <main className="min-h-dvh bg-[#f6f7f9] px-4 py-6 text-foreground dark:bg-background sm:px-6">
+      <div className="mx-auto flex min-h-[calc(100dvh-3rem)] w-full max-w-[636px] flex-col justify-center">
+        <div className="mb-8 flex justify-end">
+          <RedeemThemeToggle />
+        </div>
 
-            <div className="mt-8 grid gap-3 text-sm">
-              <div className="flex items-center gap-3 rounded-lg bg-muted/45 p-3">
-                <Mail className="size-4 shrink-0 text-brand" />
-                <span>邀请会发送到你填写的邮箱。</span>
-              </div>
-              <div className="flex items-center gap-3 rounded-lg bg-muted/45 p-3">
-                <MessageCircle className="size-4 shrink-0 text-success" />
-                <span>微信号或 QQ 号用于核对订单。</span>
-              </div>
-            </div>
-          </section>
+        <section className="text-center animate-fade-up">
+          <div className="inline-flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.32em] text-muted-foreground">
+            <span className="size-2 rounded-full bg-brand" />
+            Team Access
+          </div>
 
-          <Card className="p-6 shadow-sm animate-fade-up [animation-delay:80ms]">
-            {trackingToken ? (
-              <div className="flex min-h-[31rem] flex-col justify-between">
-                <div>
-                  <Badge variant={invited ? "success" : "brand"}>
-                    {invited ? (
-                      <CheckCircle2 className="size-3.5" />
-                    ) : (
-                      <Clock3 className="size-3.5" />
-                    )}
-                    {invited ? "已发送邀请" : "待处理"}
-                  </Badge>
-                  <h2 className="mt-5 text-2xl font-semibold tracking-tight">
-                    {invited
+          <div className="mt-6 flex items-center justify-center gap-4">
+            <div className="grid size-12 shrink-0 place-items-center rounded-lg bg-brand text-brand-foreground shadow-sm shadow-brand/25">
+              <Car className="size-7" />
+            </div>
+            <h1 className="text-4xl font-semibold tracking-normal sm:text-5xl">车位兑换</h1>
+          </div>
+
+          <p className="mx-auto mt-5 max-w-[560px] text-lg leading-8 text-muted-foreground">
+            填写兑换码与账号信息，提交后会同步到后台处理，邀请会发送到你的 GPT 邮箱。
+          </p>
+        </section>
+
+        <Card className="mt-10 overflow-hidden rounded-lg border bg-card p-0 shadow-sm animate-fade-up [animation-delay:80ms]">
+          {trackingToken ? (
+            <div className="grid min-h-[360px] gap-6 p-6 sm:p-8">
+              <div className="mx-auto grid size-16 place-items-center rounded-lg bg-muted">
+                {statusLoadFailed ? (
+                  <TicketCheck className="size-8 text-muted-foreground" />
+                ) : invited ? (
+                  <CheckCircle2 className="size-8 text-success" />
+                ) : (
+                  <Clock3 className="size-8 text-brand" />
+                )}
+              </div>
+
+              <div className="text-center">
+                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted-foreground">
+                  {statusLoadFailed ? "Application" : invited ? "Invitation Sent" : "Processing"}
+                </p>
+                <h2 className="mt-3 text-2xl font-semibold tracking-normal sm:text-3xl">
+                  {statusLoadFailed
+                    ? "没有找到这条申请，请重新提交"
+                    : invited
                       ? "已成功发送邀请，请在邮箱中点击确认加入空间"
                       : "申请已提交，请耐心等待 1-2 分钟"}
-                  </h2>
-                  <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                    {invited
-                      ? "如果收件箱没看到，可以检查垃圾邮件或稍等邮箱同步。"
-                      : "页面会自动刷新状态，处理完成后这里会同步更新。"}
-                  </p>
-                </div>
+                </h2>
+                <p className="mx-auto mt-3 max-w-md text-sm leading-7 text-muted-foreground">
+                  {statusLoadFailed
+                    ? "可能是本地保存的旧记录已经失效，重新提交兑换信息即可。"
+                    : invited
+                      ? "如果收件箱没看到邀请，可以检查垃圾邮件或稍等邮箱同步。"
+                      : "当前页面会自动同步处理进度，完成后会直接更新为邀请已发送。"}
+                </p>
+              </div>
 
-                <div className="mt-8 grid gap-3 rounded-lg border bg-muted/35 p-4 text-sm">
+              {!statusLoadFailed ? (
+                <div className="grid gap-3 rounded-lg border bg-muted/30 p-4 text-sm">
                   <div className="flex items-center justify-between gap-4">
-                    <span className="text-muted-foreground">申请邮箱</span>
-                    <span className="truncate font-mono">
+                    <span className="text-muted-foreground">GPT 邮箱</span>
+                    <span className="min-w-0 truncate font-mono">
                       {statusQuery.data?.customer_email || "加载中"}
                     </span>
                   </div>
@@ -182,103 +231,145 @@ export function RedeemPage() {
                     </div>
                   ) : null}
                 </div>
+              ) : null}
 
-                <div className="mt-6 flex flex-wrap items-center gap-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={statusQuery.isFetching}
-                    onClick={() => void statusQuery.refetch()}
-                  >
-                    <RotateCcw data-slot="icon" />
-                    刷新状态
-                  </Button>
-                  <Button type="button" variant="ghost" onClick={resetApplication}>
-                    重新填写
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <Form {...form}>
-                <form
-                  onSubmit={form.handleSubmit((values) => submitMutation.mutate(values))}
-                  className="grid gap-5"
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 w-full"
+                onClick={resetApplication}
+              >
+                重新提交兑换
+              </Button>
+            </div>
+          ) : (
+            <Form {...form}>
+              <form
+                onSubmit={form.handleSubmit((values) => submitMutation.mutate(values))}
+                className="grid gap-5 p-6 sm:p-8"
+              >
+                <p className="text-lg leading-8 text-muted-foreground">
+                  请填写用于加入 Team 的 GPT 邮箱，以及方便联系的微信或 QQ。
+                </p>
+
+                <FormField
+                  control={form.control}
+                  name="redeem_code"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-base">兑换码</FormLabel>
+                      <FormControl>
+                        <Input
+                          autoComplete="off"
+                          placeholder="CPN-XXXX-XXXX-XXXX"
+                          className="h-14 rounded-lg px-5 text-base"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="customer_email"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-base">GPT 邮箱</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="email"
+                          autoComplete="email"
+                          placeholder="name@example.com"
+                          className="h-14 rounded-lg px-5 text-base"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="contact_type"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-base">联系方式</FormLabel>
+                      <FormControl>
+                        <div className="grid grid-cols-2 gap-3">
+                          {CONTACT_OPTIONS.map((option) => {
+                            const selected = field.value === option.value
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                aria-pressed={selected}
+                                className={cn(
+                                  "flex h-14 items-center justify-center gap-2 rounded-lg border bg-muted/35 text-base font-semibold transition-all",
+                                  "hover:border-brand/50 hover:bg-brand/5 focus-visible:border-ring focus-visible:ring-ring/40 focus-visible:ring-[3px] focus-visible:outline-none",
+                                  selected &&
+                                    "border-brand bg-brand/10 text-foreground shadow-sm shadow-brand/10",
+                                )}
+                                onClick={() => field.onChange(option.value)}
+                              >
+                                <MessageCircle className={cn("size-5", option.tone)} />
+                                {option.label}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="customer_contact"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-base">{contactLabel(contactType)}号</FormLabel>
+                      <FormControl>
+                        <Input
+                          autoComplete="off"
+                          placeholder={activeContact?.placeholder ?? "方便核对订单"}
+                          className="h-14 rounded-lg px-5 text-base"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <Button
+                  type="submit"
+                  className="mt-2 h-14 text-base"
+                  disabled={submitMutation.isPending}
                 >
-                  <div>
-                    <Badge variant="brand">兑换申请</Badge>
-                    <h2 className="mt-4 text-2xl font-semibold tracking-tight">填写申请信息</h2>
-                  </div>
+                  {submitMutation.isPending ? (
+                    <>
+                      <LoaderCircle data-slot="icon" className="animate-spin" />
+                      提交中
+                    </>
+                  ) : (
+                    <>
+                      <TicketCheck data-slot="icon" />
+                      提交申请
+                    </>
+                  )}
+                </Button>
+              </form>
+            </Form>
+          )}
+        </Card>
 
-                  <FormField
-                    control={form.control}
-                    name="customer_email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>邮箱</FormLabel>
-                        <FormControl>
-                          <Input
-                            type="email"
-                            autoComplete="email"
-                            placeholder="name@example.com"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormDescription>后续空间邀请会发送到这个邮箱。</FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="redeem_code"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>兑换码</FormLabel>
-                        <FormControl>
-                          <Input autoComplete="off" placeholder="输入兑换码" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="customer_contact"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>微信号 / QQ号</FormLabel>
-                        <FormControl>
-                          <Input autoComplete="off" placeholder="方便核对订单" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="request_note"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>备注</FormLabel>
-                        <FormControl>
-                          <Textarea rows={3} placeholder="可选" {...field} />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <Button type="submit" disabled={submitMutation.isPending}>
-                    {submitMutation.isPending ? "提交中..." : "提交申请"}
-                  </Button>
-                </form>
-              </Form>
-            )}
-          </Card>
-        </div>
+        <p className="mx-auto mt-7 max-w-md text-center text-sm leading-7 text-muted-foreground">
+          兑换码仅限本人使用，提交后请保持本页打开等待邀请状态更新。
+        </p>
       </div>
     </main>
   )
