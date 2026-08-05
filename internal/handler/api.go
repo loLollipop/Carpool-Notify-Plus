@@ -477,6 +477,18 @@ func (server *Server) postEnableRedemptionCode(context *gin.Context) {
 	respondOK(context, gin.H{"message": "兑换码已启用"})
 }
 
+func (server *Server) deleteRedemptionCode(context *gin.Context) {
+	codeID, ok := parseIDParam(context, "id", "无效的兑换码 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.DeleteRedemptionCode(codeID); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "兑换码已删除"})
+}
+
 func (server *Server) putUpdateSubscription(context *gin.Context) {
 	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
 	if !ok {

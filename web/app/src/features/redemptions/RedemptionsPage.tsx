@@ -16,10 +16,12 @@ import {
   Search,
   Send,
   TicketCheck,
+  Trash2,
 } from "lucide-react"
 import { toast } from "sonner"
 
 import {
+  deleteRedemptionCode,
   disableRedemptionCode,
   enableRedemptionCode,
   generateRedemptionCodes,
@@ -34,6 +36,7 @@ import type {
   RedemptionCodeView,
   SeatOption,
 } from "@/api/types"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -50,11 +53,13 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { todayShanghai } from "@/features/subscriptions/subscription-prefill"
 
 type RedemptionFilter = "pending" | "invited" | "all"
+type RedemptionSection = "applications" | "codes"
 
 interface SelectableSeat {
   account: AccountOption
@@ -159,9 +164,11 @@ function RedemptionCodeManager() {
   const [count, setCount] = React.useState("1")
   const [note, setNote] = React.useState("")
   const [page, setPage] = React.useState(1)
+  const [deleteTarget, setDeleteTarget] = React.useState<RedemptionCodeView | null>(null)
   const codesQuery = useRedemptionCodes()
 
   const codes = codesQuery.data?.codes ?? EMPTY_CODES
+  const targetCode = deleteTarget?.code ?? null
   const pageCount = Math.max(1, Math.ceil(codes.length / CODE_PAGE_SIZE))
   const safePage = Math.min(page, pageCount)
   const pageStart = (safePage - 1) * CODE_PAGE_SIZE
@@ -194,9 +201,14 @@ function RedemptionCodeManager() {
   const enableMutation = useAppMutation((id: number) => enableRedemptionCode(id), {
     successMessage: "兑换码已启用",
   })
+  const deleteMutation = useAppMutation((id: number) => deleteRedemptionCode(id), {
+    successMessage: "兑换码已删除",
+    onSuccess: () => setDeleteTarget(null),
+  })
 
   return (
-    <Card className="mb-5 gap-0 overflow-hidden p-0">
+    <>
+    <Card className="gap-0 overflow-hidden p-0">
       <div className="flex flex-col gap-4 border-b p-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -304,25 +316,49 @@ function RedemptionCodeManager() {
                 </div>
                 <div className="flex items-center gap-2 md:justify-end">
                   {used ? null : disabled ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={enableMutation.isPending}
-                      onClick={() => enableMutation.mutate(code.id)}
-                    >
-                      <RotateCcw data-slot="icon" />
-                      启用
-                    </Button>
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={enableMutation.isPending}
+                        onClick={() => enableMutation.mutate(code.id)}
+                      >
+                        <RotateCcw data-slot="icon" />
+                        启用
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        disabled={deleteMutation.isPending}
+                        onClick={() => setDeleteTarget(view)}
+                      >
+                        <Trash2 data-slot="icon" />
+                        删除
+                      </Button>
+                    </>
                   ) : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={disableMutation.isPending}
-                      onClick={() => disableMutation.mutate(code.id)}
-                    >
-                      <Ban data-slot="icon" />
-                      停用
-                    </Button>
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={disableMutation.isPending}
+                        onClick={() => disableMutation.mutate(code.id)}
+                      >
+                        <Ban data-slot="icon" />
+                        停用
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="text-destructive hover:text-destructive"
+                        disabled={deleteMutation.isPending}
+                        onClick={() => setDeleteTarget(view)}
+                      >
+                        <Trash2 data-slot="icon" />
+                        删除
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -359,6 +395,29 @@ function RedemptionCodeManager() {
         </div>
       )}
     </Card>
+    <ConfirmDialog
+      open={deleteTarget !== null}
+      onOpenChange={(open) => {
+        if (!open && !deleteMutation.isPending) {
+          setDeleteTarget(null)
+        }
+      }}
+      title="删除兑换码？"
+      description={
+        targetCode
+          ? `确认删除兑换码 ${targetCode.code}？删除后客户将无法再使用这个兑换码。已使用的兑换码会保留申请记录，不能删除。`
+          : "确认删除这个兑换码？"
+      }
+      actionLabel="删除"
+      destructive
+      pending={deleteMutation.isPending}
+      onConfirm={() => {
+        if (targetCode) {
+          deleteMutation.mutate(targetCode.id)
+        }
+      }}
+    />
+    </>
   )
 }
 
@@ -642,6 +701,7 @@ function RedemptionCard({
 }
 
 export function RedemptionsPage() {
+  const [section, setSection] = React.useState<RedemptionSection>("applications")
   const [filter, setFilter] = React.useState<RedemptionFilter>("pending")
   const [search, setSearch] = React.useState("")
   const [page, setPage] = React.useState(1)
@@ -694,111 +754,156 @@ export function RedemptionsPage() {
     <>
       <PageHeader
         title="兑换申请"
-        description="客户提交兑换后会出现在这里；分配母号空间并确认已邀请后，会自动创建订阅和首期账单。"
-        actions={
-          <>
-            <div className="relative">
-              <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(event) => updateSearch(event.target.value)}
-                placeholder="搜索邮箱 / 微信 / 兑换码…"
-                className="h-9 w-56 pl-8 text-[13px] sm:w-72"
-              />
-            </div>
-            <Select value={filter} onValueChange={(value) => updateFilter(value as RedemptionFilter)}>
-              <SelectTrigger className="h-9 w-32">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="pending">待处理</SelectItem>
-                <SelectItem value="invited">已邀请</SelectItem>
-                <SelectItem value="all">全部</SelectItem>
-              </SelectContent>
-            </Select>
-          </>
-        }
+        description="处理客户提交的兑换申请，也可以切到兑换码管理生成、停用或删除一次性兑换码。"
       />
 
-      <RedemptionCodeManager />
-
-      <div className="mb-5 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-lg border bg-card p-4">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <Clock3 className="size-3.5" />
-            待处理
-          </div>
-          <div className="mt-2 text-2xl font-semibold tabular-nums">{pendingCount}</div>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <TicketCheck className="size-3.5" />
-            可用空位
-          </div>
-          <div className="mt-2 text-2xl font-semibold tabular-nums">{seats.length}</div>
-        </div>
-        <div className="rounded-lg border bg-card p-4">
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <CalendarClock className="size-3.5" />
-            当前筛选
-          </div>
-          <div className="mt-2 text-2xl font-semibold tabular-nums">{filtered.length}</div>
-        </div>
-      </div>
-
-      {redemptionsQuery.isPending ? (
-        <div className="grid gap-4">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <Skeleton key={index} className="h-64 rounded-xl" />
-          ))}
-        </div>
-      ) : redemptionsQuery.isError ? (
-        <Card className="items-center gap-3 py-16 text-center">
-          <p className="text-sm text-muted-foreground">兑换申请加载失败</p>
-          <Button variant="outline" onClick={() => redemptionsQuery.refetch()}>
-            重试
-          </Button>
-        </Card>
-      ) : filtered.length === 0 ? (
-        <Card className="items-center gap-3 py-16 text-center animate-fade-up">
-          <TicketCheck className="size-8 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">暂无兑换申请</p>
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {paged.map((view, index) => (
-            <RedemptionCard key={view.application.id} view={view} index={index} seats={seats} />
-          ))}
-
-          {pageCount > 1 ? (
-            <div className="flex flex-col items-center justify-between gap-3 border-t pt-4 text-xs text-muted-foreground sm:flex-row">
-              <span>
-                第 {safePage} / {pageCount} 页 · {pageStart + 1}-{pageEnd} / {filtered.length} 条
+      <Tabs
+        value={section}
+        onValueChange={(value) => setSection(value as RedemptionSection)}
+        className="gap-5"
+      >
+        <TabsList className="h-10 w-full justify-start bg-card p-1 shadow-sm sm:w-fit">
+          <TabsTrigger value="applications" className="h-8 px-4 text-sm">
+            <Clock3 data-slot="icon" />
+            处理申请
+            {pendingCount > 0 ? (
+              <span className="ml-1 rounded-full bg-brand px-1.5 py-0.5 text-[11px] leading-none text-brand-foreground">
+                {pendingCount}
               </span>
-              <div className="flex items-center gap-1.5">
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label="上一页"
-                  disabled={safePage <= 1}
-                  onClick={() => setPage((current) => Math.max(1, current - 1))}
-                >
-                  <ChevronLeft />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label="下一页"
-                  disabled={safePage >= pageCount}
-                  onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
-                >
-                  <ChevronRight />
-                </Button>
+            ) : null}
+          </TabsTrigger>
+          <TabsTrigger value="codes" className="h-8 px-4 text-sm">
+            <KeyRound data-slot="icon" />
+            兑换码管理
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="applications" className="space-y-5">
+          <div className="flex flex-col gap-4 rounded-lg border bg-card p-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Clock3 className="size-3.5" />
+                处理申请
               </div>
+              <h2 className="mt-2 text-lg font-semibold tracking-tight">
+                分配母号空间并确认邀请
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                确认客户已加入空间后，系统会自动创建订阅和首期账单。
+              </p>
             </div>
-          ) : null}
-        </div>
-      )}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <div className="relative">
+                <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(event) => updateSearch(event.target.value)}
+                  placeholder="搜索邮箱 / 微信 / 兑换码..."
+                  className="h-9 w-full pl-8 text-[13px] sm:w-72"
+                />
+              </div>
+              <Select value={filter} onValueChange={(value) => updateFilter(value as RedemptionFilter)}>
+                <SelectTrigger className="h-9 w-full sm:w-32">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="pending">待处理</SelectItem>
+                  <SelectItem value="invited">已邀请</SelectItem>
+                  <SelectItem value="all">全部</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border bg-card p-4">
+              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <Clock3 className="size-3.5" />
+                待处理
+              </div>
+              <div className="mt-2 text-2xl font-semibold tabular-nums">{pendingCount}</div>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <TicketCheck className="size-3.5" />
+                可用空位
+              </div>
+              <div className="mt-2 text-2xl font-semibold tabular-nums">{seats.length}</div>
+            </div>
+            <div className="rounded-lg border bg-card p-4">
+              <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                <CalendarClock className="size-3.5" />
+                当前筛选
+              </div>
+              <div className="mt-2 text-2xl font-semibold tabular-nums">{filtered.length}</div>
+            </div>
+          </div>
+
+          {redemptionsQuery.isPending ? (
+            <div className="grid gap-4">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <Skeleton key={index} className="h-64 rounded-xl" />
+              ))}
+            </div>
+          ) : redemptionsQuery.isError ? (
+            <Card className="items-center gap-3 py-16 text-center">
+              <p className="text-sm text-muted-foreground">兑换申请加载失败</p>
+              <Button variant="outline" onClick={() => redemptionsQuery.refetch()}>
+                重试
+              </Button>
+            </Card>
+          ) : filtered.length === 0 ? (
+            <Card className="items-center gap-3 py-16 text-center animate-fade-up">
+              <TicketCheck className="size-8 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">暂无兑换申请</p>
+            </Card>
+          ) : (
+            <div className="space-y-4">
+              {paged.map((view, index) => (
+                <RedemptionCard
+                  key={view.application.id}
+                  view={view}
+                  index={index}
+                  seats={seats}
+                />
+              ))}
+
+              {pageCount > 1 ? (
+                <div className="flex flex-col items-center justify-between gap-3 border-t pt-4 text-xs text-muted-foreground sm:flex-row">
+                  <span>
+                    第 {safePage} / {pageCount} 页 · {pageStart + 1}-{pageEnd} /{" "}
+                    {filtered.length} 条
+                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      aria-label="上一页"
+                      disabled={safePage <= 1}
+                      onClick={() => setPage((current) => Math.max(1, current - 1))}
+                    >
+                      <ChevronLeft />
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="icon-sm"
+                      aria-label="下一页"
+                      disabled={safePage >= pageCount}
+                      onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                    >
+                      <ChevronRight />
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="codes">
+          <RedemptionCodeManager />
+        </TabsContent>
+      </Tabs>
     </>
   )
 }

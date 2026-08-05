@@ -200,6 +200,10 @@ export function enableRedemptionCode(id: number) {
   return api<MessageResult>(`/api/redemption-codes/${id}/enable`, { method: "POST" })
 }
 
+export function deleteRedemptionCode(id: number) {
+  return api<MessageResult>(`/api/redemption-codes/${id}`, { method: "DELETE" })
+}
+
 // ---- Account mutations ----
 
 export function createAccount(input: AccountInput) {

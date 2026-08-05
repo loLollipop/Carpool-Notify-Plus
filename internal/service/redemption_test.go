@@ -131,3 +131,38 @@ func TestRedemptionSubmitRequiresUnusedGeneratedCode(t *testing.T) {
 		t.Fatalf("missing code error = %v, want not found message", err)
 	}
 }
+
+func TestRedemptionCodeDeleteOnlyAllowsUnusedOrDisabled(t *testing.T) {
+	subscriptionService := openTestService(t)
+	codes, err := subscriptionService.GenerateRedemptionCodes(service.RedemptionCodeGenerateInput{
+		Count: 2,
+		Note:  "清理测试",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := subscriptionService.DeleteRedemptionCode(codes[0].Code.ID); err != nil {
+		t.Fatalf("delete unused code: %v", err)
+	}
+	listed, err := subscriptionService.ListRedemptionCodesView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 1 || listed[0].Code.ID == codes[0].Code.ID {
+		t.Fatalf("codes after delete = %#v, want first code removed", listed)
+	}
+
+	_, err = subscriptionService.SubmitRedemptionApplication(service.RedemptionSubmitInput{
+		CustomerEmail:   "used@example.com",
+		CustomerContact: "微信：used",
+		RedeemCode:      codes[1].Code.Code,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = subscriptionService.DeleteRedemptionCode(codes[1].Code.ID)
+	if err == nil || !strings.Contains(err.Error(), "不能删除") {
+		t.Fatalf("delete used code error = %v, want protected used code", err)
+	}
+}

@@ -1230,6 +1230,27 @@ func (store *Store) SetRedemptionCodeStatus(codeID int64, status string) error {
 	return nil
 }
 
+// DeleteRedemptionCode permanently removes an unused or disabled generated code.
+func (store *Store) DeleteRedemptionCode(codeID int64) error {
+	result, err := store.database.Exec(`
+		DELETE FROM redemption_codes
+		WHERE id = ? AND status != ?`,
+		codeID,
+		model.RedemptionCodeStatusUsed,
+	)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
+}
+
 // CreateRedemptionApplication inserts a customer-submitted redemption request.
 func (store *Store) CreateRedemptionApplication(application model.RedemptionApplication) (int64, error) {
 	now := formatTime(time.Now().UTC())

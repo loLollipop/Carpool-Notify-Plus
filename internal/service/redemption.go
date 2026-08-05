@@ -250,6 +250,21 @@ func (service *SubscriptionService) EnableRedemptionCode(codeID int64) error {
 	return service.Store.SetRedemptionCodeStatus(code.ID, model.RedemptionCodeStatusUnused)
 }
 
+// DeleteRedemptionCode removes an unused or disabled code from the operator list.
+func (service *SubscriptionService) DeleteRedemptionCode(codeID int64) error {
+	code, err := service.Store.GetRedemptionCode(codeID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("兑换码不存在")
+		}
+		return err
+	}
+	if code.Status == model.RedemptionCodeStatusUsed {
+		return fmt.Errorf("已使用的兑换码关联了客户申请，不能删除")
+	}
+	return service.Store.DeleteRedemptionCode(code.ID)
+}
+
 // GetRedemptionStatus returns the current public status for a tracking token.
 func (service *SubscriptionService) GetRedemptionStatus(token string) (RedemptionStatusView, error) {
 	token = strings.TrimSpace(token)
