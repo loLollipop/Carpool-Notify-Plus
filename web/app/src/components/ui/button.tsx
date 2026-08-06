@@ -9,8 +9,8 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-brand text-brand-foreground shadow-sm shadow-brand/15 hover:bg-brand/90",
-        brand: "bg-brand text-brand-foreground shadow-sm shadow-brand/15 hover:bg-brand/90",
+        default: "bg-brand text-brand-foreground shadow-[0_1px_2px_color-mix(in_oklab,var(--brand)_30%,transparent),0_6px_14px_color-mix(in_oklab,var(--brand)_14%,transparent)] hover:bg-brand/90",
+        brand: "bg-brand text-brand-foreground shadow-[0_1px_2px_color-mix(in_oklab,var(--brand)_30%,transparent),0_6px_14px_color-mix(in_oklab,var(--brand)_14%,transparent)] hover:bg-brand/90",
         destructive:
           "bg-destructive text-destructive-foreground hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         outline:

@@ -17,7 +17,7 @@ import { getNextMonthlyRenewalDate } from "@/lib/account-renewal"
 function ViewItem({ label, mono, children }: { label: string; mono?: boolean; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
-      <div className="text-[11px] font-medium tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
       <div className={mono ? "truncate font-mono text-[13px]" : "truncate text-[13px]"}>{children}</div>
     </div>
   )
@@ -120,7 +120,7 @@ export function SubscriptionViewDialog({
             </div>
 
             <div>
-              <div className="text-[11px] font-medium tracking-wide text-muted-foreground">
+              <div className="text-[11px] font-medium text-muted-foreground">
                 {t("bills.viewRemark")}
               </div>
               <p className="mt-0.5 text-[13px] leading-relaxed whitespace-pre-wrap">
@@ -129,7 +129,7 @@ export function SubscriptionViewDialog({
             </div>
 
             <div>
-              <div className="text-[11px] font-medium tracking-wide text-muted-foreground">
+              <div className="text-[11px] font-medium text-muted-foreground">
                 {t("bills.viewTradeUrl")}
               </div>
               {bill.trade_url ? (

@@ -41,56 +41,105 @@ export function LoginPage() {
   }
 
   return (
-    <div className="grid min-h-dvh place-items-center px-4 py-10">
-      <div className="w-full max-w-sm">
-        <div className="mb-8 flex flex-col items-center text-center animate-fade-up">
+    <div className="grid min-h-dvh bg-background lg:grid-cols-[minmax(320px,0.8fr)_minmax(560px,1.2fr)]">
+      <aside className="relative hidden overflow-hidden border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] p-10 text-[var(--sidebar-foreground)] lg:flex lg:flex-col lg:justify-between xl:p-14">
+        <div className="flex items-center gap-3 animate-fade-up">
           <img
             src="/logo.png"
             alt=""
             aria-hidden="true"
-            width={44}
-            height={44}
+            width={40}
+            height={40}
             draggable={false}
-            className="size-11"
+            className="size-10"
           />
-          <h1 className="mt-4 text-xl font-semibold tracking-tight">{t("common.appName")}</h1>
-          <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <div>
+            <h1 className="text-lg font-semibold">{t("common.appName")}</h1>
+            <p className="mt-1 text-xs text-[var(--sidebar-muted)]">Workspace Console</p>
+          </div>
+        </div>
+
+        <div className="max-w-md animate-fade-up [animation-delay:90ms]">
+          <div className="mb-7 flex items-center gap-2 text-xs font-medium text-[var(--sidebar-muted)]">
             <LockKeyhole className="size-3.5" />
             {t("auth.subtitle")}
+          </div>
+          <h2 className="text-4xl font-semibold leading-[1.18] xl:text-5xl">
+            {t("auth.title")}
+          </h2>
+          <p className="mt-5 max-w-sm text-sm leading-7 text-[var(--sidebar-muted)]">
+            {t("auth.hero1")}
           </p>
         </div>
 
-        <Card className="gap-5 p-6 animate-fade-up" style={{ animationDelay: "120ms" }}>
-          <div>
-            <h2 className="text-base font-semibold tracking-tight">{t("auth.title")}</h2>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t("auth.hero1")}</p>
-          </div>
-          <form onSubmit={handleSubmit} className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="password">{t("auth.password")}</Label>
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                autoFocus
-                required
-                value={password}
-                placeholder={t("auth.passwordPlaceholder")}
-                onChange={(event) => setPassword(event.target.value)}
-                aria-invalid={error !== ""}
-                className="h-10"
-              />
-              {error ? (
-                <p className="text-sm text-destructive animate-fade-in">{error}</p>
-              ) : null}
+        <div className="grid gap-3 opacity-60" aria-hidden="true">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <span
+              key={index}
+              className="block h-px bg-[var(--sidebar-border)]"
+              style={{ width: `${100 - index * 12}%` }}
+            />
+          ))}
+        </div>
+      </aside>
+
+      <main className="grid min-h-dvh place-items-center px-4 py-10 sm:px-8">
+        <div className="w-full max-w-[420px]">
+          <div className="mb-7 flex items-center gap-3 lg:hidden animate-fade-up">
+            <img
+              src="/logo.png"
+              alt=""
+              aria-hidden="true"
+              width={40}
+              height={40}
+              draggable={false}
+              className="size-10"
+            />
+            <div>
+              <h1 className="text-base font-semibold">{t("common.appName")}</h1>
+              <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
+                <LockKeyhole className="size-3.5" />
+                {t("auth.subtitle")}
+              </p>
             </div>
-            <Button type="submit" size="lg" className="group w-full" disabled={submitting}>
-              {submitting ? t("auth.submitting") : t("auth.submit")}
-              <ArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
-            </Button>
-          </form>
-        </Card>
-      </div>
+          </div>
+
+          <Card className="relative gap-6 overflow-hidden p-6 animate-fade-up sm:p-8" style={{ animationDelay: "120ms" }}>
+            <span className="metric-rule [--metric-color:var(--brand)]" />
+            <div>
+              <div className="mb-4 grid size-10 place-items-center rounded-md bg-brand/10 text-brand">
+                <LockKeyhole className="size-5" />
+              </div>
+              <h2 className="text-xl font-semibold">{t("auth.title")}</h2>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{t("auth.hero1")}</p>
+            </div>
+            <form onSubmit={handleSubmit} className="grid gap-5">
+              <div className="grid gap-2">
+                <Label htmlFor="password">{t("auth.password")}</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  autoFocus
+                  required
+                  value={password}
+                  placeholder={t("auth.passwordPlaceholder")}
+                  onChange={(event) => setPassword(event.target.value)}
+                  aria-invalid={error !== ""}
+                  className="h-11"
+                />
+                {error ? (
+                  <p className="text-sm text-destructive animate-fade-in">{error}</p>
+                ) : null}
+              </div>
+              <Button type="submit" size="lg" className="group w-full" disabled={submitting}>
+                {submitting ? t("auth.submitting") : t("auth.submit")}
+                <ArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
+              </Button>
+            </form>
+          </Card>
+        </div>
+      </main>
     </div>
   )
 }

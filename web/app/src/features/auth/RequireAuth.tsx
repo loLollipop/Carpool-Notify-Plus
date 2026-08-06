@@ -7,7 +7,7 @@ function BootSplash() {
     <div className="flex min-h-dvh items-center justify-center">
       <div className="flex items-center gap-3 text-muted-foreground animate-fade-in">
         <span className="inline-block size-2 rounded-full bg-brand animate-pulse" />
-        <span className="font-mono text-xs tracking-[0.3em] uppercase">Carpool Notify</span>
+        <span className="font-mono text-xs uppercase">Carpool Notify</span>
       </div>
     </div>
   )

@@ -101,20 +101,48 @@ function KpiCard({
   hint,
   icon,
   delay,
+  tone,
 }: {
   label: string
   value: string | number
   hint: string
   icon: React.ReactNode
   delay: number
+  tone: "brand" | "success" | "gold" | "coral" | "violet" | "cyan"
 }) {
+  const toneClass = {
+    brand: "bg-brand/10 text-brand",
+    success: "bg-success/10 text-success",
+    gold: "bg-gold/12 text-gold",
+    coral: "bg-coral/10 text-coral",
+    violet: "bg-violet/10 text-violet",
+    cyan: "bg-cyan/10 text-cyan",
+  }[tone]
+  const toneColor = {
+    brand: "var(--brand)",
+    success: "var(--success)",
+    gold: "var(--gold)",
+    coral: "var(--coral)",
+    violet: "var(--violet)",
+    cyan: "var(--cyan)",
+  }[tone]
+
   return (
-    <Card className="gap-0 p-5 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
-      <div className="flex items-center justify-between text-xs font-medium tracking-wide text-muted-foreground">
+    <Card
+      className="group relative gap-0 overflow-hidden p-5 animate-fade-up"
+      style={
+        {
+          animationDelay: `${delay}ms`,
+          "--metric-color": toneColor,
+        } as React.CSSProperties
+      }
+    >
+      <span className="metric-rule" />
+      <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
         <span>{label}</span>
-        <span className="text-muted-foreground/70">{icon}</span>
+        <span className={cn("grid size-8 place-items-center rounded-md", toneClass)}>{icon}</span>
       </div>
-      <div className="display-numeral mt-3 text-[28px] leading-none">
+      <div className="display-numeral mt-4 text-[27px] leading-none">
         <NumberTicker value={value} />
       </div>
       <div className="mt-2.5 text-xs text-muted-foreground">{hint}</div>
@@ -138,7 +166,13 @@ function BillMobileCard({
   const customerLine = bill.customer_email || bill.subscription_name
 
   return (
-    <Card className="gap-0 overflow-hidden p-0 animate-fade-up">
+    <Card className="relative gap-0 overflow-hidden p-0 animate-fade-up">
+      <span
+        className={cn(
+          "absolute inset-y-0 left-0 w-1",
+          bill.archived ? "bg-muted-foreground/35" : bill.is_resale ? "bg-violet" : "bg-success",
+        )}
+      />
       <div className="p-4">
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="min-w-0">
@@ -162,10 +196,10 @@ function BillMobileCard({
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md bg-muted/55 p-3 text-xs">
+        <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md border border-foreground/[0.06] bg-muted/45 p-3 text-xs">
           <div>
             <div className="text-muted-foreground">{t("bills.colAmount")}</div>
-            <div className="mt-1 text-base font-semibold tabular-nums">¥{bill.amount_yuan}</div>
+            <div className="mt-1 text-base font-semibold text-brand tabular-nums">¥{bill.amount_yuan}</div>
           </div>
           <div>
             <div className="text-muted-foreground">{t("bills.colStartDate")}</div>
@@ -173,7 +207,7 @@ function BillMobileCard({
           </div>
           <div>
             <div className="text-muted-foreground">{t("bills.colProfit")}</div>
-            <div className="mt-1 tabular-nums">
+            <div className="mt-1 font-medium text-success tabular-nums">
               ¥{bill.is_resale ? "0.00" : bill.profit_yuan}
             </div>
           </div>
@@ -190,7 +224,7 @@ function BillMobileCard({
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 border-t bg-muted/20 px-3 py-3">
+      <div className="grid grid-cols-3 gap-2 border-t bg-muted/35 px-3 py-3">
         <Button variant="outline" size="sm" onClick={onView}>
           <Eye data-slot="icon" />
           <span className="truncate">{t("bills.viewSubscription")}</span>
@@ -236,15 +270,15 @@ function AmountDistributionCard({ summary }: { summary: BillsSummary }) {
   }, [summary, mode])
 
   return (
-    <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "120ms" }}>
+    <Card className="gap-4 overflow-hidden p-5 animate-fade-up" style={{ animationDelay: "120ms" }}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold">{t("bills.chartAmountTitle")}</h2>
+          <h2 className="panel-heading text-sm font-semibold">{t("bills.chartAmountTitle")}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {mode === "subscription" ? t("bills.chartAmountBySub") : t("bills.chartAmountByAccount")}
           </p>
         </div>
-        <div role="tablist" className="inline-flex items-center rounded-lg border bg-muted/50 p-0.5">
+        <div role="tablist" className="inline-flex items-center rounded-md border bg-muted/50 p-0.5">
           {(
             [
               { value: "subscription", label: t("bills.chartModeSub") },
@@ -326,7 +360,7 @@ function AccountDonutCard({ summary }: { summary: BillsSummary }) {
   return (
     <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "180ms" }}>
       <div>
-        <h2 className="text-sm font-semibold">{t("bills.chartAccountTitle")}</h2>
+        <h2 className="panel-heading text-sm font-semibold">{t("bills.chartAccountTitle")}</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">{t("bills.chartAccountDesc")}</p>
       </div>
 
@@ -389,7 +423,7 @@ function MonthlyTrendCard({ summary }: { summary: BillsSummary }) {
   return (
     <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "240ms" }}>
       <div>
-        <h2 className="text-sm font-semibold">{t("bills.chartTrendTitle")}</h2>
+        <h2 className="panel-heading text-sm font-semibold">{t("bills.chartTrendTitle")}</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">{t("bills.chartTrendDesc")}</p>
       </div>
 
@@ -513,6 +547,7 @@ export function BillsPage() {
               hint={t("bills.kpiTotalHint")}
               icon={<Wallet className="size-4" />}
               delay={0}
+              tone="brand"
             />
             <KpiCard
               label={t("bills.kpiCount")}
@@ -520,6 +555,7 @@ export function BillsPage() {
               hint={t("bills.kpiCountHint", { avg: summary.average_amount_yuan })}
               icon={<Hash className="size-4" />}
               delay={40}
+              tone="cyan"
             />
             <KpiCard
               label={t("bills.kpiThisMonth")}
@@ -527,6 +563,7 @@ export function BillsPage() {
               hint={t("bills.kpiThisMonthHint", { count: summary.this_month_count })}
               icon={<CalendarDays className="size-4" />}
               delay={80}
+              tone="success"
             />
             <KpiCard
               label={t("bills.kpiAverage")}
@@ -534,6 +571,7 @@ export function BillsPage() {
               hint={t("bills.kpiAverageHint")}
               icon={<ChartLine className="size-4" />}
               delay={120}
+              tone="violet"
             />
             <KpiCard
               label={t("bills.kpiAgencyFee")}
@@ -544,6 +582,7 @@ export function BillsPage() {
               })}
               icon={<HandCoins className="size-4" />}
               delay={160}
+              tone="gold"
             />
             <KpiCard
               label={t("bills.kpiActive")}
@@ -551,6 +590,7 @@ export function BillsPage() {
               hint={t("bills.kpiActiveHint")}
               icon={<CircleDot className="size-4" />}
               delay={200}
+              tone="coral"
             />
           </section>
 
@@ -560,8 +600,8 @@ export function BillsPage() {
           </div>
           <MonthlyTrendCard summary={summary} />
 
-          <div className="mt-8 mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between animate-fade-up">
-            <h2 className="text-lg font-semibold">{t("bills.listTitle")}</h2>
+          <div className="mt-8 mb-4 flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between animate-fade-up">
+            <h2 className="panel-heading text-lg font-semibold">{t("bills.listTitle")}</h2>
             <div className="flex flex-wrap items-center gap-3">
               <div className="relative">
                 <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />

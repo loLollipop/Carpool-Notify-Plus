@@ -108,33 +108,44 @@ function AccountMobileCard({
   const nextRenewalDate = getNextMonthlyRenewalDate(view.account.opened_at)
 
   return (
-    <Card className="gap-0 overflow-hidden p-0 animate-fade-up">
+    <Card className="relative gap-0 overflow-hidden p-0 animate-fade-up">
+      <span
+        className={cn(
+          "absolute inset-y-0 left-0 w-1",
+          view.is_full ? "bg-coral" : view.seat_used === 0 ? "bg-cyan" : "bg-success",
+        )}
+      />
       <div className="p-4">
         <div className="flex min-w-0 items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="break-all text-sm font-semibold leading-5">{view.account.name}</h2>
-            {showAccountEmail ? (
-              <p className="mt-1 break-all text-xs text-muted-foreground">{accountEmail}</p>
-            ) : null}
-            {view.account.space_name ? (
-              <p className="mt-1 truncate text-xs text-muted-foreground">
-                {view.account.space_name}
-              </p>
-            ) : null}
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+              <CircleParking className="size-[18px]" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="break-all text-sm font-semibold leading-5">{view.account.name}</h2>
+              {showAccountEmail ? (
+                <p className="mt-1 break-all text-xs text-muted-foreground">{accountEmail}</p>
+              ) : null}
+              {view.account.space_name ? (
+                <p className="mt-1 truncate text-xs text-muted-foreground">
+                  {view.account.space_name}
+                </p>
+              ) : null}
+            </div>
           </div>
           <AccountStatus view={view} />
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md bg-muted/55 p-3 text-xs">
+        <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md border border-foreground/[0.06] bg-muted/45 p-3 text-xs">
           <div>
             <div className="text-muted-foreground">{t("accounts.colOccupancy")}</div>
-            <div className="mt-1 font-semibold tabular-nums">
+            <div className="mt-1 font-semibold text-brand tabular-nums">
               {view.seat_used} / {view.seat_total}
             </div>
           </div>
           <div>
             <div className="text-muted-foreground">{t("accounts.costShort")}</div>
-            <div className="mt-1 font-semibold tabular-nums">
+            <div className="mt-1 font-semibold text-gold tabular-nums">
               ¥{formatCents(view.account.cost_cents)}
             </div>
           </div>
@@ -214,7 +225,7 @@ function AccountMobileCard({
         ) : null}
       </div>
 
-      <div className="flex items-center gap-2 border-t bg-muted/20 px-4 py-3">
+      <div className="flex items-center gap-2 border-t bg-muted/35 px-4 py-3">
         <Button variant="outline" size="sm" onClick={onEdit}>
           <Pencil data-slot="icon" />
           {t("common.edit")}
@@ -476,12 +487,27 @@ export function AccountsPage() {
                 const showAccountEmail = accountEmail !== "" && accountEmail !== accountName
                 const nextRenewalDate = getNextMonthlyRenewalDate(view.account.opened_at)
                 return (
-                  <TableRow key={view.account.id}>
+                  <TableRow
+                    key={view.account.id}
+                    className={cn(
+                      "border-l-2",
+                      view.is_full
+                        ? "border-l-coral"
+                        : view.seat_used === 0
+                          ? "border-l-cyan"
+                          : "border-l-success",
+                    )}
+                  >
                     <TableCell>
-                      <div className="truncate font-medium" title={view.account.name}>
-                        {view.account.name}
-                      </div>
-                      <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                      <div className="flex min-w-0 items-start gap-2.5">
+                        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+                          <CircleParking className="size-4" />
+                        </span>
+                        <div className="min-w-0">
+                          <div className="truncate font-medium" title={view.account.name}>
+                            {view.account.name}
+                          </div>
+                          <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                         {showAccountEmail ? (
                           <span className="max-w-full truncate" title={accountEmail}>
                             {accountEmail}
@@ -506,6 +532,8 @@ export function AccountsPage() {
                             <span className="font-mono tabular-nums">{nextRenewalDate}</span>
                           </span>
                         ) : null}
+                          </div>
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -516,7 +544,7 @@ export function AccountsPage() {
                             aria-expanded={isExpanded}
                             title={t("accounts.occupancyTitle")}
                             onClick={() => toggleExpanded(view.account.id)}
-                            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[13px] tabular-nums transition-colors hover:bg-accent"
+                            className="inline-flex items-center gap-1 rounded-md bg-brand/[0.06] px-2 py-1 font-mono text-[13px] text-brand tabular-nums transition-colors hover:bg-brand/10"
                           >
                             {view.seat_used} / {view.seat_total}
                             <ChevronDown
@@ -578,7 +606,7 @@ export function AccountsPage() {
                         )}
                         <div className="text-xs text-muted-foreground">
                           {t("accounts.costShort")}{" "}
-                          <span className="font-mono tabular-nums">
+                          <span className="font-mono font-semibold text-gold tabular-nums">
                             ¥{formatCents(view.account.cost_cents)}
                           </span>
                         </div>

@@ -31,7 +31,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAuth } from "@/features/auth/auth-context"
 
-function BrandMark() {
+function BrandMark({ inverted = false }: { inverted?: boolean }) {
   return (
     <NavLink to="/" className="group flex min-w-0 items-center gap-3 select-none">
       <img
@@ -44,14 +44,28 @@ function BrandMark() {
         className="size-8 shrink-0 transition-transform duration-300 group-hover:-rotate-6 lg:size-[34px]"
       />
       <span className="min-w-0 leading-none">
-        <span className="block truncate text-[15px] font-semibold">Carpool Notify</span>
-        <span className="mt-1 hidden text-[11px] text-muted-foreground lg:block">Workspace Console</span>
+        <span
+          className={cn(
+            "block truncate text-[15px] font-semibold",
+            inverted && "text-[var(--sidebar-foreground)]",
+          )}
+        >
+          Carpool Notify
+        </span>
+        <span
+          className={cn(
+            "mt-1 hidden text-[11px] text-muted-foreground lg:block",
+            inverted && "text-[var(--sidebar-muted)]",
+          )}
+        >
+          Workspace Console
+        </span>
       </span>
     </NavLink>
   )
 }
 
-function ThemeToggle() {
+function ThemeToggle({ inverted = false }: { inverted?: boolean }) {
   const { resolvedTheme, setTheme } = useTheme()
   const { t } = useTranslation()
 
@@ -61,6 +75,10 @@ function ThemeToggle() {
         <Button
           variant="ghost"
           size="icon-sm"
+          className={cn(
+            inverted &&
+              "text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-foreground)]",
+          )}
           aria-label={t("nav.theme")}
           onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
         >
@@ -73,7 +91,7 @@ function ThemeToggle() {
   )
 }
 
-function LanguageToggle() {
+function LanguageToggle({ inverted = false }: { inverted?: boolean }) {
   const { i18n, t } = useTranslation()
 
   return (
@@ -81,7 +99,15 @@ function LanguageToggle() {
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label={t("nav.language")}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className={cn(
+                inverted &&
+                  "text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-foreground)]",
+              )}
+              aria-label={t("nav.language")}
+            >
               <Languages className="size-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -125,9 +151,9 @@ export function AppShell() {
 
   return (
     <div className="min-h-dvh bg-background lg:grid lg:grid-cols-[236px_minmax(0,1fr)]">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[236px] flex-col border-r bg-card lg:flex">
-        <div className="flex h-[76px] items-center border-b px-5">
-          <BrandMark />
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[236px] flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] text-[var(--sidebar-foreground)] shadow-[8px_0_32px_color-mix(in_oklab,var(--foreground)_7%,transparent)] lg:flex">
+        <div className="flex h-[76px] items-center border-b border-[var(--sidebar-border)] px-5">
+          <BrandMark inverted />
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5" aria-label="Primary navigation">
@@ -140,30 +166,38 @@ export function AppShell() {
                 end={item.end}
                 className={({ isActive }) =>
                   cn(
-                    "group flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors",
-                    "hover:bg-accent hover:text-foreground",
-                    isActive && "bg-brand/10 text-brand",
+                    "group relative flex h-11 items-center gap-3 rounded-md px-2.5 text-sm font-medium text-[var(--sidebar-muted)] transition-colors",
+                    "hover:bg-white/[0.06] hover:text-[var(--sidebar-foreground)]",
+                    isActive &&
+                      "bg-white/[0.09] text-[var(--sidebar-foreground)] shadow-[inset_3px_0_0_var(--brand)]",
                   )
                 }
               >
-                <Icon className="size-[18px] shrink-0" />
+                <span
+                  className={cn(
+                    "grid size-8 shrink-0 place-items-center rounded-md transition-colors group-hover:bg-white/[0.06]",
+                  )}
+                >
+                  <Icon className="size-[17px]" />
+                </span>
                 <span>{item.label}</span>
               </NavLink>
             )
           })}
         </nav>
 
-        <div className="border-t p-3">
-          <div className="flex items-center justify-between rounded-md bg-muted/60 p-1.5">
+        <div className="border-t border-[var(--sidebar-border)] p-3">
+          <div className="flex items-center justify-between rounded-md border border-white/[0.06] bg-white/[0.04] p-1.5">
             <div className="flex items-center">
-              <LanguageToggle />
-              <ThemeToggle />
+              <LanguageToggle inverted />
+              <ThemeToggle inverted />
             </div>
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
                   size="icon-sm"
+                  className="text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-foreground)]"
                   aria-label={t("nav.logout")}
                   onClick={handleLogout}
                 >
@@ -177,7 +211,7 @@ export function AppShell() {
       </aside>
 
       <div className="min-w-0 lg:col-start-2">
-        <header className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur lg:hidden">
+        <header className="sticky top-0 z-40 border-b bg-card/95 shadow-sm backdrop-blur lg:hidden">
           <div className="flex h-16 items-center gap-2 px-4">
             <BrandMark />
             <div className="ml-auto flex items-center gap-1">

@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDialog"
+import { cn } from "@/lib/utils"
 import { ReminderPreviewDialog } from "./ReminderPreviewDialog"
 import { SubscriptionDialog } from "./SubscriptionDialog"
 import { prefillFromView, type SubscriptionPrefill } from "./subscription-prefill"
@@ -70,7 +71,7 @@ function shouldPreferRenewOccurrence(current: CalendarOccurrence, candidate: Cal
 function MetaCell({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
-      <div className="text-[11px] font-medium tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
       <div className="truncate text-[13px]">{children}</div>
     </div>
   )
@@ -84,7 +85,7 @@ function CustomerContactRow({ email, wechat }: { email: string; wechat: string }
     <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
       {email ? (
         <span
-          className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+          className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border border-brand/10 bg-brand/[0.06] px-2 py-0.5 text-xs text-muted-foreground"
           title={`${t("subscriptionDialog.customerEmail")}: ${email}`}
         >
           <Mail className="size-3.5 shrink-0" aria-hidden="true" />
@@ -93,7 +94,7 @@ function CustomerContactRow({ email, wechat }: { email: string; wechat: string }
       ) : null}
       {wechat ? (
         <span
-          className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-xs text-muted-foreground"
+          className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border border-success/10 bg-success/[0.06] px-2 py-0.5 text-xs text-muted-foreground"
           title={`${t("subscriptionDialog.customerWechat")}: ${wechat}`}
         >
           <MessageCircle className="size-3.5 shrink-0" aria-hidden="true" />
@@ -122,12 +123,20 @@ function SubscriptionCard({
   const { t } = useTranslation()
   const subscription = view.subscription
   const archived = subscription.archived_at !== null
+  const accentClass = archived
+    ? "bg-muted-foreground/35"
+    : view.days_remaining <= 0
+      ? "bg-destructive"
+      : view.days_remaining <= 7
+        ? "bg-gold"
+        : "bg-brand"
 
   return (
     <Card
-      className="group gap-0 p-5 transition-colors duration-300 animate-fade-up hover:border-foreground/15"
+      className="group relative gap-0 overflow-hidden p-5 transition-[border-color,box-shadow] duration-300 animate-fade-up hover:border-foreground/20 hover:shadow-[0_14px_36px_color-mix(in_oklab,var(--foreground)_7%,transparent)]"
       style={{ animationDelay: `${Math.min(index * 40, 320)}ms` }}
     >
+      <span className={cn("absolute inset-y-0 left-0 w-1", accentClass)} />
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="truncate text-[15px] font-semibold">
@@ -153,15 +162,15 @@ function SubscriptionCard({
         <DueStatusBadge paid={false} daysRemaining={view.days_remaining} />
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-x-3 gap-y-2.5">
+      <div className="mt-4 grid grid-cols-3 gap-x-3 gap-y-2.5 rounded-md border border-foreground/[0.07] bg-muted/40 p-3">
         <MetaCell label={t("cards.perPerson")}>
           <span className="tabular-nums">¥{view.price_yuan}</span>
         </MetaCell>
         <MetaCell label={t("cards.cost")}>
-          <span className="tabular-nums">¥{view.cost_yuan}</span>
+          <span className="font-medium text-gold tabular-nums">¥{view.cost_yuan}</span>
         </MetaCell>
         <MetaCell label={subscription.is_resale ? t("cards.agencyFee") : t("cards.profit")}>
-          <span className="tabular-nums">
+          <span className="font-medium text-success tabular-nums">
             ¥{subscription.is_resale ? view.agency_fee_yuan : view.profit_yuan}
           </span>
         </MetaCell>
@@ -185,7 +194,7 @@ function SubscriptionCard({
         </p>
       ) : null}
 
-      <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t pt-3.5">
+      <div className="-mx-5 -mb-5 mt-4 flex flex-wrap items-center gap-1.5 border-t bg-muted/20 px-5 py-3.5">
         <Button variant="outline" size="sm" onClick={() => onEdit(view)}>
           <Pencil data-slot="icon" />
           {t("common.edit")}

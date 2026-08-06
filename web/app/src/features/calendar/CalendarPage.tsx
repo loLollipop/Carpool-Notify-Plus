@@ -45,10 +45,10 @@ function EventPill({
           }}
           onKeyDown={(event) => event.stopPropagation()}
           className={cn(
-            "block w-full truncate rounded-[4px] border-l-2 px-1.5 py-0.5 text-left text-[11px] leading-4",
+            "block w-full truncate rounded-[4px] border px-1.5 py-0.5 text-left text-[11px] font-medium leading-4 shadow-[0_1px_1px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
             occurrence.paid
-              ? "border-success/50 bg-success/10 text-muted-foreground line-through decoration-muted-foreground/40 dark:bg-success/15"
-              : "border-brand bg-brand/10 text-foreground dark:bg-brand/15",
+              ? "border-success/20 bg-success/10 text-muted-foreground line-through decoration-muted-foreground/40 dark:bg-success/15"
+              : "border-brand/20 bg-brand/10 text-foreground dark:bg-brand/15",
           )}
         >
           {label}
@@ -80,7 +80,7 @@ function MonthGrid({
 
   return (
     <section aria-label={calendar.month_label}>
-      <div className="grid grid-cols-7 border-b" aria-hidden="true">
+      <div className="grid grid-cols-7 border-b bg-muted/70" aria-hidden="true">
         {weekdays.map((weekday, index) => (
           <span
             key={weekday}
@@ -129,7 +129,7 @@ function MonthGrid({
                   className={cn(
                     "text-xs tabular-nums",
                     day.is_today
-                      ? "flex size-5 items-center justify-center rounded-full bg-brand font-semibold text-brand-foreground"
+                       ? "flex size-5 items-center justify-center rounded-full bg-brand font-semibold text-brand-foreground shadow-[0_0_0_3px_color-mix(in_oklab,var(--brand)_15%,transparent)]"
                       : day.in_month
                         ? day.is_weekend
                           ? "font-medium text-brand"
@@ -191,22 +191,24 @@ function CalendarWorkspace({
 
       <div className="grid items-start gap-4">
         <Card className="gap-0 overflow-hidden p-0 animate-fade-up">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--sidebar-border)] bg-[var(--sidebar)] px-4 py-3 text-[var(--sidebar-foreground)]">
             <div className="flex items-center gap-1">
               <Button
                 variant="ghost"
                 size="icon-sm"
+                className="text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-foreground)]"
                 aria-label={t("calendar.prevMonth")}
                 onClick={() => onNavigateMonth(calendar.previous_month)}
               >
                 <ChevronLeft />
               </Button>
-              <h2 className="display-numeral min-w-28 text-center text-base font-semibold">
+              <h2 className="display-numeral min-w-28 text-center text-base font-semibold text-[var(--sidebar-foreground)]">
                 {calendar.month_label}
               </h2>
               <Button
                 variant="ghost"
                 size="icon-sm"
+                className="text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-foreground)]"
                 aria-label={t("calendar.nextMonth")}
                 onClick={() => onNavigateMonth(calendar.next_month)}
               >
@@ -214,7 +216,7 @@ function CalendarWorkspace({
               </Button>
             </div>
             <div className="flex items-center gap-3">
-              <div className="hidden items-center gap-3 text-xs text-muted-foreground sm:flex">
+              <div className="hidden items-center gap-3 text-xs text-[var(--sidebar-muted)] sm:flex">
                 <span className="flex items-center gap-1.5">
                   <i className="size-2 rounded-full bg-brand" />
                   {t("calendar.legendPending")}
@@ -227,6 +229,7 @@ function CalendarWorkspace({
               <Button
                 variant="outline"
                 size="sm"
+                className="border-white/15 bg-white/[0.06] text-[var(--sidebar-foreground)] hover:bg-white/10 hover:text-white"
                 onClick={() => onNavigateMonth(calendar.current_month)}
               >
                 {t("calendar.today")}

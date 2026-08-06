@@ -15,6 +15,7 @@ function KpiCard({
   onClick,
   delay = 0,
   hintTone,
+  tone,
 }: {
   label: string
   value: string | number
@@ -23,16 +24,36 @@ function KpiCard({
   onClick?: () => void
   delay?: number
   hintTone?: "success"
+  tone: "brand" | "gold" | "coral" | "success"
 }) {
   const Component = onClick ? "button" : "article"
+  const toneClass = {
+    brand: "bg-brand/10 text-brand",
+    gold: "bg-gold/12 text-gold",
+    coral: "bg-coral/10 text-coral",
+    success: "bg-success/10 text-success",
+  }[tone]
+  const toneColor = {
+    brand: "var(--brand)",
+    gold: "var(--gold)",
+    coral: "var(--coral)",
+    success: "var(--success)",
+  }[tone]
   return (
     <Card
       className={cn(
-        "group relative gap-0 overflow-hidden p-0 transition-colors duration-300 animate-fade-up",
-        onClick && "cursor-pointer hover:border-foreground/15",
+        "group relative gap-0 overflow-hidden p-0 transition-[border-color,box-shadow] duration-300 animate-fade-up",
+        onClick &&
+          "cursor-pointer hover:border-foreground/20 hover:shadow-[0_14px_36px_color-mix(in_oklab,var(--foreground)_7%,transparent)]",
       )}
-      style={{ animationDelay: `${delay}ms` }}
+      style={
+        {
+          animationDelay: `${delay}ms`,
+          "--metric-color": toneColor,
+        } as React.CSSProperties
+      }
     >
+      <span className="metric-rule" />
       <Component
         type={onClick ? "button" : undefined}
         onClick={onClick}
@@ -40,11 +61,11 @@ function KpiCard({
       >
         <div className="flex w-full items-center justify-between text-xs font-medium text-muted-foreground">
           <span>{label}</span>
-          <span className="grid size-8 place-items-center rounded-lg bg-brand/10 text-brand transition-transform duration-300 group-hover:scale-110">
+          <span className={cn("grid size-9 place-items-center rounded-md border border-current/10", toneClass)}>
             {icon}
           </span>
         </div>
-        <div className="display-numeral mt-4 text-[30px] leading-none">
+        <div className="display-numeral mt-5 text-[30px] leading-none">
           <NumberTicker value={value} />
         </div>
         <div
@@ -93,6 +114,7 @@ export function KpiSection({
         value={dashboard.subscription_count}
         hint={t("dashboard.subscriptionsHint", { accounts: dashboard.accounts?.length ?? 0 })}
         icon={<Layers className="size-4" />}
+        tone="brand"
         onClick={onFilterAll}
         delay={0}
       />
@@ -101,6 +123,7 @@ export function KpiSection({
         value={pendingCount}
         hint={t("dashboard.pendingHint", { active: dashboard.active_count })}
         icon={<CircleDot className="size-4" />}
+        tone="gold"
         onClick={onFilterPending}
         delay={60}
       />
@@ -109,6 +132,7 @@ export function KpiSection({
         value={dashboard.archived_count}
         hint={t("dashboard.archivedHint")}
         icon={<LogOut className="size-4" />}
+        tone="coral"
         delay={120}
       />
       <KpiCard
@@ -117,6 +141,7 @@ export function KpiSection({
         hint={t("dashboard.notifyHint", { failed: dashboard.notify_failed_30d })}
         hintTone={dashboard.notify_failed_30d === 0 ? "success" : undefined}
         icon={<BellRing className="size-4" />}
+        tone="success"
         delay={180}
       />
     </section>

@@ -113,7 +113,7 @@ function ViewItem({
 }) {
   return (
     <div className="min-w-0">
-      <div className="text-[11px] font-medium tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-[11px] font-medium text-muted-foreground">{label}</div>
       <div className={mono ? "truncate font-mono text-[13px]" : "truncate text-[13px]"}>
         {children}
       </div>
@@ -208,7 +208,7 @@ export function SeatSubscriptionDialog({
             </div>
 
             <div>
-              <div className="text-[11px] font-medium tracking-wide text-muted-foreground">
+              <div className="text-[11px] font-medium text-muted-foreground">
                 {t("bills.viewRemark")}
               </div>
               <p className="mt-0.5 text-[13px] leading-relaxed whitespace-pre-wrap">
@@ -217,7 +217,7 @@ export function SeatSubscriptionDialog({
             </div>
 
             <div>
-              <div className="text-[11px] font-medium tracking-wide text-muted-foreground">
+              <div className="text-[11px] font-medium text-muted-foreground">
                 {t("bills.viewTradeUrl")}
               </div>
               {info.tradeUrl ? (

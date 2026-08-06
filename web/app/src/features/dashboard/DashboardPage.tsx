@@ -70,7 +70,7 @@ function ChartCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold">{title}</h2>
+          <h2 className="panel-heading text-sm font-semibold">{title}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>
         </div>
         {action}
@@ -111,7 +111,7 @@ function ChartTooltip({
 
 // ---- KPI ------------------------------------------------------------------------
 
-type KpiTone = "brand" | "success" | "violet"
+type KpiTone = "brand" | "success" | "violet" | "gold"
 
 function KpiCard({
   label,
@@ -132,24 +132,37 @@ function KpiCard({
     brand: "bg-brand/10 text-brand",
     success: "bg-success/10 text-success",
     violet: "bg-violet/10 text-violet",
+    gold: "bg-gold/12 text-gold",
+  }
+  const toneColor: Record<KpiTone, string> = {
+    brand: "var(--brand)",
+    success: "var(--success)",
+    violet: "var(--violet)",
+    gold: "var(--gold)",
   }
   return (
     <Card
-      className="group gap-0 p-5 transition-colors duration-300 animate-fade-up hover:border-foreground/15"
-      style={{ animationDelay: `${delay}ms` }}
+      className="group relative gap-0 overflow-hidden p-5 transition-[border-color,box-shadow] duration-300 animate-fade-up hover:border-foreground/20 hover:shadow-[0_14px_36px_color-mix(in_oklab,var(--foreground)_7%,transparent)]"
+      style={
+        {
+          animationDelay: `${delay}ms`,
+          "--metric-color": toneColor[tone],
+        } as React.CSSProperties
+      }
     >
+      <span className="metric-rule" />
       <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
         <span>{label}</span>
         <span
           className={cn(
-            "grid size-8 place-items-center rounded-lg transition-transform duration-300 group-hover:scale-110",
+            "grid size-9 place-items-center rounded-md border border-current/10 transition-colors duration-300",
             toneClass[tone],
           )}
         >
           {icon}
         </span>
       </div>
-      <div className="display-numeral mt-4 text-[28px] leading-none">
+      <div className="display-numeral mt-5 text-[29px] leading-none">
         <NumberTicker value={value} />
       </div>
       <div className="mt-2.5 truncate text-xs text-muted-foreground">{hint}</div>
@@ -204,7 +217,7 @@ function KpiRow({
           active: dashboard.active_count,
         })}
         icon={<CreditCard className="size-4" />}
-        tone="violet"
+        tone="gold"
         delay={140}
       />
       <KpiCard
@@ -215,7 +228,7 @@ function KpiRow({
           failed: dashboard.notify_failed_30d,
         })}
         icon={<BellRing className="size-4" />}
-        tone="brand"
+        tone="violet"
         delay={210}
       />
     </section>
@@ -245,13 +258,7 @@ function RevenueTrendCard({ summary, className, delay }: { summary: BillsSummary
         <div className="h-[260px]">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-              <defs>
-                <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.2} />
-                  <stop offset="100%" stopColor="var(--brand)" stopOpacity={0.02} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 4" />
+              <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="2 6" />
               <XAxis
                 dataKey="label"
                 axisLine={false}
@@ -269,7 +276,8 @@ function RevenueTrendCard({ summary, className, delay }: { summary: BillsSummary
                 dataKey="cents"
                 stroke="var(--brand)"
                 strokeWidth={2}
-                fill="url(#trendFill)"
+                fill="var(--brand)"
+                fillOpacity={0.08}
                 dot={false}
                 activeDot={{ r: 4, strokeWidth: 0 }}
                 {...CHART_ANIMATION}
@@ -501,7 +509,7 @@ function OperationsHealthCard({
     <Card className="h-full gap-4 p-5 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
       <div className="flex items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold">{t("dash.health.title")}</h2>
+          <h2 className="panel-heading text-sm font-semibold">{t("dash.health.title")}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">{t("dash.health.desc")}</p>
         </div>
         <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand">
@@ -524,7 +532,12 @@ function OperationsHealthCard({
           {items.map((item) => (
             <div
               key={item.key}
-              className="flex items-start gap-3 rounded-lg border bg-muted/25 px-3 py-2.5"
+              className={cn(
+                "flex items-start gap-3 rounded-md border border-l-2 bg-muted/25 px-3 py-2.5",
+                item.tone === "critical" && "border-l-destructive",
+                item.tone === "warning" && "border-l-gold",
+                item.tone === "success" && "border-l-success",
+              )}
             >
               <span
                 className={cn(

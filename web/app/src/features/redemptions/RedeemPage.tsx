@@ -8,6 +8,7 @@ import {
   Clock3,
   Copy,
   LoaderCircle,
+  Mail,
   Megaphone,
   MessageCircle,
   Moon,
@@ -234,7 +235,8 @@ function SupportWechatFloating({ settings }: { settings: RedeemPageSettings }) {
 
   return (
     <>
-      <aside className="fixed right-6 bottom-6 z-40 hidden w-[320px] rounded-lg border bg-card/95 p-4 shadow-xl shadow-black/10 backdrop-blur lg:block dark:shadow-black/30">
+      <aside className="fixed right-6 bottom-6 z-40 hidden w-[320px] overflow-hidden rounded-lg border border-success/20 bg-card/95 p-4 shadow-xl shadow-black/10 backdrop-blur lg:block dark:shadow-black/30">
+        <span className="absolute inset-x-0 top-0 h-1 bg-success" />
         <div className="mb-3 flex items-center gap-2">
           <div className="grid size-9 place-items-center rounded-lg bg-success/10 text-success">
             <MessageCircle className="size-5" />
@@ -251,11 +253,14 @@ function SupportWechatFloating({ settings }: { settings: RedeemPageSettings }) {
         <DialogTrigger asChild>
           <Button
             type="button"
-            variant="brand"
-            className="fixed right-4 bottom-4 z-40 h-12 rounded-full px-4 shadow-lg lg:hidden"
+            variant="outline"
+            size="sm"
+            aria-label="客服微信"
+            title="客服微信"
+            className="h-8 rounded-full bg-card/70 px-3 shadow-sm backdrop-blur hover:bg-card lg:hidden"
           >
             <MessageCircle data-slot="icon" />
-            客服微信
+            客服
           </Button>
         </DialogTrigger>
         <DialogContent className="max-w-[390px]">
@@ -370,42 +375,63 @@ export function RedeemPage() {
   const activeContact = CONTACT_OPTIONS.find((option) => option.value === contactType)
 
   return (
-    <main className="min-h-dvh bg-[#f6f7f9] px-4 py-6 pb-24 text-foreground dark:bg-background sm:px-6 lg:pb-6">
+    <main className="relative min-h-dvh overflow-hidden bg-background px-4 py-5 pb-24 text-foreground sm:px-6 lg:pb-6">
+      <span className="absolute inset-x-0 top-0 h-1 bg-[var(--sidebar)]" />
       <RedeemSafetyNoticeDialog
         open={noticeOpen}
         onOpenChange={setNoticeOpen}
         settings={redeemSettings}
       />
-      <SupportWechatFloating settings={redeemSettings} />
 
-      <div className="mx-auto flex min-h-[calc(100dvh-3rem)] w-full max-w-[636px] flex-col justify-center">
-        <div className="mb-8 flex justify-end gap-2">
+      <div className="relative mx-auto flex min-h-[calc(100dvh-2.5rem)] w-full max-w-[700px] flex-col justify-center">
+        <div className="mb-5 flex justify-end gap-2">
           <RedeemAnnouncementButton onClick={() => setNoticeOpen(true)} />
+          <SupportWechatFloating settings={redeemSettings} />
           <RedeemThemeToggle />
         </div>
 
-        <section className="text-center animate-fade-up">
-          <div className="inline-flex items-center gap-3 text-xs font-semibold uppercase tracking-[0.32em] text-muted-foreground">
-            <span className="size-2 rounded-full bg-brand" />
-            Team Access
-          </div>
-
-          <div className="mt-6 flex items-center justify-center gap-4">
-            <div className="grid size-12 shrink-0 place-items-center rounded-lg bg-brand text-brand-foreground shadow-sm shadow-brand/25">
-              <Car className="size-7" />
+        <section className="flex items-start gap-4 animate-fade-up">
+          <img
+            src="/logo.png"
+            alt=""
+            aria-hidden="true"
+            width={48}
+            height={48}
+            draggable={false}
+            className="size-12 shrink-0"
+          />
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-xs font-semibold text-brand">
+              <Car className="size-3.5" />
+              Team Access
             </div>
-            <h1 className="text-4xl font-semibold tracking-normal sm:text-5xl">车位兑换</h1>
-          </div>
-
-          <p className="mx-auto mt-5 max-w-[560px] text-lg leading-8 text-muted-foreground">
+            <h1 className="mt-1 text-3xl font-semibold sm:text-4xl">车位兑换</h1>
+            <p className="mt-2 max-w-[580px] text-sm leading-6 text-muted-foreground sm:text-base">
             填写兑换码与账号信息，提交后会同步到后台处理，邀请会发送到你的 GPT 邮箱。
-          </p>
+            </p>
+          </div>
         </section>
 
-        <Card className="mt-10 overflow-hidden rounded-lg border bg-card p-0 shadow-sm animate-fade-up [animation-delay:80ms]">
+        <Card className="mt-6 overflow-hidden rounded-lg border bg-card p-0 shadow-[0_18px_50px_color-mix(in_oklab,var(--foreground)_8%,transparent)] animate-fade-up [animation-delay:80ms]">
+          <div className="flex items-center justify-between border-b border-[var(--sidebar-border)] bg-[var(--sidebar)] px-5 py-3 text-[var(--sidebar-foreground)] sm:px-7">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <TicketCheck className="size-4 text-brand" />
+              {trackingToken ? "申请进度" : "兑换信息"}
+            </div>
+            <span className="font-mono text-[11px] text-[var(--sidebar-muted)]">CARPOOL / TEAM</span>
+          </div>
           {trackingToken ? (
             <div className="grid min-h-[360px] gap-6 p-6 sm:p-8">
-              <div className="mx-auto grid size-16 place-items-center rounded-lg bg-muted">
+              <div
+                className={cn(
+                  "mx-auto grid size-16 place-items-center rounded-lg border",
+                  statusLoadFailed
+                    ? "border-muted bg-muted"
+                    : invited
+                      ? "border-success/20 bg-success/10"
+                      : "border-brand/20 bg-brand/10",
+                )}
+              >
                 {statusLoadFailed ? (
                   <TicketCheck className="size-8 text-muted-foreground" />
                 ) : invited ? (
@@ -416,10 +442,10 @@ export function RedeemPage() {
               </div>
 
               <div className="text-center">
-                <p className="text-xs font-semibold uppercase tracking-[0.28em] text-muted-foreground">
+                <p className="text-xs font-semibold uppercase text-muted-foreground">
                   {statusLoadFailed ? "Application" : invited ? "Invitation Sent" : "Processing"}
                 </p>
-                <h2 className="mt-3 text-2xl font-semibold tracking-normal sm:text-3xl">
+                <h2 className="mt-3 text-2xl font-semibold sm:text-3xl">
                   {statusLoadFailed
                     ? "没有找到这条申请，请重新提交"
                     : invited
@@ -436,7 +462,7 @@ export function RedeemPage() {
               </div>
 
               {!statusLoadFailed ? (
-                <div className="grid gap-3 rounded-lg border bg-muted/30 p-4 text-sm">
+                <div className="grid gap-3 rounded-lg border border-brand/10 bg-brand/[0.035] p-4 text-sm">
                   <div className="flex items-center justify-between gap-4">
                     <span className="text-muted-foreground">GPT 邮箱</span>
                     <span className="min-w-0 truncate font-mono">
@@ -475,7 +501,7 @@ export function RedeemPage() {
                 onSubmit={form.handleSubmit((values) => submitMutation.mutate(values))}
                 className="grid gap-5 p-6 sm:p-8"
               >
-                <p className="text-lg leading-8 text-muted-foreground">
+                <p className="border-b pb-5 text-base leading-7 text-muted-foreground">
                   请填写用于加入 Team 的 GPT 邮箱，以及方便联系的微信或 QQ。
                 </p>
 
@@ -486,12 +512,15 @@ export function RedeemPage() {
                     <FormItem>
                       <FormLabel className="text-base">兑换码</FormLabel>
                       <FormControl>
-                        <Input
-                          autoComplete="off"
-                          placeholder="CPN-XXXX-XXXX-XXXX"
-                          className="h-14 rounded-lg px-5 text-base"
-                          {...field}
-                        />
+                        <div className="relative">
+                          <TicketCheck className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-brand" />
+                          <Input
+                            autoComplete="off"
+                            placeholder="CPN-XXXX-XXXX-XXXX"
+                            className="h-13 rounded-lg pr-5 pl-12 text-base"
+                            {...field}
+                          />
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -505,13 +534,16 @@ export function RedeemPage() {
                     <FormItem>
                       <FormLabel className="text-base">GPT 邮箱</FormLabel>
                       <FormControl>
-                        <Input
-                          type="email"
-                          autoComplete="email"
-                          placeholder="name@example.com"
-                          className="h-14 rounded-lg px-5 text-base"
-                          {...field}
-                        />
+                        <div className="relative">
+                          <Mail className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-cyan" />
+                          <Input
+                            type="email"
+                            autoComplete="email"
+                            placeholder="name@example.com"
+                            className="h-13 rounded-lg pr-5 pl-12 text-base"
+                            {...field}
+                          />
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -534,7 +566,7 @@ export function RedeemPage() {
                                 type="button"
                                 aria-pressed={selected}
                                 className={cn(
-                                  "flex h-14 items-center justify-center gap-2 rounded-lg border bg-muted/35 text-base font-semibold transition-all",
+                                  "flex h-13 items-center justify-center gap-2 rounded-lg border bg-muted/35 text-base font-semibold transition-all",
                                   "hover:border-brand/50 hover:bg-brand/5 focus-visible:border-ring focus-visible:ring-ring/40 focus-visible:ring-[3px] focus-visible:outline-none",
                                   selected &&
                                     "border-brand bg-brand/10 text-foreground shadow-sm shadow-brand/10",
@@ -560,12 +592,15 @@ export function RedeemPage() {
                     <FormItem>
                       <FormLabel className="text-base">{contactLabel(contactType)}号</FormLabel>
                       <FormControl>
-                        <Input
-                          autoComplete="off"
-                          placeholder={activeContact?.placeholder ?? "方便核对订单"}
-                          className="h-14 rounded-lg px-5 text-base"
-                          {...field}
-                        />
+                        <div className="relative">
+                          <MessageCircle className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-success" />
+                          <Input
+                            autoComplete="off"
+                            placeholder={activeContact?.placeholder ?? "方便核对订单"}
+                            className="h-13 rounded-lg pr-5 pl-12 text-base"
+                            {...field}
+                          />
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -574,7 +609,7 @@ export function RedeemPage() {
 
                 <Button
                   type="submit"
-                  className="mt-2 h-14 text-base"
+                  className="mt-1 h-13 text-base"
                   disabled={submitMutation.isPending}
                 >
                   {submitMutation.isPending ? (
