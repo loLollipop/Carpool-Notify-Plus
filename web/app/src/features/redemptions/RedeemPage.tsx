@@ -150,7 +150,7 @@ function RedeemThemeToggle() {
           variant="ghost"
           size="icon-sm"
           aria-label="切换深浅色"
-          className="rounded-full bg-card/70 shadow-sm backdrop-blur hover:bg-card"
+          className="border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
           onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
         >
           <Sun className="size-4 scale-100 rotate-0 transition-all duration-300 dark:scale-0 dark:-rotate-90" />
@@ -171,7 +171,7 @@ function RedeemAnnouncementButton({ onClick }: { onClick: () => void }) {
           variant="outline"
           size="sm"
           aria-label="查看公告"
-          className="h-8 rounded-full bg-card/70 px-3 shadow-sm backdrop-blur hover:bg-card"
+          className="h-8 bg-card px-3"
           onClick={onClick}
         >
           <Megaphone data-slot="icon" className="size-4" />
@@ -194,18 +194,18 @@ function WechatQrBlock({
   const qrDataURL = settings.support_qr_data_url.trim()
 
   return (
-    <div className="grid gap-3">
+    <div className="grid gap-4">
       {qrDataURL ? (
-        <div className="rounded-lg border bg-white p-3">
+        <div className="mx-auto w-full max-w-[260px] bg-white p-2">
           <img
             src={qrDataURL}
             alt="客服微信二维码"
-            className={cn("aspect-square w-full rounded-md object-contain", compact ? "max-h-80" : "")}
+            className={cn("aspect-square w-full object-contain", compact ? "max-h-80" : "")}
           />
         </div>
       ) : null}
       {wechatId ? (
-        <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3 border-t pt-4">
           <div className="min-w-0">
             <p className="text-xs font-medium text-muted-foreground">
               {settings.support_contact_label || "微信号"}
@@ -228,50 +228,50 @@ function WechatQrBlock({
   )
 }
 
-function SupportWechatFloating({ settings }: { settings: RedeemPageSettings }) {
+function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
   if (!hasSupportContact(settings)) {
     return null
   }
 
   return (
-    <>
-      <aside className="fixed right-6 bottom-6 z-40 hidden w-[320px] overflow-hidden rounded-lg border border-success/20 bg-card/95 p-4 shadow-xl shadow-black/10 backdrop-blur lg:block dark:shadow-black/30">
-        <span className="absolute inset-x-0 top-0 h-1 bg-success" />
-        <div className="mb-3 flex items-center gap-2">
-          <div className="grid size-9 place-items-center rounded-lg bg-success/10 text-success">
-            <MessageCircle className="size-5" />
-          </div>
-          <div className="min-w-0">
-            <p className="text-base font-semibold">{settings.support_title}</p>
-            <p className="truncate text-sm text-muted-foreground">{settings.support_description}</p>
-          </div>
+    <aside className="hidden overflow-hidden rounded-lg border bg-card p-5 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_4%,transparent)] lg:block lg:sticky lg:top-6">
+      <div className="mb-5 flex items-center gap-3 border-b pb-4">
+        <div className="grid size-9 place-items-center rounded-md bg-success/10 text-success">
+          <MessageCircle className="size-5" />
         </div>
-        <WechatQrBlock settings={settings} />
-      </aside>
+        <div className="min-w-0">
+          <p className="text-base font-semibold">{settings.support_title}</p>
+          <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
+            {settings.support_description}
+          </p>
+        </div>
+      </div>
+      <WechatQrBlock settings={settings} />
+    </aside>
+  )
+}
 
-      <Dialog>
-        <DialogTrigger asChild>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            aria-label="客服微信"
-            title="客服微信"
-            className="h-8 rounded-full bg-card/70 px-3 shadow-sm backdrop-blur hover:bg-card lg:hidden"
-          >
-            <MessageCircle data-slot="icon" />
-            客服
-          </Button>
-        </DialogTrigger>
-        <DialogContent className="max-w-[390px]">
-          <DialogHeader>
-            <DialogTitle>{settings.support_title}</DialogTitle>
-            <DialogDescription>{settings.support_description}</DialogDescription>
-          </DialogHeader>
-          <WechatQrBlock settings={settings} compact />
-        </DialogContent>
-      </Dialog>
-    </>
+function SupportWechatDialogButton({ settings }: { settings: RedeemPageSettings }) {
+  if (!hasSupportContact(settings)) {
+    return null
+  }
+
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button type="button" variant="outline" size="sm" aria-label="客服微信" className="h-8 lg:hidden">
+          <MessageCircle data-slot="icon" />
+          客服
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-[390px]">
+        <DialogHeader>
+          <DialogTitle>{settings.support_title}</DialogTitle>
+          <DialogDescription>{settings.support_description}</DialogDescription>
+        </DialogHeader>
+        <WechatQrBlock settings={settings} compact />
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -297,10 +297,10 @@ function RedeemSafetyNoticeDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-3 text-sm leading-6">
+        <div className="divide-y overflow-hidden rounded-lg border text-sm leading-6">
           {settings.announcement_items.map((item, index) => (
-            <div key={item} className="flex gap-3 rounded-lg border bg-muted/30 p-3">
-              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-background text-xs font-semibold text-muted-foreground">
+            <div key={item} className="flex gap-3 p-4">
+              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
                 {index + 1}
               </span>
               <p>{item}</p>
@@ -373,52 +373,63 @@ export function RedeemPage() {
   const invited = status === "invited"
   const statusLoadFailed = trackingToken !== "" && statusQuery.isError
   const activeContact = CONTACT_OPTIONS.find((option) => option.value === contactType)
+  const supportConfigured = hasSupportContact(redeemSettings)
+  const supportColumnVisible = supportConfigured || settingsQuery.isPending
 
   return (
-    <main className="relative min-h-dvh overflow-hidden bg-background px-4 py-5 pb-24 text-foreground sm:px-6 lg:pb-6">
-      <span className="absolute inset-x-0 top-0 h-1 bg-[var(--sidebar)]" />
+    <main className="min-h-dvh bg-background text-foreground">
       <RedeemSafetyNoticeDialog
         open={noticeOpen}
         onOpenChange={setNoticeOpen}
         settings={redeemSettings}
       />
 
-      <div className="relative mx-auto flex min-h-[calc(100dvh-2.5rem)] w-full max-w-[700px] flex-col justify-center">
-        <div className="mb-5 flex justify-end gap-2">
-          <RedeemAnnouncementButton onClick={() => setNoticeOpen(true)} />
-          <SupportWechatFloating settings={redeemSettings} />
-          <RedeemThemeToggle />
-        </div>
-
-        <section className="flex items-start gap-4 animate-fade-up">
-          <img
-            src="/logo.png"
-            alt=""
-            aria-hidden="true"
-            width={48}
-            height={48}
-            draggable={false}
-            className="size-12 shrink-0"
-          />
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 text-xs font-semibold text-brand">
-              <Car className="size-3.5" />
-              Team Access
+      <header className="border-b bg-card">
+        <div className="mx-auto flex h-16 w-full max-w-[1100px] items-center px-4 sm:px-6">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand text-brand-foreground">
+              <Car className="size-[18px]" />
+            </span>
+            <div className="min-w-0 leading-none">
+              <p className="truncate text-sm font-semibold">Carpool Notify</p>
+              <p className="mt-1 hidden text-[11px] text-muted-foreground sm:block">Team Access</p>
             </div>
-            <h1 className="mt-1 text-3xl font-semibold sm:text-4xl">车位兑换</h1>
-            <p className="mt-2 max-w-[580px] text-sm leading-6 text-muted-foreground sm:text-base">
-            填写兑换码与账号信息，提交后会同步到后台处理，邀请会发送到你的 GPT 邮箱。
-            </p>
           </div>
+          <div className="ml-auto flex items-center gap-2">
+            <RedeemAnnouncementButton onClick={() => setNoticeOpen(true)} />
+            <SupportWechatDialogButton settings={redeemSettings} />
+            <RedeemThemeToggle />
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto w-full max-w-[1100px] px-4 py-8 sm:px-6">
+        <section className="max-w-[720px] animate-fade-up">
+          <div className="flex items-center gap-2 text-xs font-semibold text-brand">
+            <TicketCheck className="size-3.5" />
+            ChatGPT Team
+          </div>
+          <h1 className="mt-2 text-3xl font-semibold sm:text-[38px]">车位兑换</h1>
+          <p className="mt-3 max-w-[620px] text-sm leading-6 text-muted-foreground sm:text-base">
+            填写兑换码与账号信息，提交后会同步到后台处理，邀请会发送到你的 GPT 邮箱。
+          </p>
         </section>
 
-        <Card className="mt-6 overflow-hidden rounded-lg border bg-card p-0 shadow-[0_18px_50px_color-mix(in_oklab,var(--foreground)_8%,transparent)] animate-fade-up [animation-delay:80ms]">
-          <div className="flex items-center justify-between border-b border-[var(--sidebar-border)] bg-[var(--sidebar)] px-5 py-3 text-[var(--sidebar-foreground)] sm:px-7">
+        <div
+          className={cn(
+            "mt-7 grid items-start gap-6",
+            supportColumnVisible ? "lg:grid-cols-[minmax(0,1fr)_320px]" : "max-w-[720px]",
+          )}
+        >
+        <Card className="overflow-hidden p-0 animate-fade-up [animation-delay:80ms]">
+          <div className="flex items-center justify-between border-b bg-muted/35 px-5 py-3 sm:px-7">
             <div className="flex items-center gap-2 text-sm font-semibold">
-              <TicketCheck className="size-4 text-brand" />
+              <span className="grid size-7 place-items-center rounded-md bg-brand/10 text-brand">
+                <TicketCheck className="size-4" />
+              </span>
               {trackingToken ? "申请进度" : "兑换信息"}
             </div>
-            <span className="font-mono text-[11px] text-[var(--sidebar-muted)]">CARPOOL / TEAM</span>
+            <span className="font-mono text-[11px] text-muted-foreground">CARPOOL / TEAM</span>
           </div>
           {trackingToken ? (
             <div className="grid min-h-[360px] gap-6 p-6 sm:p-8">
@@ -462,21 +473,21 @@ export function RedeemPage() {
               </div>
 
               {!statusLoadFailed ? (
-                <div className="grid gap-3 rounded-lg border border-brand/10 bg-brand/[0.035] p-4 text-sm">
-                  <div className="flex items-center justify-between gap-4">
+                <div className="divide-y border-y text-sm">
+                  <div className="flex items-center justify-between gap-4 py-3">
                     <span className="text-muted-foreground">GPT 邮箱</span>
                     <span className="min-w-0 truncate font-mono">
                       {statusQuery.data?.customer_email || "加载中"}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center justify-between gap-4 py-3">
                     <span className="text-muted-foreground">提交时间</span>
                     <span className="tabular-nums">
                       {statusQuery.data?.created_at_label || "加载中"}
                     </span>
                   </div>
                   {invited ? (
-                    <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center justify-between gap-4 py-3">
                       <span className="text-muted-foreground">邀请时间</span>
                       <span className="tabular-nums">
                         {statusQuery.data?.invited_at_label || "刚刚"}
@@ -501,7 +512,7 @@ export function RedeemPage() {
                 onSubmit={form.handleSubmit((values) => submitMutation.mutate(values))}
                 className="grid gap-5 p-6 sm:p-8"
               >
-                <p className="border-b pb-5 text-base leading-7 text-muted-foreground">
+                <p className="border-b pb-5 text-sm leading-6 text-muted-foreground sm:text-base">
                   请填写用于加入 Team 的 GPT 邮箱，以及方便联系的微信或 QQ。
                 </p>
 
@@ -535,7 +546,7 @@ export function RedeemPage() {
                       <FormLabel className="text-base">GPT 邮箱</FormLabel>
                       <FormControl>
                         <div className="relative">
-                          <Mail className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-cyan" />
+                          <Mail className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-brand" />
                           <Input
                             type="email"
                             autoComplete="email"
@@ -566,10 +577,10 @@ export function RedeemPage() {
                                 type="button"
                                 aria-pressed={selected}
                                 className={cn(
-                                  "flex h-13 items-center justify-center gap-2 rounded-lg border bg-muted/35 text-base font-semibold transition-all",
-                                  "hover:border-brand/50 hover:bg-brand/5 focus-visible:border-ring focus-visible:ring-ring/40 focus-visible:ring-[3px] focus-visible:outline-none",
+                                  "flex h-13 items-center justify-center gap-2 rounded-lg border bg-card text-base font-semibold transition-[border-color,background-color,color,box-shadow]",
+                                  "hover:border-brand/50 hover:bg-accent/50 focus-visible:border-ring focus-visible:ring-ring/40 focus-visible:ring-[3px] focus-visible:outline-none",
                                   selected &&
-                                    "border-brand bg-brand/10 text-foreground shadow-sm shadow-brand/10",
+                                    "border-brand bg-brand/10 text-foreground",
                                 )}
                                 onClick={() => field.onChange(option.value)}
                               >
@@ -628,8 +639,14 @@ export function RedeemPage() {
             </Form>
           )}
         </Card>
+        {settingsQuery.isPending ? (
+          <aside className="hidden h-[430px] animate-pulse rounded-lg border bg-muted/45 lg:block" />
+        ) : (
+          <SupportWechatPanel settings={redeemSettings} />
+        )}
+        </div>
 
-        <p className="mx-auto mt-7 max-w-md text-center text-sm leading-7 text-muted-foreground">
+        <p className="mt-6 max-w-[720px] text-center text-xs leading-6 text-muted-foreground sm:text-sm">
           兑换码仅限本人使用，提交后请保持本页打开等待邀请状态更新。
         </p>
       </div>

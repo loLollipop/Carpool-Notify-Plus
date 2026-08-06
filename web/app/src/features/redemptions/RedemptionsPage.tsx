@@ -209,14 +209,14 @@ function RedemptionCodeManager() {
   return (
     <>
     <Card className="gap-0 overflow-hidden p-0">
-      <div className="flex flex-col gap-4 border-b border-[var(--sidebar-border)] bg-[var(--sidebar)] p-5 text-[var(--sidebar-foreground)] lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex flex-col gap-4 border-b bg-muted/35 p-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <div className="flex items-center gap-2 text-xs font-medium text-[var(--sidebar-muted)]">
+          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
             <KeyRound className="size-3.5" />
             兑换码管理
           </div>
           <h2 className="mt-2 text-lg font-semibold">生成客户可用的一次性兑换码</h2>
-          <p className="mt-1 text-sm text-[var(--sidebar-muted)]">
+          <p className="mt-1 text-sm text-muted-foreground">
             客户提交的兑换码必须和这里的可用码一致，提交成功后该码会自动标记为已使用。
           </p>
         </div>
@@ -229,13 +229,13 @@ function RedemptionCodeManager() {
             onChange={(event) => setCount(event.target.value)}
             aria-label="生成数量"
             aria-invalid={count.trim() !== "" && !countValid}
-            className="h-9 text-foreground"
+          className="h-9"
           />
           <Input
             value={note}
             onChange={(event) => setNote(event.target.value)}
             placeholder="备注，比如客户来源 / 订单号"
-            className="h-9 text-foreground"
+            className="h-9"
           />
           <Button disabled={!countValid || generateMutation.isPending} onClick={() => generateMutation.mutate()}>
             <Plus data-slot="icon" />
@@ -246,21 +246,18 @@ function RedemptionCodeManager() {
 
       <div className="grid gap-3 border-b bg-muted/25 p-5 sm:grid-cols-3">
         <div className="relative overflow-hidden rounded-md border bg-card p-4">
-          <span className="absolute inset-x-0 top-0 h-0.5 bg-success" />
           <div className="text-xs text-muted-foreground">可用兑换码</div>
           <div className="mt-2 text-2xl font-semibold text-success tabular-nums">
             {codesQuery.data?.available_count ?? 0}
           </div>
         </div>
         <div className="relative overflow-hidden rounded-md border bg-card p-4">
-          <span className="absolute inset-x-0 top-0 h-0.5 bg-brand" />
           <div className="text-xs text-muted-foreground">已使用</div>
           <div className="mt-2 text-2xl font-semibold text-brand tabular-nums">
             {codesQuery.data?.used_count ?? 0}
           </div>
         </div>
         <div className="relative overflow-hidden rounded-md border bg-card p-4">
-          <span className="absolute inset-x-0 top-0 h-0.5 bg-coral" />
           <div className="text-xs text-muted-foreground">已停用</div>
           <div className="mt-2 text-2xl font-semibold text-coral tabular-nums">
             {codesQuery.data?.disabled_count ?? 0}
@@ -771,8 +768,8 @@ export function RedemptionsPage() {
         onValueChange={(value) => setSection(value as RedemptionSection)}
         className="gap-5"
       >
-        <TabsList className="h-11 w-full justify-start border-[var(--sidebar-border)] bg-[var(--sidebar)] p-1 shadow-sm sm:w-fit">
-          <TabsTrigger value="applications" className="h-9 px-4 text-sm text-[var(--sidebar-muted)] data-[state=active]:border-white/10 data-[state=active]:bg-white/10 data-[state=active]:text-[var(--sidebar-foreground)]">
+        <TabsList className="h-10 w-full justify-start bg-muted p-1 sm:w-fit">
+          <TabsTrigger value="applications" className="h-8 px-4 text-sm">
             <Clock3 data-slot="icon" />
             处理申请
             {pendingCount > 0 ? (
@@ -781,14 +778,14 @@ export function RedemptionsPage() {
               </span>
             ) : null}
           </TabsTrigger>
-          <TabsTrigger value="codes" className="h-9 px-4 text-sm text-[var(--sidebar-muted)] data-[state=active]:border-white/10 data-[state=active]:bg-white/10 data-[state=active]:text-[var(--sidebar-foreground)]">
+          <TabsTrigger value="codes" className="h-8 px-4 text-sm">
             <KeyRound data-slot="icon" />
             兑换码管理
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="applications" className="space-y-5">
-          <div className="flex flex-col gap-4 rounded-lg border bg-card p-4 shadow-[0_8px_24px_color-mix(in_oklab,var(--foreground)_3%,transparent)] lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-4 rounded-lg border bg-card p-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start gap-3">
               <span className="grid size-10 shrink-0 place-items-center rounded-md bg-gold/12 text-gold">
                 <Clock3 className="size-5" />
@@ -827,24 +824,21 @@ export function RedemptionsPage() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="relative overflow-hidden rounded-lg border bg-card p-4 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_4%,transparent)]">
-              <span className="absolute inset-x-0 top-0 h-0.5 bg-gold" />
+            <div className="relative overflow-hidden rounded-lg border bg-card p-4">
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <Clock3 className="size-3.5" />
                 待处理
               </div>
               <div className="mt-2 text-2xl font-semibold text-gold tabular-nums">{pendingCount}</div>
             </div>
-            <div className="relative overflow-hidden rounded-lg border bg-card p-4 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_4%,transparent)]">
-              <span className="absolute inset-x-0 top-0 h-0.5 bg-success" />
+            <div className="relative overflow-hidden rounded-lg border bg-card p-4">
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <TicketCheck className="size-3.5" />
                 可用空位
               </div>
               <div className="mt-2 text-2xl font-semibold text-success tabular-nums">{seats.length}</div>
             </div>
-            <div className="relative overflow-hidden rounded-lg border bg-card p-4 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_4%,transparent)]">
-              <span className="absolute inset-x-0 top-0 h-0.5 bg-brand" />
+            <div className="relative overflow-hidden rounded-lg border bg-card p-4">
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <CalendarClock className="size-3.5" />
                 当前筛选

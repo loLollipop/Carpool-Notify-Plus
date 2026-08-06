@@ -191,24 +191,24 @@ function CalendarWorkspace({
 
       <div className="grid items-start gap-4">
         <Card className="gap-0 overflow-hidden p-0 animate-fade-up">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--sidebar-border)] bg-[var(--sidebar)] px-4 py-3 text-[var(--sidebar-foreground)]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/35 px-4 py-3 text-foreground">
             <div className="flex items-center gap-1">
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-foreground)]"
+                className="text-muted-foreground hover:bg-accent hover:text-foreground"
                 aria-label={t("calendar.prevMonth")}
                 onClick={() => onNavigateMonth(calendar.previous_month)}
               >
                 <ChevronLeft />
               </Button>
-              <h2 className="display-numeral min-w-28 text-center text-base font-semibold text-[var(--sidebar-foreground)]">
+              <h2 className="display-numeral min-w-28 text-center text-base font-semibold text-foreground">
                 {calendar.month_label}
               </h2>
               <Button
                 variant="ghost"
                 size="icon-sm"
-                className="text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-foreground)]"
+                className="text-muted-foreground hover:bg-accent hover:text-foreground"
                 aria-label={t("calendar.nextMonth")}
                 onClick={() => onNavigateMonth(calendar.next_month)}
               >
@@ -216,7 +216,7 @@ function CalendarWorkspace({
               </Button>
             </div>
             <div className="flex items-center gap-3">
-              <div className="hidden items-center gap-3 text-xs text-[var(--sidebar-muted)] sm:flex">
+              <div className="hidden items-center gap-3 text-xs text-muted-foreground sm:flex">
                 <span className="flex items-center gap-1.5">
                   <i className="size-2 rounded-full bg-brand" />
                   {t("calendar.legendPending")}
@@ -229,7 +229,6 @@ function CalendarWorkspace({
               <Button
                 variant="outline"
                 size="sm"
-                className="border-white/15 bg-white/[0.06] text-[var(--sidebar-foreground)] hover:bg-white/10 hover:text-white"
                 onClick={() => onNavigateMonth(calendar.current_month)}
               >
                 {t("calendar.today")}

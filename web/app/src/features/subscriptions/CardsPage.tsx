@@ -133,7 +133,7 @@ function SubscriptionCard({
 
   return (
     <Card
-      className="group relative gap-0 overflow-hidden p-5 transition-[border-color,box-shadow] duration-300 animate-fade-up hover:border-foreground/20 hover:shadow-[0_14px_36px_color-mix(in_oklab,var(--foreground)_7%,transparent)]"
+      className="group relative gap-0 overflow-hidden p-5 transition-[border-color,background-color] duration-200 animate-fade-up hover:border-input hover:bg-accent/25"
       style={{ animationDelay: `${Math.min(index * 40, 320)}ms` }}
     >
       <span className={cn("absolute inset-y-0 left-0 w-1", accentClass)} />

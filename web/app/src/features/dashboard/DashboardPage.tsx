@@ -133,27 +133,16 @@ function KpiCard({
     success: "bg-success/10 text-success",
     gold: "bg-gold/12 text-gold",
   }
-  const toneColor: Record<KpiTone, string> = {
-    brand: "var(--brand)",
-    success: "var(--success)",
-    gold: "var(--gold)",
-  }
   return (
     <Card
-      className="group relative gap-0 overflow-hidden p-5 transition-[border-color,box-shadow] duration-300 animate-fade-up hover:border-foreground/20 hover:shadow-[0_14px_36px_color-mix(in_oklab,var(--foreground)_7%,transparent)]"
-      style={
-        {
-          animationDelay: `${delay}ms`,
-          "--metric-color": toneColor[tone],
-        } as React.CSSProperties
-      }
+      className="group relative gap-0 overflow-hidden p-5 transition-[border-color,background-color] duration-200 animate-fade-up hover:border-input hover:bg-accent/25"
+      style={{ animationDelay: `${delay}ms` }}
     >
-      <span className="metric-rule" />
       <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
         <span>{label}</span>
         <span
           className={cn(
-            "grid size-9 place-items-center rounded-md border border-current/10 transition-colors duration-300",
+            "grid size-9 place-items-center rounded-md transition-colors duration-200",
             toneClass[tone],
           )}
         >

@@ -295,7 +295,6 @@ function TemplateEditor({
     <div
       className={cn(
         "relative grid gap-4 overflow-hidden rounded-lg border bg-card p-4 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_3%,transparent)]",
-        "border-t-2 border-t-brand",
       )}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -471,7 +470,6 @@ function RedeemPageSettingsEditor({
 
   return (
     <Card className="relative gap-5 overflow-hidden p-6 animate-fade-up" style={{ animationDelay: "90ms" }}>
-      <span className="absolute inset-y-0 left-0 w-1 bg-brand" />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
@@ -624,7 +622,6 @@ function NotificationConfigEditor({
 
   return (
     <Card className="relative gap-5 overflow-hidden p-6 animate-fade-up" style={{ animationDelay: "60ms" }}>
-      <span className="absolute inset-y-0 left-0 w-1 bg-brand" />
       <div className="flex items-center gap-2">
         <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
           <ShieldCheck className="size-4" />
@@ -905,8 +902,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
 
   return (
     <form onSubmit={handleSave} className="grid gap-4">
-      <Card className="relative gap-5 overflow-hidden p-6 animate-fade-up">
-        <span className="absolute inset-y-0 left-0 w-1 bg-brand" />
+      <section className="grid gap-4 animate-fade-up">
         <div className="flex items-center gap-2">
           <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
             <BellRing className="size-4" />
@@ -928,7 +924,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
             onPreview={() => openPreview("customer")}
           />
         </div>
-      </Card>
+      </section>
 
       <RedeemPageSettingsEditor value={redeemPage} onChange={setRedeemPage} />
 
@@ -1031,7 +1027,6 @@ export function SettingsPage() {
             className="relative flex-col gap-4 overflow-hidden p-6 animate-fade-up sm:flex-row sm:items-center sm:justify-between"
             style={{ animationDelay: "120ms" }}
           >
-            <span className="absolute inset-y-0 left-0 w-1 bg-brand" />
             <div className="flex items-start gap-3">
               <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
                 <Send className="size-4" />
@@ -1053,7 +1048,6 @@ export function SettingsPage() {
             className="relative flex-col gap-4 overflow-hidden p-6 animate-fade-up sm:flex-row sm:items-center sm:justify-between"
             style={{ animationDelay: "180ms" }}
           >
-            <span className="absolute inset-y-0 left-0 w-1 bg-brand" />
             <div className="flex items-start gap-3">
               <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
                 <Download className="size-4" />

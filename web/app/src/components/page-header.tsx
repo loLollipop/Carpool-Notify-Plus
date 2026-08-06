@@ -14,16 +14,15 @@ export function PageHeader({
   return (
     <div
       className={cn(
-        "mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between animate-fade-up",
+        "mb-7 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between animate-fade-up",
         className,
       )}
     >
-      <div className="flex max-w-2xl items-start gap-3.5">
-        <span className="mt-1 h-9 w-1 shrink-0 rounded-full bg-brand shadow-[0_0_0_4px_color-mix(in_oklab,var(--brand)_10%,transparent)]" />
+      <div className="max-w-2xl">
         <div>
-          <h1 className="text-2xl font-semibold leading-tight sm:text-[28px]">{title}</h1>
+          <h1 className="text-2xl font-semibold leading-tight text-foreground sm:text-[27px]">{title}</h1>
           {description ? (
-            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{description}</p>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
           ) : null}
         </div>
       </div>

@@ -33,27 +33,14 @@ function KpiCard({
     neutral: "bg-muted text-muted-foreground",
     success: "bg-success/10 text-success",
   }[tone]
-  const toneColor = {
-    brand: "var(--brand)",
-    gold: "var(--gold)",
-    neutral: "var(--muted-foreground)",
-    success: "var(--success)",
-  }[tone]
   return (
     <Card
       className={cn(
-        "group relative gap-0 overflow-hidden p-0 transition-[border-color,box-shadow] duration-300 animate-fade-up",
-        onClick &&
-          "cursor-pointer hover:border-foreground/20 hover:shadow-[0_14px_36px_color-mix(in_oklab,var(--foreground)_7%,transparent)]",
+        "group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color] duration-200 animate-fade-up",
+        onClick && "cursor-pointer hover:border-input hover:bg-accent/30",
       )}
-      style={
-        {
-          animationDelay: `${delay}ms`,
-          "--metric-color": toneColor,
-        } as React.CSSProperties
-      }
+      style={{ animationDelay: `${delay}ms` }}
     >
-      <span className="metric-rule" />
       <Component
         type={onClick ? "button" : undefined}
         onClick={onClick}
@@ -61,7 +48,7 @@ function KpiCard({
       >
         <div className="flex w-full items-center justify-between text-xs font-medium text-muted-foreground">
           <span>{label}</span>
-          <span className={cn("grid size-9 place-items-center rounded-md border border-current/10", toneClass)}>
+          <span className={cn("grid size-9 place-items-center rounded-md", toneClass)}>
             {icon}
           </span>
         </div>

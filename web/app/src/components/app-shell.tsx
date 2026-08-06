@@ -31,33 +31,17 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAuth } from "@/features/auth/auth-context"
 
-function BrandMark({ inverted = false }: { inverted?: boolean }) {
+function BrandMark() {
   return (
     <NavLink to="/" className="group flex min-w-0 items-center gap-3 select-none">
-      <img
-        src="/logo.png"
-        alt=""
-        aria-hidden="true"
-        width={34}
-        height={34}
-        draggable={false}
-        className="size-8 shrink-0 transition-transform duration-300 group-hover:-rotate-6 lg:size-[34px]"
-      />
+      <span className="grid size-8 shrink-0 place-items-center rounded-md bg-brand text-brand-foreground shadow-[0_1px_2px_color-mix(in_oklab,var(--brand)_24%,transparent)] lg:size-[34px]">
+        <Car className="size-[18px]" />
+      </span>
       <span className="min-w-0 leading-none">
-        <span
-          className={cn(
-            "block truncate text-[15px] font-semibold",
-            inverted && "text-[var(--sidebar-foreground)]",
-          )}
-        >
+        <span className="block truncate text-[15px] font-semibold text-[var(--sidebar-foreground)]">
           Carpool Notify
         </span>
-        <span
-          className={cn(
-            "mt-1 hidden text-[11px] text-muted-foreground lg:block",
-            inverted && "text-[var(--sidebar-muted)]",
-          )}
-        >
+        <span className="mt-1 hidden text-[11px] text-[var(--sidebar-muted)] lg:block">
           Workspace Console
         </span>
       </span>
@@ -75,7 +59,7 @@ function ThemeToggle() {
         <Button
           variant="ghost"
           size="icon-sm"
-          className="border border-border bg-card text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"
+          className="border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label={t("nav.theme")}
           onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
         >
@@ -99,7 +83,7 @@ function LanguageToggle() {
             <Button
               variant="ghost"
               size="icon-sm"
-              className="border border-border bg-card text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"
+              className="border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
               aria-label={t("nav.language")}
             >
               <Languages className="size-4" />
@@ -144,13 +128,13 @@ export function AppShell() {
   }
 
   return (
-    <div className="min-h-dvh bg-background lg:grid lg:grid-cols-[236px_minmax(0,1fr)]">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[236px] flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] text-[var(--sidebar-foreground)] shadow-[8px_0_32px_color-mix(in_oklab,var(--foreground)_7%,transparent)] lg:flex">
+    <div className="min-h-dvh bg-background lg:grid lg:grid-cols-[248px_minmax(0,1fr)]">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[248px] flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] text-[var(--sidebar-foreground)] lg:flex">
         <div className="flex h-16 items-center border-b border-[var(--sidebar-border)] px-5">
-          <BrandMark inverted />
+          <BrandMark />
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5" aria-label="Primary navigation">
+        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4" aria-label="Primary navigation">
           {navItems.map((item) => {
             const Icon = item.icon
             return (
@@ -160,16 +144,15 @@ export function AppShell() {
                 end={item.end}
                 className={({ isActive }) =>
                   cn(
-                    "group relative flex h-11 items-center gap-3 rounded-md px-2.5 text-sm font-medium text-[var(--sidebar-muted)] transition-colors",
-                    "hover:bg-white/[0.06] hover:text-[var(--sidebar-foreground)]",
-                    isActive &&
-                      "bg-white/[0.09] text-[var(--sidebar-foreground)] shadow-[inset_3px_0_0_var(--brand)]",
+                    "group relative flex h-10 items-center gap-3 rounded-md px-2.5 text-sm font-medium text-[var(--sidebar-muted)] transition-colors",
+                    "hover:bg-accent hover:text-[var(--sidebar-foreground)]",
+                    isActive && "bg-foreground text-background shadow-sm",
                   )
                 }
               >
                 <span
                   className={cn(
-                    "grid size-8 shrink-0 place-items-center rounded-md transition-colors group-hover:bg-white/[0.06]",
+                    "grid size-7 shrink-0 place-items-center rounded-md transition-colors",
                   )}
                 >
                   <Icon className="size-[17px]" />
@@ -183,7 +166,7 @@ export function AppShell() {
         <div className="border-t border-[var(--sidebar-border)] p-3">
           <Button
             variant="ghost"
-            className="w-full justify-start text-[var(--sidebar-muted)] hover:bg-white/[0.07] hover:text-[var(--sidebar-foreground)]"
+            className="w-full justify-start text-[var(--sidebar-muted)] hover:bg-accent hover:text-[var(--sidebar-foreground)]"
             onClick={handleLogout}
           >
             <LogOut className="size-4" />
@@ -193,14 +176,14 @@ export function AppShell() {
       </aside>
 
       <div className="min-w-0 lg:col-start-2">
-        <header className="sticky top-0 z-40 hidden h-16 items-center border-b bg-card/95 px-8 shadow-[0_1px_0_color-mix(in_oklab,var(--foreground)_5%,transparent)] backdrop-blur lg:flex">
+        <header className="sticky top-0 z-40 hidden h-16 items-center border-b bg-background/90 px-8 backdrop-blur lg:flex">
           <div className="ml-auto flex items-center gap-2">
             <LanguageToggle />
             <ThemeToggle />
           </div>
         </header>
 
-        <header className="sticky top-0 z-40 border-b bg-card/95 shadow-sm backdrop-blur lg:hidden">
+        <header className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur lg:hidden">
           <div className="flex h-16 items-center gap-2 px-4">
             <BrandMark />
             <div className="ml-auto flex items-center gap-1">
@@ -249,7 +232,7 @@ export function AppShell() {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-[1480px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-7">
+        <main className="mx-auto w-full max-w-[1520px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-7">
           <Outlet />
         </main>
       </div>

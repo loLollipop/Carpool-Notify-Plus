@@ -115,23 +115,11 @@ function KpiCard({
     success: "bg-success/10 text-success",
     gold: "bg-gold/12 text-gold",
   }[tone]
-  const toneColor = {
-    brand: "var(--brand)",
-    success: "var(--success)",
-    gold: "var(--gold)",
-  }[tone]
-
   return (
     <Card
-      className="group relative gap-0 overflow-hidden p-5 animate-fade-up"
-      style={
-        {
-          animationDelay: `${delay}ms`,
-          "--metric-color": toneColor,
-        } as React.CSSProperties
-      }
+      className="group relative gap-0 overflow-hidden p-5 transition-[border-color,background-color] duration-200 animate-fade-up hover:border-input hover:bg-accent/25"
+      style={{ animationDelay: `${delay}ms` }}
     >
-      <span className="metric-rule" />
       <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
         <span>{label}</span>
         <span className={cn("grid size-8 place-items-center rounded-md", toneClass)}>{icon}</span>
