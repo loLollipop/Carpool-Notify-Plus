@@ -13,7 +13,7 @@ import {
 import {
   AlertTriangle,
   ArrowUpRight,
-  BellRing,
+  CalendarClock,
   CheckCircle2,
   CreditCard,
   Plus,
@@ -161,18 +161,14 @@ function KpiRow({
   dashboard,
   summary,
   accountCount,
+  calendar,
 }: {
   dashboard: Dashboard
   summary: BillsSummary | undefined
   accountCount: number
+  calendar: CalendarMonth | undefined
 }) {
   const { t } = useTranslation()
-
-  const notifyTotal = dashboard.notify_success_30d + dashboard.notify_failed_30d
-  const notifyRate =
-    notifyTotal === 0
-      ? "—"
-      : `${((dashboard.notify_success_30d / notifyTotal) * 100).toFixed(1).replace(/\.0$/, "")}%`
 
   return (
     <section aria-label={t("dash.title")} className="mb-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
@@ -208,13 +204,12 @@ function KpiRow({
         delay={140}
       />
       <KpiCard
-        label={t("dash.kpiNotify")}
-        value={notifyRate}
-        hint={t("dash.kpiNotifyHint", {
-          success: dashboard.notify_success_30d,
-          failed: dashboard.notify_failed_30d,
+        label={t("dash.kpiPendingMonth")}
+        value={`¥${calendar?.pending_month_amount_yuan ?? "0.00"}`}
+        hint={t("dash.kpiPendingMonthHint", {
+          count: calendar?.pending_month_count ?? 0,
         })}
-        icon={<BellRing className="size-4" />}
+        icon={<CalendarClock className="size-4" />}
         tone="brand"
         delay={210}
       />
@@ -575,8 +570,8 @@ export function DashboardPage() {
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
 
-  const isPending = dashboardQuery.isPending || billsQuery.isPending
-  const isError = dashboardQuery.isError || billsQuery.isError
+  const isPending = dashboardQuery.isPending || billsQuery.isPending || calendarQuery.isPending
+  const isError = dashboardQuery.isError || billsQuery.isError || calendarQuery.isError
 
   const dashboard = dashboardQuery.data
   const summary = billsQuery.data?.summary
@@ -627,6 +622,7 @@ export function DashboardPage() {
             dashboard={dashboard}
             summary={summary}
             accountCount={accountsQuery.data?.length ?? dashboard.accounts?.length ?? 0}
+            calendar={calendarQuery.data}
           />
 
           <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">

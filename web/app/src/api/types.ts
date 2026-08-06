@@ -158,6 +158,8 @@ export interface CalendarMonth {
   total_count: number
   paid_count: number
   pending_count: number
+  pending_month_count: number
+  pending_month_amount_yuan: string
   archived_count: number
 }
 

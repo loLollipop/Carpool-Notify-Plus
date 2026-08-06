@@ -28,10 +28,14 @@ type CalendarMonthView struct {
 	Days                  []CalendarDayView  `json:"days"`
 	// TotalCount / PaidCount summarize all dues in the month; PendingCount only
 	// counts unpaid dues that are due today or overdue.
-	TotalCount    int `json:"total_count"`
-	PaidCount     int `json:"paid_count"`
-	PendingCount  int `json:"pending_count"`
-	ArchivedCount int `json:"archived_count"`
+	TotalCount   int `json:"total_count"`
+	PaidCount    int `json:"paid_count"`
+	PendingCount int `json:"pending_count"`
+	// PendingMonthCount / PendingMonthAmountYuan include every unpaid due in
+	// the selected month, including future dues that PendingCount excludes.
+	PendingMonthCount      int    `json:"pending_month_count"`
+	PendingMonthAmountYuan string `json:"pending_month_amount_yuan"`
+	ArchivedCount          int    `json:"archived_count"`
 }
 
 // CalendarDayView is one visible day in the month grid, including adjacent-month days.
@@ -294,6 +298,10 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 	if err != nil {
 		return CalendarMonthView{}, err
 	}
+	amountBySubscription := make(map[int64]int64, len(subscriptions))
+	for _, subscription := range subscriptions {
+		amountBySubscription[subscription.ID] = billDefaultAmountCents(subscription)
+	}
 	paidOccurrences, err := service.Store.ListPaidDueOccurrences(
 		cycle.FormatDate(gridStart),
 		cycle.FormatDate(gridEnd),
@@ -346,6 +354,8 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 	monthOccurrences := make([]CalendarOccurrenceView, 0, len(gridOccurrences))
 	paidCount := 0
 	pendingCount := 0
+	pendingMonthCount := 0
+	var pendingMonthAmountCents int64
 	for _, occurrence := range gridOccurrences {
 		occurrencesByDate[occurrence.DueDate] = append(occurrencesByDate[occurrence.DueDate], occurrence)
 		if occurrence.DueDate < cycle.FormatDate(monthStart) || occurrence.DueDate >= cycle.FormatDate(monthEnd) {
@@ -354,8 +364,12 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 		monthOccurrences = append(monthOccurrences, occurrence)
 		if occurrence.Paid {
 			paidCount++
-		} else if occurrence.DaysRemaining <= 0 {
-			pendingCount++
+		} else {
+			pendingMonthCount++
+			pendingMonthAmountCents += amountBySubscription[occurrence.SubscriptionID]
+			if occurrence.DaysRemaining <= 0 {
+				pendingCount++
+			}
 		}
 	}
 
@@ -394,6 +408,8 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 		TotalCount:             len(monthOccurrences),
 		PaidCount:              paidCount,
 		PendingCount:           pendingCount,
+		PendingMonthCount:      pendingMonthCount,
+		PendingMonthAmountYuan: cycle.FormatCents(pendingMonthAmountCents),
 		ArchivedCount:          len(archivedViews),
 	}, nil
 }

@@ -120,6 +120,42 @@ func TestCalendarPendingCountOnlyIncludesDueOrOverdueUnpaid(t *testing.T) {
 	if len(view.Occurrences) != 2 {
 		t.Fatalf("agenda occurrences = %d, want 2 so future dues remain available for prepay", len(view.Occurrences))
 	}
+	if view.PendingMonthCount != 2 || view.PendingMonthAmountYuan != "40.00" {
+		t.Fatalf(
+			"pending month = %d / %s, want 2 / 40.00",
+			view.PendingMonthCount,
+			view.PendingMonthAmountYuan,
+		)
+	}
+}
+
+func TestCalendarPendingMonthRevenueExcludesPaidAndOtherMonths(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 4, 12, 0, 0, 0, cycle.Location)
+	}
+	paidID := createTestSubscription(t, subscriptionService, "Paid account", "0 0 2 * *")
+	createTestSubscription(t, subscriptionService, "Due account", "0 0 3 * *")
+	createTestSubscription(t, subscriptionService, "Future account", "0 0 19 * *")
+	createTestSubscription(t, subscriptionService, "Next month account", "0 0 5 9 *")
+	if err := subscriptionService.SetDuePaid(paidID, "2026-08-02", true); err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := subscriptionService.CalendarMonth(
+		time.Date(2026, time.August, 1, 0, 0, 0, 0, cycle.Location),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if view.PendingMonthCount != 2 || view.PendingMonthAmountYuan != "40.00" {
+		t.Fatalf(
+			"pending month = %d / %s, want 2 / 40.00",
+			view.PendingMonthCount,
+			view.PendingMonthAmountYuan,
+		)
+	}
 }
 
 func TestSubscriptionViewsShowScheduledNotificationRoutes(t *testing.T) {
