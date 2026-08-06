@@ -295,7 +295,7 @@ function TemplateEditor({
     <div
       className={cn(
         "relative grid gap-4 overflow-hidden rounded-lg border bg-card p-4 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_3%,transparent)]",
-        kind === "customer" ? "border-t-2 border-t-brand" : "border-t-2 border-t-violet",
+        "border-t-2 border-t-brand",
       )}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -303,7 +303,7 @@ function TemplateEditor({
           <span
             className={cn(
               "grid size-8 place-items-center rounded-md",
-              kind === "customer" ? "bg-brand/10 text-brand" : "bg-violet/10 text-violet",
+              "bg-brand/10 text-brand",
             )}
           >
             {icon}
@@ -471,10 +471,10 @@ function RedeemPageSettingsEditor({
 
   return (
     <Card className="relative gap-5 overflow-hidden p-6 animate-fade-up" style={{ animationDelay: "90ms" }}>
-      <span className="absolute inset-y-0 left-0 w-1 bg-cyan" />
+      <span className="absolute inset-y-0 left-0 w-1 bg-brand" />
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="grid size-8 place-items-center rounded-md bg-cyan/10 text-cyan">
+          <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
             <Megaphone className="size-4" />
           </span>
           <h2 className="panel-heading text-sm font-semibold">兑换页设置</h2>
@@ -526,7 +526,7 @@ function RedeemPageSettingsEditor({
           </div>
         </div>
 
-        <div className="grid content-start gap-4 rounded-lg border border-cyan/15 bg-cyan/[0.04] p-4">
+        <div className="grid content-start gap-4 rounded-lg border bg-muted/35 p-4">
           <div className="grid gap-1.5">
             <Label htmlFor="redeem-support-title">客服标题</Label>
             <Input
@@ -624,16 +624,16 @@ function NotificationConfigEditor({
 
   return (
     <Card className="relative gap-5 overflow-hidden p-6 animate-fade-up" style={{ animationDelay: "60ms" }}>
-      <span className="absolute inset-y-0 left-0 w-1 bg-success" />
+      <span className="absolute inset-y-0 left-0 w-1 bg-brand" />
       <div className="flex items-center gap-2">
-        <span className="grid size-8 place-items-center rounded-md bg-success/10 text-success">
+        <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
           <ShieldCheck className="size-4" />
         </span>
         <h2 className="panel-heading text-sm font-semibold">{t("settings.deliveryConfig")}</h2>
       </div>
 
       <div className="grid gap-4">
-        <div className="grid gap-3 rounded-lg border border-brand/15 bg-brand/[0.035] p-4">
+        <div className="grid gap-3 rounded-lg border bg-muted/35 p-4">
           <div className="flex items-center justify-between gap-3">
             <Label>{t("settings.smtpConfig")}</Label>
             <Badge variant={settings.notification_config.smtp.password_set ? "success" : "secondary"}>
@@ -704,7 +704,7 @@ function NotificationConfigEditor({
           </div>
         </div>
 
-        <div className="grid gap-3 rounded-lg border border-violet/15 bg-violet/[0.035] p-4 md:grid-cols-2">
+        <div className="grid gap-3 rounded-lg border bg-muted/35 p-4 md:grid-cols-2">
           <div className="grid gap-1.5">
             <div className="flex items-center justify-between gap-3">
               <Label htmlFor="iyuu-token">{t("settings.iyuuToken")}</Label>
@@ -906,9 +906,9 @@ function SettingsForm({ settings }: { settings: Settings }) {
   return (
     <form onSubmit={handleSave} className="grid gap-4">
       <Card className="relative gap-5 overflow-hidden p-6 animate-fade-up">
-        <span className="absolute inset-y-0 left-0 w-1 bg-violet" />
+        <span className="absolute inset-y-0 left-0 w-1 bg-brand" />
         <div className="flex items-center gap-2">
-          <span className="grid size-8 place-items-center rounded-md bg-violet/10 text-violet">
+          <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
             <BellRing className="size-4" />
           </span>
           <h2 className="panel-heading text-sm font-semibold">{t("settings.templateBuilder")}</h2>
@@ -1031,9 +1031,9 @@ export function SettingsPage() {
             className="relative flex-col gap-4 overflow-hidden p-6 animate-fade-up sm:flex-row sm:items-center sm:justify-between"
             style={{ animationDelay: "120ms" }}
           >
-            <span className="absolute inset-y-0 left-0 w-1 bg-gold" />
+            <span className="absolute inset-y-0 left-0 w-1 bg-brand" />
             <div className="flex items-start gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-md bg-gold/12 text-gold">
+              <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
                 <Send className="size-4" />
               </span>
               <div>
@@ -1053,9 +1053,9 @@ export function SettingsPage() {
             className="relative flex-col gap-4 overflow-hidden p-6 animate-fade-up sm:flex-row sm:items-center sm:justify-between"
             style={{ animationDelay: "180ms" }}
           >
-            <span className="absolute inset-y-0 left-0 w-1 bg-cyan" />
+            <span className="absolute inset-y-0 left-0 w-1 bg-brand" />
             <div className="flex items-start gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-md bg-cyan/10 text-cyan">
+              <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
                 <Download className="size-4" />
               </span>
               <div>

@@ -24,19 +24,19 @@ function KpiCard({
   onClick?: () => void
   delay?: number
   hintTone?: "success"
-  tone: "brand" | "gold" | "coral" | "success"
+  tone: "brand" | "gold" | "neutral" | "success"
 }) {
   const Component = onClick ? "button" : "article"
   const toneClass = {
     brand: "bg-brand/10 text-brand",
     gold: "bg-gold/12 text-gold",
-    coral: "bg-coral/10 text-coral",
+    neutral: "bg-muted text-muted-foreground",
     success: "bg-success/10 text-success",
   }[tone]
   const toneColor = {
     brand: "var(--brand)",
     gold: "var(--gold)",
-    coral: "var(--coral)",
+    neutral: "var(--muted-foreground)",
     success: "var(--success)",
   }[tone]
   return (
@@ -132,7 +132,7 @@ export function KpiSection({
         value={dashboard.archived_count}
         hint={t("dashboard.archivedHint")}
         icon={<LogOut className="size-4" />}
-        tone="coral"
+        tone="neutral"
         delay={120}
       />
       <KpiCard

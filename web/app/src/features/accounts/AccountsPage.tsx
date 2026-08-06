@@ -112,7 +112,7 @@ function AccountMobileCard({
       <span
         className={cn(
           "absolute inset-y-0 left-0 w-1",
-          view.is_full ? "bg-coral" : view.seat_used === 0 ? "bg-cyan" : "bg-success",
+          view.is_full ? "bg-destructive" : view.seat_used === 0 ? "bg-brand" : "bg-success",
         )}
       />
       <div className="p-4">
@@ -492,9 +492,9 @@ export function AccountsPage() {
                     className={cn(
                       "border-l-2",
                       view.is_full
-                        ? "border-l-coral"
+                        ? "border-l-destructive"
                         : view.seat_used === 0
-                          ? "border-l-cyan"
+                          ? "border-l-brand"
                           : "border-l-success",
                     )}
                   >

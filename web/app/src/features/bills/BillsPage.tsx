@@ -108,23 +108,17 @@ function KpiCard({
   hint: string
   icon: React.ReactNode
   delay: number
-  tone: "brand" | "success" | "gold" | "coral" | "violet" | "cyan"
+  tone: "brand" | "success" | "gold"
 }) {
   const toneClass = {
     brand: "bg-brand/10 text-brand",
     success: "bg-success/10 text-success",
     gold: "bg-gold/12 text-gold",
-    coral: "bg-coral/10 text-coral",
-    violet: "bg-violet/10 text-violet",
-    cyan: "bg-cyan/10 text-cyan",
   }[tone]
   const toneColor = {
     brand: "var(--brand)",
     success: "var(--success)",
     gold: "var(--gold)",
-    coral: "var(--coral)",
-    violet: "var(--violet)",
-    cyan: "var(--cyan)",
   }[tone]
 
   return (
@@ -555,7 +549,7 @@ export function BillsPage() {
               hint={t("bills.kpiCountHint", { avg: summary.average_amount_yuan })}
               icon={<Hash className="size-4" />}
               delay={40}
-              tone="cyan"
+              tone="brand"
             />
             <KpiCard
               label={t("bills.kpiThisMonth")}
@@ -563,7 +557,7 @@ export function BillsPage() {
               hint={t("bills.kpiThisMonthHint", { count: summary.this_month_count })}
               icon={<CalendarDays className="size-4" />}
               delay={80}
-              tone="success"
+              tone="brand"
             />
             <KpiCard
               label={t("bills.kpiAverage")}
@@ -571,7 +565,7 @@ export function BillsPage() {
               hint={t("bills.kpiAverageHint")}
               icon={<ChartLine className="size-4" />}
               delay={120}
-              tone="violet"
+              tone="brand"
             />
             <KpiCard
               label={t("bills.kpiAgencyFee")}
@@ -590,7 +584,7 @@ export function BillsPage() {
               hint={t("bills.kpiActiveHint")}
               icon={<CircleDot className="size-4" />}
               delay={200}
-              tone="coral"
+              tone="brand"
             />
           </section>
 

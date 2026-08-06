@@ -111,7 +111,7 @@ function ChartTooltip({
 
 // ---- KPI ------------------------------------------------------------------------
 
-type KpiTone = "brand" | "success" | "violet" | "gold"
+type KpiTone = "brand" | "success" | "gold"
 
 function KpiCard({
   label,
@@ -131,13 +131,11 @@ function KpiCard({
   const toneClass: Record<KpiTone, string> = {
     brand: "bg-brand/10 text-brand",
     success: "bg-success/10 text-success",
-    violet: "bg-violet/10 text-violet",
     gold: "bg-gold/12 text-gold",
   }
   const toneColor: Record<KpiTone, string> = {
     brand: "var(--brand)",
     success: "var(--success)",
-    violet: "var(--violet)",
     gold: "var(--gold)",
   }
   return (
@@ -228,7 +226,7 @@ function KpiRow({
           failed: dashboard.notify_failed_30d,
         })}
         icon={<BellRing className="size-4" />}
-        tone="violet"
+        tone="brand"
         delay={210}
       />
     </section>

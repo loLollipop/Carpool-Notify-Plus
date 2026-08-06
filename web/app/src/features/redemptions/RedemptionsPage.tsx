@@ -844,12 +844,12 @@ export function RedemptionsPage() {
               <div className="mt-2 text-2xl font-semibold text-success tabular-nums">{seats.length}</div>
             </div>
             <div className="relative overflow-hidden rounded-lg border bg-card p-4 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_4%,transparent)]">
-              <span className="absolute inset-x-0 top-0 h-0.5 bg-cyan" />
+              <span className="absolute inset-x-0 top-0 h-0.5 bg-brand" />
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <CalendarClock className="size-3.5" />
                 当前筛选
               </div>
-              <div className="mt-2 text-2xl font-semibold text-cyan tabular-nums">{filtered.length}</div>
+              <div className="mt-2 text-2xl font-semibold text-brand tabular-nums">{filtered.length}</div>
             </div>
           </div>
 

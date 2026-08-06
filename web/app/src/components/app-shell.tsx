@@ -65,7 +65,7 @@ function BrandMark({ inverted = false }: { inverted?: boolean }) {
   )
 }
 
-function ThemeToggle({ inverted = false }: { inverted?: boolean }) {
+function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme()
   const { t } = useTranslation()
 
@@ -75,10 +75,7 @@ function ThemeToggle({ inverted = false }: { inverted?: boolean }) {
         <Button
           variant="ghost"
           size="icon-sm"
-          className={cn(
-            inverted &&
-              "text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-foreground)]",
-          )}
+          className="border border-border bg-card text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"
           aria-label={t("nav.theme")}
           onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
         >
@@ -91,7 +88,7 @@ function ThemeToggle({ inverted = false }: { inverted?: boolean }) {
   )
 }
 
-function LanguageToggle({ inverted = false }: { inverted?: boolean }) {
+function LanguageToggle() {
   const { i18n, t } = useTranslation()
 
   return (
@@ -102,10 +99,7 @@ function LanguageToggle({ inverted = false }: { inverted?: boolean }) {
             <Button
               variant="ghost"
               size="icon-sm"
-              className={cn(
-                inverted &&
-                  "text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-foreground)]",
-              )}
+              className="border border-border bg-card text-muted-foreground shadow-sm hover:bg-accent hover:text-foreground"
               aria-label={t("nav.language")}
             >
               <Languages className="size-4" />
@@ -152,7 +146,7 @@ export function AppShell() {
   return (
     <div className="min-h-dvh bg-background lg:grid lg:grid-cols-[236px_minmax(0,1fr)]">
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[236px] flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] text-[var(--sidebar-foreground)] shadow-[8px_0_32px_color-mix(in_oklab,var(--foreground)_7%,transparent)] lg:flex">
-        <div className="flex h-[76px] items-center border-b border-[var(--sidebar-border)] px-5">
+        <div className="flex h-16 items-center border-b border-[var(--sidebar-border)] px-5">
           <BrandMark inverted />
         </div>
 
@@ -187,30 +181,25 @@ export function AppShell() {
         </nav>
 
         <div className="border-t border-[var(--sidebar-border)] p-3">
-          <div className="flex items-center justify-between rounded-md border border-white/[0.06] bg-white/[0.04] p-1.5">
-            <div className="flex items-center">
-              <LanguageToggle inverted />
-              <ThemeToggle inverted />
-            </div>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-[var(--sidebar-muted)] hover:bg-white/10 hover:text-[var(--sidebar-foreground)]"
-                  aria-label={t("nav.logout")}
-                  onClick={handleLogout}
-                >
-                  <LogOut className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>{t("nav.logout")}</TooltipContent>
-            </Tooltip>
-          </div>
+          <Button
+            variant="ghost"
+            className="w-full justify-start text-[var(--sidebar-muted)] hover:bg-white/[0.07] hover:text-[var(--sidebar-foreground)]"
+            onClick={handleLogout}
+          >
+            <LogOut className="size-4" />
+            {t("nav.logout")}
+          </Button>
         </div>
       </aside>
 
       <div className="min-w-0 lg:col-start-2">
+        <header className="sticky top-0 z-40 hidden h-16 items-center border-b bg-card/95 px-8 shadow-[0_1px_0_color-mix(in_oklab,var(--foreground)_5%,transparent)] backdrop-blur lg:flex">
+          <div className="ml-auto flex items-center gap-2">
+            <LanguageToggle />
+            <ThemeToggle />
+          </div>
+        </header>
+
         <header className="sticky top-0 z-40 border-b bg-card/95 shadow-sm backdrop-blur lg:hidden">
           <div className="flex h-16 items-center gap-2 px-4">
             <BrandMark />
@@ -260,7 +249,7 @@ export function AppShell() {
           </div>
         </header>
 
-        <main className="mx-auto w-full max-w-[1480px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-9">
+        <main className="mx-auto w-full max-w-[1480px] px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-7">
           <Outlet />
         </main>
       </div>
