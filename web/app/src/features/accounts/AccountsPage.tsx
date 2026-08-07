@@ -478,7 +478,7 @@ export function AccountsPage() {
                 <TableHead className="w-52 text-right">{t("accounts.colActions")}</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody>
+            <TableBody className="[&_tr:last-child]:border-b [&_tr:last-child]:border-border">
               {pagedAccounts.map((view) => {
                 const isExpanded = expanded.has(view.account.id)
                 const occupants = (view.seats ?? []).filter((seat) => seat.occupied)
@@ -659,17 +659,17 @@ export function AccountsPage() {
               })}
             </TableBody>
           </Table>
-          {pageCount > 1 ? (
-            <div className="flex flex-col items-center justify-between gap-3 border-t px-4 py-3 text-xs text-muted-foreground sm:flex-row">
-              <span>
-                {t("accounts.pageStatus", {
-                  page: safePage,
-                  pageCount,
-                  start: pageStartIndex + 1,
-                  end: pageEndIndex,
-                  total: filteredAccounts.length,
-                })}
-              </span>
+          <div className="flex min-h-12 flex-col items-center justify-between gap-3 bg-muted/25 px-4 py-3 text-xs text-muted-foreground sm:flex-row">
+            <span>
+              {t("accounts.pageStatus", {
+                page: safePage,
+                pageCount,
+                start: pageStartIndex + 1,
+                end: pageEndIndex,
+                total: filteredAccounts.length,
+              })}
+            </span>
+            {pageCount > 1 ? (
               <div className="flex items-center gap-1.5">
                 <Button
                   variant="outline"
@@ -690,8 +690,8 @@ export function AccountsPage() {
                   <ChevronRight />
                 </Button>
               </div>
-            </div>
-          ) : null}
+            ) : null}
+          </div>
           </Card>
 
           {pageCount > 1 ? (

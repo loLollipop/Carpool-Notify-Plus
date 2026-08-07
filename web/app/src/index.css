@@ -4,22 +4,22 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Compact operations workspace: cool neutrals, cobalt actions, semantic status colors. */
-  --background: #f5f7fb;
-  --foreground: #172033;
+  /* Quiet graphite workspace with blue reserved for actions and selection. */
+  --background: #f6f7f9;
+  --foreground: #242b38;
   --card: #ffffff;
-  --card-foreground: #172033;
+  --card-foreground: #242b38;
   --popover: #ffffff;
-  --popover-foreground: #172033;
-  --primary: #2563eb;
+  --popover-foreground: #242b38;
+  --primary: #315fc9;
   --primary-foreground: #ffffff;
   --secondary: #eef2f7;
-  --secondary-foreground: #2b374d;
-  --muted: #f0f3f8;
-  --muted-foreground: #667085;
-  --accent: #eaf1ff;
-  --accent-foreground: #1d4ed8;
-  --brand: #2563eb;
+  --secondary-foreground: #303846;
+  --muted: #f0f2f5;
+  --muted-foreground: #657083;
+  --accent: #edf1f7;
+  --accent-foreground: #303846;
+  --brand: #315fc9;
   --brand-foreground: #ffffff;
   --success: #16845b;
   --success-foreground: #ffffff;
@@ -29,10 +29,10 @@
   --warning-foreground: #7b4f10;
   --destructive: #d04444;
   --destructive-foreground: #ffffff;
-  --border: #dfe5ee;
-  --input: #cbd5e1;
-  --ring: #3b82f6;
-  --chart-1: #2563eb;
+  --border: #e0e4ea;
+  --input: #c9d0da;
+  --ring: #4a73d1;
+  --chart-1: #315fc9;
   --chart-2: #16845b;
   --chart-3: #7c3aed;
   --chart-4: #0f8ca5;
@@ -41,13 +41,13 @@
   --gold: #b7791f;
   --cyan: #0f8ca5;
   --sidebar: #ffffff;
-  --sidebar-foreground: #172033;
-  --sidebar-muted: #68758a;
-  --sidebar-border: #e1e7f0;
-  --login-panel: #12213e;
+  --sidebar-foreground: #242b38;
+  --sidebar-muted: #596577;
+  --sidebar-border: #e2e5ea;
+  --login-panel: #202631;
   --login-panel-foreground: #f7f9fc;
-  --login-panel-muted: #b5c2d8;
-  --login-panel-border: #2d4168;
+  --login-panel-muted: #b7bfcc;
+  --login-panel-border: #3a4352;
   --radius: 0.5rem;
 }
 

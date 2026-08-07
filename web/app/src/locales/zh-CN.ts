@@ -1,7 +1,7 @@
 export default {
   translation: {
     common: {
-      appName: "Carpool Notify",
+      appName: "SeatFlow",
       save: "保存",
       cancel: "取消",
       edit: "编辑",
@@ -32,7 +32,7 @@ export default {
       themeDark: "深色",
       themeSystem: "跟随系统",
       language: "语言",
-      workspace: "运营控制台",
+      workspace: "拼车运营台",
       operations: "运营管理",
       system: "系统",
       collapse: "收起侧栏",
@@ -40,7 +40,7 @@ export default {
     },
     auth: {
       title: "登录",
-      subtitle: "拼车收钱提醒 · 单用户",
+      subtitle: "拼车业务管理 · 单用户",
       password: "密码",
       passwordPlaceholder: "输入访问密码",
       submit: "进入系统",

@@ -25,11 +25,11 @@ export function DueStatusBadge({
       <span
         title={t("dueStatus.paid")}
         className={cn(
-          "inline-flex h-6 items-center gap-1 rounded-full bg-success/12 px-2 text-xs font-medium text-success dark:bg-success/18",
+          "inline-flex h-6 min-w-max shrink-0 flex-nowrap items-center gap-1 whitespace-nowrap rounded-full bg-success/12 px-2 text-xs font-medium text-success dark:bg-success/18",
           className,
         )}
       >
-        <CheckCircle2 className="size-3.5" />
+        <CheckCircle2 className="size-3.5 shrink-0" />
         <span className="sr-only">{t("dueStatus.paid")}</span>
       </span>
     )
@@ -47,15 +47,15 @@ export function DueStatusBadge({
     <span
       title={title}
       className={cn(
-        "inline-flex h-6 items-center gap-1 rounded-full px-2 text-xs font-medium tabular-nums",
+        "inline-flex h-6 min-w-max shrink-0 flex-nowrap items-center gap-1 whitespace-nowrap rounded-full px-2 text-xs font-medium tabular-nums",
         soon
           ? "bg-brand/12 text-brand dark:bg-brand/18"
           : "bg-muted text-muted-foreground",
         className,
       )}
     >
-      <Clock3 className="size-3.5" />
-      {dueMetaLabel(t, daysRemaining)}
+      <Clock3 className="size-3.5 shrink-0" />
+      <span className="whitespace-nowrap">{dueMetaLabel(t, daysRemaining)}</span>
     </span>
   )
 }

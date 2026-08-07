@@ -1,13 +1,14 @@
 import { Navigate, useLocation } from "react-router-dom"
 
+import { APP_NAME, BrandIcon } from "@/components/brand"
 import { useAuth } from "./auth-context"
 
 function BootSplash() {
   return (
     <div className="flex min-h-dvh items-center justify-center">
       <div className="flex items-center gap-3 text-muted-foreground animate-fade-in">
-        <span className="inline-block size-2 rounded-full bg-brand animate-pulse" />
-        <span className="font-mono text-xs uppercase">Carpool Notify</span>
+        <BrandIcon className="size-8 animate-pulse" />
+        <span className="text-xs font-semibold uppercase">{APP_NAME}</span>
       </div>
     </div>
   )

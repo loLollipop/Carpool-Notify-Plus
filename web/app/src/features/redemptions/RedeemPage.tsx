@@ -3,7 +3,6 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import {
   AlertTriangle,
-  Car,
   CheckCircle2,
   Clock3,
   Copy,
@@ -26,6 +25,7 @@ import {
   submitRedemptionApplication,
 } from "@/api/endpoints"
 import type { RedeemPageSettings } from "@/api/types"
+import { APP_NAME, BrandIcon } from "@/components/brand"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
@@ -387,11 +387,9 @@ export function RedeemPage() {
       <header className="border-b bg-card">
         <div className="mx-auto flex h-16 w-full max-w-[1100px] items-center px-4 sm:px-6">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand text-brand-foreground">
-              <Car className="size-[18px]" />
-            </span>
+            <BrandIcon />
             <div className="min-w-0 leading-none">
-              <p className="truncate text-sm font-semibold">Carpool Notify</p>
+              <p className="truncate text-sm font-semibold">{APP_NAME}</p>
               <p className="mt-1 hidden text-[11px] text-muted-foreground sm:block">Team Access</p>
             </div>
           </div>
@@ -429,7 +427,7 @@ export function RedeemPage() {
               </span>
               {trackingToken ? "申请进度" : "兑换信息"}
             </div>
-            <span className="font-mono text-[11px] text-muted-foreground">CARPOOL / TEAM</span>
+            <span className="text-[11px] font-medium text-muted-foreground">SEATFLOW / TEAM</span>
           </div>
           {trackingToken ? (
             <div className="grid min-h-[360px] gap-6 p-6 sm:p-8">

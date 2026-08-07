@@ -1,12 +1,18 @@
 {
-  "name": "Carpool Notify",
-  "short_name": "Carpool",
-  "description": "拼车收钱提醒",
+  "name": "SeatFlow",
+  "short_name": "SeatFlow",
+  "description": "拼车订阅与收款运营管理",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f6f7f9",
   "theme_color": "#f6f7f9",
   "icons": [
+    {
+      "src": "/brand-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
     {
       "src": "/icon-192.png",
       "sizes": "192x192",

@@ -1,9 +1,10 @@
 import * as React from "react"
 import { useLocation, useNavigate, Navigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
-import { ArrowRight, Car, LockKeyhole } from "lucide-react"
+import { ArrowRight, LockKeyhole } from "lucide-react"
 
 import { login } from "@/api/endpoints"
+import { BrandIcon } from "@/components/brand"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -44,9 +45,7 @@ export function LoginPage() {
     <div className="grid min-h-dvh bg-background lg:grid-cols-[minmax(320px,0.8fr)_minmax(560px,1.2fr)]">
       <aside className="relative hidden overflow-hidden border-r border-[var(--login-panel-border)] bg-[var(--login-panel)] p-10 text-[var(--login-panel-foreground)] lg:flex lg:flex-col lg:justify-between xl:p-14">
         <div className="flex items-center gap-3 animate-fade-up">
-          <span className="grid size-10 place-items-center rounded-md bg-brand text-brand-foreground">
-            <Car className="size-5" />
-          </span>
+          <BrandIcon className="size-10" />
           <div>
             <h1 className="text-lg font-semibold">{t("common.appName")}</h1>
             <p className="mt-1 text-xs text-[var(--login-panel-muted)]">Workspace Console</p>
@@ -80,9 +79,7 @@ export function LoginPage() {
       <main className="grid min-h-dvh place-items-center px-4 py-10 sm:px-8">
         <div className="w-full max-w-[420px]">
           <div className="mb-7 flex items-center gap-3 lg:hidden animate-fade-up">
-            <span className="grid size-10 place-items-center rounded-md bg-brand text-brand-foreground">
-              <Car className="size-5" />
-            </span>
+            <BrandIcon className="size-10" />
             <div>
               <h1 className="text-base font-semibold">{t("common.appName")}</h1>
               <p className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">

@@ -22,6 +22,7 @@ import { useTheme } from "next-themes"
 
 import { supportedLanguages } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
+import { APP_NAME, BrandIcon } from "@/components/brand"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -41,18 +42,16 @@ function BrandMark({ compact = false, subtitle }: { compact?: boolean; subtitle:
   return (
     <NavLink
       to="/"
-      aria-label="Carpool Notify"
+      aria-label={APP_NAME}
       className={cn(
         "group flex min-w-0 items-center gap-3 select-none",
         compact && "w-full justify-center",
       )}
     >
-      <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand text-brand-foreground shadow-[0_4px_12px_color-mix(in_oklab,var(--brand)_22%,transparent)]">
-        <Car className="size-[18px]" />
-      </span>
+      <BrandIcon />
       <span className={cn("min-w-0 leading-none", compact && "hidden")}>
         <span className="block truncate text-[15px] font-semibold text-[var(--sidebar-foreground)]">
-          Carpool Notify
+          {APP_NAME}
         </span>
         <span className="mt-1 block text-[11px] text-[var(--sidebar-muted)]">
           {subtitle}
@@ -175,10 +174,11 @@ export function AppShell() {
               aria-label={item.label}
               className={({ isActive }) =>
                 cn(
-                  "group flex h-10 items-center gap-3 rounded-md px-2.5 text-sm font-medium text-[var(--sidebar-muted)] transition-[background-color,color]",
-                  "hover:bg-accent hover:text-[var(--sidebar-foreground)]",
+                  "group flex h-10 items-center gap-3 rounded-md px-2.5 text-sm font-medium transition-[background-color,color]",
                   sidebarCollapsed && "justify-center px-0",
-                  isActive && "bg-brand/10 text-brand dark:bg-brand/15",
+                  isActive
+                    ? "bg-brand/[0.09] text-brand dark:bg-brand/15"
+                    : "text-[var(--sidebar-muted)] hover:bg-accent hover:text-[var(--sidebar-foreground)]",
                 )
               }
             >
@@ -270,7 +270,7 @@ export function AppShell() {
       <div className="min-w-0 lg:col-start-2">
         <header className="sticky top-0 z-40 hidden h-16 items-center border-b bg-card/90 px-8 backdrop-blur lg:flex">
           <div className="flex min-w-0 items-center gap-2 text-sm">
-            <span className="font-medium text-muted-foreground">Carpool Notify</span>
+            <span className="font-medium text-muted-foreground">{APP_NAME}</span>
             <ChevronRight className="size-3.5 text-muted-foreground/70" />
             <span className="truncate font-semibold text-foreground">{currentItem.label}</span>
           </div>

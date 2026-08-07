@@ -1,7 +1,7 @@
 export default {
   translation: {
     common: {
-      appName: "Carpool Notify",
+      appName: "SeatFlow",
       save: "Save",
       cancel: "Cancel",
       edit: "Edit",
@@ -40,7 +40,7 @@ export default {
     },
     auth: {
       title: "Sign in",
-      subtitle: "Carpool payment reminders · single user",
+      subtitle: "Shared-seat operations · single user",
       password: "Password",
       passwordPlaceholder: "Enter access password",
       submit: "Enter",
