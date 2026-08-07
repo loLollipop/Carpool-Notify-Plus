@@ -1,7 +1,7 @@
 export default {
   translation: {
     common: {
-      appName: "合序",
+      appName: "Carpool Notify Plus",
       save: "保存",
       cancel: "取消",
       edit: "编辑",

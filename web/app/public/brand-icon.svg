@@ -1,4 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="合序">
-  <rect width="512" height="512" rx="96" fill="#252c3a"/>
-  <text x="256" y="345" fill="#fff" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="252" font-weight="700" text-anchor="middle">合</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Carpool Notify Plus">
+  <rect width="512" height="512" rx="96" fill="#315be8"/>
+  <path d="M341 142A142 142 0 1 0 341 370" fill="none" stroke="#fff" stroke-width="56" stroke-linecap="round"/>
+  <path d="M370 207V305M321 256H419" fill="none" stroke="#c9f46c" stroke-width="38" stroke-linecap="round"/>
 </svg>
