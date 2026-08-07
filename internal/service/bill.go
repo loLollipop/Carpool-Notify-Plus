@@ -26,6 +26,10 @@ type BillView struct {
 	DueDate          string    `json:"due_date"`
 	AmountYuan       string    `json:"amount_yuan"`
 	AmountCents      int64     `json:"amount_cents"`
+	RefundYuan       string    `json:"refund_yuan"`
+	RefundCents      int64     `json:"refund_cents"`
+	NetAmountYuan    string    `json:"net_amount_yuan"`
+	NetAmountCents   int64     `json:"net_amount_cents"`
 	Note             string    `json:"note"`
 	PaidAtLabel      string    `json:"paid_at_label"`
 	PaidAt           time.Time `json:"paid_at"`
@@ -55,9 +59,13 @@ type BillsSummary struct {
 	ArchivedCount          int                `json:"archived_count"`
 	ResaleBillCount        int                `json:"resale_bill_count"`
 	TotalAmountYuan        string             `json:"total_amount_yuan"`
+	TotalRefundYuan        string             `json:"total_refund_yuan"`
+	NetAmountYuan          string             `json:"net_amount_yuan"`
 	TotalAgencyFeeYuan     string             `json:"total_agency_fee_yuan"`
 	ThisMonthCount         int                `json:"this_month_count"`
 	ThisMonthAmountYuan    string             `json:"this_month_amount_yuan"`
+	ThisMonthRefundYuan    string             `json:"this_month_refund_yuan"`
+	ThisMonthNetAmountYuan string             `json:"this_month_net_amount_yuan"`
 	ThisMonthAgencyFeeYuan string             `json:"this_month_agency_fee_yuan"`
 	AverageAmountYuan      string             `json:"average_amount_yuan"`
 	AmountBySubscription   []AmountBar        `json:"amount_by_subscription"`
@@ -68,12 +76,16 @@ type BillsSummary struct {
 
 // MonthAmountBar is one month bucket in the bills trend chart.
 type MonthAmountBar struct {
-	Month        string `json:"month"`
-	Label        string `json:"label"`
-	Count        int    `json:"count"`
-	AmountYuan   string `json:"amount_yuan"`
-	AmountCents  int64  `json:"amount_cents"`
-	WidthPercent int    `json:"width_percent"`
+	Month            string `json:"month"`
+	Label            string `json:"label"`
+	Count            int    `json:"count"`
+	AmountYuan       string `json:"amount_yuan"`
+	AmountCents      int64  `json:"amount_cents"`
+	GrossAmountYuan  string `json:"gross_amount_yuan"`
+	GrossAmountCents int64  `json:"gross_amount_cents"`
+	RefundYuan       string `json:"refund_yuan"`
+	RefundCents      int64  `json:"refund_cents"`
+	WidthPercent     int    `json:"width_percent"`
 }
 
 // BillsPage is the full bills page model.
@@ -95,9 +107,14 @@ func (service *SubscriptionService) ListBillsPage() (BillsPage, error) {
 		return BillsPage{}, err
 	}
 
+	afterSalesCases, err := service.Store.ListAfterSalesCases()
+	if err != nil {
+		return BillsPage{}, err
+	}
+	refundsByBill := completedRefundsByBill(afterSalesCases)
 	views := make([]BillView, 0, len(bills))
 	for _, bill := range bills {
-		view, err := service.buildBillView(bill)
+		view, err := service.buildBillView(bill, refundsByBill[bill.ID])
 		if err != nil {
 			return BillsPage{}, err
 		}
@@ -106,7 +123,7 @@ func (service *SubscriptionService) ListBillsPage() (BillsPage, error) {
 
 	return BillsPage{
 		Bills:   views,
-		Summary: buildBillsSummary(views, service.now()),
+		Summary: buildBillsSummaryWithRefunds(views, afterSalesCases, service.now()),
 	}, nil
 }
 
@@ -119,7 +136,7 @@ func (service *SubscriptionService) ListBillsView() ([]BillView, error) {
 	return page.Bills, nil
 }
 
-func (service *SubscriptionService) buildBillView(bill model.Bill) (BillView, error) {
+func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents int64) (BillView, error) {
 	subscription, err := service.Store.GetSubscriptionIncludingArchived(bill.SubscriptionID)
 	subscriptionName := fmt.Sprintf("订阅 #%d", bill.SubscriptionID)
 	accountName := model.UnclassifiedAccountName
@@ -137,6 +154,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill) (BillView, er
 	costYuan := ""
 	agencyFeeYuan := ""
 	isResale := false
+	profitCents := int64(0)
 	profitYuan := ""
 	cycleDesc := ""
 	cronExpr := ""
@@ -159,7 +177,8 @@ func (service *SubscriptionService) buildBillView(bill model.Bill) (BillView, er
 		costYuan = cycle.FormatCents(subscription.CostCents)
 		agencyFeeYuan = cycle.FormatCents(subscription.AgencyFeeCents)
 		isResale = subscription.IsResale
-		profitYuan = cycle.FormatCents(countedProfitCents(subscription))
+		profitCents = countedProfitCents(subscription) - refundCents
+		profitYuan = cycle.FormatCents(profitCents)
 		cycleDesc = cycle.DescribeCron(subscription.CronExpr)
 		cronExpr = subscription.CronExpr
 		offsetsText = cycle.FormatOffsets(subscription.NotifyOffsets)
@@ -186,6 +205,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill) (BillView, er
 		statusLabel = "已下车"
 	}
 
+	netAmountCents := bill.AmountCents - refundCents
 	return BillView{
 		ID:               bill.ID,
 		SubscriptionID:   bill.SubscriptionID,
@@ -202,6 +222,10 @@ func (service *SubscriptionService) buildBillView(bill model.Bill) (BillView, er
 		DueDate:          bill.DueDate,
 		AmountYuan:       cycle.FormatCents(bill.AmountCents),
 		AmountCents:      bill.AmountCents,
+		RefundYuan:       cycle.FormatCents(refundCents),
+		RefundCents:      refundCents,
+		NetAmountYuan:    cycle.FormatCents(netAmountCents),
+		NetAmountCents:   netAmountCents,
 		Note:             bill.Note,
 		PaidAtLabel:      formatPaidAtLabel(bill.PaidAt),
 		PaidAt:           bill.PaidAt,
@@ -224,11 +248,21 @@ func (service *SubscriptionService) buildBillView(bill model.Bill) (BillView, er
 }
 
 func buildBillsSummary(views []BillView, now time.Time) BillsSummary {
+	return buildBillsSummaryWithRefunds(views, nil, now)
+}
+
+func buildBillsSummaryWithRefunds(
+	views []BillView,
+	afterSalesCases []model.AfterSalesCase,
+	now time.Time,
+) BillsSummary {
 	now = now.In(cycle.Location)
 	thisMonthKey := now.Format("2006-01")
 
 	var totalCents int64
+	var totalRefundCents int64
 	var thisMonthCents int64
+	var thisMonthRefundCents int64
 	var totalAgencyFeeCents int64
 	var thisMonthAgencyFeeCents int64
 	thisMonthCount := 0
@@ -242,11 +276,16 @@ func buildBillsSummary(views []BillView, now time.Time) BillsSummary {
 		cents int64
 	}{}
 	monthTotals := map[string]struct {
-		count int
-		cents int64
+		count       int
+		grossCents  int64
+		refundCents int64
 	}{}
 
 	for _, view := range views {
+		netAmountCents := view.NetAmountCents
+		if view.NetAmountYuan == "" {
+			netAmountCents = view.AmountCents - view.RefundCents
+		}
 		totalCents += view.AmountCents
 		if view.Archived {
 			archivedCount++
@@ -262,7 +301,7 @@ func buildBillsSummary(views []BillView, now time.Time) BillsSummary {
 		if billingMonth != "" {
 			bucket := monthTotals[billingMonth]
 			bucket.count++
-			bucket.cents += view.AmountCents
+			bucket.grossCents += view.AmountCents
 			monthTotals[billingMonth] = bucket
 			if billingMonth == thisMonthKey {
 				thisMonthCount++
@@ -281,13 +320,30 @@ func buildBillsSummary(views []BillView, now time.Time) BillsSummary {
 			}
 			subscriptionTotals[view.SubscriptionID] = bar
 		}
-		bar.AmountCents += view.AmountCents
+		bar.AmountCents += netAmountCents
 		bar.AmountYuan = cycle.FormatCents(bar.AmountCents)
 
 		accountBucket := accountTotals[view.AccountName]
 		accountBucket.count++
-		accountBucket.cents += view.AmountCents
+		accountBucket.cents += netAmountCents
 		accountTotals[view.AccountName] = accountBucket
+	}
+
+	for _, caseItem := range afterSalesCases {
+		if caseItem.Status != model.AfterSalesStatusRefunded {
+			continue
+		}
+		totalRefundCents += caseItem.RefundAmountCents
+		if caseItem.ProcessedAt == nil {
+			continue
+		}
+		monthKey := caseItem.ProcessedAt.In(cycle.Location).Format("2006-01")
+		bucket := monthTotals[monthKey]
+		bucket.refundCents += caseItem.RefundAmountCents
+		monthTotals[monthKey] = bucket
+		if monthKey == thisMonthKey {
+			thisMonthRefundCents += caseItem.RefundAmountCents
+		}
 	}
 
 	amountBars := make([]AmountBar, 0, len(subscriptionTotals))
@@ -326,23 +382,36 @@ func buildBillsSummary(views []BillView, now time.Time) BillsSummary {
 		month := monthStart.AddDate(0, index, 0)
 		monthKey := month.Format("2006-01")
 		bucket := monthTotals[monthKey]
-		if bucket.cents > maxMonthCents {
-			maxMonthCents = bucket.cents
+		netCents := bucket.grossCents - bucket.refundCents
+		absoluteNetCents := netCents
+		if absoluteNetCents < 0 {
+			absoluteNetCents = -absoluteNetCents
+		}
+		if absoluteNetCents > maxMonthCents {
+			maxMonthCents = absoluteNetCents
 		}
 		monthlyTrend = append(monthlyTrend, MonthAmountBar{
-			Month:       monthKey,
-			Label:       fmt.Sprintf("%d月", month.Month()),
-			Count:       bucket.count,
-			AmountYuan:  cycle.FormatCents(bucket.cents),
-			AmountCents: bucket.cents,
+			Month:            monthKey,
+			Label:            fmt.Sprintf("%d月", month.Month()),
+			Count:            bucket.count,
+			AmountYuan:       cycle.FormatCents(netCents),
+			AmountCents:      netCents,
+			GrossAmountYuan:  cycle.FormatCents(bucket.grossCents),
+			GrossAmountCents: bucket.grossCents,
+			RefundYuan:       cycle.FormatCents(bucket.refundCents),
+			RefundCents:      bucket.refundCents,
 		})
 	}
 	if maxMonthCents == 0 {
 		maxMonthCents = 1
 	}
 	for index := range monthlyTrend {
-		width := int(monthlyTrend[index].AmountCents * 100 / maxMonthCents)
-		if monthlyTrend[index].AmountCents > 0 && width < 4 {
+		amountCents := monthlyTrend[index].AmountCents
+		if amountCents < 0 {
+			amountCents = -amountCents
+		}
+		width := int(amountCents * 100 / maxMonthCents)
+		if amountCents > 0 && width < 4 {
 			width = 4
 		}
 		monthlyTrend[index].WidthPercent = width
@@ -359,9 +428,13 @@ func buildBillsSummary(views []BillView, now time.Time) BillsSummary {
 		ArchivedCount:          archivedCount,
 		ResaleBillCount:        resaleBillCount,
 		TotalAmountYuan:        cycle.FormatCents(totalCents),
+		TotalRefundYuan:        cycle.FormatCents(totalRefundCents),
+		NetAmountYuan:          cycle.FormatCents(totalCents - totalRefundCents),
 		TotalAgencyFeeYuan:     cycle.FormatCents(totalAgencyFeeCents),
 		ThisMonthCount:         thisMonthCount,
 		ThisMonthAmountYuan:    cycle.FormatCents(thisMonthCents),
+		ThisMonthRefundYuan:    cycle.FormatCents(thisMonthRefundCents),
+		ThisMonthNetAmountYuan: cycle.FormatCents(thisMonthCents - thisMonthRefundCents),
 		ThisMonthAgencyFeeYuan: cycle.FormatCents(thisMonthAgencyFeeCents),
 		AverageAmountYuan:      averageYuan,
 		AmountBySubscription:   amountBars,
@@ -369,6 +442,16 @@ func buildBillsSummary(views []BillView, now time.Time) BillsSummary {
 		MonthlyTrend:           monthlyTrend,
 		MaxMonthCents:          maxMonthCents,
 	}
+}
+
+func completedRefundsByBill(cases []model.AfterSalesCase) map[int64]int64 {
+	refunds := make(map[int64]int64)
+	for _, caseItem := range cases {
+		if caseItem.Status == model.AfterSalesStatusRefunded && caseItem.BillID > 0 {
+			refunds[caseItem.BillID] += caseItem.RefundAmountCents
+		}
+	}
+	return refunds
 }
 
 func billingMonthKey(dueDate string) string {
@@ -429,5 +512,9 @@ func (service *SubscriptionService) GetBillView(billID int64) (BillView, error) 
 		}
 		return BillView{}, err
 	}
-	return service.buildBillView(bill)
+	afterSalesCases, err := service.Store.ListAfterSalesCases()
+	if err != nil {
+		return BillView{}, err
+	}
+	return service.buildBillView(bill, completedRefundsByBill(afterSalesCases)[bill.ID])
 }

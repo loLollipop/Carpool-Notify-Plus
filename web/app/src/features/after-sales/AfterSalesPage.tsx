@@ -3,6 +3,7 @@ import { useSearchParams } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import {
   AlertTriangle,
+  ArrowRightLeft,
   BadgeDollarSign,
   CheckCircle2,
   ChevronLeft,
@@ -16,9 +17,13 @@ import {
   Users,
 } from "lucide-react"
 
-import { setAfterSalesRefunded, updateAfterSalesCase } from "@/api/endpoints"
+import {
+  reassignAfterSalesCase,
+  setAfterSalesRefunded,
+  updateAfterSalesCase,
+} from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
-import { useAfterSales } from "@/api/queries"
+import { useAccountOptions, useAfterSales } from "@/api/queries"
 import type { AfterSalesCaseView, AfterSalesStatus } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { PageHeader } from "@/components/page-header"
@@ -60,6 +65,14 @@ const CASES_PER_PAGE = 9
 
 function StatusBadge({ status }: { status: AfterSalesStatus }) {
   const { t } = useTranslation()
+  if (status === "reassigned") {
+    return (
+      <Badge variant="secondary" className="font-normal text-brand">
+        <ArrowRightLeft />
+        {t("afterSales.statusReassigned")}
+      </Badge>
+    )
+  }
   if (status === "refunded") {
     return (
       <Badge variant="success" className="font-normal">
@@ -120,6 +133,22 @@ function AccountSnapshot({ view }: { view: AfterSalesCaseView }) {
   )
 }
 
+function ReplacementSnapshot({ view }: { view: AfterSalesCaseView }) {
+  const { t } = useTranslation()
+  if (view.case.status !== "reassigned") return null
+  return (
+    <div className="mt-2 border-l-2 border-success/50 pl-2 text-xs">
+      <div className="font-medium text-success">{t("afterSales.replacementAccount")}</div>
+      <div className="mt-0.5 truncate" title={view.case.replacement_account_email || view.case.replacement_account_name}>
+        {view.case.replacement_account_email || view.case.replacement_account_name}
+      </div>
+      <div className="mt-0.5 truncate text-muted-foreground">
+        {[view.case.replacement_space_name, view.case.replacement_seat_name].filter(Boolean).join(" · ") || "-"}
+      </div>
+    </div>
+  )
+}
+
 function PeriodDetail({ view }: { view: AfterSalesCaseView }) {
   const { t } = useTranslation()
   if (!view.case.period_start) {
@@ -143,30 +172,135 @@ function PeriodDetail({ view }: { view: AfterSalesCaseView }) {
 function RefundActions({
   view,
   onEdit,
+  onReassign,
   onToggleRefunded,
 }: {
   view: AfterSalesCaseView
   onEdit: () => void
+  onReassign: () => void
   onToggleRefunded: () => void
 }) {
   const { t } = useTranslation()
   const refunded = view.case.status === "refunded"
+  const reassigned = view.case.status === "reassigned"
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
-      <Button variant="outline" size="sm" onClick={onEdit}>
-        <Pencil data-slot="icon" />
-        {t("common.edit")}
-      </Button>
-      <Button
-        variant={refunded ? "ghost" : "default"}
-        size="sm"
-        className={cn(refunded && "text-muted-foreground")}
-        onClick={onToggleRefunded}
-      >
-        {refunded ? <RotateCcw data-slot="icon" /> : <CheckCircle2 data-slot="icon" />}
-        {refunded ? t("afterSales.undoRefunded") : t("afterSales.markRefunded")}
-      </Button>
+      {!reassigned ? (
+        <Button variant="outline" size="sm" onClick={onEdit}>
+          <Pencil data-slot="icon" />
+          {t("common.edit")}
+        </Button>
+      ) : null}
+      {!refunded && !reassigned ? (
+        <Button variant="outline" size="sm" onClick={onReassign}>
+          <ArrowRightLeft data-slot="icon" />
+          {t("afterSales.reassign")}
+        </Button>
+      ) : null}
+      {!reassigned ? (
+        <Button
+          variant={refunded ? "ghost" : "default"}
+          size="sm"
+          className={cn(refunded && "text-muted-foreground")}
+          onClick={onToggleRefunded}
+        >
+          {refunded ? <RotateCcw data-slot="icon" /> : <CheckCircle2 data-slot="icon" />}
+          {refunded ? t("afterSales.undoRefunded") : t("afterSales.markRefunded")}
+        </Button>
+      ) : null}
     </div>
+  )
+}
+
+function ReassignCaseDialog({
+  view,
+  onOpenChange,
+}: {
+  view: AfterSalesCaseView | null
+  onOpenChange: (open: boolean) => void
+}) {
+  const { t } = useTranslation()
+  const optionsQuery = useAccountOptions(0, view !== null)
+  const options = React.useMemo(
+    () => (optionsQuery.data ?? []).filter((option) => (option.seats ?? []).length > 0),
+    [optionsQuery.data],
+  )
+  const [accountID, setAccountID] = React.useState("")
+  const [seatID, setSeatID] = React.useState("")
+  const selectedAccount = options.find((option) => String(option.id) === accountID)
+  const mutation = useAppMutation(
+    (input: { id: number; accountId: number; seatId: number }) =>
+      reassignAfterSalesCase(input.id, input.accountId, input.seatId),
+    { onSuccess: () => onOpenChange(false) },
+  )
+
+  return (
+    <Dialog open={view !== null} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{t("afterSales.reassignTitle")}</DialogTitle>
+          <DialogDescription>
+            {t("afterSales.reassignDesc", { email: view?.case.customer_email || "-" })}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-1">
+          <div className="grid gap-2">
+            <Label>{t("afterSales.replacementAccount")}</Label>
+            <Select
+              value={accountID}
+              onValueChange={(value) => {
+                setAccountID(value)
+                const account = options.find((option) => String(option.id) === value)
+                setSeatID(String(account?.seats?.[0]?.id ?? ""))
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={t("afterSales.replacementAccountPlaceholder")} />
+              </SelectTrigger>
+              <SelectContent>
+                {options.map((option) => (
+                  <SelectItem key={option.id} value={String(option.id)}>
+                    {option.email || option.name} · {option.space_name || t("afterSales.spaceUnnamed")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label>{t("afterSales.replacementSeat")}</Label>
+            <Select value={seatID} disabled={!selectedAccount} onValueChange={setSeatID}>
+              <SelectTrigger>
+                <SelectValue placeholder={t("afterSales.replacementSeatPlaceholder")} />
+              </SelectTrigger>
+              <SelectContent>
+                {(selectedAccount?.seats ?? []).map((seat) => (
+                  <SelectItem key={seat.id} value={String(seat.id)}>{seat.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          {optionsQuery.isSuccess && options.length === 0 ? (
+            <p className="text-sm text-destructive">{t("afterSales.noReplacementSeat")}</p>
+          ) : null}
+          <p className="text-xs leading-5 text-muted-foreground">{t("afterSales.reassignHint")}</p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" disabled={mutation.isPending} onClick={() => onOpenChange(false)}>
+            {t("common.cancel")}
+          </Button>
+          <Button
+            disabled={mutation.isPending || !view || !accountID || !seatID}
+            onClick={() => {
+              if (!view) return
+              mutation.mutate({ id: view.case.id, accountId: Number(accountID), seatId: Number(seatID) })
+            }}
+          >
+            <ArrowRightLeft data-slot="icon" />
+            {t("afterSales.confirmReassign")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -241,6 +375,7 @@ export function AfterSalesPage() {
   const [filter, setFilter] = React.useState<AfterSalesFilter>("all")
   const [page, setPage] = React.useState(1)
   const [editTarget, setEditTarget] = React.useState<AfterSalesCaseView | null>(null)
+  const [reassignTarget, setReassignTarget] = React.useState<AfterSalesCaseView | null>(null)
   const [refundTarget, setRefundTarget] = React.useState<AfterSalesCaseView | null>(null)
 
   const toggleRefundMutation = useAppMutation(
@@ -261,6 +396,10 @@ export function AfterSalesPage() {
         view.case.account_name,
         view.case.account_email,
         view.case.account_space_name,
+        view.case.replacement_account_name,
+        view.case.replacement_account_email,
+        view.case.replacement_space_name,
+        view.case.replacement_seat_name,
         view.case.banned_date,
         view.case.note,
         view.refund_amount_yuan,
@@ -314,11 +453,11 @@ export function AfterSalesPage() {
               tone: "bg-destructive/10 text-destructive",
             },
             {
-              label: t("afterSales.kpiPendingAmount"),
-              value: `¥${summary?.pending_refund_yuan ?? "0.00"}`,
-              hint: t("afterSales.kpiPendingAmountHint"),
-              icon: BadgeDollarSign,
-              tone: "bg-gold/12 text-gold",
+              label: t("afterSales.kpiReassigned"),
+              value: summary?.reassigned_count ?? 0,
+              hint: t("afterSales.kpiReassignedHint"),
+              icon: ArrowRightLeft,
+              tone: "bg-brand/10 text-brand",
             },
             {
               label: t("afterSales.kpiRefunded"),
@@ -372,6 +511,7 @@ export function AfterSalesPage() {
             <SelectItem value="pending">{t("afterSales.statusPending")}</SelectItem>
             <SelectItem value="review">{t("afterSales.statusReview")}</SelectItem>
             <SelectItem value="refunded">{t("afterSales.statusRefunded")}</SelectItem>
+            <SelectItem value="reassigned">{t("afterSales.statusReassigned")}</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -401,6 +541,7 @@ export function AfterSalesPage() {
                   <div className="col-span-2">
                     <div className="mb-1 text-xs text-muted-foreground">{t("afterSales.ownerAccount")}</div>
                     <AccountSnapshot view={view} />
+                    <ReplacementSnapshot view={view} />
                   </div>
                   <div className="col-span-2 border-t pt-3">
                     <PeriodDetail view={view} />
@@ -411,8 +552,8 @@ export function AfterSalesPage() {
                   </div>
                   <div>
                     <div className="text-xs text-muted-foreground">{t("afterSales.refundAmount")}</div>
-                    <div className="mt-1 font-mono font-semibold text-destructive tabular-nums">
-                      ¥{view.refund_amount_yuan}
+                    <div className={cn("mt-1 font-mono font-semibold tabular-nums", view.case.status === "reassigned" ? "text-muted-foreground" : "text-destructive")}>
+                      {view.case.status === "reassigned" ? t("afterSales.noRefundRequired") : `¥${view.refund_amount_yuan}`}
                     </div>
                   </div>
                   {view.case.note ? (
@@ -425,6 +566,7 @@ export function AfterSalesPage() {
                   <RefundActions
                     view={view}
                     onEdit={() => setEditTarget(view)}
+                    onReassign={() => setReassignTarget(view)}
                     onToggleRefunded={() => setRefundTarget(view)}
                   />
                 </div>
@@ -449,17 +591,21 @@ export function AfterSalesPage() {
                 {pagedCases.map((view) => (
                   <TableRow key={view.case.id}>
                     <TableCell className="max-w-56 whitespace-normal"><ContactLines view={view} /></TableCell>
-                    <TableCell className="max-w-52 whitespace-normal"><AccountSnapshot view={view} /></TableCell>
+                    <TableCell className="max-w-52 whitespace-normal">
+                      <AccountSnapshot view={view} />
+                      <ReplacementSnapshot view={view} />
+                    </TableCell>
                     <TableCell className="whitespace-normal"><PeriodDetail view={view} /></TableCell>
                     <TableCell className="text-right font-mono tabular-nums">¥{view.paid_amount_yuan}</TableCell>
-                    <TableCell className="text-right font-mono font-semibold text-destructive tabular-nums">
-                      ¥{view.refund_amount_yuan}
+                    <TableCell className={cn("text-right font-mono font-semibold tabular-nums", view.case.status === "reassigned" ? "text-muted-foreground" : "text-destructive")}>
+                      {view.case.status === "reassigned" ? t("afterSales.noRefundRequired") : `¥${view.refund_amount_yuan}`}
                     </TableCell>
                     <TableCell><StatusBadge status={view.case.status} /></TableCell>
                     <TableCell className="text-right">
                       <RefundActions
                         view={view}
                         onEdit={() => setEditTarget(view)}
+                        onReassign={() => setReassignTarget(view)}
                         onToggleRefunded={() => setRefundTarget(view)}
                       />
                     </TableCell>
@@ -488,6 +634,13 @@ export function AfterSalesPage() {
         view={editTarget}
         onOpenChange={(open) => {
           if (!open) setEditTarget(null)
+        }}
+      />
+      <ReassignCaseDialog
+        key={reassignTarget?.case.id ?? "closed"}
+        view={reassignTarget}
+        onOpenChange={(open) => {
+          if (!open) setReassignTarget(null)
         }}
       />
       <ConfirmDialog

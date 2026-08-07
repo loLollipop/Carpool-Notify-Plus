@@ -2,11 +2,13 @@ package service
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 )
 
@@ -30,6 +32,7 @@ type AfterSalesSummary struct {
 	PendingCount        int    `json:"pending_count"`
 	ReviewCount         int    `json:"review_count"`
 	RefundedCount       int    `json:"refunded_count"`
+	ReassignedCount     int    `json:"reassigned_count"`
 	PendingRefundCents  int64  `json:"pending_refund_cents"`
 	PendingRefundYuan   string `json:"pending_refund_yuan"`
 	RefundedAmountCents int64  `json:"refunded_amount_cents"`
@@ -44,6 +47,11 @@ type AfterSalesPage struct {
 type UpdateAfterSalesCaseInput struct {
 	RefundAmountYuan string
 	Note             string
+}
+
+type ReassignAfterSalesCaseInput struct {
+	AccountID int64
+	SeatID    int64
 }
 
 func (service *SubscriptionService) BanAccount(accountID int64, input BanAccountInput) (int, error) {
@@ -95,6 +103,8 @@ func (service *SubscriptionService) ListAfterSalesPage() (AfterSalesPage, error)
 		case model.AfterSalesStatusRefunded:
 			page.Summary.RefundedCount++
 			page.Summary.RefundedAmountCents += caseItem.RefundAmountCents
+		case model.AfterSalesStatusReassigned:
+			page.Summary.ReassignedCount++
 		case model.AfterSalesStatusReview:
 			page.Summary.ReviewCount++
 			page.Summary.PendingRefundCents += caseItem.RefundAmountCents
@@ -120,9 +130,36 @@ func (service *SubscriptionService) UpdateAfterSalesCase(
 }
 
 func (service *SubscriptionService) SetAfterSalesCaseRefunded(caseID int64, refunded bool) error {
-	if err := service.Store.SetAfterSalesCaseRefunded(caseID, refunded); err != nil {
+	if err := service.Store.SetAfterSalesCaseRefunded(caseID, refunded, service.now()); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("售后记录不存在")
+		}
+		return err
+	}
+	return nil
+}
+
+func (service *SubscriptionService) ReassignAfterSalesCase(
+	caseID int64,
+	input ReassignAfterSalesCaseInput,
+) error {
+	if input.AccountID <= 0 {
+		return fmt.Errorf("请选择新的母号空间")
+	}
+	if err := service.Store.ReassignAfterSalesCase(caseID, input.AccountID, input.SeatID, service.now()); err != nil {
+		switch {
+		case errors.Is(err, db.ErrAfterSalesProcessed):
+			return fmt.Errorf("该售后记录已经处理完成")
+		case errors.Is(err, db.ErrReplacementAccountBanned):
+			return fmt.Errorf("新的母号也已封禁，请选择其他空间")
+		case errors.Is(err, db.ErrReplacementSeatUnavailable):
+			return fmt.Errorf("所选母号没有可用车位")
+		case errors.Is(err, db.ErrReplacementSeatOccupied):
+			return fmt.Errorf("所选车位已被占用，请刷新后重试")
+		case errors.Is(err, db.ErrReplacementSeatUnchanged):
+			return fmt.Errorf("新车位不能与当前车位相同")
+		case errors.Is(err, sql.ErrNoRows):
+			return fmt.Errorf("售后记录、订阅或可用车位不存在")
 		}
 		return err
 	}
@@ -133,6 +170,8 @@ func afterSalesStatusLabel(status string) string {
 	switch status {
 	case model.AfterSalesStatusRefunded:
 		return "已退款"
+	case model.AfterSalesStatusReassigned:
+		return "已换空间"
 	case model.AfterSalesStatusReview:
 		return "待核对"
 	default:

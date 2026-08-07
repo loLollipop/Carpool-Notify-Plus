@@ -256,6 +256,171 @@ func TestBanAccountSnapshotsEveryActiveCustomerAndFreezesAssignments(t *testing.
 	}
 }
 
+func TestAfterSalesCaseCanReassignCustomerWithoutRefund(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 5, 12, 0, 0, 0, cycle.Location)
+	}
+	sourceAccountID, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-07-20", true)
+	sourceSubscription, err := subscriptionService.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementAccountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "replacement@example.com",
+		Email:     "replacement@example.com",
+		SpaceName: "Replacement Space",
+		SeatNames: []string{"新车位1", "新车位2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementSeats, err := subscriptionService.Store.ListSeatsByAccount(replacementAccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subscriptionService.BanAccount(sourceAccountID, service.BanAccountInput{BannedDate: "2026-08-01"}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := subscriptionService.ListAfterSalesPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseID := page.Cases[0].Case.ID
+
+	if err := subscriptionService.ReassignAfterSalesCase(caseID, service.ReassignAfterSalesCaseInput{
+		AccountID: replacementAccountID,
+		SeatID:    replacementSeats[1].ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	moved, err := subscriptionService.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.AccountID != replacementAccountID || moved.SeatID != replacementSeats[1].ID {
+		t.Fatalf("moved subscription = account %d seat %d", moved.AccountID, moved.SeatID)
+	}
+	freeSourceSeats, err := subscriptionService.Store.ListFreeSeats(sourceAccountID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(freeSourceSeats) != 1 || freeSourceSeats[0].ID != sourceSubscription.SeatID {
+		t.Fatalf("source seat not released: %#v", freeSourceSeats)
+	}
+
+	page, err = subscriptionService.ListAfterSalesPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed := page.Cases[0].Case
+	if completed.Status != model.AfterSalesStatusReassigned || completed.ProcessedAt == nil {
+		t.Fatalf("reassigned status = %q / %v", completed.Status, completed.ProcessedAt)
+	}
+	if completed.ReplacementAccountID != replacementAccountID || completed.ReplacementSeatID != replacementSeats[1].ID {
+		t.Fatalf("replacement ids = %d/%d", completed.ReplacementAccountID, completed.ReplacementSeatID)
+	}
+	if completed.ReplacementAccountEmail != "replacement@example.com" || completed.ReplacementSpaceName != "Replacement Space" || completed.ReplacementSeatName != "新车位2" {
+		t.Fatalf("replacement snapshot = %#v", completed)
+	}
+	if page.Summary.ReassignedCount != 1 || page.Summary.RefundedCount != 0 || page.Summary.RefundedAmountCents != 0 {
+		t.Fatalf("after-sales summary = %#v", page.Summary)
+	}
+
+	dashboard, err := subscriptionService.ComputeDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.TotalRefundCents != 0 {
+		t.Fatalf("reassignment refund = %d, want 0", dashboard.TotalRefundCents)
+	}
+	if err := subscriptionService.ReassignAfterSalesCase(caseID, service.ReassignAfterSalesCaseInput{
+		AccountID: replacementAccountID,
+		SeatID:    replacementSeats[0].ID,
+	}); err == nil {
+		t.Fatal("repeated reassignment should fail")
+	}
+}
+
+func TestCompletedRefundUpdatesDashboardBillsAndProcessingMonth(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 5, 12, 0, 0, 0, cycle.Location)
+	}
+	accountID, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-07-20", true)
+	totalCostYuan := "10.00"
+	if err := subscriptionService.UpdateAccount(accountID, service.UpdateAccountInput{
+		Name:          "质保母号",
+		Email:         "owner@example.com",
+		SpaceName:     "Warranty Space",
+		CostYuan:      "10.00",
+		TotalCostYuan: &totalCostYuan,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subscriptionService.BanAccount(accountID, service.BanAccountInput{BannedDate: "2026-07-30"}); err != nil {
+		t.Fatal(err)
+	}
+	afterSalesPage, err := subscriptionService.ListAfterSalesPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseID := afterSalesPage.Cases[0].Case.ID
+	if err := subscriptionService.SetAfterSalesCaseRefunded(caseID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	dashboard, err := subscriptionService.ComputeDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.TotalAmountYuan != "30.00" || dashboard.TotalCostYuan != "10.00" || dashboard.TotalRefundYuan != "20.00" || dashboard.NetRevenueYuan != "10.00" || dashboard.TotalProfitYuan != "0.00" {
+		t.Fatalf("dashboard amounts = gross %s refund %s net %s profit %s", dashboard.TotalAmountYuan, dashboard.TotalRefundYuan, dashboard.NetRevenueYuan, dashboard.TotalProfitYuan)
+	}
+
+	billsPage, err := subscriptionService.ListBillsPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(billsPage.Bills) != 1 {
+		t.Fatalf("bills = %d, want 1", len(billsPage.Bills))
+	}
+	bill := billsPage.Bills[0]
+	if bill.SubscriptionID != subscriptionID || bill.RefundYuan != "20.00" || bill.NetAmountYuan != "10.00" {
+		t.Fatalf("bill accounting = %#v", bill)
+	}
+	if billsPage.Summary.TotalRefundYuan != "20.00" || billsPage.Summary.NetAmountYuan != "10.00" || billsPage.Summary.ThisMonthRefundYuan != "20.00" || billsPage.Summary.ThisMonthNetAmountYuan != "-20.00" {
+		t.Fatalf("bill summary = %#v", billsPage.Summary)
+	}
+	var july, august service.MonthAmountBar
+	for _, month := range billsPage.Summary.MonthlyTrend {
+		switch month.Month {
+		case "2026-07":
+			july = month
+		case "2026-08":
+			august = month
+		}
+	}
+	if july.GrossAmountCents != 3000 || july.RefundCents != 0 || july.AmountCents != 3000 {
+		t.Fatalf("july trend = %#v", july)
+	}
+	if august.GrossAmountCents != 0 || august.RefundCents != 2000 || august.AmountCents != -2000 {
+		t.Fatalf("august trend = %#v", august)
+	}
+
+	if err := subscriptionService.SetAfterSalesCaseRefunded(caseID, false); err != nil {
+		t.Fatal(err)
+	}
+	dashboard, err = subscriptionService.ComputeDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.TotalRefundCents != 0 || dashboard.NetRevenueYuan != "30.00" || dashboard.TotalProfitYuan != "20.00" {
+		t.Fatalf("dashboard after undo = %#v", dashboard)
+	}
+}
+
 func createWarrantyCustomer(
 	t *testing.T,
 	subscriptionService *service.SubscriptionService,

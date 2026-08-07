@@ -185,6 +185,10 @@ export interface Dashboard {
   active_count: number
   archived_count: number
   total_amount_yuan: string
+  total_refund_cents: number
+  total_refund_yuan: string
+  net_revenue_cents: number
+  net_revenue_yuan: string
   total_cost_yuan: string
   total_profit_yuan: string
   total_agency_fee_yuan: string
@@ -250,7 +254,7 @@ export interface AccountView {
   can_delete: boolean
 }
 
-export type AfterSalesStatus = "pending" | "review" | "refunded"
+export type AfterSalesStatus = "pending" | "review" | "refunded" | "reassigned"
 
 export interface AfterSalesCase {
   id: number
@@ -270,6 +274,12 @@ export interface AfterSalesCase {
   remaining_days: number
   paid_amount_cents: number
   refund_amount_cents: number
+  replacement_account_id: number
+  replacement_seat_id: number
+  replacement_account_name: string
+  replacement_account_email: string
+  replacement_space_name: string
+  replacement_seat_name: string
   status: AfterSalesStatus
   note: string
   processed_at: string | null
@@ -290,6 +300,7 @@ export interface AfterSalesSummary {
   pending_count: number
   review_count: number
   refunded_count: number
+  reassigned_count: number
   pending_refund_cents: number
   pending_refund_yuan: string
   refunded_amount_cents: number
@@ -339,6 +350,10 @@ export interface BillView {
   due_date: string
   amount_yuan: string
   amount_cents: number
+  refund_yuan: string
+  refund_cents: number
+  net_amount_yuan: string
+  net_amount_cents: number
   note: string
   paid_at_label: string
   paid_at: string
@@ -367,6 +382,10 @@ export interface MonthAmountBar {
   count: number
   amount_yuan: string
   amount_cents: number
+  gross_amount_yuan: string
+  gross_amount_cents: number
+  refund_yuan: string
+  refund_cents: number
   width_percent: number
 }
 
@@ -376,9 +395,13 @@ export interface BillsSummary {
   archived_count: number
   resale_bill_count: number
   total_amount_yuan: string
+  total_refund_yuan: string
+  net_amount_yuan: string
   total_agency_fee_yuan: string
   this_month_count: number
   this_month_amount_yuan: string
+  this_month_refund_yuan: string
+  this_month_net_amount_yuan: string
   this_month_agency_fee_yuan: string
   average_amount_yuan: string
   amount_by_subscription: AmountBar[] | null

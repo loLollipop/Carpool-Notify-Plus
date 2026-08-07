@@ -786,6 +786,29 @@ func (server *Server) postAfterSalesRefunded(context *gin.Context) {
 	respondOK(context, gin.H{"message": message})
 }
 
+func (server *Server) postAfterSalesReassign(context *gin.Context) {
+	caseID, ok := parseIDParam(context, "id", "无效的售后记录 ID")
+	if !ok {
+		return
+	}
+	var request struct {
+		AccountID int64 `json:"account_id"`
+		SeatID    int64 `json:"seat_id"`
+	}
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	if err := server.Service.ReassignAfterSalesCase(caseID, service.ReassignAfterSalesCaseInput{
+		AccountID: request.AccountID,
+		SeatID:    request.SeatID,
+	}); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "客户已安排到新的空间"})
+}
+
 // ---- Bill mutations ------------------------------------------------------------
 
 func (server *Server) putUpdateBill(context *gin.Context) {

@@ -22,10 +22,15 @@ type Store struct {
 }
 
 var (
-	ErrRedemptionCodeNotFound  = errors.New("redemption code not found")
-	ErrRedemptionCodeUsed      = errors.New("redemption code used")
-	ErrRedemptionCodeDisabled  = errors.New("redemption code disabled")
-	ErrRedemptionCodeNotUnused = errors.New("redemption code not unused")
+	ErrRedemptionCodeNotFound     = errors.New("redemption code not found")
+	ErrRedemptionCodeUsed         = errors.New("redemption code used")
+	ErrRedemptionCodeDisabled     = errors.New("redemption code disabled")
+	ErrRedemptionCodeNotUnused    = errors.New("redemption code not unused")
+	ErrAfterSalesProcessed        = errors.New("after-sales case already processed")
+	ErrReplacementAccountBanned   = errors.New("replacement account is banned")
+	ErrReplacementSeatUnavailable = errors.New("replacement seat unavailable")
+	ErrReplacementSeatOccupied    = errors.New("replacement seat is occupied")
+	ErrReplacementSeatUnchanged   = errors.New("replacement seat is unchanged")
 )
 
 // Open creates the database file if needed, opens a connection, and migrates.
@@ -167,6 +172,12 @@ func (store *Store) migrate() error {
 			remaining_days INTEGER NOT NULL DEFAULT 30,
 			paid_amount_cents INTEGER NOT NULL DEFAULT 0,
 			refund_amount_cents INTEGER NOT NULL DEFAULT 0,
+			replacement_account_id INTEGER NOT NULL DEFAULT 0,
+			replacement_seat_id INTEGER NOT NULL DEFAULT 0,
+			replacement_account_name TEXT NOT NULL DEFAULT '',
+			replacement_account_email TEXT NOT NULL DEFAULT '',
+			replacement_space_name TEXT NOT NULL DEFAULT '',
+			replacement_seat_name TEXT NOT NULL DEFAULT '',
 			status TEXT NOT NULL,
 			note TEXT NOT NULL DEFAULT '',
 			processed_at TEXT,
@@ -252,6 +263,9 @@ func (store *Store) migrate() error {
 		return err
 	}
 	if err := store.ensureAccountBanColumns(); err != nil {
+		return err
+	}
+	if err := store.ensureAfterSalesReplacementColumns(); err != nil {
 		return err
 	}
 	if err := store.backfillAccountCostRecords(); err != nil {
@@ -715,6 +729,8 @@ func (store *Store) tableHasColumn(tableName string, columnName string) (bool, e
 		pragma = `PRAGMA table_info(subscriptions)`
 	case "accounts":
 		pragma = `PRAGMA table_info(accounts)`
+	case "after_sales_cases":
+		pragma = `PRAGMA table_info(after_sales_cases)`
 	default:
 		return false, fmt.Errorf("unknown table for column check: %s", tableName)
 	}
@@ -739,6 +755,33 @@ func (store *Store) tableHasColumn(tableName string, columnName string) (bool, e
 		}
 	}
 	return false, rows.Err()
+}
+
+func (store *Store) ensureAfterSalesReplacementColumns() error {
+	columns := []struct {
+		name      string
+		statement string
+	}{
+		{"replacement_account_id", `ALTER TABLE after_sales_cases ADD COLUMN replacement_account_id INTEGER NOT NULL DEFAULT 0`},
+		{"replacement_seat_id", `ALTER TABLE after_sales_cases ADD COLUMN replacement_seat_id INTEGER NOT NULL DEFAULT 0`},
+		{"replacement_account_name", `ALTER TABLE after_sales_cases ADD COLUMN replacement_account_name TEXT NOT NULL DEFAULT ''`},
+		{"replacement_account_email", `ALTER TABLE after_sales_cases ADD COLUMN replacement_account_email TEXT NOT NULL DEFAULT ''`},
+		{"replacement_space_name", `ALTER TABLE after_sales_cases ADD COLUMN replacement_space_name TEXT NOT NULL DEFAULT ''`},
+		{"replacement_seat_name", `ALTER TABLE after_sales_cases ADD COLUMN replacement_seat_name TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, column := range columns {
+		hasColumn, err := store.tableHasColumn("after_sales_cases", column.name)
+		if err != nil {
+			return err
+		}
+		if hasColumn {
+			continue
+		}
+		if _, err := store.database.Exec(column.statement); err != nil {
+			return fmt.Errorf("add after_sales_cases.%s: %w", column.name, err)
+		}
+	}
+	return nil
 }
 
 const subscriptionSelectColumns = `

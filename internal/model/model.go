@@ -202,36 +202,43 @@ type Bill struct {
 }
 
 const (
-	AfterSalesStatusPending  = "pending"
-	AfterSalesStatusReview   = "review"
-	AfterSalesStatusRefunded = "refunded"
+	AfterSalesStatusPending    = "pending"
+	AfterSalesStatusReview     = "review"
+	AfterSalesStatusRefunded   = "refunded"
+	AfterSalesStatusReassigned = "reassigned"
 )
 
-// AfterSalesCase is an immutable refund snapshot created when an owner account is banned.
-// Contact and pricing fields are copied so later edits do not rewrite refund history.
+// AfterSalesCase is an after-sales snapshot created when an owner account is banned.
+// Contact, pricing, and replacement fields preserve the original handling history.
 type AfterSalesCase struct {
-	ID                int64      `json:"id"`
-	AccountID         int64      `json:"account_id"`
-	SubscriptionID    int64      `json:"subscription_id"`
-	BillID            int64      `json:"bill_id"`
-	AccountName       string     `json:"account_name"`
-	AccountEmail      string     `json:"account_email"`
-	AccountSpaceName  string     `json:"account_space_name"`
-	CustomerEmail     string     `json:"customer_email"`
-	CustomerWechat    string     `json:"customer_wechat"`
-	PeriodStart       string     `json:"period_start"`
-	PeriodEnd         string     `json:"period_end"`
-	BannedDate        string     `json:"banned_date"`
-	WarrantyDays      int        `json:"warranty_days"`
-	UsedDays          int        `json:"used_days"`
-	RemainingDays     int        `json:"remaining_days"`
-	PaidAmountCents   int64      `json:"paid_amount_cents"`
-	RefundAmountCents int64      `json:"refund_amount_cents"`
-	Status            string     `json:"status"`
-	Note              string     `json:"note"`
-	ProcessedAt       *time.Time `json:"processed_at"`
-	CreatedAt         time.Time  `json:"created_at"`
-	UpdatedAt         time.Time  `json:"updated_at"`
+	ID                      int64      `json:"id"`
+	AccountID               int64      `json:"account_id"`
+	SubscriptionID          int64      `json:"subscription_id"`
+	BillID                  int64      `json:"bill_id"`
+	AccountName             string     `json:"account_name"`
+	AccountEmail            string     `json:"account_email"`
+	AccountSpaceName        string     `json:"account_space_name"`
+	CustomerEmail           string     `json:"customer_email"`
+	CustomerWechat          string     `json:"customer_wechat"`
+	PeriodStart             string     `json:"period_start"`
+	PeriodEnd               string     `json:"period_end"`
+	BannedDate              string     `json:"banned_date"`
+	WarrantyDays            int        `json:"warranty_days"`
+	UsedDays                int        `json:"used_days"`
+	RemainingDays           int        `json:"remaining_days"`
+	PaidAmountCents         int64      `json:"paid_amount_cents"`
+	RefundAmountCents       int64      `json:"refund_amount_cents"`
+	ReplacementAccountID    int64      `json:"replacement_account_id"`
+	ReplacementSeatID       int64      `json:"replacement_seat_id"`
+	ReplacementAccountName  string     `json:"replacement_account_name"`
+	ReplacementAccountEmail string     `json:"replacement_account_email"`
+	ReplacementSpaceName    string     `json:"replacement_space_name"`
+	ReplacementSeatName     string     `json:"replacement_seat_name"`
+	Status                  string     `json:"status"`
+	Note                    string     `json:"note"`
+	ProcessedAt             *time.Time `json:"processed_at"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
 // PaidDueOccurrence records that one subscription due date has been paid.

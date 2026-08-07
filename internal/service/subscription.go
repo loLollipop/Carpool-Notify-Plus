@@ -322,6 +322,17 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 			totalAgencyFeeCents += bill.AmountCents
 		}
 	}
+	afterSalesCases, err := service.Store.ListAfterSalesCases()
+	if err != nil {
+		return Dashboard{}, err
+	}
+	var totalRefundCents int64
+	for _, caseItem := range afterSalesCases {
+		if caseItem.Status == model.AfterSalesStatusRefunded {
+			totalRefundCents += caseItem.RefundAmountCents
+		}
+	}
+	netRevenueCents := totalReceivedCents - totalRefundCents
 
 	now := service.now()
 	since := now.AddDate(0, 0, -30)
@@ -379,11 +390,11 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		return accounts[left].AmountCents > accounts[right].AmountCents
 	})
 
-	totalProfitCents := totalReceivedCents - totalCostCents
+	totalProfitCents := netRevenueCents - totalCostCents
 	profitMarginPercent := "—"
-	if totalReceivedCents > 0 {
+	if netRevenueCents > 0 {
 		// One decimal percent: profit / price * 100 (integer arithmetic).
-		marginTimesTen := totalProfitCents * 1000 / totalReceivedCents
+		marginTimesTen := totalProfitCents * 1000 / netRevenueCents
 		negativeMargin := marginTimesTen < 0
 		if negativeMargin {
 			marginTimesTen = -marginTimesTen
@@ -402,6 +413,10 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		ActiveCount:          len(subscriptions),
 		ArchivedCount:        len(archivedSubscriptions),
 		TotalAmountYuan:      cycle.FormatCents(totalReceivedCents),
+		TotalRefundCents:     totalRefundCents,
+		TotalRefundYuan:      cycle.FormatCents(totalRefundCents),
+		NetRevenueCents:      netRevenueCents,
+		NetRevenueYuan:       cycle.FormatCents(netRevenueCents),
 		TotalCostYuan:        cycle.FormatCents(totalCostCents),
 		TotalProfitYuan:      cycle.FormatCents(totalProfitCents),
 		TotalAgencyFeeYuan:   cycle.FormatCents(totalAgencyFeeCents),
@@ -443,6 +458,10 @@ type Dashboard struct {
 	ActiveCount          int                `json:"active_count"`
 	ArchivedCount        int                `json:"archived_count"`
 	TotalAmountYuan      string             `json:"total_amount_yuan"`
+	TotalRefundCents     int64              `json:"total_refund_cents"`
+	TotalRefundYuan      string             `json:"total_refund_yuan"`
+	NetRevenueCents      int64              `json:"net_revenue_cents"`
+	NetRevenueYuan       string             `json:"net_revenue_yuan"`
 	TotalCostYuan        string             `json:"total_cost_yuan"`
 	TotalProfitYuan      string             `json:"total_profit_yuan"`
 	TotalAgencyFeeYuan   string             `json:"total_agency_fee_yuan"`

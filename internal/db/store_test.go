@@ -69,6 +69,56 @@ func TestOpenBackfillsOneCurrentCostRecordForLegacyAccount(t *testing.T) {
 	}
 }
 
+func TestOpenAddsReplacementColumnsToLegacyAfterSalesTable(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "legacy-after-sales.db")
+	database, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		CREATE TABLE after_sales_cases (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			account_id INTEGER NOT NULL,
+			subscription_id INTEGER NOT NULL,
+			bill_id INTEGER NOT NULL DEFAULT 0,
+			account_name TEXT NOT NULL DEFAULT '',
+			account_email TEXT NOT NULL DEFAULT '',
+			account_space_name TEXT NOT NULL DEFAULT '',
+			customer_email TEXT NOT NULL DEFAULT '',
+			customer_wechat TEXT NOT NULL DEFAULT '',
+			period_start TEXT NOT NULL DEFAULT '',
+			period_end TEXT NOT NULL DEFAULT '',
+			banned_date TEXT NOT NULL,
+			warranty_days INTEGER NOT NULL DEFAULT 30,
+			used_days INTEGER NOT NULL DEFAULT 0,
+			remaining_days INTEGER NOT NULL DEFAULT 30,
+			paid_amount_cents INTEGER NOT NULL DEFAULT 0,
+			refund_amount_cents INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL,
+			note TEXT NOT NULL DEFAULT '',
+			processed_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			UNIQUE(account_id, subscription_id, banned_date)
+		);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store := openStore(t, databasePath)
+	defer store.Close()
+	cases, err := store.ListAfterSalesCases()
+	if err != nil {
+		t.Fatalf("list migrated after-sales cases: %v", err)
+	}
+	if len(cases) != 0 {
+		t.Fatalf("cases = %d, want 0", len(cases))
+	}
+}
+
 func TestOpenMigratesTemplateNameVariableToCustomerEmail(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "carpool.db")
 	store := openStore(t, databasePath)

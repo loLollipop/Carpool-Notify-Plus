@@ -16,6 +16,7 @@ import {
   CalendarClock,
   CheckCircle2,
   CreditCard,
+  HandCoins,
   Plus,
   Wallet,
 } from "lucide-react"
@@ -93,7 +94,15 @@ function ChartTooltip({
   payload,
 }: {
   active?: boolean
-  payload?: { payload: { name?: string; label?: string; cents?: number; value?: number; count?: number } }[]
+  payload?: { payload: {
+    name?: string
+    label?: string
+    cents?: number
+    grossCents?: number
+    refundCents?: number
+    value?: number
+    count?: number
+  } }[]
 }) {
   const { t } = useTranslation()
   if (!active || !payload || payload.length === 0) return null
@@ -101,10 +110,18 @@ function ChartTooltip({
   return (
     <div className="rounded-lg border bg-popover px-3 py-2 text-xs text-popover-foreground animate-fade-in">
       <div className="font-medium">{item.name ?? item.label}</div>
-      <div className="mt-0.5 tabular-nums text-muted-foreground">
-        {item.cents !== undefined ? formatCents(item.cents) : item.value}
-        {item.count !== undefined ? ` · ${t("bills.countSuffix", { count: item.count })}` : ""}
-      </div>
+      {item.grossCents !== undefined ? (
+        <div className="mt-1.5 grid gap-1 tabular-nums text-muted-foreground">
+          <div>{t("bills.colGross")} <span className="float-right ml-4 text-foreground">{formatCents(item.grossCents)}</span></div>
+          <div>{t("bills.colRefund")} <span className="float-right ml-4 text-destructive">-{formatCents(item.refundCents ?? 0)}</span></div>
+          <div>{t("bills.colNet")} <span className="float-right ml-4 font-medium text-success">{formatCents(item.cents ?? 0)}</span></div>
+        </div>
+      ) : (
+        <div className="mt-0.5 tabular-nums text-muted-foreground">
+          {item.cents !== undefined ? formatCents(item.cents) : item.value}
+          {item.count !== undefined ? ` · ${t("bills.countSuffix", { count: item.count })}` : ""}
+        </div>
+      )}
     </div>
   )
 }
@@ -174,11 +191,14 @@ function KpiRow({
   const { t } = useTranslation()
 
   return (
-    <section aria-label={t("dash.title")} className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <section aria-label={t("dash.title")} className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
       <KpiCard
         label={t("dash.kpiMonth")}
-        value={`¥${summary?.this_month_amount_yuan ?? "0.00"}`}
-        hint={t("dash.kpiMonthHint", { count: summary?.this_month_count ?? 0 })}
+        value={`¥${summary?.this_month_net_amount_yuan ?? "0.00"}`}
+        hint={t("dash.kpiMonthHint", {
+          gross: summary?.this_month_amount_yuan ?? "0.00",
+          refund: summary?.this_month_refund_yuan ?? "0.00",
+        })}
         icon={<Wallet className="size-4" />}
         tone="brand"
         delay={0}
@@ -188,12 +208,20 @@ function KpiRow({
         value={`¥${dashboard.total_profit_yuan}`}
         hint={t("dash.kpiProfitHint", {
           margin: dashboard.profit_margin_percent,
-          total: dashboard.total_amount_yuan,
-          agencyFee: dashboard.total_agency_fee_yuan,
+          net: dashboard.net_revenue_yuan,
+          refund: dashboard.total_refund_yuan,
         })}
         icon={<ArrowUpRight className="size-4" />}
         tone="success"
         delay={70}
+      />
+      <KpiCard
+        label={t("dash.kpiRefund")}
+        value={`¥${dashboard.total_refund_yuan}`}
+        hint={t("dash.kpiRefundHint", { gross: dashboard.total_amount_yuan })}
+        icon={<HandCoins className="size-4" />}
+        tone="violet"
+        delay={140}
       />
       <KpiCard
         label={t("dash.kpiAccountCost")}
@@ -204,7 +232,7 @@ function KpiRow({
         })}
         icon={<CreditCard className="size-4" />}
         tone="gold"
-        delay={140}
+        delay={210}
       />
       <KpiCard
         label={t("dash.kpiPendingMonth")}
@@ -214,7 +242,7 @@ function KpiRow({
         })}
         icon={<CalendarClock className="size-4" />}
         tone="violet"
-        delay={210}
+        delay={280}
       />
     </section>
   )
@@ -227,6 +255,8 @@ function RevenueTrendCard({ summary, className, delay }: { summary: BillsSummary
   const data = (summary.monthly_trend ?? []).map((item) => ({
     label: item.label,
     cents: item.amount_cents,
+    grossCents: item.gross_amount_cents,
+    refundCents: item.refund_cents,
     count: item.count,
   }))
 
@@ -251,7 +281,7 @@ function RevenueTrendCard({ summary, className, delay }: { summary: BillsSummary
                 tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
                 dy={6}
               />
-              <YAxis hide domain={[0, "dataMax"]} />
+              <YAxis hide domain={["dataMin", "dataMax"]} />
               <RechartsTooltip
                 cursor={{ stroke: "var(--border)", strokeWidth: 1 }}
                 content={<ChartTooltip />}

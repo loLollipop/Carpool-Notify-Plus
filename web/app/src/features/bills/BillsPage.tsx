@@ -12,14 +12,13 @@ import {
   YAxis,
 } from "recharts"
 import {
+  BadgeDollarSign,
   CalendarDays,
-  ChartLine,
   ChevronLeft,
   ChevronRight,
   CircleDot,
   Eye,
   HandCoins,
-  Hash,
   Pencil,
   Search,
   Trash2,
@@ -80,7 +79,13 @@ function ChartTooltip({
   payload,
 }: {
   active?: boolean
-  payload?: { payload: { name: string; cents: number; count?: number } }[]
+  payload?: { payload: {
+    name: string
+    cents: number
+    grossCents?: number
+    refundCents?: number
+    count?: number
+  } }[]
 }) {
   const { t } = useTranslation()
   if (!active || !payload || payload.length === 0) return null
@@ -88,10 +93,18 @@ function ChartTooltip({
   return (
     <div className="rounded-lg border bg-popover px-3 py-2 text-xs text-popover-foreground animate-fade-in">
       <div className="font-medium">{item.name}</div>
-      <div className="mt-0.5 tabular-nums text-muted-foreground">
-        {formatCents(item.cents)}
-        {item.count !== undefined ? ` · ${t("bills.countSuffix", { count: item.count })}` : ""}
-      </div>
+      {item.grossCents !== undefined ? (
+        <div className="mt-1.5 grid gap-1 tabular-nums text-muted-foreground">
+          <div>{t("bills.colGross")} <span className="float-right ml-4 text-foreground">{formatCents(item.grossCents)}</span></div>
+          <div>{t("bills.colRefund")} <span className="float-right ml-4 text-destructive">-{formatCents(item.refundCents ?? 0)}</span></div>
+          <div>{t("bills.colNet")} <span className="float-right ml-4 font-medium text-success">{formatCents(item.cents)}</span></div>
+        </div>
+      ) : (
+        <div className="mt-0.5 tabular-nums text-muted-foreground">
+          {formatCents(item.cents)}
+          {item.count !== undefined ? ` · ${t("bills.countSuffix", { count: item.count })}` : ""}
+        </div>
+      )}
     </div>
   )
 }
@@ -181,20 +194,24 @@ function BillMobileCard({
 
         <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md border border-foreground/[0.06] bg-muted/45 p-3 text-xs">
           <div>
-            <div className="text-muted-foreground">{t("bills.colAmount")}</div>
-            <div className="mt-1 text-base font-semibold text-brand tabular-nums">¥{bill.amount_yuan}</div>
+            <div className="text-muted-foreground">{t("bills.colGross")}</div>
+            <div className="mt-1 font-medium tabular-nums">¥{bill.amount_yuan}</div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">{t("bills.colRefund")}</div>
+            <div className={cn("mt-1 font-medium tabular-nums", bill.refund_cents > 0 && "text-destructive")}>
+              {bill.refund_cents > 0 ? "-" : ""}¥{bill.refund_yuan}
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">{t("bills.colNet")}</div>
+            <div className="mt-1 text-base font-semibold text-success tabular-nums">¥{bill.net_amount_yuan}</div>
           </div>
           <div>
             <div className="text-muted-foreground">{t("bills.colStartDate")}</div>
             <div className="mt-1 font-medium tabular-nums">{bill.due_date}</div>
           </div>
-          <div>
-            <div className="text-muted-foreground">{t("bills.colProfit")}</div>
-            <div className="mt-1 font-medium text-success tabular-nums">
-              ¥{bill.is_resale ? "0.00" : bill.profit_yuan}
-            </div>
-          </div>
-          <div>
+          <div className="col-span-2">
             <div className="text-muted-foreground">{t("bills.colPaidAt")}</div>
             <div className="mt-1 tabular-nums">{bill.paid_at_label || "-"}</div>
           </div>
@@ -463,6 +480,8 @@ function MonthlyTrendCard({ summary }: { summary: BillsSummary }) {
     name: item.month,
     label: item.label,
     cents: item.amount_cents,
+    grossCents: item.gross_amount_cents,
+    refundCents: item.refund_cents,
     count: item.count,
   }))
 
@@ -473,7 +492,7 @@ function MonthlyTrendCard({ summary }: { summary: BillsSummary }) {
         <p className="mt-0.5 text-xs text-muted-foreground">{t("bills.chartTrendDesc")}</p>
       </div>
 
-      {summary.bill_count === 0 ? (
+      {data.every((item) => item.grossCents === 0 && item.refundCents === 0) ? (
         <p className="py-10 text-center text-sm text-muted-foreground">
           {t("bills.chartEmptyTrend")}
         </p>
@@ -550,6 +569,8 @@ export function BillsPage() {
         bill.note,
         bill.due_date,
         bill.amount_yuan,
+        bill.refund_yuan,
+        bill.net_amount_yuan,
         bill.profit_yuan,
         bill.agency_fee_yuan,
         bill.status_label,
@@ -596,26 +617,29 @@ export function BillsPage() {
               tone="brand"
             />
             <KpiCard
-              label={t("bills.kpiCount")}
-              value={summary.bill_count}
-              hint={t("bills.kpiCountHint", { avg: summary.average_amount_yuan })}
-              icon={<Hash className="size-4" />}
+              label={t("bills.kpiRefund")}
+              value={`¥${summary.total_refund_yuan}`}
+              hint={t("bills.kpiRefundHint")}
+              icon={<HandCoins className="size-4" />}
               delay={40}
-              tone="brand"
+              tone="gold"
+            />
+            <KpiCard
+              label={t("bills.kpiNet")}
+              value={`¥${summary.net_amount_yuan}`}
+              hint={t("bills.kpiNetHint")}
+              icon={<BadgeDollarSign className="size-4" />}
+              delay={80}
+              tone="success"
             />
             <KpiCard
               label={t("bills.kpiThisMonth")}
-              value={`¥${summary.this_month_amount_yuan}`}
-              hint={t("bills.kpiThisMonthHint", { count: summary.this_month_count })}
+              value={`¥${summary.this_month_net_amount_yuan}`}
+              hint={t("bills.kpiThisMonthHint", {
+                gross: summary.this_month_amount_yuan,
+                refund: summary.this_month_refund_yuan,
+              })}
               icon={<CalendarDays className="size-4" />}
-              delay={80}
-              tone="brand"
-            />
-            <KpiCard
-              label={t("bills.kpiAverage")}
-              value={`¥${summary.average_amount_yuan}`}
-              hint={t("bills.kpiAverageHint")}
-              icon={<ChartLine className="size-4" />}
               delay={120}
               tone="brand"
             />
@@ -710,8 +734,9 @@ export function BillsPage() {
                   <TableRow>
                     <TableHead>{t("bills.colSubscription")}</TableHead>
                     <TableHead>{t("bills.colStartDate")}</TableHead>
-                    <TableHead>{t("bills.colAmount")}</TableHead>
-                    <TableHead className="hidden lg:table-cell">{t("bills.colProfit")}</TableHead>
+                    <TableHead>{t("bills.colGross")}</TableHead>
+                    <TableHead className="hidden lg:table-cell">{t("bills.colRefund")}</TableHead>
+                    <TableHead className="hidden lg:table-cell">{t("bills.colNet")}</TableHead>
                     <TableHead className="hidden lg:table-cell">{t("bills.colAgencyFee")}</TableHead>
                     <TableHead className="hidden md:table-cell">{t("bills.colNote")}</TableHead>
                     <TableHead className="hidden sm:table-cell">{t("bills.colPaidAt")}</TableHead>
@@ -722,7 +747,7 @@ export function BillsPage() {
                 <TableBody>
                   {filteredBills.length === 0 ? (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
+                      <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">
                         {t("bills.searchEmpty")}
                       </TableCell>
                     </TableRow>
@@ -750,8 +775,11 @@ export function BillsPage() {
                       </TableCell>
                       <TableCell className="tabular-nums">{bill.due_date}</TableCell>
                       <TableCell className="font-medium tabular-nums">¥{bill.amount_yuan}</TableCell>
-                      <TableCell className="hidden tabular-nums lg:table-cell">
-                        ¥{bill.is_resale ? "0.00" : bill.profit_yuan}
+                      <TableCell className={cn("hidden tabular-nums lg:table-cell", bill.refund_cents > 0 && "text-destructive")}>
+                        {bill.refund_cents > 0 ? "-" : ""}¥{bill.refund_yuan}
+                      </TableCell>
+                      <TableCell className="hidden font-medium text-success tabular-nums lg:table-cell">
+                        ¥{bill.net_amount_yuan}
                       </TableCell>
                       <TableCell className="hidden tabular-nums lg:table-cell">
                         ¥{bill.is_resale ? bill.agency_fee_yuan : "—"}

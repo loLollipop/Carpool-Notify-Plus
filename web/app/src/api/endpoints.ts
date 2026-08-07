@@ -253,6 +253,13 @@ export function setAfterSalesRefunded(id: number, refunded: boolean) {
   })
 }
 
+export function reassignAfterSalesCase(id: number, accountId: number, seatId: number) {
+  return api<MessageResult>(`/api/after-sales/${id}/reassign`, {
+    method: "POST",
+    body: { account_id: accountId, seat_id: seatId },
+  })
+}
+
 // ---- Bill mutations ----
 
 export function updateBill(id: number, input: BillInput) {

@@ -28,6 +28,12 @@ const afterSalesSelectColumns = `
 	remaining_days,
 	paid_amount_cents,
 	refund_amount_cents,
+	replacement_account_id,
+	replacement_seat_id,
+	replacement_account_name,
+	replacement_account_email,
+	replacement_space_name,
+	replacement_seat_name,
 	status,
 	note,
 	processed_at,
@@ -275,12 +281,16 @@ func (store *Store) UpdateAfterSalesCase(caseID int64, refundAmountCents int64, 
 }
 
 // SetAfterSalesCaseRefunded marks or unmarks one case as completed.
-func (store *Store) SetAfterSalesCaseRefunded(caseID int64, refunded bool) error {
+func (store *Store) SetAfterSalesCaseRefunded(caseID int64, refunded bool, processedTime time.Time) error {
 	status := model.AfterSalesStatusPending
 	processedAt := any(nil)
+	allowedStatus := model.AfterSalesStatusRefunded
+	allowedStatus2 := model.AfterSalesStatusRefunded
 	if refunded {
 		status = model.AfterSalesStatusRefunded
-		processedAt = formatTime(time.Now().UTC())
+		processedAt = formatTime(processedTime.UTC())
+		allowedStatus = model.AfterSalesStatusPending
+		allowedStatus2 = model.AfterSalesStatusReview
 	} else {
 		var billID int64
 		if err := store.database.QueryRow(
@@ -296,11 +306,14 @@ func (store *Store) SetAfterSalesCaseRefunded(caseID int64, refunded bool) error
 	result, err := store.database.Exec(`
 		UPDATE after_sales_cases
 		SET status = ?, processed_at = ?, updated_at = ?
-		WHERE id = ?`,
+		WHERE id = ?
+		  AND status IN (?, ?)`,
 		status,
 		processedAt,
-		formatTime(time.Now().UTC()),
+		formatTime(processedTime.UTC()),
 		caseID,
+		allowedStatus,
+		allowedStatus2,
 	)
 	if err != nil {
 		return err
@@ -313,6 +326,157 @@ func (store *Store) SetAfterSalesCaseRefunded(caseID int64, refunded bool) error
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// ReassignAfterSalesCase moves an affected active subscription to one free seat
+// and closes the case without creating a refund transaction.
+func (store *Store) ReassignAfterSalesCase(
+	caseID int64,
+	replacementAccountID int64,
+	replacementSeatID int64,
+	processedTime time.Time,
+) error {
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	var subscriptionID int64
+	var status string
+	if err := transaction.QueryRow(`
+		SELECT subscription_id, status
+		FROM after_sales_cases
+		WHERE id = ?`, caseID).Scan(&subscriptionID, &status); err != nil {
+		return err
+	}
+	if status == model.AfterSalesStatusRefunded || status == model.AfterSalesStatusReassigned {
+		return ErrAfterSalesProcessed
+	}
+
+	var currentSeatID int64
+	if err := transaction.QueryRow(`
+		SELECT COALESCE(seat_id, 0)
+		FROM subscriptions
+		WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL`, subscriptionID).Scan(&currentSeatID); err != nil {
+		return fmt.Errorf("active subscription unavailable: %w", err)
+	}
+
+	var accountName string
+	var accountEmail string
+	var spaceName string
+	var bannedAt sql.NullString
+	if err := transaction.QueryRow(`
+		SELECT name, COALESCE(email, ''), COALESCE(space_name, ''), banned_at
+		FROM accounts
+		WHERE id = ?`, replacementAccountID).Scan(
+		&accountName,
+		&accountEmail,
+		&spaceName,
+		&bannedAt,
+	); err != nil {
+		return err
+	}
+	if bannedAt.Valid && strings.TrimSpace(bannedAt.String) != "" {
+		return ErrReplacementAccountBanned
+	}
+
+	var seatName string
+	if replacementSeatID > 0 {
+		if err := transaction.QueryRow(`
+			SELECT name
+			FROM seats
+			WHERE id = ? AND account_id = ?`, replacementSeatID, replacementAccountID).Scan(&seatName); err != nil {
+			return fmt.Errorf("%w: %v", ErrReplacementSeatUnavailable, err)
+		}
+	} else {
+		if err := transaction.QueryRow(`
+			SELECT seat.id, seat.name
+			FROM seats AS seat
+			WHERE seat.account_id = ?
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM subscriptions AS subscription
+				WHERE subscription.seat_id = seat.id
+				  AND subscription.deleted_at IS NULL
+				  AND subscription.archived_at IS NULL
+			  )
+			ORDER BY seat.id ASC
+			LIMIT 1`, replacementAccountID).Scan(&replacementSeatID, &seatName); err != nil {
+			return fmt.Errorf("%w: %v", ErrReplacementSeatUnavailable, err)
+		}
+	}
+
+	var occupiedCount int
+	if err := transaction.QueryRow(`
+		SELECT COUNT(1)
+		FROM subscriptions
+		WHERE seat_id = ?
+		  AND id <> ?
+		  AND deleted_at IS NULL
+		  AND archived_at IS NULL`, replacementSeatID, subscriptionID).Scan(&occupiedCount); err != nil {
+		return err
+	}
+	if occupiedCount > 0 {
+		return ErrReplacementSeatOccupied
+	}
+	if replacementSeatID == currentSeatID {
+		return ErrReplacementSeatUnchanged
+	}
+
+	now := formatTime(processedTime.UTC())
+	result, err := transaction.Exec(`
+		UPDATE subscriptions
+		SET seat_id = ?, subscription_type = ?, updated_at = ?
+		WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL`,
+		replacementSeatID,
+		accountName,
+		now,
+		subscriptionID,
+	)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected != 1 {
+		return sql.ErrNoRows
+	}
+
+	result, err = transaction.Exec(`
+		UPDATE after_sales_cases
+		SET replacement_account_id = ?, replacement_seat_id = ?,
+		    replacement_account_name = ?, replacement_account_email = ?,
+		    replacement_space_name = ?, replacement_seat_name = ?,
+		    status = ?, processed_at = ?, updated_at = ?
+		WHERE id = ? AND status IN (?, ?)`,
+		replacementAccountID,
+		replacementSeatID,
+		strings.TrimSpace(accountName),
+		strings.TrimSpace(accountEmail),
+		strings.TrimSpace(spaceName),
+		strings.TrimSpace(seatName),
+		model.AfterSalesStatusReassigned,
+		now,
+		now,
+		caseID,
+		model.AfterSalesStatusPending,
+		model.AfterSalesStatusReview,
+	)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err = result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected != 1 {
+		return ErrAfterSalesProcessed
+	}
+
+	return transaction.Commit()
 }
 
 func scanAfterSalesCase(scanner scannable) (model.AfterSalesCase, error) {
@@ -338,6 +502,12 @@ func scanAfterSalesCase(scanner scannable) (model.AfterSalesCase, error) {
 		&caseItem.RemainingDays,
 		&caseItem.PaidAmountCents,
 		&caseItem.RefundAmountCents,
+		&caseItem.ReplacementAccountID,
+		&caseItem.ReplacementSeatID,
+		&caseItem.ReplacementAccountName,
+		&caseItem.ReplacementAccountEmail,
+		&caseItem.ReplacementSpaceName,
+		&caseItem.ReplacementSeatName,
 		&caseItem.Status,
 		&caseItem.Note,
 		&processedAt,

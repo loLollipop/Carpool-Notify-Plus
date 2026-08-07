@@ -70,6 +70,17 @@ export function SubscriptionViewDialog({
             </div>
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3">
+              <ViewItem label={t("bills.colGross")}>
+                <span className="tabular-nums">¥{bill.amount_yuan}</span>
+              </ViewItem>
+              <ViewItem label={t("bills.colRefund")}>
+                <span className={bill.refund_cents > 0 ? "text-destructive tabular-nums" : "tabular-nums"}>
+                  {bill.refund_cents > 0 ? "-" : ""}¥{bill.refund_yuan}
+                </span>
+              </ViewItem>
+              <ViewItem label={t("bills.colNet")}>
+                <span className="font-medium text-success tabular-nums">¥{bill.net_amount_yuan}</span>
+              </ViewItem>
               <ViewItem label={t("bills.viewPrice")}>
                 <span className="tabular-nums">¥{bill.price_yuan}</span>
               </ViewItem>
