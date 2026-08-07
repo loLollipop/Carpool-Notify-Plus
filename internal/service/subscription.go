@@ -81,23 +81,25 @@ func (service *SubscriptionService) now() time.Time {
 
 // SubscriptionView is a list/card presentation model.
 type SubscriptionView struct {
-	Subscription    model.Subscription `json:"subscription"`
-	PriceYuan       string             `json:"price_yuan"`
-	CostYuan        string             `json:"cost_yuan"`
-	AgencyFeeYuan   string             `json:"agency_fee_yuan"`
-	ProfitYuan      string             `json:"profit_yuan"`
-	CycleDesc       string             `json:"cycle_desc"`
-	NextDueDate     string             `json:"next_due_date"`
-	DaysRemaining   int                `json:"days_remaining"`
-	ChannelLabels   []string           `json:"channel_labels"`
-	OffsetsText     string             `json:"offsets_text"`
-	LastError       string             `json:"last_error"`
-	AccountID       int64              `json:"account_id"`
-	AccountName     string             `json:"account_name"`
-	SeatID          int64              `json:"seat_id"`
-	SeatName        string             `json:"seat_name"`
-	BoardedAt       string             `json:"boarded_at"`
-	ArchivedAtLabel string             `json:"archived_at_label"`
+	Subscription        model.Subscription `json:"subscription"`
+	PriceYuan           string             `json:"price_yuan"`
+	CostYuan            string             `json:"cost_yuan"`
+	AllocatedCostYuan   string             `json:"allocated_cost_yuan"`
+	AgencyFeeYuan       string             `json:"agency_fee_yuan"`
+	ProfitYuan          string             `json:"profit_yuan"`
+	AllocatedProfitYuan string             `json:"allocated_profit_yuan"`
+	CycleDesc           string             `json:"cycle_desc"`
+	NextDueDate         string             `json:"next_due_date"`
+	DaysRemaining       int                `json:"days_remaining"`
+	ChannelLabels       []string           `json:"channel_labels"`
+	OffsetsText         string             `json:"offsets_text"`
+	LastError           string             `json:"last_error"`
+	AccountID           int64              `json:"account_id"`
+	AccountName         string             `json:"account_name"`
+	SeatID              int64              `json:"seat_id"`
+	SeatName            string             `json:"seat_name"`
+	BoardedAt           string             `json:"boarded_at"`
+	ArchivedAtLabel     string             `json:"archived_at_label"`
 	// BillCount is set for archived rows (used to gate soft-delete).
 	BillCount int `json:"bill_count"`
 	// CanSoftDelete is true when archived and BillCount == 0.
@@ -124,7 +126,68 @@ func (service *SubscriptionService) ListView() ([]SubscriptionView, error) {
 		}
 		views = append(views, view)
 	}
+	if err := service.allocateActiveAccountCosts(views); err != nil {
+		return nil, err
+	}
 	return views, nil
+}
+
+// allocateActiveAccountCosts spreads each owner account's monthly cost across
+// its active non-resale customers. The allocated cents always add back up to
+// exactly one account cost, including costs that do not divide evenly.
+func (service *SubscriptionService) allocateActiveAccountCosts(views []SubscriptionView) error {
+	accounts, err := service.Store.ListAccounts()
+	if err != nil {
+		return err
+	}
+	accountCosts := make(map[int64]int64, len(accounts))
+	for _, account := range accounts {
+		accountCosts[account.ID] = account.CostCents
+	}
+
+	groups := make(map[string][]int)
+	groupCosts := make(map[string]int64)
+	for index := range views {
+		view := &views[index]
+		if view.Subscription.IsResale {
+			view.AllocatedCostYuan = cycle.FormatCents(0)
+			view.AllocatedProfitYuan = cycle.FormatCents(view.Subscription.AgencyFeeCents)
+			continue
+		}
+		key := fmt.Sprintf("name:%s", displayAccountName(view.Subscription))
+		useLegacyCost := true
+		if view.AccountID > 0 {
+			key = fmt.Sprintf("id:%d", view.AccountID)
+			if accountCosts[view.AccountID] > 0 {
+				groupCosts[key] = accountCosts[view.AccountID]
+				useLegacyCost = false
+			}
+		}
+		if useLegacyCost && view.Subscription.CostCents > groupCosts[key] {
+			groupCosts[key] = view.Subscription.CostCents
+		}
+		groups[key] = append(groups[key], index)
+	}
+
+	for key, indexes := range groups {
+		sort.SliceStable(indexes, func(left int, right int) bool {
+			return views[indexes[left]].Subscription.ID < views[indexes[right]].Subscription.ID
+		})
+		costCents := groupCosts[key]
+		baseShare := costCents / int64(len(indexes))
+		remainder := costCents % int64(len(indexes))
+		for position, index := range indexes {
+			share := baseShare
+			if int64(position) < remainder {
+				share++
+			}
+			views[index].AllocatedCostYuan = cycle.FormatCents(share)
+			views[index].AllocatedProfitYuan = cycle.FormatCents(
+				views[index].Subscription.PricePerPersonCents - share,
+			)
+		}
+	}
+	return nil
 }
 
 func (service *SubscriptionService) buildView(
@@ -143,23 +206,25 @@ func (service *SubscriptionService) buildView(
 		archivedAtLabel = subscription.ArchivedAt.In(cycle.Location).Format("2006-01-02 15:04")
 	}
 	return SubscriptionView{
-		Subscription:    subscription,
-		PriceYuan:       cycle.FormatCents(subscription.PricePerPersonCents),
-		CostYuan:        cycle.FormatCents(subscription.CostCents),
-		AgencyFeeYuan:   cycle.FormatCents(subscription.AgencyFeeCents),
-		ProfitYuan:      cycle.FormatCents(profitCents),
-		CycleDesc:       cycle.DescribeCron(subscription.CronExpr),
-		NextDueDate:     cycle.FormatDate(nextDue),
-		DaysRemaining:   cycle.DaysRemaining(nextDue, now),
-		ChannelLabels:   scheduledNotificationLabels(subscription.NotifyOffsets),
-		OffsetsText:     cycle.FormatOffsets(subscription.NotifyOffsets),
-		LastError:       lastError,
-		AccountID:       subscription.AccountID,
-		AccountName:     displayAccountName(subscription),
-		SeatID:          subscription.SeatID,
-		SeatName:        subscription.SeatName,
-		BoardedAt:       subscription.BoardedAt,
-		ArchivedAtLabel: archivedAtLabel,
+		Subscription:        subscription,
+		PriceYuan:           cycle.FormatCents(subscription.PricePerPersonCents),
+		CostYuan:            cycle.FormatCents(subscription.CostCents),
+		AllocatedCostYuan:   cycle.FormatCents(subscription.CostCents),
+		AgencyFeeYuan:       cycle.FormatCents(subscription.AgencyFeeCents),
+		ProfitYuan:          cycle.FormatCents(profitCents),
+		AllocatedProfitYuan: cycle.FormatCents(profitCents),
+		CycleDesc:           cycle.DescribeCron(subscription.CronExpr),
+		NextDueDate:         cycle.FormatDate(nextDue),
+		DaysRemaining:       cycle.DaysRemaining(nextDue, now),
+		ChannelLabels:       scheduledNotificationLabels(subscription.NotifyOffsets),
+		OffsetsText:         cycle.FormatOffsets(subscription.NotifyOffsets),
+		LastError:           lastError,
+		AccountID:           subscription.AccountID,
+		AccountName:         displayAccountName(subscription),
+		SeatID:              subscription.SeatID,
+		SeatName:            subscription.SeatName,
+		BoardedAt:           subscription.BoardedAt,
+		ArchivedAtLabel:     archivedAtLabel,
 	}, nil
 }
 

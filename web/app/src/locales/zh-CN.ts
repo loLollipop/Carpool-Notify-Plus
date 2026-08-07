@@ -1,7 +1,7 @@
 export default {
   translation: {
     common: {
-      appName: "SeatFlow",
+      appName: "合序",
       save: "保存",
       cancel: "取消",
       edit: "编辑",
@@ -32,7 +32,7 @@ export default {
       themeDark: "深色",
       themeSystem: "跟随系统",
       language: "语言",
-      workspace: "拼车运营台",
+      workspace: "共享订阅管理",
       operations: "运营管理",
       system: "系统",
       collapse: "收起侧栏",
@@ -189,8 +189,8 @@ export default {
       searchEmpty: "没有匹配的订阅",
       filterLabel: "筛选",
       perPerson: "人均",
-      cost: "成本",
-      profit: "利润",
+      cost: "分摊成本",
+      profit: "分摊利润",
       agencyFee: "中介费",
       resale: "串货",
       cycle: "周期",

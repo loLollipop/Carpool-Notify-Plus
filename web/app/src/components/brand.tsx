@@ -1,8 +1,6 @@
-import { Waypoints } from "lucide-react"
-
 import { cn } from "@/lib/utils"
 
-export const APP_NAME = "SeatFlow"
+export const APP_NAME = "合序"
 
 export function BrandIcon({ className }: { className?: string }) {
   return (
@@ -13,7 +11,7 @@ export function BrandIcon({ className }: { className?: string }) {
       )}
       aria-hidden="true"
     >
-      <Waypoints className="size-5" strokeWidth={2.1} />
+      <span className="translate-y-px text-[18px] leading-none font-bold">合</span>
     </span>
   )
 }

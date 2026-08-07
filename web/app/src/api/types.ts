@@ -30,8 +30,10 @@ export interface SubscriptionView {
   subscription: Subscription
   price_yuan: string
   cost_yuan: string
+  allocated_cost_yuan?: string
   agency_fee_yuan: string
   profit_yuan: string
+  allocated_profit_yuan?: string
   cycle_desc: string
   next_due_date: string
   days_remaining: number

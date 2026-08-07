@@ -123,6 +123,8 @@ function SubscriptionCard({
   const { t } = useTranslation()
   const subscription = view.subscription
   const archived = subscription.archived_at !== null
+  const displayedCostYuan = view.allocated_cost_yuan || view.cost_yuan
+  const displayedProfitYuan = view.allocated_profit_yuan || view.profit_yuan
   const accentClass = archived
     ? "bg-muted-foreground/35"
     : view.days_remaining <= 0
@@ -167,11 +169,11 @@ function SubscriptionCard({
           <span className="tabular-nums">¥{view.price_yuan}</span>
         </MetaCell>
         <MetaCell label={t("cards.cost")}>
-          <span className="font-medium text-gold tabular-nums">¥{view.cost_yuan}</span>
+          <span className="font-medium text-gold tabular-nums">¥{displayedCostYuan}</span>
         </MetaCell>
         <MetaCell label={subscription.is_resale ? t("cards.agencyFee") : t("cards.profit")}>
           <span className="font-medium text-success tabular-nums">
-            ¥{subscription.is_resale ? view.agency_fee_yuan : view.profit_yuan}
+            ¥{subscription.is_resale ? view.agency_fee_yuan : displayedProfitYuan}
           </span>
         </MetaCell>
         <MetaCell label={t("cards.cycle")}>{view.cycle_desc}</MetaCell>
@@ -388,6 +390,8 @@ export function CardsPage() {
         view.next_due_date,
         view.price_yuan,
         view.cost_yuan,
+        view.allocated_cost_yuan,
+        view.allocated_profit_yuan,
         view.agency_fee_yuan,
         ...(view.channel_labels ?? []),
       ].some((field) => field?.toLowerCase().includes(query)),

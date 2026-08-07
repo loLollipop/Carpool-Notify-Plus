@@ -623,6 +623,75 @@ func TestComputeDashboardCountsAccountCostOnceAndIncludesEmptyAccounts(t *testin
 	}
 }
 
+func TestListViewAllocatesAccountCostOnceAcrossActiveUsers(t *testing.T) {
+	subscriptionService := openTestService(t)
+	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "shared@example.com",
+		Email:     "shared@example.com",
+		CostYuan:  "85.01",
+		SeatNames: []string{"seat1", "seat2", "seat3"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := subscriptionService.Store.ListSeatsByAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "first customer",
+		PriceYuan:        "90.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seats[0].ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "second customer",
+		PriceYuan:        "95.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seats[1].ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resaleID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "resale customer",
+		PriceYuan:        "0.00",
+		IsResale:         true,
+		AgencyFeeYuan:    "3.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seats[2].ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	views, err := subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[int64]service.SubscriptionView, len(views))
+	for _, view := range views {
+		byID[view.Subscription.ID] = view
+	}
+
+	if view := byID[firstID]; view.AllocatedCostYuan != "42.51" || view.AllocatedProfitYuan != "47.49" {
+		t.Fatalf("first allocation = %s / %s, want 42.51 / 47.49", view.AllocatedCostYuan, view.AllocatedProfitYuan)
+	}
+	if view := byID[secondID]; view.AllocatedCostYuan != "42.50" || view.AllocatedProfitYuan != "52.50" {
+		t.Fatalf("second allocation = %s / %s, want 42.50 / 52.50", view.AllocatedCostYuan, view.AllocatedProfitYuan)
+	}
+	if view := byID[resaleID]; view.AllocatedCostYuan != "0.00" || view.AllocatedProfitYuan != "3.00" {
+		t.Fatalf("resale allocation = %s / %s, want 0.00 / 3.00", view.AllocatedCostYuan, view.AllocatedProfitYuan)
+	}
+}
+
 func TestCreateAndGetPreservesCostCents(t *testing.T) {
 	subscriptionService := openTestService(t)
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "成本账号", "位1")

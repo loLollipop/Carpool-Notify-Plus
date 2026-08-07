@@ -1,7 +1,7 @@
 export default {
   translation: {
     common: {
-      appName: "SeatFlow",
+      appName: "合序",
       save: "Save",
       cancel: "Cancel",
       edit: "Edit",
@@ -32,7 +32,7 @@ export default {
       themeDark: "Dark",
       themeSystem: "System",
       language: "Language",
-      workspace: "Operations Console",
+      workspace: "Shared Subscriptions",
       operations: "Operations",
       system: "System",
       collapse: "Collapse sidebar",
@@ -186,8 +186,8 @@ export default {
       empty: "No subscriptions yet.",
       createFirst: "Create the first one",
       perPerson: "Per seat",
-      cost: "Cost",
-      profit: "Profit",
+      cost: "Allocated cost",
+      profit: "Allocated profit",
       agencyFee: "Agency fee",
       resale: "Resale",
       cycle: "Cycle",

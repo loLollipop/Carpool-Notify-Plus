@@ -427,7 +427,7 @@ export function RedeemPage() {
               </span>
               {trackingToken ? "申请进度" : "兑换信息"}
             </div>
-            <span className="text-[11px] font-medium text-muted-foreground">SEATFLOW / TEAM</span>
+            <span className="text-[11px] font-medium text-muted-foreground">HESU / TEAM</span>
           </div>
           {trackingToken ? (
             <div className="grid min-h-[360px] gap-6 p-6 sm:p-8">

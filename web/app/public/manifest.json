@@ -1,6 +1,6 @@
 {
-  "name": "SeatFlow",
-  "short_name": "SeatFlow",
+  "name": "合序",
+  "short_name": "合序",
   "description": "拼车订阅与收款运营管理",
   "start_url": "/",
   "display": "standalone",
