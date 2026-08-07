@@ -979,28 +979,28 @@ function SettingsForm({ settings }: { settings: Settings }) {
           <TabsList className="grid h-auto w-full grid-cols-2 gap-1 border-0 bg-transparent p-0 lg:grid-cols-4">
             <TabsTrigger
               value="templates"
-              className="h-11 justify-start px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
+              className="h-11 justify-center px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
             >
               <MessageSquare />
               {t("settings.sections.templates")}
             </TabsTrigger>
             <TabsTrigger
               value="delivery"
-              className="h-11 justify-start px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
+              className="h-11 justify-center px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
             >
               <BellRing />
               {t("settings.sections.delivery")}
             </TabsTrigger>
             <TabsTrigger
               value="redemption"
-              className="h-11 justify-start px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
+              className="h-11 justify-center px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
             >
               <Megaphone />
               {t("settings.sections.redemption")}
             </TabsTrigger>
             <TabsTrigger
               value="tools"
-              className="h-11 justify-start px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
+              className="h-11 justify-center px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
             >
               <Download />
               {t("settings.sections.tools")}

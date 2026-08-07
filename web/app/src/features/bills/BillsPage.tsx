@@ -66,6 +66,7 @@ const CHART_COLORS = [
 ]
 
 const BILLS_PER_PAGE = 9
+const AMOUNT_ITEMS_PER_PAGE = 6
 
 function formatCents(cents: number) {
   return `¥${(cents / 100).toLocaleString("zh-CN", {
@@ -234,6 +235,7 @@ function BillMobileCard({
 function AmountDistributionCard({ summary }: { summary: BillsSummary }) {
   const { t } = useTranslation()
   const [mode, setMode] = React.useState<"subscription" | "account">("subscription")
+  const [page, setPage] = React.useState(1)
 
   const data = React.useMemo(() => {
     if (mode === "subscription") {
@@ -250,6 +252,12 @@ function AmountDistributionCard({ summary }: { summary: BillsSummary }) {
       count: bar.count,
     }))
   }, [summary, mode])
+
+  const pageCount = Math.max(1, Math.ceil(data.length / AMOUNT_ITEMS_PER_PAGE))
+  const safePage = Math.min(page, pageCount)
+  const pageStartIndex = (safePage - 1) * AMOUNT_ITEMS_PER_PAGE
+  const pagedData = data.slice(pageStartIndex, pageStartIndex + AMOUNT_ITEMS_PER_PAGE)
+  const pageEndIndex = pageStartIndex + pagedData.length
 
   return (
     <Card className="gap-4 overflow-hidden p-5 animate-fade-up" style={{ animationDelay: "120ms" }}>
@@ -272,7 +280,10 @@ function AmountDistributionCard({ summary }: { summary: BillsSummary }) {
               type="button"
               role="tab"
               aria-selected={mode === item.value}
-              onClick={() => setMode(item.value)}
+              onClick={() => {
+                setMode(item.value)
+                setPage(1)
+              }}
               className={cn(
                 "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
                 mode === item.value
@@ -289,39 +300,77 @@ function AmountDistributionCard({ summary }: { summary: BillsSummary }) {
       {data.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">{t("bills.chartEmpty")}</p>
       ) : (
-        <div style={{ height: Math.max(data.length * 40, 120) }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} layout="vertical" margin={{ top: 0, right: 56, bottom: 0, left: 0 }}>
-              <XAxis type="number" hide />
-              <YAxis
-                type="category"
-                dataKey="name"
-                width={104}
-                axisLine={false}
-                tickLine={false}
-                tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                tickFormatter={(value: string) =>
-                  value.length > 8 ? `${value.slice(0, 8)}…` : value
-                }
-              />
-              <RechartsTooltip cursor={{ fill: "var(--accent)" }} content={<ChartTooltip />} />
-              <Bar
-                dataKey="cents"
-                radius={[3, 3, 3, 3]}
-                barSize={14}
-                label={{
-                  position: "right",
-                  fontSize: 11,
-                  fill: "var(--muted-foreground)",
-                  formatter: (value: unknown) => formatCents(Number(value)),
-                }}
-              >
-                {data.map((_, index) => (
-                  <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+        <div className="grid gap-3">
+          <div className="h-[240px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={pagedData} layout="vertical" margin={{ top: 0, right: 56, bottom: 0, left: 0 }}>
+                <XAxis type="number" hide />
+                <YAxis
+                  type="category"
+                  dataKey="name"
+                  width={104}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  tickFormatter={(value: string) =>
+                    value.length > 8 ? `${value.slice(0, 8)}…` : value
+                  }
+                />
+                <RechartsTooltip cursor={{ fill: "var(--accent)" }} content={<ChartTooltip />} />
+                <Bar
+                  dataKey="cents"
+                  radius={[3, 3, 3, 3]}
+                  barSize={14}
+                  label={{
+                    position: "right",
+                    fontSize: 11,
+                    fill: "var(--muted-foreground)",
+                    formatter: (value: unknown) => formatCents(Number(value)),
+                  }}
+                >
+                  {pagedData.map((_, index) => (
+                    <Cell
+                      key={index}
+                      fill={CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length]}
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          {pageCount > 1 ? (
+            <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
+              <span className="tabular-nums">
+                {pageStartIndex + 1}-{pageEndIndex} / {data.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t("cards.prevPage")}
+                  disabled={safePage <= 1}
+                  onClick={() => setPage(safePage - 1)}
+                >
+                  <ChevronLeft />
+                </Button>
+                <span className="min-w-12 text-center tabular-nums">
+                  {safePage} / {pageCount}
+                </span>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t("cards.nextPage")}
+                  disabled={safePage >= pageCount}
+                  onClick={() => setPage(safePage + 1)}
+                >
+                  <ChevronRight />
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
     </Card>
@@ -332,12 +381,22 @@ function AmountDistributionCard({ summary }: { summary: BillsSummary }) {
 
 function AccountDonutCard({ summary }: { summary: BillsSummary }) {
   const { t } = useTranslation()
+  const [reduceMotion, setReduceMotion] = React.useState(() =>
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  )
   const data = (summary.accounts ?? []).map((item) => ({
     name: item.account_name,
     cents: item.amount_cents,
     yuan: item.amount_yuan,
     count: item.count,
   }))
+
+  React.useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const handleChange = (event: MediaQueryListEvent) => setReduceMotion(event.matches)
+    media.addEventListener("change", handleChange)
+    return () => media.removeEventListener("change", handleChange)
+  }, [])
 
   return (
     <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "180ms" }}>
@@ -361,9 +420,14 @@ function AccountDonutCard({ summary }: { summary: BillsSummary }) {
                 nameKey="name"
                 innerRadius={52}
                 outerRadius={80}
+                startAngle={90}
+                endAngle={-270}
                 paddingAngle={3}
                 strokeWidth={0}
-                isAnimationActive={false}
+                isAnimationActive={!reduceMotion}
+                animationBegin={120}
+                animationDuration={1000}
+                animationEasing="ease-out"
               >
                 {data.map((_, index) => (
                   <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
