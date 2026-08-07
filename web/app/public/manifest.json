@@ -4,11 +4,11 @@
   "description": "拼车订阅与收款运营管理",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f6f7f9",
-  "theme_color": "#f6f7f9",
+  "background_color": "#f6f9f8",
+  "theme_color": "#f6f9f8",
   "icons": [
     {
-      "src": "/brand-icon.svg",
+      "src": "/carpool-notify-plus.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"

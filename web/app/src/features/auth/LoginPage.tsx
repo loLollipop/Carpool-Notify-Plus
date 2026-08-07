@@ -45,7 +45,7 @@ export function LoginPage() {
     <div className="grid min-h-dvh bg-background lg:grid-cols-[minmax(320px,0.8fr)_minmax(560px,1.2fr)]">
       <aside className="relative hidden overflow-hidden border-r border-[var(--login-panel-border)] bg-[var(--login-panel)] p-10 text-[var(--login-panel-foreground)] lg:flex lg:flex-col lg:justify-between xl:p-14">
         <div className="flex items-center gap-3 animate-fade-up">
-          <BrandIcon className="size-10 bg-white text-[#315be8] dark:bg-white dark:text-[#315be8]" />
+          <BrandIcon className="size-10" />
           <div>
             <h1 className="text-lg font-semibold">{t("common.appName")}</h1>
             <p className="mt-1 text-xs text-[var(--login-panel-muted)]">Shared Access Console</p>

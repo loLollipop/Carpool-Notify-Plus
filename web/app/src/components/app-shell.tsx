@@ -38,7 +38,7 @@ import { useAuth } from "@/features/auth/auth-context"
 
 const SIDEBAR_STORAGE_KEY = "carpool-notify:sidebar-collapsed"
 
-function BrandMark({ compact = false, subtitle }: { compact?: boolean; subtitle: string }) {
+function BrandMark({ compact = false }: { compact?: boolean }) {
   return (
     <NavLink
       to="/"
@@ -49,12 +49,9 @@ function BrandMark({ compact = false, subtitle }: { compact?: boolean; subtitle:
       )}
     >
       <BrandIcon />
-      <span className={cn("min-w-0 leading-none", compact && "hidden")}>
+      <span className={cn("min-w-0", compact && "hidden")}>
         <span className="block truncate text-[15px] font-semibold text-[var(--sidebar-foreground)]">
           {APP_NAME}
-        </span>
-        <span className="mt-1 block text-[11px] text-[var(--sidebar-muted)]">
-          {subtitle}
         </span>
       </span>
     </NavLink>
@@ -221,7 +218,7 @@ export function AppShell() {
         )}
       >
         <div className={cn("flex h-16 items-center border-b border-[var(--sidebar-border)]", sidebarCollapsed ? "px-3" : "px-5")}>
-          <BrandMark compact={sidebarCollapsed} subtitle={t("nav.workspace")} />
+          <BrandMark compact={sidebarCollapsed} />
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Primary navigation">
@@ -282,7 +279,7 @@ export function AppShell() {
 
         <header className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur lg:hidden">
           <div className="flex h-16 items-center gap-2 px-4">
-            <BrandMark subtitle={t("nav.workspace")} />
+            <BrandMark />
             <div className="ml-auto flex items-center gap-1">
               <LanguageToggle />
               <ThemeToggle />

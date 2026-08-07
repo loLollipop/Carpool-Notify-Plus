@@ -43,10 +43,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
 type TemplateKind = "notify" | "customer"
+type SettingsSection = "templates" | "delivery" | "redemption" | "tools"
 
 type TemplateFieldKey =
   | "customerEmail"
@@ -795,8 +797,74 @@ function NotificationConfigEditor({
   )
 }
 
+function SystemTools() {
+  const { t } = useTranslation()
+  const [testConfirmOpen, setTestConfirmOpen] = React.useState(false)
+  const testMutation = useAppMutation(() => testSettingsNotify(), {
+    onSuccess: () => setTestConfirmOpen(false),
+  })
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <Card className="relative flex-col gap-4 overflow-hidden p-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+            <Send className="size-4" />
+          </span>
+          <div>
+            <h2 className="text-sm font-semibold">{t("settings.testTitle")}</h2>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {t("settings.testHint")}
+            </p>
+          </div>
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full shrink-0 sm:w-auto"
+          onClick={() => setTestConfirmOpen(true)}
+        >
+          <Send data-slot="icon" />
+          {t("settings.testAction")}
+        </Button>
+      </Card>
+
+      <Card className="relative flex-col gap-4 overflow-hidden p-6 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+            <Download className="size-4" />
+          </span>
+          <div>
+            <h2 className="text-sm font-semibold">{t("settings.exportTitle")}</h2>
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {t("settings.exportHint")}
+            </p>
+          </div>
+        </div>
+        <Button variant="outline" className="w-full shrink-0 sm:w-auto" asChild>
+          <a href="/export">
+            <Download data-slot="icon" />
+            {t("settings.exportAction")}
+          </a>
+        </Button>
+      </Card>
+
+      <ConfirmDialog
+        open={testConfirmOpen}
+        onOpenChange={setTestConfirmOpen}
+        title={t("confirms.testNotifyTitle")}
+        description={t("confirms.testNotifyDesc")}
+        actionLabel={t("confirms.testNotifyAction")}
+        pending={testMutation.isPending}
+        onConfirm={() => testMutation.mutate(undefined)}
+      />
+    </div>
+  )
+}
+
 function SettingsForm({ settings }: { settings: Settings }) {
   const { t } = useTranslation()
+  const [activeSection, setActiveSection] = React.useState<SettingsSection>("templates")
 
   const [notifyDraft, setNotifyDraft] = React.useState(() =>
     draftFromTemplate("notify", settings.notify_template),
@@ -902,45 +970,93 @@ function SettingsForm({ settings }: { settings: Settings }) {
 
   return (
     <form onSubmit={handleSave} className="grid gap-4">
-      <section className="grid gap-4 animate-fade-up">
-        <div className="flex items-center gap-2">
-          <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
-            <BellRing className="size-4" />
-          </span>
-          <h2 className="panel-heading text-sm font-semibold">{t("settings.templateBuilder")}</h2>
+      <Tabs
+        value={activeSection}
+        onValueChange={(value) => setActiveSection(value as SettingsSection)}
+        className="gap-5"
+      >
+        <div className="rounded-lg border bg-card p-1 shadow-[0_1px_3px_color-mix(in_oklab,var(--foreground)_6%,transparent)]">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 border-0 bg-transparent p-0 lg:grid-cols-4">
+            <TabsTrigger
+              value="templates"
+              className="h-11 justify-start px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
+            >
+              <MessageSquare />
+              {t("settings.sections.templates")}
+            </TabsTrigger>
+            <TabsTrigger
+              value="delivery"
+              className="h-11 justify-start px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
+            >
+              <BellRing />
+              {t("settings.sections.delivery")}
+            </TabsTrigger>
+            <TabsTrigger
+              value="redemption"
+              className="h-11 justify-start px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
+            >
+              <Megaphone />
+              {t("settings.sections.redemption")}
+            </TabsTrigger>
+            <TabsTrigger
+              value="tools"
+              className="h-11 justify-start px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
+            >
+              <Download />
+              {t("settings.sections.tools")}
+            </TabsTrigger>
+          </TabsList>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-2">
-          <TemplateEditor
-            kind="notify"
-            draft={notifyDraft}
-            onDraftChange={setNotifyDraft}
-            onPreview={() => openPreview("notify")}
+        <TabsContent value="templates" className="mt-0 grid gap-4 animate-fade-in">
+          <div className="flex items-center gap-2 px-1">
+            <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
+              <MessageSquare className="size-4" />
+            </span>
+            <h2 className="panel-heading text-sm font-semibold">{t("settings.templateBuilder")}</h2>
+          </div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <TemplateEditor
+              kind="notify"
+              draft={notifyDraft}
+              onDraftChange={setNotifyDraft}
+              onPreview={() => openPreview("notify")}
+            />
+            <TemplateEditor
+              kind="customer"
+              draft={customerDraft}
+              onDraftChange={setCustomerDraft}
+              onPreview={() => openPreview("customer")}
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="delivery" className="mt-0 animate-fade-in">
+          <NotificationConfigEditor
+            settings={settings}
+            value={deliveryConfig}
+            onChange={setDeliveryConfig}
+            enabledChannels={enabledChannels}
+            onToggleChannel={toggleChannel}
           />
-          <TemplateEditor
-            kind="customer"
-            draft={customerDraft}
-            onDraftChange={setCustomerDraft}
-            onPreview={() => openPreview("customer")}
-          />
+        </TabsContent>
+
+        <TabsContent value="redemption" className="mt-0 animate-fade-in">
+          <RedeemPageSettingsEditor value={redeemPage} onChange={setRedeemPage} />
+        </TabsContent>
+
+        <TabsContent value="tools" className="mt-0 animate-fade-in">
+          <SystemTools />
+        </TabsContent>
+      </Tabs>
+
+      {activeSection !== "tools" ? (
+        <div className="flex justify-end rounded-lg border border-[var(--sidebar-border)] bg-[var(--sidebar)] p-3 shadow-sm">
+          <Button type="submit" className="w-full sm:w-auto" disabled={saveMutation.isPending}>
+            {t("settings.saveSettings")}
+          </Button>
         </div>
-      </section>
-
-      <RedeemPageSettingsEditor value={redeemPage} onChange={setRedeemPage} />
-
-      <NotificationConfigEditor
-        settings={settings}
-        value={deliveryConfig}
-        onChange={setDeliveryConfig}
-        enabledChannels={enabledChannels}
-        onToggleChannel={toggleChannel}
-      />
-
-      <div className="flex justify-end rounded-lg border border-[var(--sidebar-border)] bg-[var(--sidebar)] p-3 shadow-sm">
-        <Button type="submit" className="w-full sm:w-auto" disabled={saveMutation.isPending}>
-          {t("settings.saveSettings")}
-        </Button>
-      </div>
+      ) : null}
 
       <Dialog
         open={previewKind !== null}
@@ -994,16 +1110,11 @@ function SettingsForm({ settings }: { settings: Settings }) {
 export function SettingsPage() {
   const { t } = useTranslation()
   const settingsQuery = useSettings()
-  const [testConfirmOpen, setTestConfirmOpen] = React.useState(false)
-
-  const testMutation = useAppMutation(() => testSettingsNotify(), {
-    onSuccess: () => setTestConfirmOpen(false),
-  })
 
   const settings = settingsQuery.data
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="mx-auto max-w-6xl">
       <PageHeader title={t("settings.title")} description={t("settings.desc")} />
 
       {settingsQuery.isPending ? (
@@ -1020,64 +1131,8 @@ export function SettingsPage() {
           </Button>
         </Card>
       ) : settings ? (
-        <div className="grid gap-4">
-          <SettingsForm settings={settings} />
-
-          <Card
-            className="relative flex-col gap-4 overflow-hidden p-6 animate-fade-up sm:flex-row sm:items-center sm:justify-between"
-            style={{ animationDelay: "120ms" }}
-          >
-            <div className="flex items-start gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
-                <Send className="size-4" />
-              </span>
-              <div>
-                <h2 className="text-sm font-semibold">{t("settings.testTitle")}</h2>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  {t("settings.testHint")}
-                </p>
-              </div>
-            </div>
-            <Button variant="outline" className="w-full shrink-0 sm:w-auto" onClick={() => setTestConfirmOpen(true)}>
-              <Send data-slot="icon" />
-              {t("settings.testAction")}
-            </Button>
-          </Card>
-
-          <Card
-            className="relative flex-col gap-4 overflow-hidden p-6 animate-fade-up sm:flex-row sm:items-center sm:justify-between"
-            style={{ animationDelay: "180ms" }}
-          >
-            <div className="flex items-start gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
-                <Download className="size-4" />
-              </span>
-              <div>
-                <h2 className="text-sm font-semibold">{t("settings.exportTitle")}</h2>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  {t("settings.exportHint")}
-                </p>
-              </div>
-            </div>
-            <Button variant="outline" className="w-full shrink-0 sm:w-auto" asChild>
-              <a href="/export">
-                <Download data-slot="icon" />
-                {t("settings.exportAction")}
-              </a>
-            </Button>
-          </Card>
-        </div>
+        <SettingsForm settings={settings} />
       ) : null}
-
-      <ConfirmDialog
-        open={testConfirmOpen}
-        onOpenChange={setTestConfirmOpen}
-        title={t("confirms.testNotifyTitle")}
-        description={t("confirms.testNotifyDesc")}
-        actionLabel={t("confirms.testNotifyAction")}
-        pending={testMutation.isPending}
-        onConfirm={() => testMutation.mutate(undefined)}
-      />
     </div>
   )
 }

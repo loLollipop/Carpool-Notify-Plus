@@ -4,22 +4,22 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  /* Quiet graphite workspace with blue reserved for actions and selection. */
-  --background: #f6f7f9;
-  --foreground: #242b38;
+  /* Calm teal operations workspace inspired by Sub2API's clear hierarchy. */
+  --background: #f6f9f8;
+  --foreground: #1f2933;
   --card: #ffffff;
-  --card-foreground: #242b38;
+  --card-foreground: #1f2933;
   --popover: #ffffff;
-  --popover-foreground: #242b38;
-  --primary: #315fc9;
+  --popover-foreground: #1f2933;
+  --primary: #0f766e;
   --primary-foreground: #ffffff;
-  --secondary: #eef2f7;
-  --secondary-foreground: #303846;
-  --muted: #f0f2f5;
-  --muted-foreground: #657083;
-  --accent: #edf1f7;
-  --accent-foreground: #303846;
-  --brand: #315fc9;
+  --secondary: #edf4f2;
+  --secondary-foreground: #2f3d3a;
+  --muted: #eff4f3;
+  --muted-foreground: #64736f;
+  --accent: #e9f5f2;
+  --accent-foreground: #0f5f59;
+  --brand: #0f766e;
   --brand-foreground: #ffffff;
   --success: #16845b;
   --success-foreground: #ffffff;
@@ -29,11 +29,11 @@
   --warning-foreground: #7b4f10;
   --destructive: #d04444;
   --destructive-foreground: #ffffff;
-  --border: #e0e4ea;
-  --input: #c9d0da;
-  --ring: #4a73d1;
-  --chart-1: #315fc9;
-  --chart-2: #16845b;
+  --border: #dfe8e5;
+  --input: #c7d4d0;
+  --ring: #14a596;
+  --chart-1: #0f766e;
+  --chart-2: #2563a9;
   --chart-3: #7c3aed;
   --chart-4: #0f8ca5;
   --chart-5: #b7791f;
@@ -41,33 +41,33 @@
   --gold: #b7791f;
   --cyan: #0f8ca5;
   --sidebar: #ffffff;
-  --sidebar-foreground: #242b38;
-  --sidebar-muted: #596577;
-  --sidebar-border: #e2e5ea;
-  --login-panel: #202631;
+  --sidebar-foreground: #1f2933;
+  --sidebar-muted: #60706c;
+  --sidebar-border: #e1e9e7;
+  --login-panel: #12302d;
   --login-panel-foreground: #f7f9fc;
-  --login-panel-muted: #b7bfcc;
-  --login-panel-border: #3a4352;
+  --login-panel-muted: #b6cbc7;
+  --login-panel-border: #31514c;
   --radius: 0.5rem;
 }
 
 .dark {
-  --background: #111315;
-  --foreground: #f0f2f4;
-  --card: #191c20;
+  --background: #0f1514;
+  --foreground: #eef3f2;
+  --card: #18201f;
   --card-foreground: #f0f2f4;
-  --popover: #1e2227;
+  --popover: #1b2523;
   --popover-foreground: #f0f2f4;
-  --primary: #6ea8ff;
-  --primary-foreground: #09172f;
-  --secondary: #25292f;
+  --primary: #5eead4;
+  --primary-foreground: #073b36;
+  --secondary: #222d2b;
   --secondary-foreground: #e8ebef;
-  --muted: #22262b;
-  --muted-foreground: #a4aab3;
-  --accent: #24344f;
-  --accent-foreground: #d9e7ff;
-  --brand: #6ea8ff;
-  --brand-foreground: #09172f;
+  --muted: #202a28;
+  --muted-foreground: #a4b2af;
+  --accent: #1d3733;
+  --accent-foreground: #d6f5ef;
+  --brand: #5eead4;
+  --brand-foreground: #073b36;
   --success: #57c995;
   --success-foreground: #08251a;
   --violet: #b49aff;
@@ -76,25 +76,25 @@
   --warning-foreground: #2d1c03;
   --destructive: #f07a78;
   --destructive-foreground: #32100f;
-  --border: #30353c;
-  --input: #434a54;
-  --ring: #6ea8ff;
-  --chart-1: #6ea8ff;
-  --chart-2: #57c995;
+  --border: #2d3a38;
+  --input: #40504d;
+  --ring: #5eead4;
+  --chart-1: #5eead4;
+  --chart-2: #7eb6ff;
   --chart-3: #b49aff;
   --chart-4: #65c7d8;
   --chart-5: #e2ae55;
   --coral: #f07a78;
   --gold: #e2ae55;
   --cyan: #65c7d8;
-  --sidebar: #15181c;
-  --sidebar-foreground: #f0f2f4;
-  --sidebar-muted: #a4aab3;
-  --sidebar-border: #2b3036;
-  --login-panel: #101214;
+  --sidebar: #141b1a;
+  --sidebar-foreground: #eef3f2;
+  --sidebar-muted: #a3b1ae;
+  --sidebar-border: #293633;
+  --login-panel: #0d1715;
   --login-panel-foreground: #f5f8fc;
-  --login-panel-muted: #a8adb5;
-  --login-panel-border: #30353c;
+  --login-panel-muted: #a8bbb7;
+  --login-panel-border: #2c403c;
 }
 
 @theme inline {

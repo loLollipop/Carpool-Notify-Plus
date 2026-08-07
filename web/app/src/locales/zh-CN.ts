@@ -32,7 +32,6 @@ export default {
       themeDark: "深色",
       themeSystem: "跟随系统",
       language: "语言",
-      workspace: "共享订阅管理",
       operations: "运营管理",
       system: "系统",
       collapse: "收起侧栏",
@@ -412,6 +411,12 @@ export default {
     settings: {
       title: "设置",
       desc: "此处可编辑通知模板、兑换页、SMTP、IYUU 与 Gotify 配置。授权码和 Token 不会明文回显，留空保存会保留原值。",
+      sections: {
+        templates: "通知模板",
+        delivery: "通知渠道",
+        redemption: "兑换页面",
+        tools: "系统工具",
+      },
       notifyTemplate: "运营通知模板",
       notifyTemplateHint: "Go text/template。可用 {{vars}}",
       customerTemplate: "客户邮件模板",

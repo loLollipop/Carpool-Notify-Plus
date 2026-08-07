@@ -32,7 +32,6 @@ export default {
       themeDark: "Dark",
       themeSystem: "System",
       language: "Language",
-      workspace: "Shared Subscriptions",
       operations: "Operations",
       system: "System",
       collapse: "Collapse sidebar",
@@ -414,6 +413,12 @@ export default {
     settings: {
       title: "Settings",
       desc: "Edit templates, redemption page, SMTP, IYUU and Gotify here. App passwords and tokens are write-only; leaving them blank keeps the saved value.",
+      sections: {
+        templates: "Templates",
+        delivery: "Delivery",
+        redemption: "Redemption page",
+        tools: "System tools",
+      },
       notifyTemplate: "Operator notification template",
       notifyTemplateHint: "Go text/template. Available: {{vars}}",
       customerTemplate: "Customer email template",
