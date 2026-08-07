@@ -33,6 +33,13 @@ func main() {
 		log.Fatalf("config: %v", err)
 	}
 
+	bootstrapStore, err := db.Open(configuration.DatabasePath)
+	if err != nil {
+		log.Fatalf("initialize database: %v", err)
+	}
+	if err := bootstrapStore.Close(); err != nil {
+		log.Fatalf("close initialized database: %v", err)
+	}
 	if err := wipeBusinessData(configuration.DatabasePath); err != nil {
 		log.Fatalf("wipe: %v", err)
 	}
@@ -193,8 +200,9 @@ func wipeBusinessData(databasePath string) error {
 		`DELETE FROM bills`,
 		`DELETE FROM subscriptions`,
 		`DELETE FROM seats`,
+		`DELETE FROM account_cost_records`,
 		`DELETE FROM accounts`,
-		`DELETE FROM sqlite_sequence WHERE name IN ('accounts','seats','subscriptions','bills','notification_log')`,
+		`DELETE FROM sqlite_sequence WHERE name IN ('accounts','account_cost_records','seats','subscriptions','bills','notification_log')`,
 	}
 	for _, statement := range statements {
 		if _, err := database.Exec(statement); err != nil {

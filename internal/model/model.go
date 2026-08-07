@@ -108,9 +108,28 @@ type Account struct {
 	SpaceName            string    `json:"space_name"`
 	OpenedAt             string    `json:"opened_at"`
 	CostCents            int64     `json:"cost_cents"`
+	TotalCostCents       int64     `json:"total_cost_cents"`
 	ZeroRenewalNextMonth bool      `json:"zero_renewal_next_month"`
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
+}
+
+const (
+	AccountCostSourceInitial     = "initial"
+	AccountCostSourceRenewal     = "renewal"
+	AccountCostSourceZeroRenewal = "zero_renewal"
+	AccountCostSourceManual      = "manual"
+)
+
+// AccountCostRecord is one immutable owner-account cost ledger entry.
+type AccountCostRecord struct {
+	ID          int64     `json:"id"`
+	AccountID   int64     `json:"account_id"`
+	PeriodDate  string    `json:"period_date"`
+	AmountCents int64     `json:"amount_cents"`
+	Source      string    `json:"source"`
+	Note        string    `json:"note"`
+	CreatedAt   time.Time `json:"created_at"`
 }
 
 // Seat is a named parking slot under an account. At most one active subscription may occupy a seat.
@@ -277,6 +296,8 @@ type ExportAccount struct {
 	OpenedAt             string       `json:"opened_at"`
 	CostCents            int64        `json:"cost_cents"`
 	CostYuan             string       `json:"cost_yuan"`
+	TotalCostCents       int64        `json:"total_cost_cents"`
+	TotalCostYuan        string       `json:"total_cost_yuan"`
 	ZeroRenewalNextMonth bool         `json:"zero_renewal_next_month"`
 	Seats                []ExportSeat `json:"seats"`
 }

@@ -144,9 +144,9 @@ function AccountMobileCard({
             </div>
           </div>
           <div>
-            <div className="text-muted-foreground">{t("accounts.costShort")}</div>
+            <div className="text-muted-foreground">{t("accounts.totalCostShort")}</div>
             <div className="mt-1 font-semibold text-gold tabular-nums">
-              ¥{formatCents(view.account.cost_cents)}
+              ¥{formatCents(view.account.total_cost_cents)}
             </div>
           </div>
           <div>
@@ -168,6 +168,9 @@ function AccountMobileCard({
                   {t("accounts.zeroRenewalBadge")}
                 </Badge>
               ) : null}
+            </div>
+            <div className="mt-1 text-muted-foreground">
+              {t("accounts.costShort")} ¥{formatCents(view.account.cost_cents)}
             </div>
           </div>
           {view.account.remark ? (
@@ -294,6 +297,7 @@ export function AccountsPage() {
       spaceName: view.account.space_name,
       openedAt: view.account.opened_at,
       costYuan: formatOptionalCents(view.account.cost_cents),
+      totalCostYuan: formatOptionalCents(view.account.total_cost_cents),
       zeroRenewalNextMonth: view.account.zero_renewal_next_month,
       seatCount: view.seat_total,
     })
@@ -605,10 +609,13 @@ export function AccountsPage() {
                           <span className="text-muted-foreground/50">—</span>
                         )}
                         <div className="text-xs text-muted-foreground">
-                          {t("accounts.costShort")}{" "}
+                          {t("accounts.totalCostShort")}{" "}
                           <span className="font-mono font-semibold text-gold tabular-nums">
-                            ¥{formatCents(view.account.cost_cents)}
+                            ¥{formatCents(view.account.total_cost_cents)}
                           </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {t("accounts.costShort")} ¥{formatCents(view.account.cost_cents)}
                         </div>
                         {view.account.zero_renewal_next_month ? (
                           <Badge variant="outline" className="font-normal">

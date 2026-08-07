@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"carpool-notify/internal/cycle"
 	"carpool-notify/internal/model"
 
 	_ "modernc.org/sqlite"
@@ -75,6 +76,21 @@ func (store *Store) migrate() error {
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS account_cost_records (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			account_id INTEGER NOT NULL,
+			period_date TEXT NOT NULL,
+			amount_cents INTEGER NOT NULL,
+			source TEXT NOT NULL,
+			note TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_account_cost_records_account
+			ON account_cost_records(account_id, period_date, id);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_account_cost_records_automatic
+			ON account_cost_records(account_id, period_date)
+			WHERE source IN ('initial', 'renewal', 'zero_renewal');`,
 		`CREATE TABLE IF NOT EXISTS seats (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			account_id INTEGER NOT NULL,
@@ -202,6 +218,9 @@ func (store *Store) migrate() error {
 	if err := store.ensureAccountDetailColumns(); err != nil {
 		return err
 	}
+	if err := store.backfillAccountCostRecords(); err != nil {
+		return err
+	}
 	// Legacy migrations (subscription_type → accounts/seats, paid_due → bills) are not
 	// re-run: production bills and accounts are the source of truth and must not grow
 	// from stale paid_due_occurrences rows on every process start.
@@ -264,6 +283,27 @@ func (store *Store) migrate() error {
 		if err := store.SetSetting(model.SettingEnabledChannels, string(channelsJSON)); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (store *Store) backfillAccountCostRecords() error {
+	now := time.Now()
+	_, err := store.database.Exec(`
+		INSERT INTO account_cost_records (
+			account_id, period_date, amount_cents, source, note, created_at
+		)
+		SELECT id, ?, COALESCE(cost_cents, 0), ?, 'Migrated current account cost', ?
+		FROM accounts
+		WHERE NOT EXISTS (
+			SELECT 1 FROM account_cost_records WHERE account_id = accounts.id
+		)`,
+		cycle.FormatDate(now),
+		model.AccountCostSourceInitial,
+		formatTime(now.UTC()),
+	)
+	if err != nil {
+		return fmt.Errorf("backfill account cost records: %w", err)
 	}
 	return nil
 }
@@ -1505,6 +1545,11 @@ const accountSelectColumns = `
 	COALESCE(space_name, ''),
 	COALESCE(opened_at, ''),
 	COALESCE(cost_cents, 0),
+	COALESCE((
+		SELECT SUM(amount_cents)
+		FROM account_cost_records
+		WHERE account_id = accounts.id
+	), 0),
 	COALESCE(zero_renewal_next_month, 0),
 	created_at,
 	updated_at`
@@ -1552,14 +1597,20 @@ func (store *Store) GetAccountByName(name string) (model.Account, error) {
 	return scanAccount(row)
 }
 
-// CreateAccount inserts a new account.
-func (store *Store) CreateAccount(account model.Account) (int64, error) {
+// CreateAccount inserts a new account and its initial cumulative cost entry.
+func (store *Store) CreateAccount(account model.Account, initialCostCents int64, periodDate string) (int64, error) {
 	now := formatTime(time.Now().UTC())
 	zeroRenewalNextMonth := 0
 	if account.ZeroRenewalNextMonth {
 		zeroRenewalNextMonth = 1
 	}
-	result, err := store.database.Exec(`
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	result, err := transaction.Exec(`
 		INSERT INTO accounts (
 			name, remark, payment_method, email, space_name, opened_at, cost_cents, zero_renewal_next_month, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -1577,17 +1628,43 @@ func (store *Store) CreateAccount(account model.Account) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return result.LastInsertId()
+	accountID, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	if _, err := transaction.Exec(`
+		INSERT INTO account_cost_records (
+			account_id, period_date, amount_cents, source, note, created_at
+		) VALUES (?, ?, ?, ?, ?, ?)`,
+		accountID,
+		periodDate,
+		initialCostCents,
+		model.AccountCostSourceInitial,
+		"Initial account cost",
+		now,
+	); err != nil {
+		return 0, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return 0, err
+	}
+	return accountID, nil
 }
 
-// UpdateAccount updates account name, remark, and payment method.
-func (store *Store) UpdateAccount(account model.Account) error {
+// UpdateAccount updates account metadata and optionally adjusts cumulative cost to a target.
+func (store *Store) UpdateAccount(account model.Account, targetTotalCostCents *int64, periodDate string) error {
 	now := formatTime(time.Now().UTC())
 	zeroRenewalNextMonth := 0
 	if account.ZeroRenewalNextMonth {
 		zeroRenewalNextMonth = 1
 	}
-	result, err := store.database.Exec(`
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	result, err := transaction.Exec(`
 		UPDATE accounts
 		SET name = ?, remark = ?, payment_method = ?, email = ?, space_name = ?, opened_at = ?,
 		    cost_cents = ?, zero_renewal_next_month = ?, updated_at = ?
@@ -1613,7 +1690,140 @@ func (store *Store) UpdateAccount(account model.Account) error {
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
 	}
-	return nil
+	if targetTotalCostCents != nil {
+		var currentTotal int64
+		if err := transaction.QueryRow(`
+			SELECT COALESCE(SUM(amount_cents), 0)
+			FROM account_cost_records
+			WHERE account_id = ?`, account.ID).Scan(&currentTotal); err != nil {
+			return err
+		}
+		adjustment := *targetTotalCostCents - currentTotal
+		if adjustment != 0 {
+			if _, err := transaction.Exec(`
+				INSERT INTO account_cost_records (
+					account_id, period_date, amount_cents, source, note, created_at
+				) VALUES (?, ?, ?, ?, ?, ?)`,
+				account.ID,
+				periodDate,
+				adjustment,
+				model.AccountCostSourceManual,
+				"Manual cumulative cost correction",
+				now,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return transaction.Commit()
+}
+
+// LatestAutomaticAccountCostPeriod returns the latest initialized or renewed period.
+func (store *Store) LatestAutomaticAccountCostPeriod(accountID int64) (string, error) {
+	var periodDate string
+	err := store.database.QueryRow(`
+		SELECT COALESCE(MAX(period_date), '')
+		FROM account_cost_records
+		WHERE account_id = ? AND source IN (?, ?, ?)`,
+		accountID,
+		model.AccountCostSourceInitial,
+		model.AccountCostSourceRenewal,
+		model.AccountCostSourceZeroRenewal,
+	).Scan(&periodDate)
+	return periodDate, err
+}
+
+// AccrueAccountRenewal inserts one idempotent renewal and consumes the $0 flag once.
+func (store *Store) AccrueAccountRenewal(accountID int64, periodDate string) (bool, error) {
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	var monthlyCostCents int64
+	var zeroRenewal int
+	if err := transaction.QueryRow(`
+		SELECT COALESCE(cost_cents, 0), COALESCE(zero_renewal_next_month, 0)
+		FROM accounts
+		WHERE id = ?`, accountID).Scan(&monthlyCostCents, &zeroRenewal); err != nil {
+		return false, err
+	}
+	amountCents := monthlyCostCents
+	source := model.AccountCostSourceRenewal
+	note := "Monthly account renewal"
+	if zeroRenewal != 0 {
+		amountCents = 0
+		source = model.AccountCostSourceZeroRenewal
+		note = "One-time zero-cost account renewal"
+	}
+	result, err := transaction.Exec(`
+		INSERT OR IGNORE INTO account_cost_records (
+			account_id, period_date, amount_cents, source, note, created_at
+		) VALUES (?, ?, ?, ?, ?, ?)`,
+		accountID,
+		periodDate,
+		amountCents,
+		source,
+		note,
+		formatTime(time.Now().UTC()),
+	)
+	if err != nil {
+		return false, err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	inserted := rowsAffected > 0
+	if inserted && zeroRenewal != 0 {
+		if _, err := transaction.Exec(`
+			UPDATE accounts
+			SET zero_renewal_next_month = 0, updated_at = ?
+			WHERE id = ?`, formatTime(time.Now().UTC()), accountID); err != nil {
+			return false, err
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		return false, err
+	}
+	return inserted, nil
+}
+
+// ListAccountCostRecords returns one account's ledger in chronological order.
+func (store *Store) ListAccountCostRecords(accountID int64) ([]model.AccountCostRecord, error) {
+	rows, err := store.database.Query(`
+		SELECT id, account_id, period_date, amount_cents, source, note, created_at
+		FROM account_cost_records
+		WHERE account_id = ?
+		ORDER BY period_date ASC, id ASC`, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	records := make([]model.AccountCostRecord, 0)
+	for rows.Next() {
+		var record model.AccountCostRecord
+		var createdAt string
+		if err := rows.Scan(
+			&record.ID,
+			&record.AccountID,
+			&record.PeriodDate,
+			&record.AmountCents,
+			&record.Source,
+			&record.Note,
+			&createdAt,
+		); err != nil {
+			return nil, err
+		}
+		record.CreatedAt, err = parseTime(createdAt)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, record)
+	}
+	return records, rows.Err()
 }
 
 // DeleteAccount removes an account. Callers must ensure no seats remain.
@@ -2138,6 +2348,7 @@ func scanAccount(scanner scannable) (model.Account, error) {
 		&account.SpaceName,
 		&account.OpenedAt,
 		&account.CostCents,
+		&account.TotalCostCents,
 		&zeroRenewalNextMonth,
 		&createdAt,
 		&updatedAt,

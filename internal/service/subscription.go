@@ -300,10 +300,27 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		return Dashboard{}, err
 	}
 	var totalCostCents int64
-	accountCostCentsByID := make(map[int64]int64, len(accountRows))
 	for _, account := range accountRows {
-		accountCostCentsByID[account.ID] = account.CostCents
-		totalCostCents += account.CostCents
+		totalCostCents += account.TotalCostCents
+	}
+	bills, err := service.Store.ListBills()
+	if err != nil {
+		return Dashboard{}, err
+	}
+	subscriptionsByID := make(map[int64]model.Subscription, len(subscriptions)+len(archivedSubscriptions))
+	for _, subscription := range subscriptions {
+		subscriptionsByID[subscription.ID] = subscription
+	}
+	for _, subscription := range archivedSubscriptions {
+		subscriptionsByID[subscription.ID] = subscription
+	}
+	var totalReceivedCents int64
+	var totalAgencyFeeCents int64
+	for _, bill := range bills {
+		totalReceivedCents += bill.AmountCents
+		if subscription, exists := subscriptionsByID[bill.SubscriptionID]; exists && subscription.IsResale {
+			totalAgencyFeeCents += bill.AmountCents
+		}
 	}
 
 	now := service.now()
@@ -317,39 +334,15 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		return Dashboard{}, err
 	}
 
-	var totalPriceCents int64
-	var totalAgencyFeeCents int64
 	amountBars := make([]AmountBar, 0, len(subscriptions))
 	accountTotals := map[string]struct {
 		count int
 		cents int64
 	}{}
-	legacyAccountCostsByID := map[int64]int64{}
-	legacySaleAccountCostsByName := map[string]int64{}
-	recordSaleAccountCost := func(subscription model.Subscription, accountName string) {
-		if subscription.AccountID > 0 {
-			if accountCostCentsByID[subscription.AccountID] != 0 {
-				return
-			}
-			if previous, counted := legacyAccountCostsByID[subscription.AccountID]; !counted || subscription.CostCents > previous {
-				legacyAccountCostsByID[subscription.AccountID] = subscription.CostCents
-			}
-			return
-		}
-		if previous, counted := legacySaleAccountCostsByName[accountName]; !counted || subscription.CostCents > previous {
-			legacySaleAccountCostsByName[accountName] = subscription.CostCents
-		}
-	}
 
 	for _, subscription := range subscriptions {
 		accountName := displayAccountName(subscription)
 		amountCents := countedAmountCents(subscription)
-		totalPriceCents += amountCents
-		if subscription.IsResale {
-			totalAgencyFeeCents += subscription.AgencyFeeCents
-		} else {
-			recordSaleAccountCost(subscription, accountName)
-		}
 		amountBars = append(amountBars, AmountBar{
 			Name:        subscription.Name,
 			AccountName: accountName,
@@ -386,18 +379,11 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		return accounts[left].AmountCents > accounts[right].AmountCents
 	})
 
-	for _, costCents := range legacyAccountCostsByID {
-		totalCostCents += costCents
-	}
-	for _, costCents := range legacySaleAccountCostsByName {
-		totalCostCents += costCents
-	}
-
-	totalProfitCents := totalPriceCents - totalCostCents
+	totalProfitCents := totalReceivedCents - totalCostCents
 	profitMarginPercent := "—"
-	if totalPriceCents > 0 {
+	if totalReceivedCents > 0 {
 		// One decimal percent: profit / price * 100 (integer arithmetic).
-		marginTimesTen := totalProfitCents * 1000 / totalPriceCents
+		marginTimesTen := totalProfitCents * 1000 / totalReceivedCents
 		negativeMargin := marginTimesTen < 0
 		if negativeMargin {
 			marginTimesTen = -marginTimesTen
@@ -415,7 +401,7 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		SubscriptionCount:    len(subscriptions),
 		ActiveCount:          len(subscriptions),
 		ArchivedCount:        len(archivedSubscriptions),
-		TotalAmountYuan:      cycle.FormatCents(totalPriceCents),
+		TotalAmountYuan:      cycle.FormatCents(totalReceivedCents),
 		TotalCostYuan:        cycle.FormatCents(totalCostCents),
 		TotalProfitYuan:      cycle.FormatCents(totalProfitCents),
 		TotalAgencyFeeYuan:   cycle.FormatCents(totalAgencyFeeCents),
@@ -1363,6 +1349,8 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 			OpenedAt:             account.OpenedAt,
 			CostCents:            account.CostCents,
 			CostYuan:             cycle.FormatCents(account.CostCents),
+			TotalCostCents:       account.TotalCostCents,
+			TotalCostYuan:        cycle.FormatCents(account.TotalCostCents),
 			ZeroRenewalNextMonth: account.ZeroRenewalNextMonth,
 			Seats:                exportSeats,
 		})

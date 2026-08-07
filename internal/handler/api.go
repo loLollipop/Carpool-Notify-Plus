@@ -625,15 +625,16 @@ func (server *Server) postDuePaid(context *gin.Context) {
 // ---- Account mutations ----------------------------------------------------------
 
 type accountRequest struct {
-	Name                 string `json:"name"`
-	Remark               string `json:"remark"`
-	PaymentMethod        string `json:"payment_method"`
-	Email                string `json:"email"`
-	SpaceName            string `json:"space_name"`
-	OpenedAt             string `json:"opened_at"`
-	CostYuan             string `json:"cost_yuan"`
-	ZeroRenewalNextMonth bool   `json:"zero_renewal_next_month"`
-	SeatCount            int    `json:"seat_count"`
+	Name                 string  `json:"name"`
+	Remark               string  `json:"remark"`
+	PaymentMethod        string  `json:"payment_method"`
+	Email                string  `json:"email"`
+	SpaceName            string  `json:"space_name"`
+	OpenedAt             string  `json:"opened_at"`
+	CostYuan             string  `json:"cost_yuan"`
+	TotalCostYuan        *string `json:"total_cost_yuan"`
+	ZeroRenewalNextMonth bool    `json:"zero_renewal_next_month"`
+	SeatCount            int     `json:"seat_count"`
 }
 
 func (server *Server) postCreateAccount(context *gin.Context) {
@@ -650,6 +651,7 @@ func (server *Server) postCreateAccount(context *gin.Context) {
 		SpaceName:            request.SpaceName,
 		OpenedAt:             request.OpenedAt,
 		CostYuan:             request.CostYuan,
+		TotalCostYuan:        request.TotalCostYuan,
 		ZeroRenewalNextMonth: request.ZeroRenewalNextMonth,
 		SeatCount:            request.SeatCount,
 	}); err != nil {
@@ -677,6 +679,7 @@ func (server *Server) putUpdateAccount(context *gin.Context) {
 		SpaceName:            request.SpaceName,
 		OpenedAt:             request.OpenedAt,
 		CostYuan:             request.CostYuan,
+		TotalCostYuan:        request.TotalCostYuan,
 		ZeroRenewalNextMonth: request.ZeroRenewalNextMonth,
 		SeatCount:            request.SeatCount,
 	}); err != nil {

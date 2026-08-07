@@ -491,16 +491,38 @@ func TestComputeDashboardAggregatesByAccount(t *testing.T) {
 	subscriptionService.Clock = func() time.Time { return fixedNow }
 	subscriptionService.Notify = notify.Registry{Gotify: &recordingSender{}}
 
-	_, saasSeats := createTestAccountWithSeats(t, subscriptionService, "SaaS 工具", "位1")
-	_, mediaSeats := createTestAccountWithSeats(t, subscriptionService, "流媒体", "位1")
+	saasAccountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "SaaS 工具",
+		CostYuan:  "20.00",
+		SeatNames: []string{"位1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mediaAccountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "流媒体",
+		CostYuan:  "10.00",
+		SeatNames: []string{"位1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	saasSeats, err := subscriptionService.Store.ListSeatsByAccount(saasAccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mediaSeats, err := subscriptionService.Store.ListSeatsByAccount(mediaAccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	_, err := subscriptionService.Create(service.CreateInput{
+	firstSubscriptionID, err := subscriptionService.Create(service.CreateInput{
 		Name:             "Cursor Pro 拼车",
 		PriceYuan:        "35.00",
 		CostYuan:         "20.00",
 		CronExpr:         "0 0 15 * *",
 		NotifyOffsetsRaw: "0",
-		SeatID:           saasSeats[0],
+		SeatID:           saasSeats[0].ID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -511,7 +533,7 @@ func TestComputeDashboardAggregatesByAccount(t *testing.T) {
 		CostYuan:         "10.00",
 		CronExpr:         "0 0 * * 1",
 		NotifyOffsetsRaw: "0",
-		SeatID:           mediaSeats[0],
+		SeatID:           mediaSeats[0].ID,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -520,6 +542,12 @@ func TestComputeDashboardAggregatesByAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := subscriptionService.TestNotify(context.Background(), subscriptionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.Store.SetDuePaid(firstSubscriptionID, "2026-07-15", true, 3500); err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.Store.SetDuePaid(subscriptionID, "2026-07-13", true, 1250); err != nil {
 		t.Fatal(err)
 	}
 
@@ -574,7 +602,7 @@ func TestComputeDashboardCountsAccountCostOnceAndIncludesEmptyAccounts(t *testin
 		t.Fatalf("seat count = %d, want 2", len(seats))
 	}
 
-	_, err = subscriptionService.Create(service.CreateInput{
+	firstSubscriptionID, err := subscriptionService.Create(service.CreateInput{
 		Name:             "first seat",
 		PriceYuan:        "30.00",
 		CronExpr:         "interval:30d",
@@ -584,7 +612,7 @@ func TestComputeDashboardCountsAccountCostOnceAndIncludesEmptyAccounts(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = subscriptionService.Create(service.CreateInput{
+	secondSubscriptionID, err := subscriptionService.Create(service.CreateInput{
 		Name:             "second seat",
 		PriceYuan:        "25.00",
 		CronExpr:         "interval:30d",
@@ -592,6 +620,12 @@ func TestComputeDashboardCountsAccountCostOnceAndIncludesEmptyAccounts(t *testin
 		SeatID:           seats[1].ID,
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.Store.SetDuePaid(firstSubscriptionID, "2026-07-10", true, 3000); err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.Store.SetDuePaid(secondSubscriptionID, "2026-07-10", true, 2500); err != nil {
 		t.Fatal(err)
 	}
 	_, err = subscriptionService.CreateAccount(service.CreateAccountInput{

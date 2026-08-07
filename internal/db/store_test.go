@@ -1,6 +1,7 @@
 package db_test
 
 import (
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,54 @@ import (
 	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 )
+
+func TestOpenBackfillsOneCurrentCostRecordForLegacyAccount(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "legacy.db")
+	database, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		CREATE TABLE accounts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			remark TEXT NOT NULL DEFAULT '',
+			payment_method TEXT NOT NULL DEFAULT '',
+			email TEXT NOT NULL DEFAULT '',
+			space_name TEXT NOT NULL DEFAULT '',
+			opened_at TEXT NOT NULL DEFAULT '',
+			cost_cents INTEGER NOT NULL DEFAULT 0,
+			zero_renewal_next_month INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+		INSERT INTO accounts (
+			name, cost_cents, created_at, updated_at
+		) VALUES ('owner@example.com', 1850, '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store := openStore(t, databasePath)
+	defer store.Close()
+	account, err := store.GetAccount(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.TotalCostCents != 1850 {
+		t.Fatalf("TotalCostCents = %d, want 1850", account.TotalCostCents)
+	}
+	records, err := store.ListAccountCostRecords(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].Source != model.AccountCostSourceInitial || records[0].AmountCents != 1850 {
+		t.Fatalf("backfilled records = %#v", records)
+	}
+}
 
 func TestOpenMigratesTemplateNameVariableToCustomerEmail(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "carpool.db")

@@ -204,6 +204,7 @@ export interface Account {
   space_name: string
   opened_at: string
   cost_cents: number
+  total_cost_cents: number
   zero_renewal_next_month: boolean
   created_at: string
   updated_at: string
@@ -263,6 +264,7 @@ export interface AccountOption {
   space_name: string
   opened_at: string
   cost_yuan: string
+  total_cost_yuan: string
   zero_renewal_next_month: boolean
   seat_total: number
   seat_used: number
@@ -448,6 +450,7 @@ export interface AccountInput {
   space_name: string
   opened_at: string
   cost_yuan: string
+  total_cost_yuan: string
   zero_renewal_next_month: boolean
   seat_count: number
 }
