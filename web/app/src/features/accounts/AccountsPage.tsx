@@ -478,7 +478,7 @@ export function AccountsPage() {
                 <TableHead className="w-52 text-right">{t("accounts.colActions")}</TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody className="[&_tr:last-child]:border-b [&_tr:last-child]:border-border">
+            <TableBody className="[&_tr:last-child]:border-b [&_tr:last-child]:border-b-border">
               {pagedAccounts.map((view) => {
                 const isExpanded = expanded.has(view.account.id)
                 const occupants = (view.seats ?? []).filter((seat) => seat.occupied)
