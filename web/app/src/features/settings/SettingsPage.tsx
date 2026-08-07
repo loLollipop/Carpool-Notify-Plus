@@ -486,7 +486,7 @@ function RedeemPageSettingsEditor({
         </Button>
       </div>
 
-      <div className="grid items-start gap-4 lg:grid-cols-2">
+      <div className="grid items-stretch gap-4 lg:grid-cols-2">
         <Card className="content-start gap-5 p-5 sm:p-6">
           <div className="flex items-center gap-3 border-b pb-4">
             <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
@@ -724,7 +724,7 @@ function NotificationConfigEditor({
         </div>
       </Card>
 
-      <div className="grid items-start gap-4 lg:grid-cols-2">
+      <div className="grid items-stretch gap-4 lg:grid-cols-2">
         <Card className="content-start gap-5 p-5 sm:p-6">
           <div className="flex items-center justify-between gap-3 border-b pb-4">
             <div className="flex items-center gap-3">
