@@ -3,6 +3,7 @@ import { useQuery, type QueryClient } from "@tanstack/react-query"
 import {
   fetchAccountOptions,
   fetchAccounts,
+  fetchAfterSales,
   fetchBills,
   fetchCalendar,
   fetchDashboard,
@@ -23,6 +24,7 @@ export const queryKeys = {
   redemptionCodes: ["data", "redemption-codes"] as const,
   subscriptions: ["data", "subscriptions"] as const,
   accounts: ["data", "accounts"] as const,
+  afterSales: ["data", "after-sales"] as const,
   accountOptions: (includeSeatId: number) => ["data", "account-options", includeSeatId] as const,
   bills: ["data", "bills"] as const,
   settings: ["data", "settings"] as const,
@@ -61,6 +63,10 @@ export function useRedemptionCodes() {
 
 export function useAccounts() {
   return useQuery({ queryKey: queryKeys.accounts, queryFn: fetchAccounts })
+}
+
+export function useAfterSales() {
+  return useQuery({ queryKey: queryKeys.afterSales, queryFn: fetchAfterSales })
 }
 
 export function useAccountOptions(includeSeatId = 0, enabled = true) {

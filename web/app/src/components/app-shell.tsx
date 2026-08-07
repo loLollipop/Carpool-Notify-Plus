@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Languages,
   LayoutDashboard,
+  HandCoins,
   LogOut,
   Menu,
   Moon,
@@ -136,6 +137,7 @@ export function AppShell() {
     { to: "/users", label: t("nav.users"), icon: Users, end: true },
     { to: "/redemptions", label: t("nav.redemptions"), icon: TicketCheck, end: true },
     { to: "/accounts", label: t("nav.accounts"), icon: Car, end: true },
+    { to: "/after-sales", label: t("nav.afterSales"), icon: HandCoins, end: true },
     { to: "/bills", label: t("nav.bills"), icon: ReceiptText, end: true },
   ]
   const systemNav = [

@@ -79,28 +79,23 @@ function MetaCell({ label, children }: { label: string; children: React.ReactNod
 
 function CustomerContactRow({ email, wechat }: { email: string; wechat: string }) {
   const { t } = useTranslation()
-  if (!email && !wechat) return null
 
   return (
-    <div className="mt-2 flex min-w-0 flex-wrap items-center gap-1.5">
-      {email ? (
-        <span
-          className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border border-brand/10 bg-brand/[0.06] px-2 py-0.5 text-xs text-muted-foreground"
-          title={`${t("subscriptionDialog.customerEmail")}: ${email}`}
-        >
-          <Mail className="size-3.5 shrink-0" aria-hidden="true" />
-          <span className="truncate font-mono">{email}</span>
-        </span>
-      ) : null}
-      {wechat ? (
-        <span
-          className="inline-flex max-w-full min-w-0 items-center gap-1 rounded-full border border-success/10 bg-success/[0.06] px-2 py-0.5 text-xs text-muted-foreground"
-          title={`${t("subscriptionDialog.customerWechat")}: ${wechat}`}
-        >
-          <MessageCircle className="size-3.5 shrink-0" aria-hidden="true" />
-          <span className="truncate">{wechat}</span>
-        </span>
-      ) : null}
+    <div className="mt-2 grid min-w-0 gap-1.5">
+      <span
+        className="flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-md border border-brand/10 bg-brand/[0.06] px-2 text-xs text-muted-foreground"
+        title={`${t("subscriptionDialog.customerEmail")}: ${email || t("cards.contactMissing")}`}
+      >
+        <Mail className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="truncate font-mono">{email || t("cards.contactMissing")}</span>
+      </span>
+      <span
+        className="flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-md border border-success/10 bg-success/[0.06] px-2 text-xs text-muted-foreground"
+        title={`${t("subscriptionDialog.customerWechat")}: ${wechat || t("cards.contactMissing")}`}
+      >
+        <MessageCircle className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="truncate">{wechat || t("cards.contactMissing")}</span>
+      </span>
     </div>
   )
 }

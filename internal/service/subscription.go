@@ -628,6 +628,9 @@ func (service *SubscriptionService) Copy(subscriptionID int64, targetSeatID int6
 	if err != nil {
 		return 0, err
 	}
+	if account.BannedAt != "" {
+		return 0, fmt.Errorf("该账号已封禁，不能再分配新用户")
+	}
 
 	copyName := strings.TrimSpace(source.Name)
 	if copyName == "" {
@@ -746,6 +749,18 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 	account, err := service.Store.GetAccount(seat.AccountID)
 	if err != nil {
 		return model.Subscription{}, err
+	}
+	if account.BannedAt != "" {
+		keepsExistingSeat := false
+		if existingSubscriptionID > 0 {
+			existing, existingErr := service.Store.GetSubscription(existingSubscriptionID)
+			if existingErr == nil && existing.SeatID == seat.ID {
+				keepsExistingSeat = true
+			}
+		}
+		if !keepsExistingSeat {
+			return model.Subscription{}, fmt.Errorf("该账号已封禁，不能再分配新用户")
+		}
 	}
 	if strings.TrimSpace(input.CostYuan) == "" {
 		costCents = account.CostCents

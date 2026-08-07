@@ -73,6 +73,8 @@ func (store *Store) migrate() error {
 			opened_at TEXT NOT NULL DEFAULT '',
 			cost_cents INTEGER NOT NULL DEFAULT 0,
 			zero_renewal_next_month INTEGER NOT NULL DEFAULT 0,
+			banned_at TEXT,
+			ban_note TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		);`,
@@ -147,6 +149,37 @@ func (store *Store) migrate() error {
 				UNIQUE(subscription_id, due_date),
 				FOREIGN KEY(subscription_id) REFERENCES subscriptions(id)
 		);`,
+		`CREATE TABLE IF NOT EXISTS after_sales_cases (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			account_id INTEGER NOT NULL,
+			subscription_id INTEGER NOT NULL,
+			bill_id INTEGER NOT NULL DEFAULT 0,
+			account_name TEXT NOT NULL DEFAULT '',
+			account_email TEXT NOT NULL DEFAULT '',
+			account_space_name TEXT NOT NULL DEFAULT '',
+			customer_email TEXT NOT NULL DEFAULT '',
+			customer_wechat TEXT NOT NULL DEFAULT '',
+			period_start TEXT NOT NULL DEFAULT '',
+			period_end TEXT NOT NULL DEFAULT '',
+			banned_date TEXT NOT NULL,
+			warranty_days INTEGER NOT NULL DEFAULT 30,
+			used_days INTEGER NOT NULL DEFAULT 0,
+			remaining_days INTEGER NOT NULL DEFAULT 30,
+			paid_amount_cents INTEGER NOT NULL DEFAULT 0,
+			refund_amount_cents INTEGER NOT NULL DEFAULT 0,
+			status TEXT NOT NULL,
+			note TEXT NOT NULL DEFAULT '',
+			processed_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			UNIQUE(account_id, subscription_id, banned_date),
+			FOREIGN KEY(account_id) REFERENCES accounts(id),
+			FOREIGN KEY(subscription_id) REFERENCES subscriptions(id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_after_sales_status
+			ON after_sales_cases(status, banned_date DESC, id DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_after_sales_account
+			ON after_sales_cases(account_id, banned_date DESC, id DESC);`,
 		`CREATE TABLE IF NOT EXISTS settings (
                         key TEXT PRIMARY KEY,
                         value TEXT NOT NULL
@@ -216,6 +249,9 @@ func (store *Store) migrate() error {
 		return err
 	}
 	if err := store.ensureAccountDetailColumns(); err != nil {
+		return err
+	}
+	if err := store.ensureAccountBanColumns(); err != nil {
 		return err
 	}
 	if err := store.backfillAccountCostRecords(); err != nil {
@@ -614,6 +650,20 @@ func (store *Store) ensureAccountDetailColumns() error {
 		}
 	}
 	return nil
+}
+
+func (store *Store) ensureAccountBanColumns() error {
+	if _, err := store.ensureAccountColumn(
+		"banned_at",
+		`ALTER TABLE accounts ADD COLUMN banned_at TEXT`,
+	); err != nil {
+		return err
+	}
+	_, err := store.ensureAccountColumn(
+		"ban_note",
+		`ALTER TABLE accounts ADD COLUMN ban_note TEXT NOT NULL DEFAULT ''`,
+	)
+	return err
 }
 
 func (store *Store) ensureAccountColumn(columnName string, statement string) (bool, error) {
@@ -1551,6 +1601,8 @@ const accountSelectColumns = `
 		WHERE account_id = accounts.id
 	), 0),
 	COALESCE(zero_renewal_next_month, 0),
+	COALESCE(banned_at, ''),
+	COALESCE(ban_note, ''),
 	created_at,
 	updated_at`
 
@@ -1743,11 +1795,15 @@ func (store *Store) AccrueAccountRenewal(accountID int64, periodDate string) (bo
 
 	var monthlyCostCents int64
 	var zeroRenewal int
+	var bannedAt string
 	if err := transaction.QueryRow(`
-		SELECT COALESCE(cost_cents, 0), COALESCE(zero_renewal_next_month, 0)
+		SELECT COALESCE(cost_cents, 0), COALESCE(zero_renewal_next_month, 0), COALESCE(banned_at, '')
 		FROM accounts
-		WHERE id = ?`, accountID).Scan(&monthlyCostCents, &zeroRenewal); err != nil {
+		WHERE id = ?`, accountID).Scan(&monthlyCostCents, &zeroRenewal, &bannedAt); err != nil {
 		return false, err
+	}
+	if strings.TrimSpace(bannedAt) != "" {
+		return false, transaction.Commit()
 	}
 	amountCents := monthlyCostCents
 	source := model.AccountCostSourceRenewal
@@ -2350,6 +2406,8 @@ func scanAccount(scanner scannable) (model.Account, error) {
 		&account.CostCents,
 		&account.TotalCostCents,
 		&zeroRenewalNextMonth,
+		&account.BannedAt,
+		&account.BanNote,
 		&createdAt,
 		&updatedAt,
 	)
@@ -2359,6 +2417,8 @@ func scanAccount(scanner scannable) (model.Account, error) {
 	account.Email = strings.TrimSpace(account.Email)
 	account.SpaceName = strings.TrimSpace(account.SpaceName)
 	account.OpenedAt = strings.TrimSpace(account.OpenedAt)
+	account.BannedAt = strings.TrimSpace(account.BannedAt)
+	account.BanNote = strings.TrimSpace(account.BanNote)
 	account.ZeroRenewalNextMonth = zeroRenewalNextMonth != 0
 	account.CreatedAt, err = parseTime(createdAt)
 	if err != nil {

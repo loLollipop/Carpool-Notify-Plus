@@ -50,6 +50,16 @@ func TestOpenBackfillsOneCurrentCostRecordForLegacyAccount(t *testing.T) {
 	if account.TotalCostCents != 1850 {
 		t.Fatalf("TotalCostCents = %d, want 1850", account.TotalCostCents)
 	}
+	if account.BannedAt != "" || account.BanNote != "" {
+		t.Fatalf("legacy account ban fields = %q/%q, want empty", account.BannedAt, account.BanNote)
+	}
+	afterSalesCases, err := store.ListAfterSalesCases()
+	if err != nil {
+		t.Fatalf("after-sales migration: %v", err)
+	}
+	if len(afterSalesCases) != 0 {
+		t.Fatalf("after-sales cases = %d, want 0", len(afterSalesCases))
+	}
 	records, err := store.ListAccountCostRecords(1)
 	if err != nil {
 		t.Fatal(err)

@@ -363,6 +363,13 @@ func (service *SubscriptionService) DeleteAccount(accountID int64) error {
 	if activeCount > 0 {
 		return fmt.Errorf("该账号仍有活跃订阅占用车位，请先下车后再删除")
 	}
+	afterSalesCount, err := service.Store.CountAfterSalesCasesByAccount(accountID)
+	if err != nil {
+		return err
+	}
+	if afterSalesCount > 0 {
+		return fmt.Errorf("该账号已有售后退款记录，为保留历史凭据不可删除")
+	}
 	seats, err := service.Store.ListSeatsByAccount(accountID)
 	if err != nil {
 		return err
@@ -471,6 +478,16 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 		allSeats, err := service.Store.ListSeatsByAccount(account.ID)
 		if err != nil {
 			return nil, err
+		}
+		includesCurrentSeat := false
+		for _, seat := range allSeats {
+			if seat.ID == includeSeatID {
+				includesCurrentSeat = true
+				break
+			}
+		}
+		if account.BannedAt != "" && !includesCurrentSeat {
+			continue
 		}
 		freeSeats, err := service.Store.ListFreeSeats(account.ID, includeSeatID)
 		if err != nil {

@@ -17,6 +17,9 @@ func (service *SubscriptionService) ProcessAccountCostRenewals() error {
 	today := cycle.StartOfDay(service.now())
 	var renewalErrors []error
 	for _, account := range accounts {
+		if account.BannedAt != "" {
+			continue
+		}
 		if account.OpenedAt == "" {
 			continue
 		}

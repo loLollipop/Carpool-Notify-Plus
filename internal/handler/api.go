@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -107,6 +108,15 @@ func (server *Server) getAccounts(context *gin.Context) {
 		return
 	}
 	respondOK(context, gin.H{"accounts": accounts})
+}
+
+func (server *Server) getAfterSales(context *gin.Context) {
+	page, err := server.Service.ListAfterSalesPage()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"cases": page.Cases, "summary": page.Summary})
 }
 
 func (server *Server) getAccountOptions(context *gin.Context) {
@@ -689,6 +699,33 @@ func (server *Server) putUpdateAccount(context *gin.Context) {
 	respondOK(context, gin.H{"message": "账号已保存"})
 }
 
+func (server *Server) postBanAccount(context *gin.Context) {
+	accountID, ok := parseIDParam(context, "id", "无效的账号 ID")
+	if !ok {
+		return
+	}
+	var request struct {
+		BannedDate string `json:"banned_date"`
+		Note       string `json:"note"`
+	}
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	created, err := server.Service.BanAccount(accountID, service.BanAccountInput{
+		BannedDate: request.BannedDate,
+		Note:       request.Note,
+	})
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{
+		"message":       fmt.Sprintf("账号已封禁，已生成 %d 条售后记录", created),
+		"created_count": created,
+	})
+}
+
 func (server *Server) deleteAccount(context *gin.Context) {
 	accountID, ok := parseIDParam(context, "id", "无效的账号 ID")
 	if !ok {
@@ -699,6 +736,54 @@ func (server *Server) deleteAccount(context *gin.Context) {
 		return
 	}
 	respondOK(context, gin.H{"message": "账号已删除"})
+}
+
+// ---- After-sales mutations -----------------------------------------------------
+
+func (server *Server) putAfterSalesCase(context *gin.Context) {
+	caseID, ok := parseIDParam(context, "id", "无效的售后记录 ID")
+	if !ok {
+		return
+	}
+	var request struct {
+		RefundAmountYuan string `json:"refund_amount_yuan"`
+		Note             string `json:"note"`
+	}
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	if err := server.Service.UpdateAfterSalesCase(caseID, service.UpdateAfterSalesCaseInput{
+		RefundAmountYuan: request.RefundAmountYuan,
+		Note:             request.Note,
+	}); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "售后记录已保存"})
+}
+
+func (server *Server) postAfterSalesRefunded(context *gin.Context) {
+	caseID, ok := parseIDParam(context, "id", "无效的售后记录 ID")
+	if !ok {
+		return
+	}
+	var request struct {
+		Refunded bool `json:"refunded"`
+	}
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	if err := server.Service.SetAfterSalesCaseRefunded(caseID, request.Refunded); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	message := "已恢复为待退款"
+	if request.Refunded {
+		message = "已标记为退款完成"
+	}
+	respondOK(context, gin.H{"message": message})
 }
 
 // ---- Bill mutations ------------------------------------------------------------

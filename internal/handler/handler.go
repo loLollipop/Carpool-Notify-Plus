@@ -81,7 +81,12 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 		authorized.GET("/account-options", server.getAccountOptions)
 		authorized.POST("/accounts", server.postCreateAccount)
 		authorized.PUT("/accounts/:id", server.putUpdateAccount)
+		authorized.POST("/accounts/:id/ban", server.postBanAccount)
 		authorized.DELETE("/accounts/:id", server.deleteAccount)
+
+		authorized.GET("/after-sales", server.getAfterSales)
+		authorized.PUT("/after-sales/:id", server.putAfterSalesCase)
+		authorized.POST("/after-sales/:id/refunded", server.postAfterSalesRefunded)
 
 		authorized.GET("/bills", server.getBills)
 		authorized.PUT("/bills/:id", server.putUpdateBill)

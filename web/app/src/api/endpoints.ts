@@ -3,6 +3,9 @@ import type {
   AccountInput,
   AccountOption,
   AccountView,
+  AfterSalesCaseInput,
+  AfterSalesCaseView,
+  AfterSalesSummary,
   BillInput,
   BillView,
   BillsSummary,
@@ -86,6 +89,13 @@ export function fetchRedemptionCodes() {
 
 export function fetchAccounts() {
   return api<{ accounts: AccountView[] | null }>("/api/accounts").then((r) => r.accounts ?? [])
+}
+
+export function fetchAfterSales() {
+  return api<{
+    cases: AfterSalesCaseView[] | null
+    summary: AfterSalesSummary
+  }>("/api/after-sales").then((r) => ({ cases: r.cases ?? [], summary: r.summary }))
 }
 
 export function fetchAccountOptions(includeSeatId = 0) {
@@ -223,6 +233,24 @@ export function updateAccount(id: number, input: AccountInput) {
 
 export function deleteAccount(id: number) {
   return api<MessageResult>(`/api/accounts/${id}`, { method: "DELETE" })
+}
+
+export function banAccount(id: number, input: { banned_date: string; note: string }) {
+  return api<MessageResult & { created_count: number }>(`/api/accounts/${id}/ban`, {
+    method: "POST",
+    body: input,
+  })
+}
+
+export function updateAfterSalesCase(id: number, input: AfterSalesCaseInput) {
+  return api<MessageResult>(`/api/after-sales/${id}`, { method: "PUT", body: input })
+}
+
+export function setAfterSalesRefunded(id: number, refunded: boolean) {
+  return api<MessageResult>(`/api/after-sales/${id}/refunded`, {
+    method: "POST",
+    body: { refunded },
+  })
 }
 
 // ---- Bill mutations ----

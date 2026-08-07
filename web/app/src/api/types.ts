@@ -206,6 +206,8 @@ export interface Account {
   cost_cents: number
   total_cost_cents: number
   zero_renewal_next_month: boolean
+  banned_at: string
+  ban_note: string
   created_at: string
   updated_at: string
 }
@@ -246,6 +248,57 @@ export interface AccountView {
   seat_used: number
   is_full: boolean
   can_delete: boolean
+}
+
+export type AfterSalesStatus = "pending" | "review" | "refunded"
+
+export interface AfterSalesCase {
+  id: number
+  account_id: number
+  subscription_id: number
+  bill_id: number
+  account_name: string
+  account_email: string
+  account_space_name: string
+  customer_email: string
+  customer_wechat: string
+  period_start: string
+  period_end: string
+  banned_date: string
+  warranty_days: number
+  used_days: number
+  remaining_days: number
+  paid_amount_cents: number
+  refund_amount_cents: number
+  status: AfterSalesStatus
+  note: string
+  processed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AfterSalesCaseView {
+  case: AfterSalesCase
+  paid_amount_yuan: string
+  refund_amount_yuan: string
+  status_label: string
+  processed_at_label: string
+}
+
+export interface AfterSalesSummary {
+  total_count: number
+  pending_count: number
+  review_count: number
+  refunded_count: number
+  pending_refund_cents: number
+  pending_refund_yuan: string
+  refunded_amount_cents: number
+  refunded_amount_yuan: string
+}
+
+export interface AfterSalesPage {
+  cases: AfterSalesCaseView[]
+  summary: AfterSalesSummary
 }
 
 export interface SeatOption {
@@ -457,6 +510,11 @@ export interface AccountInput {
 
 export interface BillInput {
   amount_yuan: string
+  note: string
+}
+
+export interface AfterSalesCaseInput {
+  refund_amount_yuan: string
   note: string
 }
 

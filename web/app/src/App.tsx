@@ -22,6 +22,11 @@ const DashboardPage = lazy(() =>
 const BillsPage = lazy(() =>
   import("@/features/bills/BillsPage").then((module) => ({ default: module.BillsPage })),
 )
+const AfterSalesPage = lazy(() =>
+  import("@/features/after-sales/AfterSalesPage").then((module) => ({
+    default: module.AfterSalesPage,
+  })),
+)
 
 export default function App() {
   return (
@@ -48,6 +53,14 @@ export default function App() {
         <Route path="/cards" element={<Navigate to="/users" replace />} />
         <Route path="/redemptions" element={<RedemptionsPage />} />
         <Route path="/accounts" element={<AccountsPage />} />
+        <Route
+          path="/after-sales"
+          element={
+            <Suspense fallback={<Skeleton className="h-96 rounded-xl" />}>
+              <AfterSalesPage />
+            </Suspense>
+          }
+        />
         <Route
           path="/bills"
           element={

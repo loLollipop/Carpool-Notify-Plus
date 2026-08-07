@@ -9,6 +9,7 @@ import {
   Pencil,
   Plus,
   Search,
+  ShieldAlert,
   Trash2,
 } from "lucide-react"
 
@@ -46,6 +47,7 @@ import {
 } from "@/features/subscriptions/subscription-prefill"
 import { getNextMonthlyRenewalDate } from "@/lib/account-renewal"
 import { AccountDialog, type AccountPrefill } from "./AccountDialog"
+import { AccountBanDialog, type AccountBanTarget } from "./AccountBanDialog"
 
 type AccountsFilter = "all" | "sale" | "resale"
 
@@ -61,6 +63,14 @@ function formatOptionalCents(cents: number) {
 
 function AccountStatus({ view }: { view: AccountView }) {
   const { t } = useTranslation()
+  if (view.account.banned_at) {
+    return (
+      <Badge variant="destructive" className="font-normal" title={t("accounts.statusBanned")}>
+        <ShieldAlert />
+        {t("accounts.statusBanned")}
+      </Badge>
+    )
+  }
   if (view.is_full) {
     return (
       <Badge variant="destructive" className="font-normal" title={t("accounts.statusFull")}>
@@ -85,12 +95,37 @@ function AccountStatus({ view }: { view: AccountView }) {
   )
 }
 
+function AccountDateRows({ openedAt }: { openedAt: string }) {
+  const { t } = useTranslation()
+  const nextRenewalDate = getNextMonthlyRenewalDate(openedAt)
+  return (
+    <div className="grid min-w-0 gap-1 text-xs text-muted-foreground">
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <span className="shrink-0">{t("accounts.openedAt")}</span>
+        <span className="truncate font-mono tabular-nums text-foreground" title={openedAt || "-"}>
+          {openedAt || "-"}
+        </span>
+      </div>
+      <div className="flex min-w-0 items-center justify-between gap-3">
+        <span className="shrink-0">{t("accounts.nextRenewalAt")}</span>
+        <span
+          className="truncate font-mono font-medium text-brand tabular-nums"
+          title={nextRenewalDate || "-"}
+        >
+          {nextRenewalDate || "-"}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function AccountMobileCard({
   view,
   isExpanded,
   onToggle,
   onOpenSeat,
   onEdit,
+  onBan,
   onDelete,
 }: {
   view: AccountView
@@ -98,6 +133,7 @@ function AccountMobileCard({
   onToggle: () => void
   onOpenSeat: (seat: NonNullable<AccountView["seats"]>[number]) => void
   onEdit: () => void
+  onBan: () => void
   onDelete: () => void
 }) {
   const { t } = useTranslation()
@@ -105,14 +141,19 @@ function AccountMobileCard({
   const accountName = view.account.name.trim()
   const accountEmail = view.account.email.trim()
   const showAccountEmail = accountEmail !== "" && accountEmail !== accountName
-  const nextRenewalDate = getNextMonthlyRenewalDate(view.account.opened_at)
 
   return (
     <Card className="relative gap-0 overflow-hidden p-0 animate-fade-up">
       <span
         className={cn(
           "absolute inset-y-0 left-0 w-1",
-          view.is_full ? "bg-destructive" : view.seat_used === 0 ? "bg-brand" : "bg-success",
+          view.account.banned_at
+            ? "bg-destructive"
+            : view.is_full
+              ? "bg-destructive"
+              : view.seat_used === 0
+                ? "bg-brand"
+                : "bg-success",
         )}
       />
       <div className="p-4">
@@ -149,15 +190,8 @@ function AccountMobileCard({
               ¥{formatCents(view.account.total_cost_cents)}
             </div>
           </div>
-          <div>
-            <div className="text-muted-foreground">{t("accounts.openedAt")}</div>
-            <div className="mt-1 tabular-nums">{view.account.opened_at || "-"}</div>
-          </div>
-          <div>
-            <div className="text-muted-foreground">{t("accounts.nextRenewalAt")}</div>
-            <div className="mt-1 font-medium text-brand tabular-nums">
-              {nextRenewalDate || "-"}
-            </div>
+          <div className="col-span-2 border-t border-foreground/[0.06] pt-2.5">
+            <AccountDateRows openedAt={view.account.opened_at} />
           </div>
           <div className="col-span-2">
             <div className="text-muted-foreground">{t("accounts.colPaymentMethod")}</div>
@@ -228,11 +262,22 @@ function AccountMobileCard({
         ) : null}
       </div>
 
-      <div className="flex items-center gap-2 border-t bg-muted/35 px-4 py-3">
+      <div className="flex flex-wrap items-center gap-2 border-t bg-muted/35 px-4 py-3">
         <Button variant="outline" size="sm" onClick={onEdit}>
           <Pencil data-slot="icon" />
           {t("common.edit")}
         </Button>
+        {!view.account.banned_at ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:text-destructive"
+            onClick={onBan}
+          >
+            <ShieldAlert data-slot="icon" />
+            {t("accounts.markBanned")}
+          </Button>
+        ) : null}
         {view.can_delete ? (
           <Button
             variant="ghost"
@@ -261,6 +306,7 @@ export function AccountsPage() {
   const [accountDialogOpen, setAccountDialogOpen] = React.useState(false)
   const [editingAccount, setEditingAccount] = React.useState<AccountPrefill | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<{ id: number; name: string } | null>(null)
+  const [banTarget, setBanTarget] = React.useState<AccountBanTarget | null>(null)
   const [subscriptionDialogOpen, setSubscriptionDialogOpen] = React.useState(false)
   const [subscriptionPrefill, setSubscriptionPrefill] = React.useState<SubscriptionPrefill | null>(null)
   const [search, setSearch] = React.useState("")
@@ -459,6 +505,13 @@ export function AccountsPage() {
                   setSubscriptionDialogOpen(true)
                 }}
                 onEdit={() => openEdit(view)}
+                onBan={() =>
+                  setBanTarget({
+                    id: view.account.id,
+                    name: view.account.name,
+                    activeCount: view.seat_used,
+                  })
+                }
                 onDelete={() =>
                   setDeleteTarget({ id: view.account.id, name: view.account.name })
                 }
@@ -479,7 +532,7 @@ export function AccountsPage() {
                 <TableHead className="hidden md:table-cell md:w-52">
                   {t("accounts.colRemark")}
                 </TableHead>
-                <TableHead className="w-52 text-right">{t("accounts.colActions")}</TableHead>
+                <TableHead className="w-64 text-right">{t("accounts.colActions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody className="[&_tr:last-child]:border-b [&_tr:last-child]:border-b-border">
@@ -489,17 +542,18 @@ export function AccountsPage() {
                 const accountName = view.account.name.trim()
                 const accountEmail = view.account.email.trim()
                 const showAccountEmail = accountEmail !== "" && accountEmail !== accountName
-                const nextRenewalDate = getNextMonthlyRenewalDate(view.account.opened_at)
                 return (
                   <TableRow
                     key={view.account.id}
                     className={cn(
                       "border-l-2",
-                      view.is_full
+                      view.account.banned_at
                         ? "border-l-destructive"
-                        : view.seat_used === 0
-                          ? "border-l-brand"
-                          : "border-l-success",
+                        : view.is_full
+                          ? "border-l-destructive"
+                          : view.seat_used === 0
+                            ? "border-l-brand"
+                            : "border-l-success",
                     )}
                   >
                     <TableCell>
@@ -511,31 +565,21 @@ export function AccountsPage() {
                           <div className="truncate font-medium" title={view.account.name}>
                             {view.account.name}
                           </div>
-                          <div className="mt-1 flex min-w-0 flex-wrap gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                        {showAccountEmail ? (
-                          <span className="max-w-full truncate" title={accountEmail}>
-                            {accountEmail}
-                          </span>
-                        ) : null}
-                        {view.account.space_name ? (
-                          <span className="max-w-full truncate" title={view.account.space_name}>
-                            {view.account.space_name}
-                          </span>
-                        ) : null}
-                        {view.account.opened_at ? (
-                          <span className="inline-flex items-center gap-1">
-                            <span>{t("accounts.openedAt")}</span>
-                            <span className="font-mono tabular-nums">
-                              {view.account.opened_at}
-                            </span>
-                          </span>
-                        ) : null}
-                        {nextRenewalDate ? (
-                          <span className="inline-flex items-center gap-1 text-brand">
-                            <span>{t("accounts.nextRenewalAt")}</span>
-                            <span className="font-mono tabular-nums">{nextRenewalDate}</span>
-                          </span>
-                        ) : null}
+                          {showAccountEmail ? (
+                            <div className="mt-1 truncate text-xs text-muted-foreground" title={accountEmail}>
+                              {accountEmail}
+                            </div>
+                          ) : null}
+                          {view.account.space_name ? (
+                            <div
+                              className="mt-0.5 truncate text-xs text-muted-foreground"
+                              title={view.account.space_name}
+                            >
+                              {view.account.space_name}
+                            </div>
+                          ) : null}
+                          <div className="mt-2 max-w-56">
+                            <AccountDateRows openedAt={view.account.opened_at} />
                           </div>
                         </div>
                       </div>
@@ -639,6 +683,23 @@ export function AccountsPage() {
                           <Pencil data-slot="icon" />
                           {t("common.edit")}
                         </Button>
+                        {!view.account.banned_at ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() =>
+                              setBanTarget({
+                                id: view.account.id,
+                                name: view.account.name,
+                                activeCount: view.seat_used,
+                              })
+                            }
+                          >
+                            <ShieldAlert data-slot="icon" />
+                            {t("accounts.markBanned")}
+                          </Button>
+                        ) : null}
                         {view.can_delete ? (
                           <Button
                             variant="ghost"
@@ -741,6 +802,12 @@ export function AccountsPage() {
         open={accountDialogOpen}
         onOpenChange={setAccountDialogOpen}
         prefill={editingAccount}
+      />
+      <AccountBanDialog
+        target={banTarget}
+        onOpenChange={(open) => {
+          if (!open) setBanTarget(null)
+        }}
       />
       <SubscriptionDialog
         open={subscriptionDialogOpen}

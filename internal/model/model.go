@@ -110,6 +110,8 @@ type Account struct {
 	CostCents            int64     `json:"cost_cents"`
 	TotalCostCents       int64     `json:"total_cost_cents"`
 	ZeroRenewalNextMonth bool      `json:"zero_renewal_next_month"`
+	BannedAt             string    `json:"banned_at"`
+	BanNote              string    `json:"ban_note"`
 	CreatedAt            time.Time `json:"created_at"`
 	UpdatedAt            time.Time `json:"updated_at"`
 }
@@ -197,6 +199,39 @@ type Bill struct {
 	PaidAt         time.Time
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
+}
+
+const (
+	AfterSalesStatusPending  = "pending"
+	AfterSalesStatusReview   = "review"
+	AfterSalesStatusRefunded = "refunded"
+)
+
+// AfterSalesCase is an immutable refund snapshot created when an owner account is banned.
+// Contact and pricing fields are copied so later edits do not rewrite refund history.
+type AfterSalesCase struct {
+	ID                int64      `json:"id"`
+	AccountID         int64      `json:"account_id"`
+	SubscriptionID    int64      `json:"subscription_id"`
+	BillID            int64      `json:"bill_id"`
+	AccountName       string     `json:"account_name"`
+	AccountEmail      string     `json:"account_email"`
+	AccountSpaceName  string     `json:"account_space_name"`
+	CustomerEmail     string     `json:"customer_email"`
+	CustomerWechat    string     `json:"customer_wechat"`
+	PeriodStart       string     `json:"period_start"`
+	PeriodEnd         string     `json:"period_end"`
+	BannedDate        string     `json:"banned_date"`
+	WarrantyDays      int        `json:"warranty_days"`
+	UsedDays          int        `json:"used_days"`
+	RemainingDays     int        `json:"remaining_days"`
+	PaidAmountCents   int64      `json:"paid_amount_cents"`
+	RefundAmountCents int64      `json:"refund_amount_cents"`
+	Status            string     `json:"status"`
+	Note              string     `json:"note"`
+	ProcessedAt       *time.Time `json:"processed_at"`
+	CreatedAt         time.Time  `json:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at"`
 }
 
 // PaidDueOccurrence records that one subscription due date has been paid.
