@@ -14,15 +14,15 @@ export function PageHeader({
   return (
     <div
       className={cn(
-        "mb-7 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between animate-fade-up",
+        "mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between animate-fade-up",
         className,
       )}
     >
       <div className="max-w-2xl">
         <div>
-          <h1 className="text-2xl font-semibold leading-tight text-foreground sm:text-[27px]">{title}</h1>
+          <h1 className="text-[22px] font-semibold leading-tight text-foreground sm:text-2xl">{title}</h1>
           {description ? (
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{description}</p>
+            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{description}</p>
           ) : null}
         </div>
       </div>

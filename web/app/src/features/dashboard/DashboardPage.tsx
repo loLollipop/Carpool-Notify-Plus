@@ -111,7 +111,7 @@ function ChartTooltip({
 
 // ---- KPI ------------------------------------------------------------------------
 
-type KpiTone = "brand" | "success" | "gold"
+type KpiTone = "brand" | "success" | "gold" | "violet"
 
 function KpiCard({
   label,
@@ -132,27 +132,30 @@ function KpiCard({
     brand: "bg-brand/10 text-brand",
     success: "bg-success/10 text-success",
     gold: "bg-gold/12 text-gold",
+    violet: "bg-violet/10 text-violet",
   }
   return (
     <Card
-      className="group relative gap-0 overflow-hidden p-5 transition-[border-color,background-color] duration-200 animate-fade-up hover:border-input hover:bg-accent/25"
+      className="group relative min-h-[112px] gap-0 overflow-hidden p-4 transition-[border-color,box-shadow] duration-200 animate-fade-up hover:border-input hover:shadow-[0_8px_24px_color-mix(in_oklab,var(--foreground)_6%,transparent)]"
       style={{ animationDelay: `${delay}ms` }}
     >
-      <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
-        <span>{label}</span>
+      <div className="flex min-w-0 items-start gap-3">
         <span
           className={cn(
-            "grid size-9 place-items-center rounded-md transition-colors duration-200",
+            "grid size-10 shrink-0 place-items-center rounded-md transition-colors duration-200",
             toneClass[tone],
           )}
         >
           {icon}
         </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-xs font-medium text-muted-foreground">{label}</div>
+          <div className="display-numeral mt-2 text-[27px] leading-none">
+            <NumberTicker value={value} />
+          </div>
+          <div className="mt-2 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{hint}</div>
+        </div>
       </div>
-      <div className="display-numeral mt-5 text-[29px] leading-none">
-        <NumberTicker value={value} />
-      </div>
-      <div className="mt-2.5 truncate text-xs text-muted-foreground">{hint}</div>
     </Card>
   )
 }
@@ -171,7 +174,7 @@ function KpiRow({
   const { t } = useTranslation()
 
   return (
-    <section aria-label={t("dash.title")} className="mb-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
+    <section aria-label={t("dash.title")} className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <KpiCard
         label={t("dash.kpiMonth")}
         value={`¥${summary?.this_month_amount_yuan ?? "0.00"}`}
@@ -210,7 +213,7 @@ function KpiRow({
           count: calendar?.pending_month_count ?? 0,
         })}
         icon={<CalendarClock className="size-4" />}
-        tone="brand"
+        tone="violet"
         delay={210}
       />
     </section>
