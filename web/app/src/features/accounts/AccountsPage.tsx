@@ -99,22 +99,18 @@ function AccountDateRows({ openedAt }: { openedAt: string }) {
   const { t } = useTranslation()
   const nextRenewalDate = getNextMonthlyRenewalDate(openedAt)
   return (
-    <div className="grid min-w-0 gap-1 text-xs text-muted-foreground">
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <span className="shrink-0">{t("accounts.openedAt")}</span>
-        <span className="truncate font-mono tabular-nums text-foreground" title={openedAt || "-"}>
-          {openedAt || "-"}
-        </span>
-      </div>
-      <div className="flex min-w-0 items-center justify-between gap-3">
-        <span className="shrink-0">{t("accounts.nextRenewalAt")}</span>
-        <span
-          className="truncate font-mono font-medium text-brand tabular-nums"
-          title={nextRenewalDate || "-"}
-        >
-          {nextRenewalDate || "-"}
-        </span>
-      </div>
+    <div className="grid min-w-0 grid-cols-[max-content_6.25rem] items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
+      <span>{t("accounts.openedAt")}</span>
+      <span className="truncate font-mono tabular-nums text-foreground" title={openedAt || "-"}>
+        {openedAt || "-"}
+      </span>
+      <span>{t("accounts.nextRenewalAt")}</span>
+      <span
+        className="truncate font-mono font-medium text-brand tabular-nums"
+        title={nextRenewalDate || "-"}
+      >
+        {nextRenewalDate || "-"}
+      </span>
     </div>
   )
 }
@@ -578,7 +574,7 @@ export function AccountsPage() {
                               {view.account.space_name}
                             </div>
                           ) : null}
-                          <div className="mt-2 max-w-56">
+                          <div className="mt-2">
                             <AccountDateRows openedAt={view.account.opened_at} />
                           </div>
                         </div>

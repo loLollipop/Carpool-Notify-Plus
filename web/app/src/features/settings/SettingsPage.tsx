@@ -41,7 +41,6 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -471,8 +470,8 @@ function RedeemPageSettingsEditor({
   }
 
   return (
-    <Card className="relative gap-5 overflow-hidden p-6 animate-fade-up" style={{ animationDelay: "90ms" }}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="grid gap-4 animate-fade-up" style={{ animationDelay: "90ms" }}>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1">
         <div className="flex items-center gap-2">
           <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
             <Megaphone className="size-4" />
@@ -487,8 +486,14 @@ function RedeemPageSettingsEditor({
         </Button>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(280px,0.8fr)]">
-        <div className="grid gap-4">
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <Card className="content-start gap-5 p-5 sm:p-6">
+          <div className="flex items-center gap-3 border-b pb-4">
+            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+              <Megaphone className="size-4" />
+            </span>
+            <h3 className="text-sm font-semibold">公告内容</h3>
+          </div>
           <div className="grid gap-1.5">
             <Label htmlFor="redeem-announcement-title">公告标题</Label>
             <Input
@@ -524,82 +529,94 @@ function RedeemPageSettingsEditor({
             />
             <p className="text-xs text-muted-foreground">一行一条，最多 6 条；打开或刷新兑换页会自动弹窗。</p>
           </div>
-        </div>
+        </Card>
 
-        <div className="grid content-start gap-4 rounded-lg border bg-muted/35 p-4">
-          <div className="grid gap-1.5">
-            <Label htmlFor="redeem-support-title">客服标题</Label>
-            <Input
-              id="redeem-support-title"
-              value={value.support_title}
-              onChange={(event) => update({ support_title: event.target.value })}
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="redeem-support-description">客服说明</Label>
-            <Input
-              id="redeem-support-description"
-              value={value.support_description}
-              onChange={(event) => update({ support_description: event.target.value })}
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="redeem-support-wechat">客服微信号</Label>
-            <Input
-              id="redeem-support-wechat"
-              value={value.support_wechat_id}
-              placeholder="不填写则不显示复制按钮"
-              onChange={(event) => update({ support_wechat_id: event.target.value })}
-            />
+        <Card className="content-start gap-5 p-5 sm:p-6">
+          <div className="flex items-center gap-3 border-b pb-4">
+            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+              <MessageSquare className="size-4" />
+            </span>
+            <h3 className="text-sm font-semibold">客服信息</h3>
           </div>
 
-          <div className="grid gap-2">
-            <Label>客服微信二维码</Label>
-            {value.support_qr_data_url ? (
-              <div className="rounded-lg border bg-white p-3">
-                <img
-                  src={value.support_qr_data_url}
-                  alt="客服微信二维码预览"
-                  className="mx-auto aspect-square max-h-64 rounded-md object-contain"
+          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_12rem]">
+            <div className="grid content-start gap-4">
+              <div className="grid gap-1.5">
+                <Label htmlFor="redeem-support-title">客服标题</Label>
+                <Input
+                  id="redeem-support-title"
+                  value={value.support_title}
+                  onChange={(event) => update({ support_title: event.target.value })}
                 />
               </div>
-            ) : (
-              <div className="grid aspect-square max-h-64 place-items-center rounded-lg border border-dashed bg-background text-center text-sm text-muted-foreground">
-                未上传二维码
+              <div className="grid gap-1.5">
+                <Label htmlFor="redeem-support-description">客服说明</Label>
+                <Input
+                  id="redeem-support-description"
+                  value={value.support_description}
+                  onChange={(event) => update({ support_description: event.target.value })}
+                />
               </div>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="hidden"
-              onChange={handleUpload}
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
-                <ImageUp data-slot="icon" />
-                上传图片
-              </Button>
-              {value.support_qr_data_url ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => update({ support_qr_data_url: "" })}
-                >
-                  <Trash2 data-slot="icon" />
-                  移除
-                </Button>
-              ) : null}
+              <div className="grid gap-1.5">
+                <Label htmlFor="redeem-support-wechat">客服微信号</Label>
+                <Input
+                  id="redeem-support-wechat"
+                  value={value.support_wechat_id}
+                  placeholder="不填写则不显示复制按钮"
+                  onChange={(event) => update({ support_wechat_id: event.target.value })}
+                />
+              </div>
             </div>
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              图片会保存为公开展示用配置，不要上传包含敏感信息的截图。
-            </p>
+
+            <div className="grid content-start gap-2">
+              <Label>客服微信二维码</Label>
+              {value.support_qr_data_url ? (
+                <div className="grid aspect-square w-full max-w-48 place-items-center overflow-hidden rounded-lg border bg-white p-2">
+                  <img
+                    src={value.support_qr_data_url}
+                    alt="客服微信二维码预览"
+                    className="size-full rounded-md object-contain"
+                  />
+                </div>
+              ) : (
+                <div className="grid aspect-square w-full max-w-48 place-items-center rounded-lg border border-dashed bg-muted/35 px-4 text-center text-sm text-muted-foreground">
+                  未上传二维码
+                </div>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={handleUpload}
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                  <ImageUp data-slot="icon" />
+                  上传图片
+                </Button>
+                {value.support_qr_data_url ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-destructive hover:text-destructive"
+                    aria-label="移除二维码"
+                    title="移除二维码"
+                    onClick={() => update({ support_qr_data_url: "" })}
+                  >
+                    <Trash2 />
+                  </Button>
+                ) : null}
+              </div>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                图片用于兑换页公开展示，请勿上传敏感截图。
+              </p>
+            </div>
           </div>
-        </div>
+        </Card>
       </div>
-    </Card>
+    </div>
   )
 }
 
@@ -623,96 +640,107 @@ function NotificationConfigEditor({
   }
 
   return (
-    <Card className="relative gap-5 overflow-hidden p-6 animate-fade-up" style={{ animationDelay: "60ms" }}>
-      <div className="flex items-center gap-2">
+    <div className="grid gap-4 animate-fade-up" style={{ animationDelay: "60ms" }}>
+      <div className="flex items-center gap-2 px-1">
         <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
           <ShieldCheck className="size-4" />
         </span>
         <h2 className="panel-heading text-sm font-semibold">{t("settings.deliveryConfig")}</h2>
       </div>
 
-      <div className="grid gap-4">
-        <div className="grid gap-3 rounded-lg border bg-muted/35 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <Label>{t("settings.smtpConfig")}</Label>
-            <Badge variant={settings.notification_config.smtp.password_set ? "success" : "secondary"}>
-              {settings.notification_config.smtp.password_set
+      <Card className="gap-5 p-5 sm:p-6">
+        <div className="flex items-center justify-between gap-3 border-b pb-4">
+          <div className="flex items-center gap-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+              <Mail className="size-4" />
+            </span>
+            <h3 className="text-sm font-semibold">{t("settings.smtpConfig")}</h3>
+          </div>
+          <Badge variant={settings.notification_config.smtp.password_set ? "success" : "secondary"}>
+            {settings.notification_config.smtp.password_set
+              ? t("settings.configured")
+              : t("settings.notConfigured")}
+          </Badge>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-1.5">
+            <Label htmlFor="smtp-host">{t("settings.smtpHost")}</Label>
+            <Input
+              id="smtp-host"
+              value={value.smtp.host}
+              placeholder="smtp.qq.com"
+              onChange={(event) => updateSMTP({ host: event.target.value })}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="smtp-port">{t("settings.smtpPort")}</Label>
+            <Input
+              id="smtp-port"
+              inputMode="numeric"
+              value={value.smtp.port}
+              placeholder="465"
+              onChange={(event) => updateSMTP({ port: event.target.value })}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="smtp-username">{t("settings.smtpUsername")}</Label>
+            <Input
+              id="smtp-username"
+              value={value.smtp.username}
+              autoComplete="off"
+              onChange={(event) => updateSMTP({ username: event.target.value })}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="smtp-password">{t("settings.smtpPassword")}</Label>
+            <Input
+              id="smtp-password"
+              type="password"
+              value={value.smtp.password}
+              autoComplete="new-password"
+              placeholder={settings.notification_config.smtp.password_set ? "••••••••" : ""}
+              onChange={(event) => updateSMTP({ password: event.target.value })}
+            />
+            <SecretHint configured={settings.notification_config.smtp.password_set} />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="smtp-from">{t("settings.smtpFrom")}</Label>
+            <Input
+              id="smtp-from"
+              type="email"
+              value={value.smtp.from}
+              onChange={(event) => updateSMTP({ from: event.target.value })}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="smtp-to">{t("settings.smtpTo")}</Label>
+            <Input
+              id="smtp-to"
+              value={value.smtp.to}
+              placeholder={t("settings.smtpToPlaceholder")}
+              onChange={(event) => updateSMTP({ to: event.target.value })}
+            />
+          </div>
+        </div>
+      </Card>
+
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <Card className="content-start gap-5 p-5 sm:p-6">
+          <div className="flex items-center justify-between gap-3 border-b pb-4">
+            <div className="flex items-center gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+                <Send className="size-4" />
+              </span>
+              <h3 className="text-sm font-semibold">IYUU</h3>
+            </div>
+            <Badge variant={settings.notification_config.iyuu.token_set ? "success" : "secondary"}>
+              {settings.notification_config.iyuu.token_set
                 ? t("settings.configured")
                 : t("settings.notConfigured")}
             </Badge>
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="grid gap-1.5">
-              <Label htmlFor="smtp-host">{t("settings.smtpHost")}</Label>
-              <Input
-                id="smtp-host"
-                value={value.smtp.host}
-                placeholder="smtp.qq.com"
-                onChange={(event) => updateSMTP({ host: event.target.value })}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="smtp-port">{t("settings.smtpPort")}</Label>
-              <Input
-                id="smtp-port"
-                inputMode="numeric"
-                value={value.smtp.port}
-                placeholder="465"
-                onChange={(event) => updateSMTP({ port: event.target.value })}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="smtp-username">{t("settings.smtpUsername")}</Label>
-              <Input
-                id="smtp-username"
-                value={value.smtp.username}
-                autoComplete="off"
-                onChange={(event) => updateSMTP({ username: event.target.value })}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="smtp-password">{t("settings.smtpPassword")}</Label>
-              <Input
-                id="smtp-password"
-                type="password"
-                value={value.smtp.password}
-                autoComplete="new-password"
-                placeholder={settings.notification_config.smtp.password_set ? "••••••••" : ""}
-                onChange={(event) => updateSMTP({ password: event.target.value })}
-              />
-              <SecretHint configured={settings.notification_config.smtp.password_set} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="smtp-from">{t("settings.smtpFrom")}</Label>
-              <Input
-                id="smtp-from"
-                type="email"
-                value={value.smtp.from}
-                onChange={(event) => updateSMTP({ from: event.target.value })}
-              />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="smtp-to">{t("settings.smtpTo")}</Label>
-              <Input
-                id="smtp-to"
-                value={value.smtp.to}
-                placeholder={t("settings.smtpToPlaceholder")}
-                onChange={(event) => updateSMTP({ to: event.target.value })}
-              />
-            </div>
-          </div>
-        </div>
-
-        <div className="grid gap-3 rounded-lg border bg-muted/35 p-4 md:grid-cols-2">
           <div className="grid gap-1.5">
-            <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="iyuu-token">{t("settings.iyuuToken")}</Label>
-              <Badge variant={settings.notification_config.iyuu.token_set ? "success" : "secondary"}>
-                {settings.notification_config.iyuu.token_set
-                  ? t("settings.configured")
-                  : t("settings.notConfigured")}
-              </Badge>
-            </div>
+            <Label htmlFor="iyuu-token">{t("settings.iyuuToken")}</Label>
             <Input
               id="iyuu-token"
               type="password"
@@ -723,17 +751,25 @@ function NotificationConfigEditor({
             />
             <SecretHint configured={settings.notification_config.iyuu.token_set} />
           </div>
+        </Card>
 
-          <div className="grid gap-3">
+        <Card className="content-start gap-5 p-5 sm:p-6">
+          <div className="flex items-center justify-between gap-3 border-b pb-4">
+            <div className="flex items-center gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+                <BellRing className="size-4" />
+              </span>
+              <h3 className="text-sm font-semibold">Gotify</h3>
+            </div>
+            <Badge variant={settings.notification_config.gotify.token_set ? "success" : "secondary"}>
+              {settings.notification_config.gotify.token_set
+                ? t("settings.configured")
+                : t("settings.notConfigured")}
+            </Badge>
+          </div>
+          <div className="grid gap-4">
             <div className="grid gap-1.5">
-              <div className="flex items-center justify-between gap-3">
-                <Label htmlFor="gotify-url">{t("settings.gotifyURL")}</Label>
-                <Badge variant={settings.notification_config.gotify.token_set ? "success" : "secondary"}>
-                  {settings.notification_config.gotify.token_set
-                    ? t("settings.configured")
-                    : t("settings.notConfigured")}
-                </Badge>
-              </div>
+              <Label htmlFor="gotify-url">{t("settings.gotifyURL")}</Label>
               <Input
                 id="gotify-url"
                 value={value.gotifyURL}
@@ -754,15 +790,13 @@ function NotificationConfigEditor({
               <SecretHint configured={settings.notification_config.gotify.token_set} />
             </div>
           </div>
-        </div>
+        </Card>
       </div>
 
-      <Separator />
-
-      <div className="grid gap-2">
+      <Card className="gap-3 p-5 sm:p-6">
         <Label>{t("settings.channels")}</Label>
         <p className="text-xs leading-relaxed text-muted-foreground">{t("settings.channelsHint")}</p>
-        <div className="mt-1 flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
           {settings.channels.map((channel) => {
             const fixedRoute = isFixedRouteChannel(channel)
             const checked = isChannelChecked(channel, enabledChannels)
@@ -792,8 +826,8 @@ function NotificationConfigEditor({
         <p className="text-xs leading-relaxed text-muted-foreground">
           {t("settings.channelsFootnote")}
         </p>
-      </div>
-    </Card>
+      </Card>
+    </div>
   )
 }
 
