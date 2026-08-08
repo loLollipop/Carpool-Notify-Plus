@@ -91,6 +91,7 @@ type SubscriptionView struct {
 	CycleDesc           string             `json:"cycle_desc"`
 	NextDueDate         string             `json:"next_due_date"`
 	DaysRemaining       int                `json:"days_remaining"`
+	CycleDays           int                `json:"cycle_days"`
 	ChannelLabels       []string           `json:"channel_labels"`
 	OffsetsText         string             `json:"offsets_text"`
 	LastError           string             `json:"last_error"`
@@ -200,6 +201,13 @@ func (service *SubscriptionService) buildView(
 		return SubscriptionView{}, err
 	}
 	nextDue := schedule.NextDue(now)
+	cycleDays := cycle.DaysRemaining(nextDue, now)
+	if periodStart, found := schedule.LastDue(now); found {
+		cycleDays = cycle.DaysRemaining(nextDue, periodStart)
+	}
+	if cycleDays < 1 {
+		cycleDays = 1
+	}
 	profitCents := countedProfitCents(subscription)
 	archivedAtLabel := ""
 	if subscription.ArchivedAt != nil {
@@ -216,6 +224,7 @@ func (service *SubscriptionService) buildView(
 		CycleDesc:           cycle.DescribeCron(subscription.CronExpr),
 		NextDueDate:         cycle.FormatDate(nextDue),
 		DaysRemaining:       cycle.DaysRemaining(nextDue, now),
+		CycleDays:           cycleDays,
 		ChannelLabels:       scheduledNotificationLabels(subscription.NotifyOffsets),
 		OffsetsText:         cycle.FormatOffsets(subscription.NotifyOffsets),
 		LastError:           lastError,

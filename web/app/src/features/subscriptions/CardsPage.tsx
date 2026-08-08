@@ -100,6 +100,45 @@ function CustomerContactRow({ email, wechat }: { email: string; wechat: string }
   )
 }
 
+function SubscriptionProgress({ view }: { view: SubscriptionView }) {
+  const { t } = useTranslation()
+  const cycleDays = Math.max(view.cycle_days || view.days_remaining || 1, 1)
+  const remainingDays = Math.max(view.days_remaining, 0)
+  const progress = Math.min(100, (remainingDays / cycleDays) * 100)
+  const progressPercent = Math.round(progress)
+  const progressColor = `hsl(${Math.round(progress * 1.2)} 72% 42%)`
+  const progressWidth = view.days_remaining <= 0 ? "4px" : `${progress}%`
+  const progressLabel =
+    view.days_remaining <= 0
+      ? t("cards.progressExpired")
+      : t("cards.progressRemaining", { count: view.days_remaining })
+
+  return (
+    <div className="col-span-3 min-w-0 pt-0.5">
+      <div className="mb-1.5 flex items-center justify-between gap-3 text-[11px] font-medium">
+        <span className="text-muted-foreground">{t("cards.progress")}</span>
+        <span className="shrink-0 tabular-nums" style={{ color: progressColor }}>
+          {progressLabel} · {progressPercent}%
+        </span>
+      </div>
+      <div
+        className="h-2 overflow-hidden rounded-full bg-foreground/[0.08]"
+        role="progressbar"
+        aria-label={t("cards.progress")}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={progressPercent}
+        aria-valuetext={`${progressLabel}, ${progressPercent}%`}
+      >
+        <div
+          className="h-full rounded-full transition-[width,background-color] duration-500"
+          style={{ width: progressWidth, backgroundColor: progressColor }}
+        />
+      </div>
+    </div>
+  )
+}
+
 function SubscriptionCard({
   view,
   index,
@@ -180,9 +219,7 @@ function SubscriptionCard({
             <span className="tabular-nums">{view.boarded_at}</span>
           </MetaCell>
         ) : null}
-        <MetaCell label={t("cards.channels")}>
-          {(view.channel_labels ?? []).join(" · ")}
-        </MetaCell>
+        <SubscriptionProgress view={view} />
       </div>
 
       {view.last_error ? (

@@ -203,6 +203,68 @@ func TestSubscriptionViewsShowScheduledNotificationRoutes(t *testing.T) {
 	t.Fatal("calendar occurrence not found")
 }
 
+func TestSubscriptionViewsIncludeCurrentCycleDays(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.July, 25, 12, 0, 0, 0, cycle.Location)
+	}
+	_, seatIDs := createTestAccountWithSeats(
+		t,
+		subscriptionService,
+		"进度测试账号",
+		"固定周期车位",
+		"首期车位",
+	)
+	intervalID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "固定周期订阅",
+		PriceYuan:        "20.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3,1,0",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-07-20",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstPeriodID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "首期订阅",
+		PriceYuan:        "20.00",
+		CronExpr:         "0 0 1 * *",
+		NotifyOffsetsRaw: "3,1,0",
+		SeatID:           seatIDs[1],
+		BoardedAt:        "2026-07-25",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	views, err := subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewsByID := make(map[int64]service.SubscriptionView, len(views))
+	for _, view := range views {
+		viewsByID[view.Subscription.ID] = view
+	}
+
+	intervalView := viewsByID[intervalID]
+	if intervalView.CycleDays != 30 || intervalView.DaysRemaining != 25 {
+		t.Fatalf(
+			"interval progress = %d/%d days, want 25/30",
+			intervalView.DaysRemaining,
+			intervalView.CycleDays,
+		)
+	}
+	firstPeriodView := viewsByID[firstPeriodID]
+	if firstPeriodView.CycleDays != 7 || firstPeriodView.DaysRemaining != 7 {
+		t.Fatalf(
+			"first-period progress = %d/%d days, want 7/7",
+			firstPeriodView.DaysRemaining,
+			firstPeriodView.CycleDays,
+		)
+	}
+}
+
 func TestSetDuePaidOnlyChangesSelectedOccurrence(t *testing.T) {
 	subscriptionService := openTestService(t)
 	subscriptionService.Clock = func() time.Time {

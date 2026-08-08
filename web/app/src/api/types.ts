@@ -37,6 +37,7 @@ export interface SubscriptionView {
   cycle_desc: string
   next_due_date: string
   days_remaining: number
+  cycle_days: number
   channel_labels: string[] | null
   offsets_text: string
   last_error: string
