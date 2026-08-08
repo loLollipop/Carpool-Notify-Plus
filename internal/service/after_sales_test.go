@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"database/sql"
 	"testing"
 	"time"
 
@@ -76,6 +77,115 @@ func TestBanAccountCalculatesThirtyDayWarrantyRefund(t *testing.T) {
 				t.Fatalf("bill changed after ban: %v", err)
 			}
 		})
+	}
+}
+
+func TestCancellationWaitsForAfterSalesBeforeArchivingAndReleasingSeat(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	accountID, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-08-01", true)
+
+	request, err := subscriptionService.RequestCancellation(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.CaseID <= 0 || request.ExpiresAtLabel != "2026-08-11 12:00" {
+		t.Fatalf("request = %#v", request)
+	}
+	active, err := subscriptionService.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.CancellationCaseID != request.CaseID || active.CancellationExpiresAt == nil {
+		t.Fatalf("active cancellation state = %#v", active)
+	}
+	freeSeats, err := subscriptionService.Store.ListFreeSeats(accountID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(freeSeats) != 0 {
+		t.Fatalf("pending cancellation released %d seats", len(freeSeats))
+	}
+
+	page, err := subscriptionService.ListAfterSalesPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Cases) != 1 {
+		t.Fatalf("after-sales cases = %d, want 1", len(page.Cases))
+	}
+	caseItem := page.Cases[0].Case
+	if caseItem.Source != model.AfterSalesSourceCustomerCancellation || caseItem.RefundAmountCents != 2100 {
+		t.Fatalf("cancellation case = %#v", caseItem)
+	}
+
+	if err := subscriptionService.SetAfterSalesCaseRefunded(request.CaseID, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subscriptionService.Store.GetSubscription(subscriptionID); err != sql.ErrNoRows {
+		t.Fatalf("active subscription after refund error = %v, want sql.ErrNoRows", err)
+	}
+	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.ArchivedAt == nil || archived.CancellationCaseID != 0 {
+		t.Fatalf("archived subscription = %#v", archived)
+	}
+	freeSeats, err = subscriptionService.Store.ListFreeSeats(accountID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(freeSeats) != 1 {
+		t.Fatalf("free seats after refund = %d, want 1", len(freeSeats))
+	}
+	completed, err := subscriptionService.Store.GetAfterSalesCase(request.CaseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if completed.Status != model.AfterSalesStatusRefunded || completed.ProcessedAt == nil {
+		t.Fatalf("completed case = %#v", completed)
+	}
+}
+
+func TestExpiredCancellationRestoresSubscriptionAndRemovesTemporaryCase(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	accountID, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-08-01", true)
+
+	if _, err := subscriptionService.RequestCancellation(subscriptionID); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(25 * time.Hour)
+	restored, err := subscriptionService.RestoreExpiredCancellationRequests()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored != 1 {
+		t.Fatalf("restored = %d, want 1", restored)
+	}
+	active, err := subscriptionService.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.CancellationCaseID != 0 || active.CancellationRequestedAt != nil || active.CancellationExpiresAt != nil {
+		t.Fatalf("restored cancellation state = %#v", active)
+	}
+	page, err := subscriptionService.ListAfterSalesPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Cases) != 0 {
+		t.Fatalf("expired cases = %d, want 0", len(page.Cases))
+	}
+	freeSeats, err := subscriptionService.Store.ListFreeSeats(accountID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(freeSeats) != 0 {
+		t.Fatalf("restored subscription released %d seats", len(freeSeats))
 	}
 }
 

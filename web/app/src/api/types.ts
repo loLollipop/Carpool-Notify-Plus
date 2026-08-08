@@ -21,6 +21,9 @@ export interface Subscription {
   subscription_type: string
   boarded_at: string
   archived_at: string | null
+  cancellation_requested_at: string | null
+  cancellation_expires_at: string | null
+  cancellation_case_id: number
   deleted_at: string | null
   created_at: string
   updated_at: string
@@ -47,6 +50,9 @@ export interface SubscriptionView {
   seat_name: string
   boarded_at: string
   archived_at_label: string
+  cancellation_pending: boolean
+  cancellation_case_id: number
+  cancellation_expires_at_label: string
   bill_count: number
   can_soft_delete: boolean
 }
@@ -256,6 +262,7 @@ export interface AccountView {
 }
 
 export type AfterSalesStatus = "pending" | "review" | "refunded" | "reassigned"
+export type AfterSalesSource = "account_ban" | "customer_cancellation"
 
 export interface AfterSalesCase {
   id: number
@@ -281,6 +288,8 @@ export interface AfterSalesCase {
   replacement_account_email: string
   replacement_space_name: string
   replacement_seat_name: string
+  source: AfterSalesSource
+  expires_at: string | null
   status: AfterSalesStatus
   note: string
   processed_at: string | null
@@ -294,6 +303,7 @@ export interface AfterSalesCaseView {
   refund_amount_yuan: string
   status_label: string
   processed_at_label: string
+  expires_at_label: string
 }
 
 export interface AfterSalesSummary {

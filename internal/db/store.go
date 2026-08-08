@@ -22,15 +22,18 @@ type Store struct {
 }
 
 var (
-	ErrRedemptionCodeNotFound     = errors.New("redemption code not found")
-	ErrRedemptionCodeUsed         = errors.New("redemption code used")
-	ErrRedemptionCodeDisabled     = errors.New("redemption code disabled")
-	ErrRedemptionCodeNotUnused    = errors.New("redemption code not unused")
-	ErrAfterSalesProcessed        = errors.New("after-sales case already processed")
-	ErrReplacementAccountBanned   = errors.New("replacement account is banned")
-	ErrReplacementSeatUnavailable = errors.New("replacement seat unavailable")
-	ErrReplacementSeatOccupied    = errors.New("replacement seat is occupied")
-	ErrReplacementSeatUnchanged   = errors.New("replacement seat is unchanged")
+	ErrRedemptionCodeNotFound      = errors.New("redemption code not found")
+	ErrRedemptionCodeUsed          = errors.New("redemption code used")
+	ErrRedemptionCodeDisabled      = errors.New("redemption code disabled")
+	ErrRedemptionCodeNotUnused     = errors.New("redemption code not unused")
+	ErrAfterSalesProcessed         = errors.New("after-sales case already processed")
+	ErrCancellationPending         = errors.New("subscription cancellation already pending")
+	ErrCancellationCaseConflict    = errors.New("subscription already has an after-sales case for this date")
+	ErrCancellationNotReassignable = errors.New("cancellation case cannot be reassigned")
+	ErrReplacementAccountBanned    = errors.New("replacement account is banned")
+	ErrReplacementSeatUnavailable  = errors.New("replacement seat unavailable")
+	ErrReplacementSeatOccupied     = errors.New("replacement seat is occupied")
+	ErrReplacementSeatUnchanged    = errors.New("replacement seat is unchanged")
 )
 
 // Open creates the database file if needed, opens a connection, and migrates.
@@ -114,8 +117,11 @@ func (store *Store) migrate() error {
                         notify_offsets TEXT NOT NULL,
                         channels TEXT NOT NULL,
                         remark TEXT NOT NULL DEFAULT '',
-                        trade_url TEXT NOT NULL DEFAULT '',
-                        deleted_at TEXT,
+						trade_url TEXT NOT NULL DEFAULT '',
+						cancellation_requested_at TEXT,
+						cancellation_expires_at TEXT,
+						cancellation_case_id INTEGER NOT NULL DEFAULT 0,
+						deleted_at TEXT,
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL
                 );`,
@@ -178,6 +184,8 @@ func (store *Store) migrate() error {
 			replacement_account_email TEXT NOT NULL DEFAULT '',
 			replacement_space_name TEXT NOT NULL DEFAULT '',
 			replacement_seat_name TEXT NOT NULL DEFAULT '',
+			source TEXT NOT NULL DEFAULT 'account_ban',
+			expires_at TEXT,
 			status TEXT NOT NULL,
 			note TEXT NOT NULL DEFAULT '',
 			processed_at TEXT,
@@ -266,6 +274,12 @@ func (store *Store) migrate() error {
 		return err
 	}
 	if err := store.ensureAfterSalesReplacementColumns(); err != nil {
+		return err
+	}
+	if err := store.ensureCancellationColumns(); err != nil {
+		return err
+	}
+	if err := store.ensureAfterSalesSourceColumns(); err != nil {
 		return err
 	}
 	if err := store.backfillAccountCostRecords(); err != nil {
@@ -542,6 +556,30 @@ func (store *Store) ensureArchivedAtColumn() error {
 	return nil
 }
 
+func (store *Store) ensureCancellationColumns() error {
+	columns := []struct {
+		name      string
+		statement string
+	}{
+		{"cancellation_requested_at", `ALTER TABLE subscriptions ADD COLUMN cancellation_requested_at TEXT`},
+		{"cancellation_expires_at", `ALTER TABLE subscriptions ADD COLUMN cancellation_expires_at TEXT`},
+		{"cancellation_case_id", `ALTER TABLE subscriptions ADD COLUMN cancellation_case_id INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, column := range columns {
+		hasColumn, err := store.subscriptionsHasColumn(column.name)
+		if err != nil {
+			return err
+		}
+		if hasColumn {
+			continue
+		}
+		if _, err := store.database.Exec(column.statement); err != nil {
+			return fmt.Errorf("add subscriptions.%s: %w", column.name, err)
+		}
+	}
+	return nil
+}
+
 func (store *Store) ensureBoardedAtColumn() error {
 	hasColumn, err := store.subscriptionsHasColumn("boarded_at")
 	if err != nil {
@@ -784,6 +822,35 @@ func (store *Store) ensureAfterSalesReplacementColumns() error {
 	return nil
 }
 
+func (store *Store) ensureAfterSalesSourceColumns() error {
+	columns := []struct {
+		name      string
+		statement string
+	}{
+		{"source", `ALTER TABLE after_sales_cases ADD COLUMN source TEXT NOT NULL DEFAULT 'account_ban'`},
+		{"expires_at", `ALTER TABLE after_sales_cases ADD COLUMN expires_at TEXT`},
+	}
+	for _, column := range columns {
+		hasColumn, err := store.tableHasColumn("after_sales_cases", column.name)
+		if err != nil {
+			return err
+		}
+		if hasColumn {
+			continue
+		}
+		if _, err := store.database.Exec(column.statement); err != nil {
+			return fmt.Errorf("add after_sales_cases.%s: %w", column.name, err)
+		}
+	}
+	_, err := store.database.Exec(`
+		CREATE INDEX IF NOT EXISTS idx_after_sales_expiry
+		ON after_sales_cases(source, status, expires_at)`)
+	if err != nil {
+		return fmt.Errorf("create after-sales expiry index: %w", err)
+	}
+	return nil
+}
+
 const subscriptionSelectColumns = `
 	subscription.id,
 	subscription.name,
@@ -805,6 +872,9 @@ const subscriptionSelectColumns = `
 	subscription.subscription_type,
 	subscription.boarded_at,
 	subscription.archived_at,
+	subscription.cancellation_requested_at,
+	subscription.cancellation_expires_at,
+	COALESCE(subscription.cancellation_case_id, 0),
 	subscription.deleted_at,
 	subscription.created_at,
 	subscription.updated_at`
@@ -1067,38 +1137,7 @@ func (store *Store) ArchiveSubscription(subscriptionID int64) error {
 		_ = transaction.Rollback()
 	}()
 
-	result, err := transaction.Exec(`
-                UPDATE subscriptions
-                SET archived_at = COALESCE(archived_at, ?), updated_at = ?
-                WHERE id = ? AND deleted_at IS NULL`,
-		now, now, subscriptionID,
-	)
-	if err != nil {
-		return err
-	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rowsAffected == 0 {
-		return sql.ErrNoRows
-	}
-
-	if _, err := transaction.Exec(`
-		DELETE FROM redemption_codes
-		WHERE used_by_application_id IN (
-			SELECT id FROM redemption_applications
-			WHERE assigned_subscription_id = ?
-		)`,
-		subscriptionID,
-	); err != nil {
-		return err
-	}
-	if _, err := transaction.Exec(`
-		DELETE FROM redemption_applications
-		WHERE assigned_subscription_id = ?`,
-		subscriptionID,
-	); err != nil {
+	if err := archiveSubscriptionInTransaction(transaction, subscriptionID, now, 0); err != nil {
 		return err
 	}
 
@@ -2145,8 +2184,8 @@ func (store *Store) GetNotificationLog(
 	kind string,
 ) (model.NotificationLog, error) {
 	row := store.database.QueryRow(`
-                SELECT id, subscription_id, due_date, offset_days, channel, status, attempt_count,
-                       next_retry_at, last_error, kind, created_at, updated_at
+				SELECT id, subscription_id, due_date, offset_days, channel, status, attempt_count,
+				       next_retry_at, last_error, kind, created_at, updated_at
                 FROM notification_log
                 WHERE subscription_id = ? AND due_date = ? AND offset_days = ? AND channel = ? AND kind = ?`,
 		subscriptionID, dueDate, offsetDays, channel, kind,
@@ -2235,12 +2274,17 @@ func (store *Store) MarkNotificationFailure(logID int64, attemptCount int, lastE
 func (store *Store) ListRetryableNotifications(now time.Time) ([]model.NotificationLog, error) {
 	nowText := formatTime(now.UTC())
 	rows, err := store.database.Query(`
-                SELECT id, subscription_id, due_date, offset_days, channel, status, attempt_count,
-                       next_retry_at, last_error, kind, created_at, updated_at
-                FROM notification_log
-                WHERE kind = ?
-                  AND status = ?
-                  AND (next_retry_at IS NULL OR next_retry_at <= ?)`,
+				SELECT log.id, log.subscription_id, log.due_date, log.offset_days, log.channel,
+				       log.status, log.attempt_count, log.next_retry_at, log.last_error,
+				       log.kind, log.created_at, log.updated_at
+				FROM notification_log AS log
+				INNER JOIN subscriptions AS subscription ON subscription.id = log.subscription_id
+				WHERE log.kind = ?
+				  AND log.status = ?
+				  AND subscription.deleted_at IS NULL
+				  AND subscription.archived_at IS NULL
+				  AND COALESCE(subscription.cancellation_case_id, 0) = 0
+				  AND (log.next_retry_at IS NULL OR log.next_retry_at <= ?)`,
 		model.NotificationKindScheduled, model.NotificationStatusPending, nowText,
 	)
 	if err != nil {
@@ -2510,6 +2554,8 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 	var seatName string
 	var boardedAt string
 	var archivedAt sql.NullString
+	var cancellationRequestedAt sql.NullString
+	var cancellationExpiresAt sql.NullString
 	var deletedAt sql.NullString
 	var createdAt string
 	var updatedAt string
@@ -2537,6 +2583,9 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 		&subscription.SubscriptionType,
 		&boardedAt,
 		&archivedAt,
+		&cancellationRequestedAt,
+		&cancellationExpiresAt,
+		&subscription.CancellationCaseID,
 		&deletedAt,
 		&createdAt,
 		&updatedAt,
@@ -2575,6 +2624,20 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 			return model.Subscription{}, err
 		}
 		subscription.ArchivedAt = &parsed
+	}
+	if cancellationRequestedAt.Valid && cancellationRequestedAt.String != "" {
+		parsed, err := parseTime(cancellationRequestedAt.String)
+		if err != nil {
+			return model.Subscription{}, err
+		}
+		subscription.CancellationRequestedAt = &parsed
+	}
+	if cancellationExpiresAt.Valid && cancellationExpiresAt.String != "" {
+		parsed, err := parseTime(cancellationExpiresAt.String)
+		if err != nil {
+			return model.Subscription{}, err
+		}
+		subscription.CancellationExpiresAt = &parsed
 	}
 	if deletedAt.Valid && deletedAt.String != "" {
 		parsed, err := parseTime(deletedAt.String)

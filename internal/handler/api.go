@@ -548,11 +548,17 @@ func (server *Server) postArchiveSubscription(context *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := server.Service.Archive(subscriptionID); err != nil {
+	result, err := server.Service.RequestCancellation(subscriptionID)
+	if err != nil {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
 	}
-	respondOK(context, gin.H{"message": "已下车，订阅已归档；账单仍可在账单页查看"})
+	respondOK(context, gin.H{
+		"message":          "已进入退订售后，处理完成前不会释放车位",
+		"case_id":          result.CaseID,
+		"expires_at":       result.ExpiresAt,
+		"expires_at_label": result.ExpiresAtLabel,
+	})
 }
 
 func (server *Server) postCopySubscription(context *gin.Context) {

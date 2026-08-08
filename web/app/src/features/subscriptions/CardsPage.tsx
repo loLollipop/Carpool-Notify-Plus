@@ -1,9 +1,10 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { useSearchParams } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   ChevronLeft,
   ChevronRight,
+  Clock3,
   ExternalLink,
   Mail,
   MessageCircle,
@@ -25,6 +26,14 @@ import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -146,6 +155,7 @@ function SubscriptionCard({
   onRenew,
   onSendReminder,
   onArchive,
+  onGoAfterSales,
 }: {
   view: SubscriptionView
   index: number
@@ -153,13 +163,15 @@ function SubscriptionCard({
   onRenew: (view: SubscriptionView) => void
   onSendReminder: (view: SubscriptionView) => void
   onArchive: (view: SubscriptionView) => void
+  onGoAfterSales: (caseId: number) => void
 }) {
   const { t } = useTranslation()
   const subscription = view.subscription
   const archived = subscription.archived_at !== null
+  const cancellationPending = view.cancellation_pending
   const displayedCostYuan = view.allocated_cost_yuan || view.cost_yuan
   const displayedProfitYuan = view.allocated_profit_yuan || view.profit_yuan
-  const accentClass = archived
+  const accentClass = archived || cancellationPending
     ? "bg-muted-foreground/35"
     : view.days_remaining <= 0
       ? "bg-destructive"
@@ -169,7 +181,10 @@ function SubscriptionCard({
 
   return (
     <Card
-      className="group relative gap-0 overflow-hidden p-5 transition-[border-color,background-color] duration-200 animate-fade-up hover:border-input hover:bg-accent/25"
+      className={cn(
+        "group relative gap-0 overflow-hidden p-5 transition-[border-color,background-color] duration-200 animate-fade-up hover:border-input hover:bg-accent/25",
+        cancellationPending && "border-dashed bg-muted/55 text-muted-foreground hover:bg-muted/55",
+      )}
       style={{ animationDelay: `${Math.min(index * 40, 320)}ms` }}
     >
       <span className={cn("absolute inset-y-0 left-0 w-1", accentClass)} />
@@ -195,8 +210,26 @@ function SubscriptionCard({
             wechat={subscription.customer_wechat}
           />
         </div>
-        <DueStatusBadge paid={false} daysRemaining={view.days_remaining} />
+        {cancellationPending ? (
+          <Badge variant="secondary" className="shrink-0 font-normal">
+            <Clock3 />
+            {t("cards.cancellationPending")}
+          </Badge>
+        ) : (
+          <DueStatusBadge paid={false} daysRemaining={view.days_remaining} />
+        )}
       </div>
+
+      {cancellationPending ? (
+        <div className="mt-3 flex items-start gap-2 rounded-md border border-dashed bg-background/55 px-3 py-2.5 text-xs leading-5">
+          <Clock3 className="mt-0.5 size-3.5 shrink-0" />
+          <span>
+            {t("cards.cancellationPendingHint", {
+              time: view.cancellation_expires_at_label,
+            })}
+          </span>
+        </div>
+      ) : null}
 
       <div className="mt-4 grid grid-cols-3 gap-x-3 gap-y-2.5 rounded-md border border-foreground/[0.07] bg-muted/40 p-3">
         <MetaCell label={t("cards.perPerson")}>
@@ -229,23 +262,25 @@ function SubscriptionCard({
       ) : null}
 
       <div className="-mx-5 -mb-5 mt-4 flex flex-wrap items-center gap-1.5 border-t bg-muted/20 px-5 py-3.5">
-        <Button variant="outline" size="sm" onClick={() => onEdit(view)}>
-          <Pencil data-slot="icon" />
-          {t("common.edit")}
-        </Button>
-        {!archived ? (
+        {!cancellationPending ? (
+          <Button variant="outline" size="sm" onClick={() => onEdit(view)}>
+            <Pencil data-slot="icon" />
+            {t("common.edit")}
+          </Button>
+        ) : null}
+        {!archived && !cancellationPending ? (
           <Button variant="outline" size="sm" onClick={() => onRenew(view)}>
             <Receipt data-slot="icon" />
             {t("cards.renew")}
           </Button>
         ) : null}
-        {!archived && subscription.customer_email ? (
+        {!archived && !cancellationPending && subscription.customer_email ? (
           <Button variant="outline" size="sm" onClick={() => onSendReminder(view)}>
             <Mail data-slot="icon" />
             {t("cards.sendReminder")}
           </Button>
         ) : null}
-        {subscription.trade_url ? (
+        {!cancellationPending && subscription.trade_url ? (
           <Button variant="ghost" size="sm" asChild>
             <a href={subscription.trade_url} target="_blank" rel="noopener noreferrer">
               <ExternalLink data-slot="icon" />
@@ -253,7 +288,7 @@ function SubscriptionCard({
             </a>
           </Button>
         ) : null}
-        {!archived ? (
+        {!archived && !cancellationPending ? (
           <Button
             variant="ghost"
             size="sm"
@@ -264,6 +299,17 @@ function SubscriptionCard({
             {t("calendar.getOff")}
           </Button>
         ) : null}
+        {cancellationPending ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            onClick={() => onGoAfterSales(view.cancellation_case_id)}
+          >
+            <Clock3 data-slot="icon" />
+            {t("cards.goAfterSales")}
+          </Button>
+        ) : null}
       </div>
     </Card>
   )
@@ -271,6 +317,7 @@ function SubscriptionCard({
 
 export function CardsPage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const routeSearch = searchParams.get("q") ?? ""
   const routeFilter = normalizeCardsFilter(searchParams.get("filter"))
@@ -280,6 +327,7 @@ export function CardsPage() {
   const focusedSubscriptionId = Number.isFinite(routeFocusId) ? routeFocusId : 0
 
   const subscriptionsQuery = useSubscriptions()
+  const { refetch: refetchSubscriptions } = subscriptionsQuery
   const dashboardQuery = useDashboard()
   const calendarQuery = useCalendar()
 
@@ -288,12 +336,22 @@ export function CardsPage() {
   const [duePaidTarget, setDuePaidTarget] = React.useState<DuePaidTarget | null>(null)
   const [reminderId, setReminderId] = React.useState<number | null>(null)
   const [archiveTarget, setArchiveTarget] = React.useState<{ id: number; name: string } | null>(null)
+  const [cancellationResult, setCancellationResult] = React.useState<{
+    caseId: number
+    expiresAtLabel: string
+  } | null>(null)
   const search = routeSearch
   const filter = routeFilter
 
   const archiveMutation = useAppMutation((id: number) => archiveSubscription(id), {
-    successMessage: t("confirms.archiveSuccess"),
-    onSuccess: () => setArchiveTarget(null),
+    successMessage: t("confirms.archiveQueued"),
+    onSuccess: (data) => {
+      setArchiveTarget(null)
+      setCancellationResult({
+        caseId: data.case_id,
+        expiresAtLabel: data.expires_at_label,
+      })
+    },
   })
 
   const openCreate = () => {
@@ -330,6 +388,23 @@ export function CardsPage() {
   const activeViews = subscriptionsQuery.data?.subscriptions ?? EMPTY_SUBSCRIPTION_VIEWS
   const archivedViews = subscriptionsQuery.data?.archived ?? EMPTY_SUBSCRIPTION_VIEWS
   const calendar = calendarQuery.data
+
+  const nextCancellationExpiry = React.useMemo(() => {
+    const expiries = activeViews
+      .filter((view) => view.cancellation_pending && view.subscription.cancellation_expires_at)
+      .map((view) => Date.parse(view.subscription.cancellation_expires_at ?? ""))
+      .filter(Number.isFinite)
+    return expiries.length > 0 ? Math.min(...expiries) : 0
+  }, [activeViews])
+
+  React.useEffect(() => {
+    if (nextCancellationExpiry <= 0) return
+    const delay = Math.max(1_000, nextCancellationExpiry - Date.now() + 1_000)
+    const timer = window.setTimeout(() => {
+      void refetchSubscriptions()
+    }, delay)
+    return () => window.clearTimeout(timer)
+  }, [nextCancellationExpiry, refetchSubscriptions])
 
   const renewOccurrenceBySubscription = React.useMemo(() => {
     const map = new Map<number, CalendarOccurrence>()
@@ -542,6 +617,7 @@ export function CardsPage() {
                 onArchive={(item) =>
                   setArchiveTarget({ id: item.subscription.id, name: item.subscription.name })
                 }
+                onGoAfterSales={(caseId) => navigate(`/after-sales?case=${caseId}`)}
               />
             ))}
           </div>
@@ -610,6 +686,38 @@ export function CardsPage() {
           if (archiveTarget) archiveMutation.mutate(archiveTarget.id)
         }}
       />
+      <Dialog
+        open={cancellationResult !== null}
+        onOpenChange={(open) => {
+          if (!open) setCancellationResult(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("confirms.archiveQueuedTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("confirms.archiveQueuedDesc", {
+                time: cancellationResult?.expiresAtLabel ?? "",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancellationResult(null)}>
+              {t("confirms.archiveLater")}
+            </Button>
+            <Button
+              onClick={() => {
+                const caseId = cancellationResult?.caseId
+                setCancellationResult(null)
+                if (caseId) navigate(`/after-sales?case=${caseId}`)
+              }}
+            >
+              <Clock3 data-slot="icon" />
+              {t("cards.goAfterSales")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

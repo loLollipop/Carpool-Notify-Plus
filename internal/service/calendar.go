@@ -92,6 +92,9 @@ func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate str
 	if err != nil {
 		return err
 	}
+	if subscription.CancellationCaseID > 0 {
+		return fmt.Errorf("该订阅正在等待售后处理，暂时不能续费记账")
+	}
 	if _, err := time.ParseInLocation("2006-01-02", dueDate, cycle.Location); err != nil {
 		return fmt.Errorf("无效的到期日: %w", err)
 	}

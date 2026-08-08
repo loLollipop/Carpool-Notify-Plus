@@ -182,10 +182,13 @@ type Subscription struct {
 	BoardedAt string `json:"boarded_at"`
 	// ArchivedAt is set when the user gets off (下车); archived subscriptions
 	// leave the active list and scheduler but keep bills linked.
-	ArchivedAt *time.Time `json:"archived_at"`
-	DeletedAt  *time.Time `json:"deleted_at"`
-	CreatedAt  time.Time  `json:"created_at"`
-	UpdatedAt  time.Time  `json:"updated_at"`
+	ArchivedAt              *time.Time `json:"archived_at"`
+	CancellationRequestedAt *time.Time `json:"cancellation_requested_at"`
+	CancellationExpiresAt   *time.Time `json:"cancellation_expires_at"`
+	CancellationCaseID      int64      `json:"cancellation_case_id"`
+	DeletedAt               *time.Time `json:"deleted_at"`
+	CreatedAt               time.Time  `json:"created_at"`
+	UpdatedAt               time.Time  `json:"updated_at"`
 }
 
 // Bill is one paid occurrence for a subscription due date.
@@ -206,6 +209,9 @@ const (
 	AfterSalesStatusReview     = "review"
 	AfterSalesStatusRefunded   = "refunded"
 	AfterSalesStatusReassigned = "reassigned"
+
+	AfterSalesSourceAccountBan           = "account_ban"
+	AfterSalesSourceCustomerCancellation = "customer_cancellation"
 )
 
 // AfterSalesCase is an after-sales snapshot created when an owner account is banned.
@@ -234,6 +240,8 @@ type AfterSalesCase struct {
 	ReplacementAccountEmail string     `json:"replacement_account_email"`
 	ReplacementSpaceName    string     `json:"replacement_space_name"`
 	ReplacementSeatName     string     `json:"replacement_seat_name"`
+	Source                  string     `json:"source"`
+	ExpiresAt               *time.Time `json:"expires_at"`
 	Status                  string     `json:"status"`
 	Note                    string     `json:"note"`
 	ProcessedAt             *time.Time `json:"processed_at"`

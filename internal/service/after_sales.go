@@ -13,6 +13,7 @@ import (
 )
 
 const afterSalesWarrantyDays = 30
+const cancellationGracePeriod = 24 * time.Hour
 
 type BanAccountInput struct {
 	BannedDate string
@@ -25,6 +26,13 @@ type AfterSalesCaseView struct {
 	RefundAmountYuan string               `json:"refund_amount_yuan"`
 	StatusLabel      string               `json:"status_label"`
 	ProcessedAtLabel string               `json:"processed_at_label"`
+	ExpiresAtLabel   string               `json:"expires_at_label"`
+}
+
+type CancellationRequestResult struct {
+	CaseID         int64  `json:"case_id"`
+	ExpiresAt      string `json:"expires_at"`
+	ExpiresAtLabel string `json:"expires_at_label"`
 }
 
 type AfterSalesSummary struct {
@@ -81,7 +89,44 @@ func (service *SubscriptionService) BanAccount(accountID int64, input BanAccount
 	)
 }
 
+func (service *SubscriptionService) RequestCancellation(subscriptionID int64) (CancellationRequestResult, error) {
+	if _, err := service.Store.RestoreExpiredCancellationRequests(service.now()); err != nil {
+		return CancellationRequestResult{}, err
+	}
+	requestedAt := service.now()
+	expiresAt := requestedAt.Add(cancellationGracePeriod)
+	caseItem, err := service.Store.RequestSubscriptionCancellation(
+		subscriptionID,
+		requestedAt,
+		expiresAt,
+		afterSalesWarrantyDays,
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, db.ErrCancellationPending):
+			return CancellationRequestResult{}, fmt.Errorf("该订阅已经在等待售后处理")
+		case errors.Is(err, db.ErrCancellationCaseConflict):
+			return CancellationRequestResult{}, fmt.Errorf("该客户今天已有售后记录，请先到售后处理中核对")
+		case errors.Is(err, sql.ErrNoRows):
+			return CancellationRequestResult{}, fmt.Errorf("订阅不存在或已经退订")
+		}
+		return CancellationRequestResult{}, err
+	}
+	return CancellationRequestResult{
+		CaseID:         caseItem.ID,
+		ExpiresAt:      expiresAt.UTC().Format(time.RFC3339),
+		ExpiresAtLabel: expiresAt.In(cycle.Location).Format("2006-01-02 15:04"),
+	}, nil
+}
+
+func (service *SubscriptionService) RestoreExpiredCancellationRequests() (int, error) {
+	return service.Store.RestoreExpiredCancellationRequests(service.now())
+}
+
 func (service *SubscriptionService) ListAfterSalesPage() (AfterSalesPage, error) {
+	if _, err := service.Store.RestoreExpiredCancellationRequests(service.now()); err != nil {
+		return AfterSalesPage{}, err
+	}
 	cases, err := service.Store.ListAfterSalesCases()
 	if err != nil {
 		return AfterSalesPage{}, err
@@ -96,6 +141,9 @@ func (service *SubscriptionService) ListAfterSalesPage() (AfterSalesPage, error)
 		}
 		if caseItem.ProcessedAt != nil {
 			view.ProcessedAtLabel = caseItem.ProcessedAt.In(cycle.Location).Format("2006-01-02 15:04")
+		}
+		if caseItem.ExpiresAt != nil {
+			view.ExpiresAtLabel = caseItem.ExpiresAt.In(cycle.Location).Format("2006-01-02 15:04")
 		}
 		page.Cases = append(page.Cases, view)
 		page.Summary.TotalCount++
@@ -134,6 +182,9 @@ func (service *SubscriptionService) SetAfterSalesCaseRefunded(caseID int64, refu
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("售后记录不存在")
 		}
+		if errors.Is(err, db.ErrAfterSalesProcessed) {
+			return fmt.Errorf("该退订售后已处理完成，不能撤销")
+		}
 		return err
 	}
 	return nil
@@ -158,6 +209,8 @@ func (service *SubscriptionService) ReassignAfterSalesCase(
 			return fmt.Errorf("所选车位已被占用，请刷新后重试")
 		case errors.Is(err, db.ErrReplacementSeatUnchanged):
 			return fmt.Errorf("新车位不能与当前车位相同")
+		case errors.Is(err, db.ErrCancellationNotReassignable):
+			return fmt.Errorf("主动退订只能完成退款，不能安排新空间")
 		case errors.Is(err, sql.ErrNoRows):
 			return fmt.Errorf("售后记录、订阅或可用车位不存在")
 		}

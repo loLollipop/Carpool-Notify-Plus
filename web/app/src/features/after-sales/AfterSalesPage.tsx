@@ -14,6 +14,7 @@ import {
   RotateCcw,
   Search,
   ShieldAlert,
+  UserRoundMinus,
   Users,
 } from "lucide-react"
 
@@ -117,18 +118,40 @@ function ContactLines({ view }: { view: AfterSalesCaseView }) {
   )
 }
 
+function SourceBadge({ view }: { view: AfterSalesCaseView }) {
+  const { t } = useTranslation()
+  const cancellation = view.case.source === "customer_cancellation"
+  return (
+    <Badge
+      variant={cancellation ? "secondary" : "outline"}
+      className="mb-1.5 w-fit font-normal"
+    >
+      {cancellation ? <UserRoundMinus /> : <ShieldAlert />}
+      {cancellation ? t("afterSales.sourceCancellation") : t("afterSales.sourceAccountBan")}
+    </Badge>
+  )
+}
+
 function AccountSnapshot({ view }: { view: AfterSalesCaseView }) {
+  const { t } = useTranslation()
+  const cancellation = view.case.source === "customer_cancellation"
   return (
     <div className="min-w-0">
+      <SourceBadge view={view} />
       <div className="truncate font-medium" title={view.case.account_email || view.case.account_name}>
         {view.case.account_email || view.case.account_name}
       </div>
       <div className="mt-1 truncate text-xs text-muted-foreground" title={view.case.account_space_name}>
         {view.case.account_space_name || "-"}
       </div>
-      <div className="mt-1 font-mono text-xs text-destructive tabular-nums">
-        {view.case.banned_date}
+      <div className={cn("mt-1 font-mono text-xs tabular-nums", cancellation ? "text-muted-foreground" : "text-destructive")}>
+        {cancellation ? t("afterSales.requestedAt") : t("afterSales.bannedAt")} · {view.case.banned_date}
       </div>
+      {cancellation && view.expires_at_label ? (
+        <div className="mt-1 text-xs text-muted-foreground">
+          {t("afterSales.autoRestoreAt", { time: view.expires_at_label })}
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -183,21 +206,23 @@ function RefundActions({
   const { t } = useTranslation()
   const refunded = view.case.status === "refunded"
   const reassigned = view.case.status === "reassigned"
+  const cancellation = view.case.source === "customer_cancellation"
+  const completedCancellation = cancellation && refunded
   return (
     <div className="flex flex-wrap items-center justify-end gap-1">
-      {!reassigned ? (
+      {!reassigned && !completedCancellation ? (
         <Button variant="outline" size="sm" onClick={onEdit}>
           <Pencil data-slot="icon" />
           {t("common.edit")}
         </Button>
       ) : null}
-      {!refunded && !reassigned ? (
+      {!refunded && !reassigned && !cancellation ? (
         <Button variant="outline" size="sm" onClick={onReassign}>
           <ArrowRightLeft data-slot="icon" />
           {t("afterSales.reassign")}
         </Button>
       ) : null}
-      {!reassigned ? (
+      {!reassigned && !completedCancellation ? (
         <Button
           variant={refunded ? "ghost" : "default"}
           size="sm"
@@ -371,6 +396,7 @@ export function AfterSalesPage() {
   const query = useAfterSales()
   const [searchParams, setSearchParams] = useSearchParams()
   const accountFilter = Number(searchParams.get("account") || 0)
+  const caseFilter = Number(searchParams.get("case") || 0)
   const [search, setSearch] = React.useState("")
   const [filter, setFilter] = React.useState<AfterSalesFilter>("all")
   const [page, setPage] = React.useState(1)
@@ -388,6 +414,7 @@ export function AfterSalesPage() {
     const needle = search.trim().toLowerCase()
     return allCases.filter((view) => {
       if (accountFilter > 0 && view.case.account_id !== accountFilter) return false
+      if (caseFilter > 0 && view.case.id !== caseFilter) return false
       if (filter !== "all" && view.case.status !== filter) return false
       if (!needle) return true
       return [
@@ -405,7 +432,7 @@ export function AfterSalesPage() {
         view.refund_amount_yuan,
       ].some((field) => field.toLowerCase().includes(needle))
     })
-  }, [accountFilter, allCases, filter, search])
+  }, [accountFilter, allCases, caseFilter, filter, search])
 
   const pageCount = Math.max(1, Math.ceil(filteredCases.length / CASES_PER_PAGE))
   const safePage = Math.min(page, pageCount)
@@ -419,7 +446,7 @@ export function AfterSalesPage() {
         title={t("afterSales.title")}
         description={t("afterSales.desc")}
         actions={
-          accountFilter > 0 ? (
+          accountFilter > 0 || caseFilter > 0 ? (
             <Button
               variant="outline"
               onClick={() => {
@@ -652,10 +679,15 @@ export function AfterSalesPage() {
         description={
           refundTarget?.case.status === "refunded"
             ? t("afterSales.undoDesc", { email: refundTarget.case.customer_email })
-            : t("afterSales.refundDesc", {
+            : t(
+                refundTarget?.case.source === "customer_cancellation"
+                  ? "afterSales.cancellationRefundDesc"
+                  : "afterSales.refundDesc",
+                {
                 email: refundTarget?.case.customer_email ?? "",
                 amount: refundTarget?.refund_amount_yuan ?? "0.00",
-              })
+                },
+              )
         }
         actionLabel={refundTarget?.case.status === "refunded" ? t("afterSales.undoRefunded") : t("afterSales.markRefunded")}
         pending={toggleRefundMutation.isPending}

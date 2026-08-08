@@ -163,7 +163,9 @@ export function updateSubscription(id: number, input: SubscriptionInput) {
 }
 
 export function archiveSubscription(id: number) {
-  return api<MessageResult>(`/api/subscriptions/${id}/archive`, { method: "POST" })
+  return api<
+    MessageResult & { case_id: number; expires_at: string; expires_at_label: string }
+  >(`/api/subscriptions/${id}/archive`, { method: "POST" })
 }
 
 export function softDeleteSubscription(id: number) {

@@ -81,26 +81,29 @@ func (service *SubscriptionService) now() time.Time {
 
 // SubscriptionView is a list/card presentation model.
 type SubscriptionView struct {
-	Subscription        model.Subscription `json:"subscription"`
-	PriceYuan           string             `json:"price_yuan"`
-	CostYuan            string             `json:"cost_yuan"`
-	AllocatedCostYuan   string             `json:"allocated_cost_yuan"`
-	AgencyFeeYuan       string             `json:"agency_fee_yuan"`
-	ProfitYuan          string             `json:"profit_yuan"`
-	AllocatedProfitYuan string             `json:"allocated_profit_yuan"`
-	CycleDesc           string             `json:"cycle_desc"`
-	NextDueDate         string             `json:"next_due_date"`
-	DaysRemaining       int                `json:"days_remaining"`
-	CycleDays           int                `json:"cycle_days"`
-	ChannelLabels       []string           `json:"channel_labels"`
-	OffsetsText         string             `json:"offsets_text"`
-	LastError           string             `json:"last_error"`
-	AccountID           int64              `json:"account_id"`
-	AccountName         string             `json:"account_name"`
-	SeatID              int64              `json:"seat_id"`
-	SeatName            string             `json:"seat_name"`
-	BoardedAt           string             `json:"boarded_at"`
-	ArchivedAtLabel     string             `json:"archived_at_label"`
+	Subscription               model.Subscription `json:"subscription"`
+	PriceYuan                  string             `json:"price_yuan"`
+	CostYuan                   string             `json:"cost_yuan"`
+	AllocatedCostYuan          string             `json:"allocated_cost_yuan"`
+	AgencyFeeYuan              string             `json:"agency_fee_yuan"`
+	ProfitYuan                 string             `json:"profit_yuan"`
+	AllocatedProfitYuan        string             `json:"allocated_profit_yuan"`
+	CycleDesc                  string             `json:"cycle_desc"`
+	NextDueDate                string             `json:"next_due_date"`
+	DaysRemaining              int                `json:"days_remaining"`
+	CycleDays                  int                `json:"cycle_days"`
+	ChannelLabels              []string           `json:"channel_labels"`
+	OffsetsText                string             `json:"offsets_text"`
+	LastError                  string             `json:"last_error"`
+	AccountID                  int64              `json:"account_id"`
+	AccountName                string             `json:"account_name"`
+	SeatID                     int64              `json:"seat_id"`
+	SeatName                   string             `json:"seat_name"`
+	BoardedAt                  string             `json:"boarded_at"`
+	ArchivedAtLabel            string             `json:"archived_at_label"`
+	CancellationPending        bool               `json:"cancellation_pending"`
+	CancellationCaseID         int64              `json:"cancellation_case_id"`
+	CancellationExpiresAtLabel string             `json:"cancellation_expires_at_label"`
 	// BillCount is set for archived rows (used to gate soft-delete).
 	BillCount int `json:"bill_count"`
 	// CanSoftDelete is true when archived and BillCount == 0.
@@ -109,6 +112,9 @@ type SubscriptionView struct {
 
 // ListView returns subscriptions with computed display fields.
 func (service *SubscriptionService) ListView() ([]SubscriptionView, error) {
+	if _, err := service.Store.RestoreExpiredCancellationRequests(service.now()); err != nil {
+		return nil, err
+	}
 	subscriptions, err := service.Store.ListSubscriptions()
 	if err != nil {
 		return nil, err
@@ -213,27 +219,37 @@ func (service *SubscriptionService) buildView(
 	if subscription.ArchivedAt != nil {
 		archivedAtLabel = subscription.ArchivedAt.In(cycle.Location).Format("2006-01-02 15:04")
 	}
+	cancellationPending := subscription.CancellationCaseID > 0 &&
+		subscription.CancellationExpiresAt != nil &&
+		subscription.CancellationExpiresAt.After(now)
+	cancellationExpiresAtLabel := ""
+	if cancellationPending {
+		cancellationExpiresAtLabel = subscription.CancellationExpiresAt.In(cycle.Location).Format("2006-01-02 15:04")
+	}
 	return SubscriptionView{
-		Subscription:        subscription,
-		PriceYuan:           cycle.FormatCents(subscription.PricePerPersonCents),
-		CostYuan:            cycle.FormatCents(subscription.CostCents),
-		AllocatedCostYuan:   cycle.FormatCents(subscription.CostCents),
-		AgencyFeeYuan:       cycle.FormatCents(subscription.AgencyFeeCents),
-		ProfitYuan:          cycle.FormatCents(profitCents),
-		AllocatedProfitYuan: cycle.FormatCents(profitCents),
-		CycleDesc:           cycle.DescribeCron(subscription.CronExpr),
-		NextDueDate:         cycle.FormatDate(nextDue),
-		DaysRemaining:       cycle.DaysRemaining(nextDue, now),
-		CycleDays:           cycleDays,
-		ChannelLabels:       scheduledNotificationLabels(subscription.NotifyOffsets),
-		OffsetsText:         cycle.FormatOffsets(subscription.NotifyOffsets),
-		LastError:           lastError,
-		AccountID:           subscription.AccountID,
-		AccountName:         displayAccountName(subscription),
-		SeatID:              subscription.SeatID,
-		SeatName:            subscription.SeatName,
-		BoardedAt:           subscription.BoardedAt,
-		ArchivedAtLabel:     archivedAtLabel,
+		Subscription:               subscription,
+		PriceYuan:                  cycle.FormatCents(subscription.PricePerPersonCents),
+		CostYuan:                   cycle.FormatCents(subscription.CostCents),
+		AllocatedCostYuan:          cycle.FormatCents(subscription.CostCents),
+		AgencyFeeYuan:              cycle.FormatCents(subscription.AgencyFeeCents),
+		ProfitYuan:                 cycle.FormatCents(profitCents),
+		AllocatedProfitYuan:        cycle.FormatCents(profitCents),
+		CycleDesc:                  cycle.DescribeCron(subscription.CronExpr),
+		NextDueDate:                cycle.FormatDate(nextDue),
+		DaysRemaining:              cycle.DaysRemaining(nextDue, now),
+		CycleDays:                  cycleDays,
+		ChannelLabels:              scheduledNotificationLabels(subscription.NotifyOffsets),
+		OffsetsText:                cycle.FormatOffsets(subscription.NotifyOffsets),
+		LastError:                  lastError,
+		AccountID:                  subscription.AccountID,
+		AccountName:                displayAccountName(subscription),
+		SeatID:                     subscription.SeatID,
+		SeatName:                   subscription.SeatName,
+		BoardedAt:                  subscription.BoardedAt,
+		ArchivedAtLabel:            archivedAtLabel,
+		CancellationPending:        cancellationPending,
+		CancellationCaseID:         subscription.CancellationCaseID,
+		CancellationExpiresAtLabel: cancellationExpiresAtLabel,
 	}, nil
 }
 
@@ -548,6 +564,9 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 	previous, err := service.Store.GetSubscription(subscriptionID)
 	if err != nil {
 		return err
+	}
+	if previous.CancellationCaseID > 0 {
+		return fmt.Errorf("该订阅正在等待售后处理，暂时不能编辑")
 	}
 	subscription, err := service.parseInput(input, subscriptionID)
 	if err != nil {
@@ -1320,6 +1339,9 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 	if strings.TrimSpace(subscription.CustomerEmail) == "" {
 		return fmt.Errorf("该订阅未填写客户邮箱")
 	}
+	if subscription.CancellationCaseID > 0 {
+		return fmt.Errorf("该订阅正在等待售后处理，暂时不能发送提醒")
+	}
 	if !service.Config.SMTPConfigured() {
 		return fmt.Errorf("SMTP 未配置（需 host/port/from/username/password）")
 	}
@@ -1449,6 +1471,9 @@ func (service *SubscriptionService) TestNotify(ctx context.Context, subscription
 	if err != nil {
 		return err
 	}
+	if subscription.CancellationCaseID > 0 {
+		return fmt.Errorf("该订阅正在等待售后处理，暂时不能发送通知")
+	}
 	message, err := service.RenderMessage(subscription)
 	if err != nil {
 		return err
@@ -1520,6 +1545,9 @@ func (service *SubscriptionService) sendToEnabledChannels(ctx context.Context, t
 // ProcessDueNotifications plans and sends due scheduled notifications.
 // Positive offsets email customers via SMTP; due-day unpaid items notify the operator via IYUU.
 func (service *SubscriptionService) ProcessDueNotifications(ctx context.Context) error {
+	if _, err := service.Store.RestoreExpiredCancellationRequests(service.now()); err != nil {
+		return err
+	}
 	subscriptions, err := service.Store.ListSubscriptions()
 	if err != nil {
 		return err
@@ -1528,6 +1556,9 @@ func (service *SubscriptionService) ProcessDueNotifications(ctx context.Context)
 	today := cycle.FormatDate(now)
 
 	for _, subscription := range subscriptions {
+		if subscription.CancellationCaseID > 0 {
+			continue
+		}
 		if err := service.planSubscription(ctx, subscription, now, today); err != nil {
 			return err
 		}

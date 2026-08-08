@@ -34,6 +34,8 @@ const afterSalesSelectColumns = `
 	replacement_account_email,
 	replacement_space_name,
 	replacement_seat_name,
+	source,
+	expires_at,
 	status,
 	note,
 	processed_at,
@@ -261,11 +263,15 @@ func (store *Store) UpdateAfterSalesCase(caseID int64, refundAmountCents int64, 
 	result, err := store.database.Exec(`
 		UPDATE after_sales_cases
 		SET refund_amount_cents = ?, note = ?, updated_at = ?
-		WHERE id = ?`,
+		WHERE id = ?
+		  AND (source <> ? OR status IN (?, ?))`,
 		refundAmountCents,
 		strings.TrimSpace(note),
 		formatTime(time.Now().UTC()),
 		caseID,
+		model.AfterSalesSourceCustomerCancellation,
+		model.AfterSalesStatusPending,
+		model.AfterSalesStatusReview,
 	)
 	if err != nil {
 		return err
@@ -282,6 +288,20 @@ func (store *Store) UpdateAfterSalesCase(caseID int64, refundAmountCents int64, 
 
 // SetAfterSalesCaseRefunded marks or unmarks one case as completed.
 func (store *Store) SetAfterSalesCaseRefunded(caseID int64, refunded bool, processedTime time.Time) error {
+	var source string
+	if err := store.database.QueryRow(
+		`SELECT source FROM after_sales_cases WHERE id = ?`,
+		caseID,
+	).Scan(&source); err != nil {
+		return err
+	}
+	if source == model.AfterSalesSourceCustomerCancellation {
+		if !refunded {
+			return ErrAfterSalesProcessed
+		}
+		return store.CompleteCancellationRefund(caseID, processedTime)
+	}
+
 	status := model.AfterSalesStatusPending
 	processedAt := any(nil)
 	allowedStatus := model.AfterSalesStatusRefunded
@@ -344,11 +364,15 @@ func (store *Store) ReassignAfterSalesCase(
 
 	var subscriptionID int64
 	var status string
+	var source string
 	if err := transaction.QueryRow(`
-		SELECT subscription_id, status
+		SELECT subscription_id, status, source
 		FROM after_sales_cases
-		WHERE id = ?`, caseID).Scan(&subscriptionID, &status); err != nil {
+		WHERE id = ?`, caseID).Scan(&subscriptionID, &status, &source); err != nil {
 		return err
+	}
+	if source == model.AfterSalesSourceCustomerCancellation {
+		return ErrCancellationNotReassignable
 	}
 	if status == model.AfterSalesStatusRefunded || status == model.AfterSalesStatusReassigned {
 		return ErrAfterSalesProcessed
@@ -481,6 +505,7 @@ func (store *Store) ReassignAfterSalesCase(
 
 func scanAfterSalesCase(scanner scannable) (model.AfterSalesCase, error) {
 	var caseItem model.AfterSalesCase
+	var expiresAt sql.NullString
 	var processedAt sql.NullString
 	var createdAt string
 	var updatedAt string
@@ -508,6 +533,8 @@ func scanAfterSalesCase(scanner scannable) (model.AfterSalesCase, error) {
 		&caseItem.ReplacementAccountEmail,
 		&caseItem.ReplacementSpaceName,
 		&caseItem.ReplacementSeatName,
+		&caseItem.Source,
+		&expiresAt,
 		&caseItem.Status,
 		&caseItem.Note,
 		&processedAt,
@@ -517,6 +544,13 @@ func scanAfterSalesCase(scanner scannable) (model.AfterSalesCase, error) {
 		return model.AfterSalesCase{}, err
 	}
 	var err error
+	if expiresAt.Valid && expiresAt.String != "" {
+		parsed, parseErr := parseTime(expiresAt.String)
+		if parseErr != nil {
+			return model.AfterSalesCase{}, parseErr
+		}
+		caseItem.ExpiresAt = &parsed
+	}
 	if processedAt.Valid && processedAt.String != "" {
 		parsed, parseErr := parseTime(processedAt.String)
 		if parseErr != nil {

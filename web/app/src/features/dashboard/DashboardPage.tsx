@@ -47,6 +47,19 @@ function formatCents(cents: number) {
   })}`
 }
 
+function formatAxisCents(cents: number) {
+  const yuan = cents / 100
+  const absoluteYuan = Math.abs(yuan)
+  if (absoluteYuan >= 10_000) {
+    const compact = yuan / 10_000
+    return `¥${compact.toLocaleString("zh-CN", {
+      minimumFractionDigits: Number.isInteger(compact) ? 0 : 1,
+      maximumFractionDigits: 1,
+    })}万`
+  }
+  return `¥${yuan.toLocaleString("zh-CN", { maximumFractionDigits: 0 })}`
+}
+
 // ---- Shared bits ---------------------------------------------------------------
 
 function ChartCard({
@@ -272,16 +285,23 @@ function RevenueTrendCard({ summary, className, delay }: { summary: BillsSummary
       ) : (
         <div className="min-h-[260px] flex-1">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+            <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
               <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="2 6" />
               <XAxis
                 dataKey="label"
-                axisLine={false}
-                tickLine={false}
+                axisLine={{ stroke: "var(--border)" }}
+                tickLine={{ stroke: "var(--border)" }}
                 tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
                 dy={6}
               />
-              <YAxis hide domain={["dataMin", "dataMax"]} />
+              <YAxis
+                width={64}
+                domain={["auto", "auto"]}
+                axisLine={{ stroke: "var(--border)" }}
+                tickLine={{ stroke: "var(--border)" }}
+                tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+                tickFormatter={formatAxisCents}
+              />
               <RechartsTooltip
                 cursor={{ stroke: "var(--border)", strokeWidth: 1 }}
                 content={<ChartTooltip />}
@@ -555,7 +575,10 @@ function OperationsHealthCard({
       : "success"
 
   return (
-    <Card className="h-full min-h-0 gap-2 overflow-y-auto p-4 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
+    <Card
+      className="h-fit min-h-0 self-start gap-2 overflow-hidden p-4 animate-fade-up xl:sticky xl:top-0"
+      style={{ animationDelay: `${delay}ms` }}
+    >
       <div className="flex items-start justify-between gap-2">
         <div>
           <h2 className="panel-heading text-sm font-semibold">{t("dash.health.title")}</h2>
@@ -586,7 +609,7 @@ function OperationsHealthCard({
           {t("common.loadFailed")}
         </div>
       ) : (
-        <div className="grid gap-1.5">
+        <div className="grid max-h-[calc(100dvh-18rem)] gap-1.5 overflow-y-auto pr-1">
           {items.map((item) => (
             <div
               key={item.key}
@@ -703,7 +726,7 @@ export function DashboardPage() {
             calendar={calendarQuery.data}
           />
 
-          <div className="grid min-h-0 flex-1 items-stretch gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+          <div className="grid min-h-0 flex-1 items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
             {summary ? <RevenueTrendCard summary={summary} delay={100} /> : null}
             <OperationsHealthCard
               dashboard={dashboard}
