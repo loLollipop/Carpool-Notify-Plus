@@ -123,6 +123,10 @@ export function AppShell() {
   const { logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
+  const [openNavTooltip, setOpenNavTooltip] = React.useState<{
+    pathname: string
+    to: string
+  } | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = React.useState(() => {
     try {
       return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "true"
@@ -165,12 +169,31 @@ export function AppShell() {
     items.map((item) => {
       const Icon = item.icon
       return (
-        <Tooltip key={item.to}>
+        <Tooltip
+          key={item.to}
+          open={
+            sidebarCollapsed &&
+            openNavTooltip?.pathname === location.pathname &&
+            openNavTooltip.to === item.to
+          }
+          onOpenChange={(open) =>
+            setOpenNavTooltip((current) =>
+              open
+                ? { pathname: location.pathname, to: item.to }
+                : current?.pathname === location.pathname && current.to === item.to
+                  ? null
+                  : current,
+            )
+          }
+          delayDuration={300}
+          disableHoverableContent
+        >
           <TooltipTrigger asChild>
             <NavLink
               to={item.to}
               end={item.end}
               aria-label={item.label}
+              onClick={() => setOpenNavTooltip(null)}
               className={({ isActive }) =>
                 cn(
                   "group flex h-10 items-center gap-3 rounded-md px-2.5 text-sm font-medium transition-[background-color,color]",
@@ -214,6 +237,7 @@ export function AppShell() {
       )}
     >
       <aside
+        onPointerLeave={() => setOpenNavTooltip(null)}
         className={cn(
           "fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] text-[var(--sidebar-foreground)] transition-[width] duration-300 lg:flex",
           sidebarCollapsed ? "w-[76px]" : "w-[248px]",
@@ -257,7 +281,10 @@ export function AppShell() {
               "w-full justify-start text-[var(--sidebar-muted)] hover:bg-accent hover:text-[var(--sidebar-foreground)]",
               sidebarCollapsed && "justify-center px-0",
             )}
-            onClick={() => setSidebarCollapsed((value) => !value)}
+            onClick={() => {
+              setOpenNavTooltip(null)
+              setSidebarCollapsed((value) => !value)
+            }}
             aria-label={sidebarCollapsed ? t("nav.expand") : t("nav.collapse")}
           >
             {sidebarCollapsed ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
