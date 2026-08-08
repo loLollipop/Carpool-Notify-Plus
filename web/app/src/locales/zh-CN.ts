@@ -57,6 +57,12 @@ export default {
       submit: "进入工作台",
       submitting: "验证中…",
     },
+    privacy: {
+      hideAmounts: "隐藏金额",
+      showAmounts: "显示金额",
+      amountHidden: "金额已隐藏",
+      relativeOnly: "隐私模式下仅展示相对趋势",
+    },
     dashboard: {
       subscriptions: "拼车数",
       subscriptionsHint: "{{accounts}} 个账号 · 当前在车",

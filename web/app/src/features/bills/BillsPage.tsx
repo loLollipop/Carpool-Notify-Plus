@@ -30,6 +30,9 @@ import { deleteBill } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
 import { useBills } from "@/api/queries"
 import type { BillView, BillsSummary } from "@/api/types"
+import {
+  AmountPrivacyToggle,
+} from "@/components/amount-privacy-toggle"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { NumberTicker } from "@/components/number-ticker"
 import { PageHeader } from "@/components/page-header"
@@ -54,6 +57,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
+import { AMOUNT_MASK, VALUE_MASK, maskAmount } from "@/lib/amount-privacy"
+import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { BillEditDialog } from "./BillEditDialog"
 import { SubscriptionViewDialog } from "./SubscriptionViewDialog"
 
@@ -119,8 +124,10 @@ function getChartScale(values: number[]) {
 function ChartTooltip({
   active,
   payload,
+  amountsHidden = false,
 }: {
   active?: boolean
+  amountsHidden?: boolean
   payload?: { payload: {
     name: string
     cents: number
@@ -135,7 +142,9 @@ function ChartTooltip({
   return (
     <div className="rounded-lg border bg-popover px-3 py-2 text-xs text-popover-foreground animate-fade-in">
       <div className="font-medium">{item.name}</div>
-      {item.grossCents !== undefined ? (
+      {amountsHidden ? (
+        <div className="mt-1 text-muted-foreground">{t("privacy.amountHidden")}</div>
+      ) : item.grossCents !== undefined ? (
         <div className="mt-1.5 grid gap-1 tabular-nums text-muted-foreground">
           <div>{t("bills.colGross")} <span className="float-right ml-4 text-foreground">{formatCents(item.grossCents)}</span></div>
           <div>{t("bills.colRefund")} <span className="float-right ml-4 text-destructive">-{formatCents(item.refundCents ?? 0)}</span></div>
@@ -190,11 +199,13 @@ function KpiCard({
 
 function BillMobileCard({
   bill,
+  amountsHidden,
   onView,
   onEdit,
   onDelete,
 }: {
   bill: BillView
+  amountsHidden: boolean
   onView: () => void
   onEdit: () => void
   onDelete: () => void
@@ -237,17 +248,23 @@ function BillMobileCard({
         <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 rounded-md border border-foreground/[0.06] bg-muted/45 p-3 text-xs">
           <div>
             <div className="text-muted-foreground">{t("bills.colGross")}</div>
-            <div className="mt-1 font-medium tabular-nums">¥{bill.amount_yuan}</div>
+            <div className="mt-1 font-medium tabular-nums">
+              {maskAmount(amountsHidden, `¥${bill.amount_yuan}`)}
+            </div>
           </div>
           <div>
             <div className="text-muted-foreground">{t("bills.colRefund")}</div>
             <div className={cn("mt-1 font-medium tabular-nums", bill.refund_cents > 0 && "text-destructive")}>
-              {bill.refund_cents > 0 ? "-" : ""}¥{bill.refund_yuan}
+              {amountsHidden
+                ? AMOUNT_MASK
+                : `${bill.refund_cents > 0 ? "-" : ""}¥${bill.refund_yuan}`}
             </div>
           </div>
           <div>
             <div className="text-muted-foreground">{t("bills.colNet")}</div>
-            <div className="mt-1 text-base font-semibold text-success tabular-nums">¥{bill.net_amount_yuan}</div>
+            <div className="mt-1 text-base font-semibold text-success tabular-nums">
+              {maskAmount(amountsHidden, `¥${bill.net_amount_yuan}`)}
+            </div>
           </div>
           <div>
             <div className="text-muted-foreground">{t("bills.colStartDate")}</div>
@@ -291,7 +308,13 @@ function BillMobileCard({
 
 // ---- 金额分布 (bar list, 按订阅 / 按账号) ----------------------------------------
 
-function AmountDistributionCard({ summary }: { summary: BillsSummary }) {
+function AmountDistributionCard({
+  summary,
+  amountsHidden,
+}: {
+  summary: BillsSummary
+  amountsHidden: boolean
+}) {
   const { t } = useTranslation()
   const [mode, setMode] = React.useState<"subscription" | "account">("subscription")
   const [page, setPage] = React.useState(1)
@@ -325,6 +348,7 @@ function AmountDistributionCard({ summary }: { summary: BillsSummary }) {
           <h2 className="panel-heading text-sm font-semibold">{t("bills.chartAmountTitle")}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {mode === "subscription" ? t("bills.chartAmountBySub") : t("bills.chartAmountByAccount")}
+            {amountsHidden ? ` · ${t("privacy.relativeOnly")}` : ""}
           </p>
         </div>
         <div role="tablist" className="inline-flex items-center rounded-md border bg-muted/50 p-0.5">
@@ -375,7 +399,10 @@ function AmountDistributionCard({ summary }: { summary: BillsSummary }) {
                     value.length > 8 ? `${value.slice(0, 8)}…` : value
                   }
                 />
-                <RechartsTooltip cursor={{ fill: "var(--accent)" }} content={<ChartTooltip />} />
+                <RechartsTooltip
+                  cursor={{ fill: "var(--accent)" }}
+                  content={<ChartTooltip amountsHidden={amountsHidden} />}
+                />
                 <Bar
                   dataKey="cents"
                   radius={[3, 3, 3, 3]}
@@ -384,7 +411,8 @@ function AmountDistributionCard({ summary }: { summary: BillsSummary }) {
                     position: "right",
                     fontSize: 11,
                     fill: "var(--muted-foreground)",
-                    formatter: (value: unknown) => formatCents(Number(value)),
+                    formatter: (value: unknown) =>
+                      amountsHidden ? AMOUNT_MASK : formatCents(Number(value)),
                   }}
                 >
                   {pagedData.map((_, index) => (
@@ -438,7 +466,13 @@ function AmountDistributionCard({ summary }: { summary: BillsSummary }) {
 
 // ---- 所属账号 donut ----------------------------------------------------------------
 
-function AccountDonutCard({ summary }: { summary: BillsSummary }) {
+function AccountDonutCard({
+  summary,
+  amountsHidden,
+}: {
+  summary: BillsSummary
+  amountsHidden: boolean
+}) {
   const { t } = useTranslation()
   const [reduceMotion, setReduceMotion] = React.useState(() =>
     window.matchMedia("(prefers-reduced-motion: reduce)").matches,
@@ -472,7 +506,7 @@ function AccountDonutCard({ summary }: { summary: BillsSummary }) {
         <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:gap-5">
           <div className="mx-auto h-[170px] w-[170px] shrink-0 sm:mx-0">
             <PieChart width={170} height={170}>
-              <RechartsTooltip content={<ChartTooltip />} />
+              <RechartsTooltip content={<ChartTooltip amountsHidden={amountsHidden} />} />
               <Pie
                 data={data}
                 dataKey="cents"
@@ -503,7 +537,7 @@ function AccountDonutCard({ summary }: { summary: BillsSummary }) {
                 />
                 <span className="truncate">{item.name}</span>
                 <span className="shrink-0 tabular-nums text-muted-foreground">
-                  ¥{item.yuan} · {t("bills.countSuffix", { count: item.count })}
+                  {maskAmount(amountsHidden, `¥${item.yuan}`)} · {t("bills.countSuffix", { count: item.count })}
                 </span>
               </li>
             ))}
@@ -516,7 +550,13 @@ function AccountDonutCard({ summary }: { summary: BillsSummary }) {
 
 // ---- 近 6 个月实收 -----------------------------------------------------------------
 
-function MonthlyTrendCard({ summary }: { summary: BillsSummary }) {
+function MonthlyTrendCard({
+  summary,
+  amountsHidden,
+}: {
+  summary: BillsSummary
+  amountsHidden: boolean
+}) {
   const { t } = useTranslation()
   const data = (summary.monthly_trend ?? []).map((item) => ({
     name: item.month,
@@ -560,11 +600,14 @@ function MonthlyTrendCard({ summary }: { summary: BillsSummary }) {
                 tickLine={false}
                 ticks={chartScale.ticks}
                 tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
-                tickFormatter={formatAxisCents}
+                tickFormatter={(value) => (amountsHidden ? "¥••" : formatAxisCents(value))}
                 tickMargin={8}
                 width={58}
               />
-              <RechartsTooltip cursor={{ fill: "var(--accent)" }} content={<ChartTooltip />} />
+              <RechartsTooltip
+                cursor={{ fill: "var(--accent)" }}
+                content={<ChartTooltip amountsHidden={amountsHidden} />}
+              />
               <Bar
                 dataKey="cents"
                 fill="var(--brand)"
@@ -574,7 +617,8 @@ function MonthlyTrendCard({ summary }: { summary: BillsSummary }) {
                   position: "top",
                   fontSize: 10,
                   fill: "var(--muted-foreground)",
-                  formatter: (value: unknown) => formatCents(Number(value)),
+                  formatter: (value: unknown) =>
+                    amountsHidden ? AMOUNT_MASK : formatCents(Number(value)),
                 }}
               />
             </BarChart>
@@ -589,6 +633,7 @@ function MonthlyTrendCard({ summary }: { summary: BillsSummary }) {
 
 export function BillsPage() {
   const { t } = useTranslation()
+  const { amountsHidden, toggleAmounts } = useAmountPrivacy()
   const billsQuery = useBills()
 
   const [editingBill, setEditingBill] = React.useState<BillView | null>(null)
@@ -643,7 +688,13 @@ export function BillsPage() {
 
   return (
     <>
-      <PageHeader title={t("bills.title")} description={t("bills.desc")} />
+      <PageHeader
+        title={t("bills.title")}
+        titleAccessory={
+          <AmountPrivacyToggle amountsHidden={amountsHidden} onToggle={toggleAmounts} />
+        }
+        description={t("bills.desc")}
+      />
 
       {billsQuery.isPending ? (
         <div className="grid gap-4">
@@ -667,7 +718,7 @@ export function BillsPage() {
           <section aria-label={t("bills.title")} className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             <KpiCard
               label={t("bills.kpiTotal")}
-              value={`¥${summary.total_amount_yuan}`}
+              value={maskAmount(amountsHidden, `¥${summary.total_amount_yuan}`)}
               hint={t("bills.kpiTotalHint")}
               icon={<Wallet className="size-4" />}
               delay={0}
@@ -675,7 +726,7 @@ export function BillsPage() {
             />
             <KpiCard
               label={t("bills.kpiRefund")}
-              value={`¥${summary.total_refund_yuan}`}
+              value={maskAmount(amountsHidden, `¥${summary.total_refund_yuan}`)}
               hint={t("bills.kpiRefundHint")}
               icon={<HandCoins className="size-4" />}
               delay={40}
@@ -683,7 +734,7 @@ export function BillsPage() {
             />
             <KpiCard
               label={t("bills.kpiNet")}
-              value={`¥${summary.net_amount_yuan}`}
+              value={maskAmount(amountsHidden, `¥${summary.net_amount_yuan}`)}
               hint={t("bills.kpiNetHint")}
               icon={<BadgeDollarSign className="size-4" />}
               delay={80}
@@ -691,10 +742,10 @@ export function BillsPage() {
             />
             <KpiCard
               label={t("bills.kpiThisMonth")}
-              value={`¥${summary.this_month_net_amount_yuan}`}
+              value={maskAmount(amountsHidden, `¥${summary.this_month_net_amount_yuan}`)}
               hint={t("bills.kpiThisMonthHint", {
-                gross: summary.this_month_amount_yuan,
-                refund: summary.this_month_refund_yuan,
+                gross: amountsHidden ? VALUE_MASK : summary.this_month_amount_yuan,
+                refund: amountsHidden ? VALUE_MASK : summary.this_month_refund_yuan,
               })}
               icon={<CalendarDays className="size-4" />}
               delay={120}
@@ -702,10 +753,10 @@ export function BillsPage() {
             />
             <KpiCard
               label={t("bills.kpiAgencyFee")}
-              value={`¥${summary.total_agency_fee_yuan}`}
+              value={maskAmount(amountsHidden, `¥${summary.total_agency_fee_yuan}`)}
               hint={t("bills.kpiAgencyFeeHint", {
                 count: summary.resale_bill_count,
-                month: summary.this_month_agency_fee_yuan,
+                month: amountsHidden ? VALUE_MASK : summary.this_month_agency_fee_yuan,
               })}
               icon={<HandCoins className="size-4" />}
               delay={160}
@@ -722,10 +773,10 @@ export function BillsPage() {
           </section>
 
           <div className="mb-4 grid gap-4 lg:grid-cols-2">
-            <AmountDistributionCard summary={summary} />
-            <AccountDonutCard summary={summary} />
+            <AmountDistributionCard summary={summary} amountsHidden={amountsHidden} />
+            <AccountDonutCard summary={summary} amountsHidden={amountsHidden} />
           </div>
-          <MonthlyTrendCard summary={summary} />
+          <MonthlyTrendCard summary={summary} amountsHidden={amountsHidden} />
 
           <div className="mt-8 mb-4 flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between animate-fade-up">
             <h2 className="panel-heading text-lg font-semibold">{t("bills.listTitle")}</h2>
@@ -778,6 +829,7 @@ export function BillsPage() {
                   <BillMobileCard
                     key={bill.id}
                     bill={bill}
+                    amountsHidden={amountsHidden}
                     onView={() => setViewingBill(bill)}
                     onEdit={() => setEditingBill(bill)}
                     onDelete={() => setDeleteTarget(bill)}
@@ -831,15 +883,21 @@ export function BillsPage() {
                         </div>
                       </TableCell>
                       <TableCell className="tabular-nums">{bill.due_date}</TableCell>
-                      <TableCell className="font-medium tabular-nums">¥{bill.amount_yuan}</TableCell>
+                      <TableCell className="font-medium tabular-nums">
+                        {maskAmount(amountsHidden, `¥${bill.amount_yuan}`)}
+                      </TableCell>
                       <TableCell className={cn("hidden tabular-nums lg:table-cell", bill.refund_cents > 0 && "text-destructive")}>
-                        {bill.refund_cents > 0 ? "-" : ""}¥{bill.refund_yuan}
+                        {amountsHidden
+                          ? AMOUNT_MASK
+                          : `${bill.refund_cents > 0 ? "-" : ""}¥${bill.refund_yuan}`}
                       </TableCell>
                       <TableCell className="hidden font-medium text-success tabular-nums lg:table-cell">
-                        ¥{bill.net_amount_yuan}
+                        {maskAmount(amountsHidden, `¥${bill.net_amount_yuan}`)}
                       </TableCell>
                       <TableCell className="hidden tabular-nums lg:table-cell">
-                        ¥{bill.is_resale ? bill.agency_fee_yuan : "—"}
+                        {bill.is_resale
+                          ? maskAmount(amountsHidden, `¥${bill.agency_fee_yuan}`)
+                          : "—"}
                       </TableCell>
                       <TableCell className="hidden max-w-52 md:table-cell">
                         {bill.note ? (
@@ -967,6 +1025,7 @@ export function BillsPage() {
           if (!open) setViewingBill(null)
         }}
         bill={viewingBill}
+        amountsHidden={amountsHidden}
       />
       <ConfirmDialog
         open={deleteTarget !== null}

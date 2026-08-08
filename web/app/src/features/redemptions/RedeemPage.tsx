@@ -3,6 +3,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import {
   AlertTriangle,
+  ArrowRight,
   CheckCircle2,
   Clock3,
   Copy,
@@ -15,7 +16,7 @@ import {
   TicketCheck,
 } from "lucide-react"
 import { useTheme } from "next-themes"
-import { useForm, useWatch } from "react-hook-form"
+import { useForm } from "react-hook-form"
 import { toast } from "sonner"
 import { z } from "zod"
 
@@ -25,7 +26,6 @@ import {
   submitRedemptionApplication,
 } from "@/api/endpoints"
 import type { RedeemPageSettings } from "@/api/types"
-import { APP_NAME, BrandIcon } from "@/components/brand"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
@@ -51,25 +51,20 @@ import { cn } from "@/lib/utils"
 const STORAGE_KEY = "carpool-notify:redemption-token"
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
-  announcement_title: "加入前请先确认",
+  announcement_title: "加入 ChatGPT Team 前请先确认",
   announcement_intro:
-    "进入共享工作空间前，请先看完下面几点，避免工作空间记录、售后或续期提醒遗漏。",
+    "为保护工作空间中的内容与到期后的使用连续性，请先阅读以下说明。",
   announcement_items: [
-    "工作空间与个人空间记录相互独立，加入空间后请把工作空间里的重要对话、文件或资料及时备份。",
-    "长期使用建议保存管理员联系方式，方便售后、续期提醒和异常通知。",
-    "到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。",
+    "工作空间与个人空间的记录相互独立，请及时备份工作空间中的重要对话、文件和资料。",
+    "长期使用建议添加管理员微信，方便接收续费提醒、售后协助和异常通知。",
+    "到期后若未及时续费，账号可能会被移出 Team；未备份的工作空间内容可能无法找回。",
   ],
   support_title: "客服微信",
-  support_description: "售后与续期提醒",
+  support_description: "续费提醒与售后协助",
   support_contact_label: "微信号",
   support_wechat_id: "",
   support_qr_data_url: "",
 }
-const CONTACT_OPTIONS = [
-  { value: "wechat", label: "微信", placeholder: "字母开头，6-20 位", tone: "text-success" },
-  { value: "qq", label: "QQ", placeholder: "请输入 QQ 号", tone: "text-brand" },
-] as const
-
 const schema = z.object({
   customer_email: z
     .string()
@@ -78,12 +73,10 @@ const schema = z.object({
     .regex(EMAIL_PATTERN, "邮箱格式不正确")
     .max(254, "邮箱太长"),
   redeem_code: z.string().trim().min(1, "请填写兑换码").max(120, "兑换码太长"),
-  contact_type: z.enum(["wechat", "qq"]),
-  customer_contact: z.string().trim().min(1, "请填写联系方式").max(80, "联系方式太长"),
+  customer_contact: z.string().trim().min(1, "请填写微信号").max(80, "微信号太长"),
 })
 
 type FormValues = z.infer<typeof schema>
-type ContactType = FormValues["contact_type"]
 
 function readStoredToken() {
   try {
@@ -103,10 +96,6 @@ function writeStoredToken(token: string) {
   } catch {
     // localStorage may be unavailable in private browsing.
   }
-}
-
-function contactLabel(value: ContactType) {
-  return CONTACT_OPTIONS.find((option) => option.value === value)?.label ?? "微信"
 }
 
 function normalizeRedeemPageSettings(settings?: RedeemPageSettings | null): RedeemPageSettings {
@@ -150,7 +139,7 @@ function RedeemThemeToggle() {
           variant="ghost"
           size="icon-sm"
           aria-label="切换深浅色"
-          className="border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="border border-white/15 bg-white/[0.06] text-white hover:bg-white/10 hover:text-white"
           onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
         >
           <Sun className="size-4 scale-100 rotate-0 transition-all duration-300 dark:scale-0 dark:-rotate-90" />
@@ -168,10 +157,10 @@ function RedeemAnnouncementButton({ onClick }: { onClick: () => void }) {
       <TooltipTrigger asChild>
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           size="sm"
           aria-label="查看公告"
-          className="h-8 bg-card px-3"
+          className="h-8 border border-white/15 bg-white/[0.06] px-3 text-white hover:bg-white/10 hover:text-white"
           onClick={onClick}
         >
           <Megaphone data-slot="icon" className="size-4" />
@@ -259,7 +248,13 @@ function SupportWechatDialogButton({ settings }: { settings: RedeemPageSettings 
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button type="button" variant="outline" size="sm" aria-label="客服微信" className="h-8 lg:hidden">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-label="客服微信"
+          className="h-8 border border-white/15 bg-white/[0.06] text-white hover:bg-white/10 hover:text-white lg:hidden"
+        >
           <MessageCircle data-slot="icon" />
           客服
         </Button>
@@ -332,11 +327,9 @@ export function RedeemPage() {
     defaultValues: {
       customer_email: "",
       redeem_code: "",
-      contact_type: "wechat",
       customer_contact: "",
     },
   })
-  const contactType = useWatch({ control: form.control, name: "contact_type" })
 
   const statusQuery = useQuery({
     queryKey: ["public-redemption-status", trackingToken],
@@ -350,7 +343,7 @@ export function RedeemPage() {
     mutationFn: (values: FormValues) =>
       submitRedemptionApplication({
         customer_email: values.customer_email.trim(),
-        customer_contact: `${contactLabel(values.contact_type)}：${values.customer_contact.trim()}`,
+        customer_contact: `微信：${values.customer_contact.trim()}`,
         redeem_code: values.redeem_code.trim(),
         request_note: "",
       }),
@@ -372,7 +365,6 @@ export function RedeemPage() {
   const status = statusQuery.data?.status ?? (trackingToken ? "pending" : null)
   const invited = status === "invited"
   const statusLoadFailed = trackingToken !== "" && statusQuery.isError
-  const activeContact = CONTACT_OPTIONS.find((option) => option.value === contactType)
   const supportConfigured = hasSupportContact(redeemSettings)
   const supportColumnVisible = supportConfigured || settingsQuery.isPending
 
@@ -384,50 +376,69 @@ export function RedeemPage() {
         settings={redeemSettings}
       />
 
-      <header className="border-b bg-card">
-        <div className="mx-auto flex h-16 w-full max-w-[1100px] items-center px-4 sm:px-6">
-          <div className="flex min-w-0 items-center gap-3">
-            <BrandIcon />
-            <div className="min-w-0 leading-none">
-              <p className="truncate text-sm font-semibold">{APP_NAME}</p>
-              <p className="mt-1 hidden text-[11px] text-muted-foreground sm:block">Team Access</p>
+      <section className="border-b border-[var(--login-panel-border)] bg-[var(--login-panel)] text-[var(--login-panel-foreground)]">
+        <div className="mx-auto w-full max-w-[1160px] px-4 pb-10 pt-5 sm:px-6 sm:pb-12 sm:pt-6">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 text-[11px] font-semibold text-[var(--login-panel-muted)]">
+              <TicketCheck className="size-4 text-gold" />
+              CHATGPT TEAM ACCESS
+            </div>
+            <div className="flex items-center gap-2">
+              <RedeemAnnouncementButton onClick={() => setNoticeOpen(true)} />
+              <SupportWechatDialogButton settings={redeemSettings} />
+              <RedeemThemeToggle />
             </div>
           </div>
-          <div className="ml-auto flex items-center gap-2">
-            <RedeemAnnouncementButton onClick={() => setNoticeOpen(true)} />
-            <SupportWechatDialogButton settings={redeemSettings} />
-            <RedeemThemeToggle />
+
+          <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.8fr)] lg:items-end">
+            <div className="max-w-[680px] animate-fade-up">
+              <h1 className="text-[30px] font-semibold leading-tight sm:text-[42px]">
+                ChatGPT Team 兑换中心
+              </h1>
+              <p className="mt-4 max-w-[620px] text-sm leading-7 text-[var(--login-panel-muted)] sm:text-base">
+                提交兑换码与账号资料，管理员处理完成后，Team 邀请会直接发送到你的 GPT 邮箱。
+              </p>
+            </div>
+
+            <ol className="grid border-t border-[var(--login-panel-border)] pt-4 sm:grid-cols-3 lg:gap-4">
+              {[
+                ["01", "填写资料", "兑换码、邮箱与微信"],
+                ["02", "等待处理", "通常需要 1-2 分钟"],
+                ["03", "确认邀请", "前往邮箱加入 Team"],
+              ].map(([number, title, description]) => (
+                <li key={number} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2 py-2 sm:block sm:py-0">
+                  <span className="font-mono text-[11px] text-gold">{number}</span>
+                  <div>
+                    <p className="text-sm font-semibold">{title}</p>
+                    <p className="mt-1 text-xs leading-5 text-[var(--login-panel-muted)]">
+                      {description}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
           </div>
         </div>
-      </header>
+      </section>
 
-      <div className="mx-auto w-full max-w-[1100px] px-4 py-8 sm:px-6">
-        <section className="max-w-[720px] animate-fade-up">
-          <div className="flex items-center gap-2 text-xs font-semibold text-brand">
-            <TicketCheck className="size-3.5" />
-            ChatGPT Team
-          </div>
-          <h1 className="mt-2 text-3xl font-semibold sm:text-[38px]">车位兑换</h1>
-          <p className="mt-3 max-w-[620px] text-sm leading-6 text-muted-foreground sm:text-base">
-            填写兑换码与账号信息，提交后会同步到后台处理，邀请会发送到你的 GPT 邮箱。
-          </p>
-        </section>
-
+      <div className="mx-auto w-full max-w-[1160px] px-4 py-8 sm:px-6 sm:py-10">
         <div
           className={cn(
-            "mt-7 grid items-start gap-6",
-            supportColumnVisible ? "lg:grid-cols-[minmax(0,1fr)_320px]" : "max-w-[720px]",
+            "grid items-start gap-6",
+            supportColumnVisible ? "lg:grid-cols-[minmax(0,1fr)_340px]" : "max-w-[760px]",
           )}
         >
-        <Card className="overflow-hidden p-0 animate-fade-up [animation-delay:80ms]">
-          <div className="flex items-center justify-between border-b bg-muted/35 px-5 py-3 sm:px-7">
+        <Card className="overflow-hidden p-0 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_4%,transparent),0_18px_40px_color-mix(in_oklab,var(--foreground)_4%,transparent)] animate-fade-up [animation-delay:80ms]">
+          <div className="flex items-center justify-between border-b bg-muted/30 px-5 py-4 sm:px-7">
             <div className="flex items-center gap-2 text-sm font-semibold">
-              <span className="grid size-7 place-items-center rounded-md bg-brand/10 text-brand">
+              <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
                 <TicketCheck className="size-4" />
               </span>
-              {trackingToken ? "申请进度" : "兑换信息"}
+              {trackingToken ? "申请进度" : "填写兑换信息"}
             </div>
-            <span className="text-[11px] font-medium text-muted-foreground">HESU / TEAM</span>
+            <span className="text-[11px] font-medium text-muted-foreground">
+              {trackingToken ? "CHATGPT TEAM" : "3 项资料"}
+            </span>
           </div>
           {trackingToken ? (
             <div className="grid min-h-[360px] gap-6 p-6 sm:p-8">
@@ -508,25 +519,28 @@ export function RedeemPage() {
             <Form {...form}>
               <form
                 onSubmit={form.handleSubmit((values) => submitMutation.mutate(values))}
-                className="grid gap-5 p-6 sm:p-8"
+                className="grid gap-6 p-6 sm:p-8"
               >
-                <p className="border-b pb-5 text-sm leading-6 text-muted-foreground sm:text-base">
-                  请填写用于加入 Team 的 GPT 邮箱，以及方便联系的微信或 QQ。
-                </p>
+                <div className="border-b pb-5">
+                  <h2 className="text-lg font-semibold">开始兑换</h2>
+                  <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
+                    请确认 GPT 邮箱可以正常收信，管理员会通过微信协助核对订单。
+                  </p>
+                </div>
 
                 <FormField
                   control={form.control}
                   name="redeem_code"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-base">兑换码</FormLabel>
+                      <FormLabel>兑换码</FormLabel>
                       <FormControl>
                         <div className="relative">
-                          <TicketCheck className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-brand" />
+                          <TicketCheck className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-brand" />
                           <Input
                             autoComplete="off"
                             placeholder="CPN-XXXX-XXXX-XXXX"
-                            className="h-13 rounded-lg pr-5 pl-12 text-base"
+                            className="h-12 pl-10"
                             {...field}
                           />
                         </div>
@@ -536,89 +550,61 @@ export function RedeemPage() {
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="customer_email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-base">GPT 邮箱</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Mail className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-brand" />
-                          <Input
-                            type="email"
-                            autoComplete="email"
-                            placeholder="name@example.com"
-                            className="h-13 rounded-lg pr-5 pl-12 text-base"
-                            {...field}
-                          />
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <div className="grid gap-5 md:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="customer_email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>GPT 邮箱</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Mail className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-brand" />
+                            <Input
+                              type="email"
+                              autoComplete="email"
+                              placeholder="name@example.com"
+                              className="h-12 pl-10"
+                              {...field}
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                <FormField
-                  control={form.control}
-                  name="contact_type"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-base">联系方式</FormLabel>
-                      <FormControl>
-                        <div className="grid grid-cols-2 gap-3">
-                          {CONTACT_OPTIONS.map((option) => {
-                            const selected = field.value === option.value
-                            return (
-                              <button
-                                key={option.value}
-                                type="button"
-                                aria-pressed={selected}
-                                className={cn(
-                                  "flex h-13 items-center justify-center gap-2 rounded-lg border bg-card text-base font-semibold transition-[border-color,background-color,color,box-shadow]",
-                                  "hover:border-brand/50 hover:bg-accent/50 focus-visible:border-ring focus-visible:ring-ring/40 focus-visible:ring-[3px] focus-visible:outline-none",
-                                  selected &&
-                                    "border-brand bg-brand/10 text-foreground",
-                                )}
-                                onClick={() => field.onChange(option.value)}
-                              >
-                                <MessageCircle className={cn("size-5", option.tone)} />
-                                {option.label}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                  <FormField
+                    control={form.control}
+                    name="customer_contact"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>微信号</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <MessageCircle className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-success" />
+                            <Input
+                              autoComplete="username"
+                              placeholder="请输入常用微信号"
+                              className="h-12 pl-10"
+                              {...field}
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
 
-                <FormField
-                  control={form.control}
-                  name="customer_contact"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="text-base">{contactLabel(contactType)}号</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <MessageCircle className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-success" />
-                          <Input
-                            autoComplete="off"
-                            placeholder={activeContact?.placeholder ?? "方便核对订单"}
-                            className="h-13 rounded-lg pr-5 pl-12 text-base"
-                            {...field}
-                          />
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <div className="flex items-start gap-2 rounded-md border border-brand/15 bg-brand/[0.045] px-3.5 py-3 text-xs leading-5 text-muted-foreground">
+                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-brand" />
+                  提交后页面会自动同步处理状态，请保持页面打开并留意邮箱邀请。
+                </div>
 
                 <Button
                   type="submit"
-                  className="mt-1 h-13 text-base"
+                  className="h-12"
                   disabled={submitMutation.isPending}
                 >
                   {submitMutation.isPending ? (
@@ -628,8 +614,8 @@ export function RedeemPage() {
                     </>
                   ) : (
                     <>
-                      <TicketCheck data-slot="icon" />
-                      提交申请
+                      提交兑换申请
+                      <ArrowRight data-slot="icon" />
                     </>
                   )}
                 </Button>

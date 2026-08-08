@@ -29,6 +29,9 @@ import type {
   Dashboard,
   SubscriptionView,
 } from "@/api/types"
+import {
+  AmountPrivacyToggle,
+} from "@/components/amount-privacy-toggle"
 import { NumberTicker } from "@/components/number-ticker"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -36,6 +39,8 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
+import { VALUE_MASK, maskAmount } from "@/lib/amount-privacy"
+import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { SubscriptionDialog } from "@/features/subscriptions/SubscriptionDialog"
 
 const CHART_ANIMATION = { animationDuration: 900, animationEasing: "ease-out" } as const
@@ -105,8 +110,10 @@ function ChartEmpty({ text }: { text: string }) {
 function ChartTooltip({
   active,
   payload,
+  amountsHidden = false,
 }: {
   active?: boolean
+  amountsHidden?: boolean
   payload?: { payload: {
     name?: string
     label?: string
@@ -123,7 +130,9 @@ function ChartTooltip({
   return (
     <div className="rounded-lg border bg-popover px-3 py-2 text-xs text-popover-foreground animate-fade-in">
       <div className="font-medium">{item.name ?? item.label}</div>
-      {item.grossCents !== undefined ? (
+      {amountsHidden ? (
+        <div className="mt-1 text-muted-foreground">{t("privacy.amountHidden")}</div>
+      ) : item.grossCents !== undefined ? (
         <div className="mt-1.5 grid gap-1 tabular-nums text-muted-foreground">
           <div>{t("bills.colGross")} <span className="float-right ml-4 text-foreground">{formatCents(item.grossCents)}</span></div>
           <div>{t("bills.colRefund")} <span className="float-right ml-4 text-destructive">-{formatCents(item.refundCents ?? 0)}</span></div>
@@ -150,6 +159,7 @@ function KpiCard({
   icon,
   tone,
   delay,
+  amountsHidden,
 }: {
   label: string
   value: string | number
@@ -157,6 +167,7 @@ function KpiCard({
   icon: React.ReactNode
   tone: KpiTone
   delay: number
+  amountsHidden: boolean
 }) {
   const toneClass: Record<KpiTone, string> = {
     brand: "bg-brand/10 text-brand",
@@ -181,7 +192,7 @@ function KpiCard({
         <div className="min-w-0 flex-1">
           <div className="truncate text-xs font-medium text-muted-foreground">{label}</div>
           <div className="display-numeral mt-2 text-[27px] leading-none">
-            <NumberTicker value={value} />
+            <NumberTicker value={maskAmount(amountsHidden, value)} />
           </div>
           <div className="mt-2 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{hint}</div>
         </div>
@@ -195,11 +206,13 @@ function KpiRow({
   summary,
   accountCount,
   calendar,
+  amountsHidden,
 }: {
   dashboard: Dashboard
   summary: BillsSummary | undefined
   accountCount: number
   calendar: CalendarMonth | undefined
+  amountsHidden: boolean
 }) {
   const { t } = useTranslation()
 
@@ -210,31 +223,36 @@ function KpiRow({
         value={`¥${summary?.total_amount_yuan ?? "0.00"}`}
         hint={t("dash.kpiRevenueHint", {
           count: summary?.bill_count ?? 0,
-          refund: summary?.total_refund_yuan ?? "0.00",
+          refund: amountsHidden ? VALUE_MASK : summary?.total_refund_yuan ?? "0.00",
         })}
         icon={<Wallet className="size-4" />}
         tone="brand"
         delay={0}
+        amountsHidden={amountsHidden}
       />
       <KpiCard
         label={t("dash.kpiProfit")}
         value={`¥${dashboard.total_profit_yuan}`}
         hint={t("dash.kpiProfitHint", {
-          margin: dashboard.profit_margin_percent,
-          net: dashboard.net_revenue_yuan,
-          refund: dashboard.total_refund_yuan,
+          margin: amountsHidden ? VALUE_MASK : dashboard.profit_margin_percent,
+          net: amountsHidden ? VALUE_MASK : dashboard.net_revenue_yuan,
+          refund: amountsHidden ? VALUE_MASK : dashboard.total_refund_yuan,
         })}
         icon={<ArrowUpRight className="size-4" />}
         tone="success"
         delay={70}
+        amountsHidden={amountsHidden}
       />
       <KpiCard
         label={t("dash.kpiRefund")}
         value={`¥${dashboard.total_refund_yuan}`}
-        hint={t("dash.kpiRefundHint", { gross: dashboard.total_amount_yuan })}
+        hint={t("dash.kpiRefundHint", {
+          gross: amountsHidden ? VALUE_MASK : dashboard.total_amount_yuan,
+        })}
         icon={<HandCoins className="size-4" />}
         tone="violet"
         delay={140}
+        amountsHidden={amountsHidden}
       />
       <KpiCard
         label={t("dash.kpiAccountCost")}
@@ -246,6 +264,7 @@ function KpiRow({
         icon={<CreditCard className="size-4" />}
         tone="gold"
         delay={210}
+        amountsHidden={amountsHidden}
       />
       <KpiCard
         label={t("dash.kpiPendingMonth")}
@@ -256,6 +275,7 @@ function KpiRow({
         icon={<CalendarClock className="size-4" />}
         tone="violet"
         delay={280}
+        amountsHidden={amountsHidden}
       />
     </section>
   )
@@ -263,7 +283,17 @@ function KpiRow({
 
 // ---- Revenue trend (area) -------------------------------------------------------
 
-function RevenueTrendCard({ summary, className, delay }: { summary: BillsSummary; className?: string; delay?: number }) {
+function RevenueTrendCard({
+  summary,
+  amountsHidden,
+  className,
+  delay,
+}: {
+  summary: BillsSummary
+  amountsHidden: boolean
+  className?: string
+  delay?: number
+}) {
   const { t } = useTranslation()
   const data = (summary.monthly_trend ?? []).map((item) => ({
     label: item.label,
@@ -300,11 +330,11 @@ function RevenueTrendCard({ summary, className, delay }: { summary: BillsSummary
                 axisLine={{ stroke: "var(--border)" }}
                 tickLine={{ stroke: "var(--border)" }}
                 tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
-                tickFormatter={formatAxisCents}
+                tickFormatter={(value) => (amountsHidden ? "¥••" : formatAxisCents(value))}
               />
               <RechartsTooltip
                 cursor={{ stroke: "var(--border)", strokeWidth: 1 }}
-                content={<ChartTooltip />}
+                content={<ChartTooltip amountsHidden={amountsHidden} />}
               />
               <Area
                 type="monotone"
@@ -576,7 +606,7 @@ function OperationsHealthCard({
 
   return (
     <Card
-      className="h-fit min-h-0 self-start gap-2 overflow-hidden p-4 animate-fade-up xl:sticky xl:top-0"
+      className="h-full min-h-0 self-stretch gap-3 overflow-hidden p-4 animate-fade-up"
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="flex items-start justify-between gap-2">
@@ -599,7 +629,7 @@ function OperationsHealthCard({
       </div>
 
       {pending ? (
-        <div className="grid gap-1.5">
+        <div className="grid flex-1 grid-rows-4 gap-2">
           {Array.from({ length: 4 }).map((_, index) => (
             <Skeleton key={index} className="h-[58px] rounded-lg" />
           ))}
@@ -609,12 +639,15 @@ function OperationsHealthCard({
           {t("common.loadFailed")}
         </div>
       ) : (
-        <div className="grid max-h-[calc(100dvh-18rem)] gap-1.5 overflow-y-auto pr-1">
+        <div
+          className="grid min-h-0 flex-1 gap-2"
+          style={{ gridTemplateRows: `repeat(${Math.max(items.length, 1)}, minmax(0, 1fr))` }}
+        >
           {items.map((item) => (
             <div
               key={item.key}
               className={cn(
-                "flex items-start gap-3 rounded-md border border-l-2 bg-muted/25 px-3 py-1",
+                "flex min-h-0 items-center gap-3 rounded-md border border-l-2 bg-muted/25 px-3 py-2",
                 item.tone === "critical" && "border-l-destructive",
                 item.tone === "warning" && "border-l-gold",
                 item.tone === "success" && "border-l-success",
@@ -622,7 +655,7 @@ function OperationsHealthCard({
             >
               <span
                 className={cn(
-                  "mt-0.5 grid size-7 shrink-0 place-items-center rounded-md",
+                  "grid size-7 shrink-0 place-items-center rounded-md",
                   iconClass[item.tone],
                 )}
               >
@@ -663,6 +696,7 @@ function OperationsHealthCard({
 
 export function DashboardPage() {
   const { t } = useTranslation()
+  const { amountsHidden, toggleAmounts } = useAmountPrivacy()
   const dashboardQuery = useDashboard()
   const billsQuery = useBills()
   const calendarQuery = useCalendar()
@@ -692,6 +726,9 @@ export function DashboardPage() {
     <div className="flex flex-col xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:overflow-hidden">
       <PageHeader
         title={t("dash.title")}
+        titleAccessory={
+          <AmountPrivacyToggle amountsHidden={amountsHidden} onToggle={toggleAmounts} />
+        }
         description={t("dash.desc")}
         actions={
           <Button onClick={() => setDialogOpen(true)}>
@@ -724,10 +761,13 @@ export function DashboardPage() {
             summary={summary}
             accountCount={accountsQuery.data?.length ?? dashboard.accounts?.length ?? 0}
             calendar={calendarQuery.data}
+            amountsHidden={amountsHidden}
           />
 
-          <div className="grid min-h-0 flex-1 items-start gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
-            {summary ? <RevenueTrendCard summary={summary} delay={100} /> : null}
+          <div className="grid min-h-0 flex-1 items-stretch gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+            {summary ? (
+              <RevenueTrendCard summary={summary} amountsHidden={amountsHidden} delay={100} />
+            ) : null}
             <OperationsHealthCard
               dashboard={dashboard}
               calendar={calendarQuery.data}

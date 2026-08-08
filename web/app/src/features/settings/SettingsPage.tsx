@@ -75,6 +75,7 @@ const TEMPLATE_FIELDS: TemplateFieldOption[] = [
 
 const DEFAULT_FIELDS: TemplateFieldKey[] = [
   "customerEmail",
+  "customerWechat",
   "amountDue",
   "cycleDesc",
   "nextDueDate",
@@ -114,16 +115,16 @@ type TemplatePreviewState =
 const MAX_QR_UPLOAD_BYTES = 1024 * 1024
 
 const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
-  announcement_title: "加入前请先确认",
+  announcement_title: "加入 ChatGPT Team 前请先确认",
   announcement_intro:
-    "进入共享工作空间前，请先看完下面几点，避免工作空间记录、售后或续期提醒遗漏。",
+    "为保护工作空间中的内容与到期后的使用连续性，请先阅读以下说明。",
   announcement_items: [
-    "工作空间与个人空间记录相互独立，加入空间后请把工作空间里的重要对话、文件或资料及时备份。",
-    "长期使用建议保存管理员联系方式，方便售后、续期提醒和异常通知。",
-    "到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。",
+    "工作空间与个人空间的记录相互独立，请及时备份工作空间中的重要对话、文件和资料。",
+    "长期使用建议添加管理员微信，方便接收续费提醒、售后协助和异常通知。",
+    "到期后若未及时续费，账号可能会被移出 Team；未备份的工作空间内容可能无法找回。",
   ],
   support_title: "客服微信",
-  support_description: "售后与续期提醒",
+  support_description: "续费提醒与售后协助",
   support_contact_label: "微信号",
   support_wechat_id: "",
   support_qr_data_url: "",
@@ -159,14 +160,14 @@ function defaultTemplateDraft(kind: TemplateKind): VisualTemplateDraft {
   if (kind === "customer") {
     return {
       title: "",
-      duePrefix: "您好，您的拼车服务",
-      dueSuffix: "，请及时续费，以免影响正常使用。",
+      duePrefix: "您好，您的 ChatGPT Team 拼车服务",
+      dueSuffix: "，请留意续费时间。",
       fields: DEFAULT_FIELDS,
-      footer: "如需续费或有疑问，请联系管理员。\n谢谢。",
+      footer: "为避免到期后影响使用，请在到期前完成续费。\n如需续费或售后协助，请联系管理员。",
     }
   }
   return {
-    title: "【拼车收钱】",
+    title: "【到期提醒】",
     duePrefix: "到期状态：",
     dueSuffix: "",
     fields: DEFAULT_FIELDS,

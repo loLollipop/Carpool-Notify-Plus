@@ -44,21 +44,21 @@ const (
 	MaxSubscriptionTypeLength = 40
 )
 
-// DefaultEnabledChannels is the initial global notify-channel selection.
-// Gotify remains optional; new installs default to IYUU only.
-var DefaultEnabledChannels = []string{ChannelIYUU}
+// DefaultEnabledChannels keeps new open-source installs from using unconfigured private channels.
+var DefaultEnabledChannels = []string{}
 
 // DefaultNotifyTemplate is the initial global operator message template.
-const DefaultNotifyTemplate = `【拼车收钱】{{.CustomerEmail}}
+const DefaultNotifyTemplate = `【到期提醒】{{.CustomerEmail}}
 到期状态：{{.DueInText}}
 本期应收：¥{{.AmountDue}}
-周期：{{.CycleDesc}}
-到期：{{.NextDueDate}}
+计费周期：{{.CycleDesc}}
+到期日期：{{.NextDueDate}}
+{{if .CustomerWechat}}客户微信：{{.CustomerWechat}}{{end}}
 {{if .Remark}}备注：{{.Remark}}{{end}}
 {{if .TradeURL}}链接：{{.TradeURL}}{{end}}`
 
 // DefaultCustomerEmailTemplate is the initial template for emails to customers.
-const DefaultCustomerEmailTemplate = `您好，您的拼车服务{{.DueInText}}，请及时续费，以免影响正常使用。
+const DefaultCustomerEmailTemplate = `您好，您的 ChatGPT Team 拼车服务{{.DueInText}}，请留意续费时间。
 
 客户邮箱：{{.CustomerEmail}}
 本期应收：¥{{.AmountDue}}
@@ -67,8 +67,8 @@ const DefaultCustomerEmailTemplate = `您好，您的拼车服务{{.DueInText}}�
 {{if .Remark}}备注：{{.Remark}}{{end}}
 {{if .TradeURL}}续费链接：{{.TradeURL}}{{end}}
 
-如需续费或有疑问，请联系管理员。
-谢谢。`
+为避免到期后影响使用，请在到期前完成续费。
+如需续费或售后协助，请联系管理员。`
 
 // RedeemPageSettings is public, non-secret copy shown on the customer redemption page.
 type RedeemPageSettings struct {
@@ -84,15 +84,15 @@ type RedeemPageSettings struct {
 
 // DefaultRedeemPageSettings keeps open-source installs free of operator-specific data.
 var DefaultRedeemPageSettings = RedeemPageSettings{
-	AnnouncementTitle: "加入前请先确认",
-	AnnouncementIntro: "进入共享工作空间前，请先看完下面几点，避免工作空间记录、售后或续期提醒遗漏。",
+	AnnouncementTitle: "加入 ChatGPT Team 前请先确认",
+	AnnouncementIntro: "为保护工作空间中的内容与到期后的使用连续性，请先阅读以下说明。",
 	AnnouncementItems: []string{
-		"工作空间与个人空间记录相互独立，加入空间后请把工作空间里的重要对话、文件或资料及时备份。",
-		"长期使用建议保存管理员联系方式，方便售后、续期提醒和异常通知。",
-		"到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。",
+		"工作空间与个人空间的记录相互独立，请及时备份工作空间中的重要对话、文件和资料。",
+		"长期使用建议添加管理员微信，方便接收续费提醒、售后协助和异常通知。",
+		"到期后若未及时续费，账号可能会被移出 Team；未备份的工作空间内容可能无法找回。",
 	},
 	SupportTitle:         "客服微信",
-	SupportDescription:   "售后与续期提醒",
+	SupportDescription:   "续费提醒与售后协助",
 	SupportContactLabel:  "微信号",
 	SupportWechatID:      "",
 	SupportQRCodeDataURL: "",

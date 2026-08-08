@@ -2,11 +2,13 @@ import { cn } from "@/lib/utils"
 
 export function PageHeader({
   title,
+  titleAccessory,
   description,
   actions,
   className,
 }: {
   title: string
+  titleAccessory?: React.ReactNode
   description?: string
   actions?: React.ReactNode
   className?: string
@@ -20,7 +22,10 @@ export function PageHeader({
     >
       <div className="max-w-2xl">
         <div>
-          <h1 className="text-[22px] font-semibold leading-tight text-foreground sm:text-2xl">{title}</h1>
+          <div className="flex items-center gap-1.5">
+            <h1 className="text-[22px] font-semibold leading-tight text-foreground sm:text-2xl">{title}</h1>
+            {titleAccessory}
+          </div>
           {description ? (
             <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{description}</p>
           ) : null}

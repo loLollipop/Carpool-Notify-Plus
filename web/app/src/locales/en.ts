@@ -57,6 +57,12 @@ export default {
       submit: "Enter workspace",
       submitting: "Verifying…",
     },
+    privacy: {
+      hideAmounts: "Hide amounts",
+      showAmounts: "Show amounts",
+      amountHidden: "Amount hidden",
+      relativeOnly: "Privacy mode shows relative trends only",
+    },
     dashboard: {
       subscriptions: "Subscriptions",
       subscriptionsHint: "{{accounts}} accounts · currently active",

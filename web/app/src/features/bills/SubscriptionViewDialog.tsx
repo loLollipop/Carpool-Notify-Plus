@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next"
 import { ExternalLink } from "lucide-react"
 
 import type { BillView } from "@/api/types"
+import { AMOUNT_MASK, maskAmount } from "@/lib/amount-privacy"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -28,10 +29,12 @@ export function SubscriptionViewDialog({
   open,
   onOpenChange,
   bill,
+  amountsHidden,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   bill: BillView | null
+  amountsHidden: boolean
 }) {
   const { t } = useTranslation()
   const nextRenewalDate = getNextMonthlyRenewalDate(bill?.account_opened_at ?? "")
@@ -71,29 +74,43 @@ export function SubscriptionViewDialog({
 
             <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 sm:grid-cols-3">
               <ViewItem label={t("bills.colGross")}>
-                <span className="tabular-nums">¥{bill.amount_yuan}</span>
+                <span className="tabular-nums">
+                  {maskAmount(amountsHidden, `¥${bill.amount_yuan}`)}
+                </span>
               </ViewItem>
               <ViewItem label={t("bills.colRefund")}>
                 <span className={bill.refund_cents > 0 ? "text-destructive tabular-nums" : "tabular-nums"}>
-                  {bill.refund_cents > 0 ? "-" : ""}¥{bill.refund_yuan}
+                  {amountsHidden
+                    ? AMOUNT_MASK
+                    : `${bill.refund_cents > 0 ? "-" : ""}¥${bill.refund_yuan}`}
                 </span>
               </ViewItem>
               <ViewItem label={t("bills.colNet")}>
-                <span className="font-medium text-success tabular-nums">¥{bill.net_amount_yuan}</span>
+                <span className="font-medium text-success tabular-nums">
+                  {maskAmount(amountsHidden, `¥${bill.net_amount_yuan}`)}
+                </span>
               </ViewItem>
               <ViewItem label={t("bills.viewPrice")}>
-                <span className="tabular-nums">¥{bill.price_yuan}</span>
+                <span className="tabular-nums">
+                  {maskAmount(amountsHidden, `¥${bill.price_yuan}`)}
+                </span>
               </ViewItem>
               <ViewItem label={t("bills.viewCost")}>
-                <span className="tabular-nums">¥{bill.cost_yuan}</span>
+                <span className="tabular-nums">
+                  {maskAmount(amountsHidden, `¥${bill.cost_yuan}`)}
+                </span>
               </ViewItem>
               {bill.is_resale ? (
                 <ViewItem label={t("cards.agencyFee")}>
-                  <span className="tabular-nums">¥{bill.agency_fee_yuan}</span>
+                  <span className="tabular-nums">
+                    {maskAmount(amountsHidden, `¥${bill.agency_fee_yuan}`)}
+                  </span>
                 </ViewItem>
               ) : (
                 <ViewItem label={t("bills.viewProfit")}>
-                  <span className="tabular-nums">¥{bill.profit_yuan}</span>
+                  <span className="tabular-nums">
+                    {maskAmount(amountsHidden, `¥${bill.profit_yuan}`)}
+                  </span>
                 </ViewItem>
               )}
               <ViewItem label={t("bills.viewCycle")}>{bill.cycle_desc}</ViewItem>
