@@ -183,7 +183,8 @@ function CalendarWorkspace({
       {dashboard ? (
         <KpiSection
           dashboard={dashboard}
-          pendingCount={calendar.pending_count}
+          pendingCount={calendar.pending_month_count}
+          pendingMode="monthDue"
         />
       ) : (
         <KpiSectionSkeleton />

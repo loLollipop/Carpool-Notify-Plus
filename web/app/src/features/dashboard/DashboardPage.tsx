@@ -193,11 +193,11 @@ function KpiRow({
   return (
     <section aria-label={t("dash.title")} className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
       <KpiCard
-        label={t("dash.kpiMonth")}
-        value={`¥${summary?.this_month_net_amount_yuan ?? "0.00"}`}
-        hint={t("dash.kpiMonthHint", {
-          gross: summary?.this_month_amount_yuan ?? "0.00",
-          refund: summary?.this_month_refund_yuan ?? "0.00",
+        label={t("dash.kpiRevenue")}
+        value={`¥${summary?.total_amount_yuan ?? "0.00"}`}
+        hint={t("dash.kpiRevenueHint", {
+          count: summary?.bill_count ?? 0,
+          refund: summary?.total_refund_yuan ?? "0.00",
         })}
         icon={<Wallet className="size-4" />}
         tone="brand"

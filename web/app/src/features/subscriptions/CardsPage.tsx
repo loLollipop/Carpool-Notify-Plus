@@ -255,6 +255,7 @@ export function CardsPage() {
   const filter = routeFilter
 
   const archiveMutation = useAppMutation((id: number) => archiveSubscription(id), {
+    successMessage: t("confirms.archiveSuccess"),
     onSuccess: () => setArchiveTarget(null),
   })
 

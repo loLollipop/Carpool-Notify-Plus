@@ -84,11 +84,13 @@ export function KpiSectionSkeleton() {
 export function KpiSection({
   dashboard,
   pendingCount,
+  pendingMode = "unpaid",
   onFilterAll,
   onFilterPending,
 }: {
   dashboard: Dashboard
   pendingCount: number
+  pendingMode?: "unpaid" | "monthDue"
   onFilterAll?: () => void
   onFilterPending?: () => void
 }) {
@@ -106,9 +108,12 @@ export function KpiSection({
         delay={0}
       />
       <KpiCard
-        label={t("dashboard.pending")}
+        label={t(pendingMode === "monthDue" ? "dashboard.monthDue" : "dashboard.pending")}
         value={pendingCount}
-        hint={t("dashboard.pendingHint", { active: dashboard.active_count })}
+        hint={t(
+          pendingMode === "monthDue" ? "dashboard.monthDueHint" : "dashboard.pendingHint",
+          { active: dashboard.active_count },
+        )}
         icon={<CircleDot className="size-4" />}
         tone="gold"
         onClick={onFilterPending}
