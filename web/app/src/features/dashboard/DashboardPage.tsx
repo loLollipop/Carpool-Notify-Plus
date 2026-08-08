@@ -555,7 +555,7 @@ function OperationsHealthCard({
       : "success"
 
   return (
-    <Card className="h-full min-h-0 gap-3 overflow-y-auto p-5 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
+    <Card className="h-full min-h-0 gap-2 overflow-y-auto p-4 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
       <div className="flex items-start justify-between gap-2">
         <div>
           <h2 className="panel-heading text-sm font-semibold">{t("dash.health.title")}</h2>
@@ -576,7 +576,7 @@ function OperationsHealthCard({
       </div>
 
       {pending ? (
-        <div className="grid gap-2">
+        <div className="grid gap-1.5">
           {Array.from({ length: 4 }).map((_, index) => (
             <Skeleton key={index} className="h-[58px] rounded-lg" />
           ))}
@@ -586,12 +586,12 @@ function OperationsHealthCard({
           {t("common.loadFailed")}
         </div>
       ) : (
-        <div className="grid gap-2">
+        <div className="grid gap-1.5">
           {items.map((item) => (
             <div
               key={item.key}
               className={cn(
-                "flex items-start gap-3 rounded-md border border-l-2 bg-muted/25 px-3 py-2",
+                "flex items-start gap-3 rounded-md border border-l-2 bg-muted/25 px-3 py-1.5",
                 item.tone === "critical" && "border-l-destructive",
                 item.tone === "warning" && "border-l-gold",
                 item.tone === "success" && "border-l-success",
