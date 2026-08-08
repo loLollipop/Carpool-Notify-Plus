@@ -45,10 +45,10 @@ function EventPill({
           }}
           onKeyDown={(event) => event.stopPropagation()}
           className={cn(
-            "block w-full truncate rounded-[4px] border px-1.5 py-0.5 text-left text-[11px] font-medium leading-4 shadow-[0_1px_1px_color-mix(in_oklab,var(--foreground)_4%,transparent)]",
+            "block w-full truncate rounded-[4px] border px-1.5 py-0.5 text-left text-[11px] font-medium leading-4 transition-colors",
             occurrence.paid
-              ? "border-success/20 bg-success/10 text-muted-foreground line-through decoration-muted-foreground/40 dark:bg-success/15"
-              : "border-brand/20 bg-brand/10 text-foreground dark:bg-brand/15",
+              ? "border-success/35 bg-success/15 text-success line-through decoration-success/55 shadow-[inset_3px_0_0_var(--success),0_1px_1px_color-mix(in_oklab,var(--foreground)_4%,transparent)] hover:bg-success/20"
+              : "border-gold/40 bg-gold/15 text-foreground shadow-[inset_3px_0_0_var(--gold),0_1px_1px_color-mix(in_oklab,var(--foreground)_4%,transparent)] hover:bg-gold/20",
           )}
         >
           {label}
@@ -219,11 +219,11 @@ function CalendarWorkspace({
             <div className="flex items-center gap-3">
               <div className="hidden items-center gap-3 text-xs text-muted-foreground sm:flex">
                 <span className="flex items-center gap-1.5">
-                  <i className="size-2 rounded-full bg-brand" />
+                  <i className="size-2 rounded-full bg-gold ring-2 ring-gold/15" />
                   {t("calendar.legendPending")}
                 </span>
                 <span className="flex items-center gap-1.5">
-                  <i className="size-2 rounded-full bg-success/70" />
+                  <i className="size-2 rounded-full bg-success ring-2 ring-success/15" />
                   {t("calendar.legendPaid")}
                 </span>
               </div>
