@@ -459,7 +459,8 @@ export function CardsPage() {
       {dashboardQuery.data ? (
         <KpiSection
           dashboard={dashboardQuery.data}
-          pendingCount={calendarQuery.data?.pending_count ?? 0}
+          pendingCount={calendarQuery.data?.pending_month_count ?? 0}
+          pendingMode="monthDue"
         />
       ) : (
         <KpiSectionSkeleton />
