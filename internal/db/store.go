@@ -1324,6 +1324,40 @@ func (store *Store) SetSetting(key string, value string) error {
 	return err
 }
 
+// ResetBusinessData clears operational rows while preserving settings.
+// It is used only by the isolated rehearsal database.
+func (store *Store) ResetBusinessData() error {
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	tables := []string{
+		"redemption_codes",
+		"redemption_applications",
+		"after_sales_cases",
+		"notification_log",
+		"bills",
+		"paid_due_occurrences",
+		"subscriptions",
+		"seats",
+		"account_cost_records",
+		"accounts",
+	}
+	for _, table := range tables {
+		if _, err := transaction.Exec("DELETE FROM " + table); err != nil {
+			return fmt.Errorf("reset %s: %w", table, err)
+		}
+	}
+	for _, table := range tables {
+		if _, err := transaction.Exec(`DELETE FROM sqlite_sequence WHERE name = ?`, table); err != nil {
+			return fmt.Errorf("reset sequence %s: %w", table, err)
+		}
+	}
+	return transaction.Commit()
+}
+
 const redemptionSelectColumns = `
 	id,
 	tracking_token,

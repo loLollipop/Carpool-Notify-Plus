@@ -261,6 +261,21 @@ export interface AccountView {
   can_delete: boolean
 }
 
+export interface SandboxAccount {
+  id: number
+  name: string
+  purpose: string
+}
+
+export interface SandboxStatus {
+  ready: boolean
+  access_token: string
+  seeded_at: string
+  redemption_codes: string[] | null
+  accounts: SandboxAccount[] | null
+  subscription_count: number
+}
+
 export type AfterSalesStatus = "pending" | "review" | "refunded" | "reassigned"
 export type AfterSalesSource = "account_ban" | "customer_cancellation"
 

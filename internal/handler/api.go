@@ -588,6 +588,10 @@ func (server *Server) postCopySubscription(context *gin.Context) {
 }
 
 func (server *Server) postTestNotify(context *gin.Context) {
+	if server.SandboxMode {
+		respondError(context, http.StatusBadRequest, "演练模式不会发送真实通知")
+		return
+	}
 	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
 	if !ok {
 		return
@@ -600,6 +604,10 @@ func (server *Server) postTestNotify(context *gin.Context) {
 }
 
 func (server *Server) postSendCustomerEmail(context *gin.Context) {
+	if server.SandboxMode {
+		respondError(context, http.StatusBadRequest, "演练模式不会向客户发送真实邮件")
+		return
+	}
 	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
 	if !ok {
 		return
@@ -897,6 +905,10 @@ func (server *Server) putSettings(context *gin.Context) {
 }
 
 func (server *Server) postSettingsTestNotify(context *gin.Context) {
+	if server.SandboxMode {
+		respondError(context, http.StatusBadRequest, "演练模式不会发送真实通知")
+		return
+	}
 	if err := server.Service.TestEnabledChannels(context.Request.Context()); err != nil {
 		respondError(context, http.StatusBadRequest, "测试发送失败: "+err.Error())
 		return

@@ -1,3 +1,5 @@
+import { isSandboxModeActive } from "@/lib/sandbox-mode"
+
 export class ApiError extends Error {
   status: number
 
@@ -26,7 +28,7 @@ interface RequestOptions {
 
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, silent401 = false } = options
-  const response = await fetch(path, {
+  const response = await fetch(scopeBusinessPath(path), {
     method,
     credentials: "same-origin",
     headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
@@ -48,6 +50,27 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     throw new ApiError(readError(payload) ?? `请求失败 (${response.status})`, response.status)
   }
   return payload as T
+}
+
+const SANDBOX_BUSINESS_PREFIXES = [
+  "/api/calendar",
+  "/api/dashboard",
+  "/api/redemptions",
+  "/api/redemption-codes",
+  "/api/subscriptions",
+  "/api/accounts",
+  "/api/account-options",
+  "/api/after-sales",
+  "/api/bills",
+  "/api/settings/test-notify",
+]
+
+function scopeBusinessPath(path: string) {
+  if (!isSandboxModeActive()) return path
+  const sandboxed = SANDBOX_BUSINESS_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`) || path.startsWith(`${prefix}?`),
+  )
+  return sandboxed ? `/api/sandbox${path.slice(4)}` : path
 }
 
 function readError(payload: Record<string, unknown> | null): string | null {

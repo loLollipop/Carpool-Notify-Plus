@@ -21,6 +21,7 @@ import type {
   RedemptionInviteInput,
   RedemptionStatus,
   RedemptionSubmitInput,
+  SandboxStatus,
   Settings,
   SettingsInput,
   SubscriptionInput,
@@ -133,23 +134,36 @@ export function fetchDuePeriods(subscriptionId: number, preferred?: string) {
   ).then((r) => r.periods ?? [])
 }
 
-export function fetchRedemptionStatus(token: string) {
-  return api<{ redemption: RedemptionStatus }>(`/api/redeem/${encodeURIComponent(token)}`).then(
+export function fetchRedemptionStatus(token: string, sandboxAccessToken = "") {
+  const path = publicSandboxPath(`/api/redeem/${encodeURIComponent(token)}`, sandboxAccessToken)
+  return api<{ redemption: RedemptionStatus }>(path).then(
     (r) => r.redemption,
   )
 }
 
-export function fetchRedeemPageSettings() {
-  return api<{ redeem_page: RedeemPageSettings }>("/api/redeem-settings").then(
+export function fetchRedeemPageSettings(sandboxAccessToken = "") {
+  return api<{ redeem_page: RedeemPageSettings }>(
+    publicSandboxPath("/api/redeem-settings", sandboxAccessToken),
+  ).then(
     (r) => r.redeem_page,
   )
 }
 
-export function submitRedemptionApplication(input: RedemptionSubmitInput) {
+export function submitRedemptionApplication(
+  input: RedemptionSubmitInput,
+  sandboxAccessToken = "",
+) {
   return api<MessageResult & { tracking_token: string; status: "pending" | "invited" }>(
-    "/api/redeem",
+    publicSandboxPath("/api/redeem", sandboxAccessToken),
     { method: "POST", body: input },
   )
+}
+
+function publicSandboxPath(path: string, accessToken: string) {
+  if (!accessToken) return path
+  const scoped = `/api/sandbox${path.slice(4)}`
+  const separator = scoped.includes("?") ? "&" : "?"
+  return `${scoped}${separator}sandbox_token=${encodeURIComponent(accessToken)}`
 }
 
 // ---- Subscription mutations ----
@@ -280,6 +294,16 @@ export function saveSettings(input: SettingsInput) {
 
 export function testSettingsNotify() {
   return api<MessageResult>("/api/settings/test-notify", { method: "POST" })
+}
+
+export function fetchSandboxStatus() {
+  return api<{ sandbox: SandboxStatus }>("/api/sandbox/status").then((result) => result.sandbox)
+}
+
+export function resetSandbox() {
+  return api<MessageResult & { sandbox: SandboxStatus }>("/api/sandbox/reset", {
+    method: "POST",
+  })
 }
 
 export function previewSettingsTemplate(kind: "notify" | "customer", template: string) {

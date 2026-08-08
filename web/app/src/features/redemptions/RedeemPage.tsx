@@ -17,6 +17,7 @@ import {
 } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useForm } from "react-hook-form"
+import { useSearchParams } from "react-router-dom"
 import { toast } from "sonner"
 import { z } from "zod"
 
@@ -78,20 +79,24 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>
 
-function readStoredToken() {
+function redemptionTokenStorageKey(sandboxAccessToken: string) {
+  return sandboxAccessToken ? `${STORAGE_KEY}:sandbox:${sandboxAccessToken}` : STORAGE_KEY
+}
+
+function readStoredToken(storageKey: string) {
   try {
-    return window.localStorage.getItem(STORAGE_KEY) ?? ""
+    return window.localStorage.getItem(storageKey) ?? ""
   } catch {
     return ""
   }
 }
 
-function writeStoredToken(token: string) {
+function writeStoredToken(storageKey: string, token: string) {
   try {
     if (token) {
-      window.localStorage.setItem(STORAGE_KEY, token)
+      window.localStorage.setItem(storageKey, token)
     } else {
-      window.localStorage.removeItem(STORAGE_KEY)
+      window.localStorage.removeItem(storageKey)
     }
   } catch {
     // localStorage may be unavailable in private browsing.
@@ -175,17 +180,19 @@ function RedeemAnnouncementButton({ onClick }: { onClick: () => void }) {
 function WechatQrBlock({
   settings,
   compact = false,
+  stretched = false,
 }: {
   settings: RedeemPageSettings
   compact?: boolean
+  stretched?: boolean
 }) {
   const wechatId = settings.support_wechat_id.trim()
   const qrDataURL = settings.support_qr_data_url.trim()
 
   return (
-    <div className="grid gap-4">
+    <div className={cn("grid gap-4", stretched && "min-h-0 flex-1 grid-rows-[1fr_auto]")}>
       {qrDataURL ? (
-        <div className="mx-auto w-full max-w-[260px] bg-white p-2">
+        <div className="mx-auto w-full max-w-[260px] self-center bg-white p-2">
           <img
             src={qrDataURL}
             alt="客服微信二维码"
@@ -223,7 +230,7 @@ function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
   }
 
   return (
-    <aside className="hidden overflow-hidden rounded-lg border bg-card p-5 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_4%,transparent)] lg:block lg:sticky lg:top-6">
+    <aside className="hidden h-full overflow-hidden rounded-lg border bg-card p-5 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_4%,transparent)] lg:flex lg:flex-col">
       <div className="mb-5 flex items-center gap-3 border-b pb-4">
         <div className="grid size-9 place-items-center rounded-md bg-success/10 text-success">
           <MessageCircle className="size-5" />
@@ -235,7 +242,7 @@ function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
           </p>
         </div>
       </div>
-      <WechatQrBlock settings={settings} />
+      <WechatQrBlock settings={settings} stretched />
     </aside>
   )
 }
@@ -312,12 +319,17 @@ function RedeemSafetyNoticeDialog({
 }
 
 export function RedeemPage() {
-  const [trackingToken, setTrackingToken] = React.useState(readStoredToken)
+  const [searchParams] = useSearchParams()
+  const sandboxAccessToken = searchParams.get("sandbox")?.trim() ?? ""
+  const initialRedeemCode = searchParams.get("code")?.trim() ?? ""
+  const sandboxMode = sandboxAccessToken !== ""
+  const tokenStorageKey = redemptionTokenStorageKey(sandboxAccessToken)
+  const [trackingToken, setTrackingToken] = React.useState(() => readStoredToken(tokenStorageKey))
   const [noticeOpen, setNoticeOpen] = React.useState(true)
 
   const settingsQuery = useQuery({
-    queryKey: ["public-redeem-settings"],
-    queryFn: fetchRedeemPageSettings,
+    queryKey: ["public-redeem-settings", sandboxAccessToken || "live"],
+    queryFn: () => fetchRedeemPageSettings(sandboxAccessToken),
     staleTime: 5 * 60 * 1000,
   })
   const redeemSettings = normalizeRedeemPageSettings(settingsQuery.data)
@@ -325,15 +337,15 @@ export function RedeemPage() {
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
-      customer_email: "",
-      redeem_code: "",
-      customer_contact: "",
+      customer_email: sandboxMode ? "sandbox-customer@example.com" : "",
+      redeem_code: initialRedeemCode,
+      customer_contact: sandboxMode ? "sandbox_wechat" : "",
     },
   })
 
   const statusQuery = useQuery({
-    queryKey: ["public-redemption-status", trackingToken],
-    queryFn: () => fetchRedemptionStatus(trackingToken),
+    queryKey: ["public-redemption-status", sandboxAccessToken || "live", trackingToken],
+    queryFn: () => fetchRedemptionStatus(trackingToken, sandboxAccessToken),
     enabled: trackingToken !== "",
     refetchInterval: (query) => (query.state.data?.status === "pending" ? 5_000 : false),
     retry: false,
@@ -346,10 +358,10 @@ export function RedeemPage() {
         customer_contact: `微信：${values.customer_contact.trim()}`,
         redeem_code: values.redeem_code.trim(),
         request_note: "",
-      }),
+      }, sandboxAccessToken),
     onSuccess: (result) => {
       setTrackingToken(result.tracking_token)
-      writeStoredToken(result.tracking_token)
+      writeStoredToken(tokenStorageKey, result.tracking_token)
       form.reset()
       toast.success(result.message ?? "申请已提交")
     },
@@ -358,8 +370,12 @@ export function RedeemPage() {
 
   const resetApplication = () => {
     setTrackingToken("")
-    writeStoredToken("")
-    form.reset()
+    writeStoredToken(tokenStorageKey, "")
+    form.reset({
+      customer_email: sandboxMode ? "sandbox-customer@example.com" : "",
+      redeem_code: initialRedeemCode,
+      customer_contact: sandboxMode ? "sandbox_wechat" : "",
+    })
   }
 
   const status = statusQuery.data?.status ?? (trackingToken ? "pending" : null)
@@ -382,6 +398,11 @@ export function RedeemPage() {
             <div className="flex items-center gap-2 text-[11px] font-semibold text-[var(--login-panel-muted)]">
               <TicketCheck className="size-4 text-gold" />
               CHATGPT TEAM ACCESS
+              {sandboxMode ? (
+                <span className="rounded-sm border border-gold/30 bg-gold/10 px-2 py-0.5 text-gold">
+                  业务演练
+                </span>
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
               <RedeemAnnouncementButton onClick={() => setNoticeOpen(true)} />
@@ -424,7 +445,7 @@ export function RedeemPage() {
       <div className="mx-auto w-full max-w-[1160px] px-4 py-8 sm:px-6 sm:py-10">
         <div
           className={cn(
-            "grid items-start gap-6",
+            "grid items-start gap-6 lg:items-stretch",
             supportColumnVisible ? "lg:grid-cols-[minmax(0,1fr)_340px]" : "max-w-[760px]",
           )}
         >

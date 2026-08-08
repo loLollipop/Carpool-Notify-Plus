@@ -1,11 +1,16 @@
 import * as React from "react"
+import { useMutation, useQuery } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import {
   BellRing,
+  CircleCheckBig,
+  Copy,
+  Database,
   Download,
   ExternalLink,
   Eye,
+  FlaskConical,
   ImageUp,
   Mail,
   Megaphone,
@@ -15,13 +20,20 @@ import {
   Trash2,
 } from "lucide-react"
 
-import { previewSettingsTemplate, saveSettings, testSettingsNotify } from "@/api/endpoints"
+import {
+  fetchSandboxStatus,
+  previewSettingsTemplate,
+  resetSandbox,
+  saveSettings,
+  testSettingsNotify,
+} from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
 import { useSettings } from "@/api/queries"
 import type {
   ChannelSetting,
   NotificationConfig,
   RedeemPageSettings,
+  SandboxStatus,
   Settings,
   SettingsInput,
 } from "@/api/types"
@@ -45,6 +57,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
+import { enterSandboxMode, exitSandboxMode } from "@/lib/sandbox-mode"
+import { useSandboxMode } from "@/hooks/use-sandbox-mode"
 
 type TemplateKind = "notify" | "customer"
 type SettingsSection = "templates" | "delivery" | "redemption" | "tools"
@@ -832,6 +846,183 @@ function NotificationConfigEditor({
   )
 }
 
+function sandboxRedeemPath(status: SandboxStatus | undefined) {
+  if (!status?.ready || !status.access_token) return ""
+  const code = status.redemption_codes?.[0] ?? ""
+  return `/redeem?sandbox=${encodeURIComponent(status.access_token)}${
+    code ? `&code=${encodeURIComponent(code)}` : ""
+  }`
+}
+
+function SandboxToolCard() {
+  const sandboxMode = useSandboxMode()
+  const [resetConfirmOpen, setResetConfirmOpen] = React.useState(false)
+  const statusQuery = useQuery({
+    queryKey: ["sandbox-status"],
+    queryFn: fetchSandboxStatus,
+    retry: false,
+  })
+  const resetMutation = useMutation({
+    mutationFn: resetSandbox,
+    onSuccess: (result) => {
+      statusQuery.refetch()
+      setResetConfirmOpen(false)
+      if (sandboxMode.enabled) enterSandboxMode(result.sandbox)
+      toast.success(result.message ?? "演练环境已重置")
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
+  const status = statusQuery.data
+  const ready = status?.ready === true
+  const redeemPath = sandboxRedeemPath(status)
+  const activeCode = status?.redemption_codes?.[0] ?? ""
+  const scenarios = [
+    ["兑换申请", "使用测试兑换码提交，再到兑换申请中分配沙盒主号"],
+    ["提前退订", "在用户管理退订演练客户，再到售后处理完成退款"],
+    ["账号封禁", "封禁沙盒封禁主号，检查批量生成的售后事项"],
+    ["退款或换空间", "售后事项可选择退款，或转移到沙盒备用主号"],
+  ]
+
+  const enterSandbox = () => {
+    if (!status?.ready) {
+      toast.error("请先创建演练环境")
+      return
+    }
+    enterSandboxMode(status)
+    window.location.assign("/")
+  }
+
+  return (
+    <Card className="overflow-hidden p-0 lg:col-span-2">
+      <div className="flex flex-col gap-4 border-b bg-amber-500/[0.045] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div className="flex items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-md bg-amber-500/12 text-amber-700 dark:text-amber-300">
+            <FlaskConical className="size-5" />
+          </span>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-semibold">业务演练沙盒</h2>
+              <Badge variant={sandboxMode.enabled ? "default" : ready ? "secondary" : "outline"}>
+                {sandboxMode.enabled ? "演练中" : ready ? "已准备" : "未创建"}
+              </Badge>
+            </div>
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
+              使用独立测试数据库完整体验兑换、退订、封禁与售后流程。沙盒数据不会进入正式仪表盘、账单和利润统计，也不会发送真实通知。
+            </p>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          {ready ? (
+            <Button type="button" variant="outline" onClick={() => setResetConfirmOpen(true)}>
+              <Database data-slot="icon" />
+              重置演练数据
+            </Button>
+          ) : (
+            <Button type="button" onClick={() => setResetConfirmOpen(true)}>
+              <FlaskConical data-slot="icon" />
+              创建演练环境
+            </Button>
+          )}
+          {sandboxMode.enabled ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                exitSandboxMode()
+                window.location.assign("/")
+              }}
+            >
+              退出演练
+            </Button>
+          ) : (
+            <Button type="button" disabled={!ready} onClick={enterSandbox}>
+              <FlaskConical data-slot="icon" />
+              进入演练模式
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid gap-6 px-5 py-5 sm:px-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,0.65fr)]">
+        <div>
+          <p className="text-xs font-semibold text-muted-foreground">可演练流程</p>
+          <ul className="mt-3 grid gap-x-6 gap-y-4 sm:grid-cols-2">
+            {scenarios.map(([title, description]) => (
+              <li key={title} className="flex items-start gap-3">
+                <CircleCheckBig className="mt-0.5 size-4 shrink-0 text-success" />
+                <div>
+                  <p className="text-sm font-medium">{title}</p>
+                  <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{description}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="border-t pt-5 lg:border-l lg:border-t-0 lg:pl-6 lg:pt-0">
+          <p className="text-xs font-semibold text-muted-foreground">测试兑换入口</p>
+          {statusQuery.isPending ? (
+            <div className="mt-3 grid gap-3">
+              <Skeleton className="h-10 w-full" />
+              <Skeleton className="h-9 w-full" />
+            </div>
+          ) : ready ? (
+            <div className="mt-3 grid gap-3">
+              <div className="flex items-center gap-2 rounded-md border bg-muted/35 px-3 py-2.5">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] text-muted-foreground">测试兑换码</p>
+                  <p className="truncate font-mono text-sm font-semibold">{activeCode || "请重置生成新兑换码"}</p>
+                </div>
+                {activeCode ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label="复制测试兑换码"
+                    onClick={() => {
+                      void navigator.clipboard.writeText(activeCode)
+                      toast.success("测试兑换码已复制")
+                    }}
+                  >
+                    <Copy className="size-4" />
+                  </Button>
+                ) : null}
+              </div>
+              <Button variant="outline" disabled={!redeemPath} asChild={Boolean(redeemPath)}>
+                {redeemPath ? (
+                  <a href={redeemPath} target="_blank" rel="noreferrer">
+                    <ExternalLink data-slot="icon" />
+                    打开测试兑换页
+                  </a>
+                ) : (
+                  <span>暂无可用兑换码</span>
+                )}
+              </Button>
+              <p className="text-[11px] leading-5 text-muted-foreground">
+                测试页已预填沙盒邮箱、微信号和兑换码，可直接提交。
+              </p>
+            </div>
+          ) : (
+            <p className="mt-3 text-xs leading-5 text-muted-foreground">
+              创建演练环境后，这里会显示专用兑换码和测试页面入口。
+            </p>
+          )}
+        </div>
+      </div>
+
+      <ConfirmDialog
+        open={resetConfirmOpen}
+        onOpenChange={setResetConfirmOpen}
+        title={ready ? "重置演练环境" : "创建演练环境"}
+        description="此操作只会清空并重新生成沙盒数据，正式账号、订阅、账单和统计不会受到影响。"
+        actionLabel={ready ? "确认重置" : "确认创建"}
+        pending={resetMutation.isPending}
+        onConfirm={() => resetMutation.mutate()}
+      />
+    </Card>
+  )
+}
+
 function SystemTools() {
   const { t } = useTranslation()
   const [testConfirmOpen, setTestConfirmOpen] = React.useState(false)
@@ -841,6 +1032,8 @@ function SystemTools() {
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
+      <SandboxToolCard />
+
       <Card className="relative flex-col gap-4 overflow-hidden p-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
           <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">

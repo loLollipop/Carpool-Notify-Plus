@@ -19,9 +19,11 @@ const sessionAuthKey = "authenticated"
 
 // Server holds HTTP handlers and dependencies for the JSON API + SPA host.
 type Server struct {
-	Service      *service.SubscriptionService
-	Config       config.Config
-	PasswordHash []byte
+	Service        *service.SubscriptionService
+	SandboxService *service.SubscriptionService
+	SandboxMode    bool
+	Config         config.Config
+	PasswordHash   []byte
 	// DistDir is the built SPA directory (web/dist); non-API routes fall back to its index.html.
 	DistDir string
 }
@@ -49,49 +51,33 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 	api.POST("/redeem", server.postRedeemApplication)
 	api.GET("/redeem/:token", server.getRedeemStatus)
 
+	var sandboxServer *Server
+	if server.SandboxService != nil {
+		sandboxServer = &Server{
+			Service:     server.SandboxService,
+			SandboxMode: true,
+			Config:      server.Config,
+		}
+		sandboxPublic := api.Group("/sandbox")
+		sandboxPublic.Use(server.requireSandboxAccess())
+		sandboxPublic.GET("/redeem-settings", server.getRedeemSettings)
+		sandboxPublic.POST("/redeem", sandboxServer.postRedeemApplication)
+		sandboxPublic.GET("/redeem/:token", sandboxServer.getRedeemStatus)
+	}
+
 	authorized := api.Group("")
 	authorized.Use(server.requireAPIAuth())
 	{
 		authorized.POST("/logout", server.postLogout)
 
-		authorized.GET("/calendar", server.getCalendar)
-		authorized.GET("/dashboard", server.getDashboard)
-
-		authorized.GET("/redemptions", server.getRedemptions)
-		authorized.POST("/redemptions/:id/invite", server.postInviteRedemption)
-		authorized.GET("/redemption-codes", server.getRedemptionCodes)
-		authorized.POST("/redemption-codes", server.postGenerateRedemptionCodes)
-		authorized.POST("/redemption-codes/:id/disable", server.postDisableRedemptionCode)
-		authorized.POST("/redemption-codes/:id/enable", server.postEnableRedemptionCode)
-		authorized.DELETE("/redemption-codes/:id", server.deleteRedemptionCode)
-
-		authorized.GET("/subscriptions", server.getSubscriptions)
-		authorized.POST("/subscriptions", server.postCreateSubscription)
-		authorized.PUT("/subscriptions/:id", server.putUpdateSubscription)
-		authorized.DELETE("/subscriptions/:id", server.deleteSubscription)
-		authorized.POST("/subscriptions/:id/archive", server.postArchiveSubscription)
-		authorized.POST("/subscriptions/:id/copy", server.postCopySubscription)
-		authorized.POST("/subscriptions/:id/test-notify", server.postTestNotify)
-		authorized.POST("/subscriptions/:id/send-customer-email", server.postSendCustomerEmail)
-		authorized.GET("/subscriptions/:id/reminder-preview", server.getReminderPreview)
-		authorized.GET("/subscriptions/:id/due-periods", server.getDuePeriods)
-		authorized.POST("/subscriptions/:id/due/:date/paid", server.postDuePaid)
-
-		authorized.GET("/accounts", server.getAccounts)
-		authorized.GET("/account-options", server.getAccountOptions)
-		authorized.POST("/accounts", server.postCreateAccount)
-		authorized.PUT("/accounts/:id", server.putUpdateAccount)
-		authorized.POST("/accounts/:id/ban", server.postBanAccount)
-		authorized.DELETE("/accounts/:id", server.deleteAccount)
-
-		authorized.GET("/after-sales", server.getAfterSales)
-		authorized.PUT("/after-sales/:id", server.putAfterSalesCase)
-		authorized.POST("/after-sales/:id/refunded", server.postAfterSalesRefunded)
-		authorized.POST("/after-sales/:id/reassign", server.postAfterSalesReassign)
-
-		authorized.GET("/bills", server.getBills)
-		authorized.PUT("/bills/:id", server.putUpdateBill)
-		authorized.DELETE("/bills/:id", server.deleteBill)
+		server.registerBusinessRoutes(authorized)
+		if sandboxServer != nil {
+			sandbox := authorized.Group("/sandbox")
+			sandbox.GET("/status", server.getSandboxStatus)
+			sandbox.POST("/reset", server.postResetSandbox)
+			sandbox.POST("/settings/test-notify", sandboxServer.postSettingsTestNotify)
+			sandboxServer.registerBusinessRoutes(sandbox)
+		}
 
 		authorized.GET("/settings", server.getSettings)
 		authorized.PUT("/settings", server.putSettings)
@@ -107,6 +93,47 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 	export.GET("/export", server.getExport)
 
 	server.registerSPA(router)
+}
+
+func (server *Server) registerBusinessRoutes(routes *gin.RouterGroup) {
+	routes.GET("/calendar", server.getCalendar)
+	routes.GET("/dashboard", server.getDashboard)
+
+	routes.GET("/redemptions", server.getRedemptions)
+	routes.POST("/redemptions/:id/invite", server.postInviteRedemption)
+	routes.GET("/redemption-codes", server.getRedemptionCodes)
+	routes.POST("/redemption-codes", server.postGenerateRedemptionCodes)
+	routes.POST("/redemption-codes/:id/disable", server.postDisableRedemptionCode)
+	routes.POST("/redemption-codes/:id/enable", server.postEnableRedemptionCode)
+	routes.DELETE("/redemption-codes/:id", server.deleteRedemptionCode)
+
+	routes.GET("/subscriptions", server.getSubscriptions)
+	routes.POST("/subscriptions", server.postCreateSubscription)
+	routes.PUT("/subscriptions/:id", server.putUpdateSubscription)
+	routes.DELETE("/subscriptions/:id", server.deleteSubscription)
+	routes.POST("/subscriptions/:id/archive", server.postArchiveSubscription)
+	routes.POST("/subscriptions/:id/copy", server.postCopySubscription)
+	routes.POST("/subscriptions/:id/test-notify", server.postTestNotify)
+	routes.POST("/subscriptions/:id/send-customer-email", server.postSendCustomerEmail)
+	routes.GET("/subscriptions/:id/reminder-preview", server.getReminderPreview)
+	routes.GET("/subscriptions/:id/due-periods", server.getDuePeriods)
+	routes.POST("/subscriptions/:id/due/:date/paid", server.postDuePaid)
+
+	routes.GET("/accounts", server.getAccounts)
+	routes.GET("/account-options", server.getAccountOptions)
+	routes.POST("/accounts", server.postCreateAccount)
+	routes.PUT("/accounts/:id", server.putUpdateAccount)
+	routes.POST("/accounts/:id/ban", server.postBanAccount)
+	routes.DELETE("/accounts/:id", server.deleteAccount)
+
+	routes.GET("/after-sales", server.getAfterSales)
+	routes.PUT("/after-sales/:id", server.putAfterSalesCase)
+	routes.POST("/after-sales/:id/refunded", server.postAfterSalesRefunded)
+	routes.POST("/after-sales/:id/reassign", server.postAfterSalesReassign)
+
+	routes.GET("/bills", server.getBills)
+	routes.PUT("/bills/:id", server.putUpdateBill)
+	routes.DELETE("/bills/:id", server.deleteBill)
 }
 
 func (server *Server) requireAPIAuth() gin.HandlerFunc {

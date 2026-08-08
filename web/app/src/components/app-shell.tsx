@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next"
 import {
   CalendarDays,
   ChevronRight,
+  ExternalLink,
+  FlaskConical,
   Languages,
   LayoutDashboard,
   HandCoins,
@@ -22,6 +24,7 @@ import {
 import { useTheme } from "next-themes"
 
 import { supportedLanguages } from "@/lib/i18n"
+import { exitSandboxMode } from "@/lib/sandbox-mode"
 import { cn } from "@/lib/utils"
 import { APP_NAME, BrandIcon } from "@/components/brand"
 import { Button } from "@/components/ui/button"
@@ -36,6 +39,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAuth } from "@/features/auth/auth-context"
+import { useSandboxMode } from "@/hooks/use-sandbox-mode"
 
 const SIDEBAR_STORAGE_KEY = "carpool-notify:sidebar-collapsed"
 
@@ -121,6 +125,7 @@ function LanguageToggle() {
 export function AppShell() {
   const { t } = useTranslation()
   const { logout } = useAuth()
+  const sandbox = useSandboxMode()
   const navigate = useNavigate()
   const location = useLocation()
   const [openNavTooltip, setOpenNavTooltip] = React.useState<{
@@ -164,6 +169,14 @@ export function AppShell() {
   const handleLogout = () => {
     void logout().then(() => navigate("/login", { replace: true }))
   }
+
+  const sandboxRedeemPath = sandbox.enabled
+    ? `/redeem?sandbox=${encodeURIComponent(sandbox.accessToken)}${
+        sandbox.redemptionCodes[0]
+          ? `&code=${encodeURIComponent(sandbox.redemptionCodes[0])}`
+          : ""
+      }`
+    : ""
 
   const renderNavItems = (items: typeof navItems) =>
     items.map((item) => {
@@ -354,6 +367,43 @@ export function AppShell() {
             </div>
           </div>
         </header>
+
+        {sandbox.enabled ? (
+          <div className="border-b border-amber-300/70 bg-amber-50 text-amber-950 dark:border-amber-700/60 dark:bg-amber-950/45 dark:text-amber-100">
+            <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:px-6 lg:px-8">
+              <div className="flex min-w-0 items-start gap-3 sm:items-center">
+                <span className="grid size-8 shrink-0 place-items-center rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                  <FlaskConical className="size-4" />
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">业务演练模式</p>
+                  <p className="text-xs leading-5 text-amber-800/80 dark:text-amber-200/75">
+                    当前账号、账单、兑换和售后操作仅写入独立沙盒，不会进入正式统计，也不会发送真实通知。
+                  </p>
+                </div>
+              </div>
+              <div className="flex shrink-0 gap-2 sm:ml-auto">
+                <Button variant="outline" size="sm" className="border-amber-300 bg-white/60 dark:border-amber-700 dark:bg-amber-950/40" asChild>
+                  <a href={sandboxRedeemPath} target="_blank" rel="noreferrer">
+                    <ExternalLink data-slot="icon" />
+                    测试兑换页
+                  </a>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-amber-300 bg-white/60 dark:border-amber-700 dark:bg-amber-950/40"
+                  onClick={() => {
+                    exitSandboxMode()
+                    window.location.assign("/")
+                  }}
+                >
+                  退出演练
+                </Button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <main className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-6">
           <Outlet />

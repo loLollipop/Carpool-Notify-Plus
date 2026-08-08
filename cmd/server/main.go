@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -34,10 +35,20 @@ func main() {
 	}
 	defer store.Close()
 
+	sandboxStore, err := db.Open(sandboxDatabasePath(configuration.DatabasePath))
+	if err != nil {
+		log.Fatalf("sandbox database: %v", err)
+	}
+	defer sandboxStore.Close()
+
 	subscriptionService := &service.SubscriptionService{
 		Store:  store,
 		Config: configuration,
 		Notify: service.NewNotifyRegistry(configuration),
+	}
+	sandboxService := &service.SubscriptionService{
+		Store:  sandboxStore,
+		Config: configuration,
 	}
 
 	workingDirectory, err := os.Getwd()
@@ -50,6 +61,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("handler: %v", err)
 	}
+	httpServer.SandboxService = sandboxService
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -89,4 +101,15 @@ func main() {
 	shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownContext)
+}
+
+func sandboxDatabasePath(databasePath string) string {
+	directory := filepath.Dir(databasePath)
+	filename := filepath.Base(databasePath)
+	extension := filepath.Ext(filename)
+	name := strings.TrimSuffix(filename, extension)
+	if extension == "" {
+		extension = ".db"
+	}
+	return filepath.Join(directory, name+".sandbox"+extension)
 }
