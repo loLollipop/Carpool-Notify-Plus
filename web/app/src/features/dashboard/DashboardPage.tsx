@@ -264,13 +264,13 @@ function RevenueTrendCard({ summary, className, delay }: { summary: BillsSummary
     <ChartCard
       title={t("dash.trendTitle")}
       desc={t("dash.trendDesc")}
-      className={cn("h-full", className)}
+      className={cn("h-full min-h-0", className)}
       delay={delay}
     >
       {summary.bill_count === 0 ? (
         <ChartEmpty text={t("dash.trendEmpty")} />
       ) : (
-        <div className="h-[260px]">
+        <div className="min-h-[260px] flex-1">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
               <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="2 6" />
@@ -521,7 +521,7 @@ function OperationsHealthCard({
   )
 
   return (
-    <Card className="h-full gap-4 p-5 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
+    <Card className="h-full min-h-0 gap-4 overflow-y-auto p-5 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
       <div className="flex items-start justify-between gap-2">
         <div>
           <h2 className="panel-heading text-sm font-semibold">{t("dash.health.title")}</h2>
@@ -621,7 +621,7 @@ export function DashboardPage() {
   }
 
   return (
-    <>
+    <div className="flex flex-col xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:overflow-hidden">
       <PageHeader
         title={t("dash.title")}
         description={t("dash.desc")}
@@ -634,23 +634,23 @@ export function DashboardPage() {
       />
 
       {isPending ? (
-        <div className="grid gap-4">
+        <div className="flex flex-1 flex-col gap-4">
           <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
             {Array.from({ length: 4 }).map((_, index) => (
               <Skeleton key={index} className="h-[118px] rounded-xl" />
             ))}
           </div>
-          <Skeleton className="h-[320px] rounded-xl" />
+          <Skeleton className="min-h-[320px] flex-1 rounded-xl" />
         </div>
       ) : isError ? (
-        <Card className="items-center gap-3 py-16 text-center animate-fade-up">
+        <Card className="flex-1 items-center justify-center gap-3 py-16 text-center animate-fade-up">
           <p className="text-sm text-muted-foreground">{t("common.loadFailed")}</p>
           <Button variant="outline" onClick={refetchAll}>
             {t("common.retry")}
           </Button>
         </Card>
       ) : dashboard ? (
-        <>
+        <div className="flex min-h-0 flex-1 flex-col">
           <KpiRow
             dashboard={dashboard}
             summary={summary}
@@ -658,7 +658,7 @@ export function DashboardPage() {
             calendar={calendarQuery.data}
           />
 
-          <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+          <div className="grid min-h-0 flex-1 items-stretch gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
             {summary ? <RevenueTrendCard summary={summary} delay={100} /> : null}
             <OperationsHealthCard
               dashboard={dashboard}
@@ -670,10 +670,10 @@ export function DashboardPage() {
               delay={160}
             />
           </div>
-        </>
+        </div>
       ) : null}
 
       <SubscriptionDialog open={dialogOpen} onOpenChange={setDialogOpen} prefill={null} />
-    </>
+    </div>
   )
 }

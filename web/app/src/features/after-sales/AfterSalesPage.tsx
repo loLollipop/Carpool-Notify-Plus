@@ -61,7 +61,7 @@ import { cn } from "@/lib/utils"
 
 type AfterSalesFilter = "all" | AfterSalesStatus
 
-const CASES_PER_PAGE = 9
+const CASES_PER_PAGE = 5
 
 function StatusBadge({ status }: { status: AfterSalesStatus }) {
   const { t } = useTranslation()
@@ -414,7 +414,7 @@ export function AfterSalesPage() {
   const summary = query.data?.summary
 
   return (
-    <>
+    <div className="flex flex-col xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:overflow-hidden">
       <PageHeader
         title={t("afterSales.title")}
         description={t("afterSales.desc")}
@@ -517,19 +517,19 @@ export function AfterSalesPage() {
       </div>
 
       {query.isPending ? (
-        <Skeleton className="h-96 rounded-lg" />
+        <Skeleton className="min-h-96 flex-1 rounded-lg" />
       ) : query.isError ? (
-        <Card className="items-center gap-3 py-16 text-center">
+        <Card className="flex-1 items-center justify-center gap-3 py-16 text-center">
           <p className="text-sm text-muted-foreground">{t("common.loadFailed")}</p>
           <Button variant="outline" onClick={() => query.refetch()}>{t("common.retry")}</Button>
         </Card>
       ) : filteredCases.length === 0 ? (
-        <Card className="items-center py-16 text-center">
+        <Card className="flex-1 items-center justify-center py-16 text-center">
           <ShieldAlert className="size-8 text-muted-foreground/50" />
           <p className="text-sm text-muted-foreground">{t("afterSales.empty")}</p>
         </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
           <div className="grid gap-3 md:hidden">
             {pagedCases.map((view) => (
               <Card key={view.case.id} className="gap-0 overflow-hidden p-0">
@@ -574,7 +574,7 @@ export function AfterSalesPage() {
             ))}
           </div>
 
-          <Card className="hidden gap-0 overflow-hidden p-0 md:flex">
+          <Card className="hidden min-h-0 flex-1 gap-0 overflow-auto p-0 md:flex">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -667,6 +667,6 @@ export function AfterSalesPage() {
           })
         }}
       />
-    </>
+    </div>
   )
 }

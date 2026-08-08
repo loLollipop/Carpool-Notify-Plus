@@ -66,8 +66,8 @@ interface SelectableSeat {
   seat: SeatOption
 }
 
-const PAGE_SIZE = 9
-const CODE_PAGE_SIZE = 6
+const APPLICATIONS_PER_PAGE = 1
+const CODE_PAGE_SIZE = 4
 const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/
 const CYCLE_PRESETS = [
   { label: "月付", cron: "interval:30d" },
@@ -207,8 +207,8 @@ function RedemptionCodeManager() {
   })
 
   return (
-    <>
-    <Card className="gap-0 overflow-hidden p-0">
+    <div className="flex h-full min-h-0 flex-col">
+    <Card className="min-h-0 flex-1 gap-0 overflow-y-auto p-0">
       <div className="flex flex-col gap-4 border-b bg-muted/35 p-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -420,7 +420,7 @@ function RedemptionCodeManager() {
         }
       }}
     />
-    </>
+    </div>
   )
 }
 
@@ -739,10 +739,10 @@ export function RedemptionsPage() {
     )
   }, [redemptions, search])
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const pageCount = Math.max(1, Math.ceil(filtered.length / APPLICATIONS_PER_PAGE))
   const safePage = Math.min(page, pageCount)
-  const pageStart = (safePage - 1) * PAGE_SIZE
-  const paged = filtered.slice(pageStart, pageStart + PAGE_SIZE)
+  const pageStart = (safePage - 1) * APPLICATIONS_PER_PAGE
+  const paged = filtered.slice(pageStart, pageStart + APPLICATIONS_PER_PAGE)
   const pageEnd = pageStart + paged.length
   const pendingCount = redemptionsQuery.data?.pending_count ?? 0
 
@@ -757,7 +757,7 @@ export function RedemptionsPage() {
   }
 
   return (
-    <>
+    <div className="flex flex-col xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:overflow-hidden">
       <PageHeader
         title="兑换申请"
         description="处理客户提交的兑换申请，也可以切到兑换码管理生成、停用或删除一次性兑换码。"
@@ -766,7 +766,7 @@ export function RedemptionsPage() {
       <Tabs
         value={section}
         onValueChange={(value) => setSection(value as RedemptionSection)}
-        className="gap-5"
+        className="flex min-h-0 flex-1 flex-col gap-5"
       >
         <TabsList className="h-10 w-full justify-start bg-muted p-1 sm:w-fit">
           <TabsTrigger value="applications" className="h-8 px-4 text-sm">
@@ -784,7 +784,7 @@ export function RedemptionsPage() {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="applications" className="space-y-5">
+        <TabsContent value="applications" className="flex min-h-0 flex-1 flex-col gap-5">
           <div className="flex flex-col gap-4 rounded-lg border bg-card p-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start gap-3">
               <span className="grid size-10 shrink-0 place-items-center rounded-md bg-gold/12 text-gold">
@@ -848,33 +848,35 @@ export function RedemptionsPage() {
           </div>
 
           {redemptionsQuery.isPending ? (
-            <div className="grid gap-4">
+            <div className="grid min-h-0 flex-1 content-start gap-4 overflow-hidden">
               {Array.from({ length: 3 }).map((_, index) => (
                 <Skeleton key={index} className="h-64 rounded-xl" />
               ))}
             </div>
           ) : redemptionsQuery.isError ? (
-            <Card className="items-center gap-3 py-16 text-center">
+            <Card className="flex-1 items-center justify-center gap-3 py-16 text-center">
               <p className="text-sm text-muted-foreground">兑换申请加载失败</p>
               <Button variant="outline" onClick={() => redemptionsQuery.refetch()}>
                 重试
               </Button>
             </Card>
           ) : filtered.length === 0 ? (
-            <Card className="items-center gap-3 py-16 text-center animate-fade-up">
+            <Card className="flex-1 items-center justify-center gap-3 py-16 text-center animate-fade-up">
               <TicketCheck className="size-8 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">暂无兑换申请</p>
             </Card>
           ) : (
-            <div className="space-y-4">
-              {paged.map((view, index) => (
-                <RedemptionCard
-                  key={view.application.id}
-                  view={view}
-                  index={index}
-                  seats={seats}
-                />
-              ))}
+            <div className="flex min-h-0 flex-1 flex-col gap-4">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+                {paged.map((view, index) => (
+                  <RedemptionCard
+                    key={view.application.id}
+                    view={view}
+                    index={index}
+                    seats={seats}
+                  />
+                ))}
+              </div>
 
               {pageCount > 1 ? (
                 <div className="flex flex-col items-center justify-between gap-3 border-t pt-4 text-xs text-muted-foreground sm:flex-row">
@@ -908,10 +910,10 @@ export function RedemptionsPage() {
           )}
         </TabsContent>
 
-        <TabsContent value="codes">
+        <TabsContent value="codes" className="min-h-0 flex-1">
           <RedemptionCodeManager />
         </TabsContent>
       </Tabs>
-    </>
+    </div>
   )
 }
