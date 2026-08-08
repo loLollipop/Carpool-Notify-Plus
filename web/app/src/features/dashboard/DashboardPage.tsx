@@ -314,8 +314,8 @@ interface HealthItem {
   tone: HealthTone
   title: string
   detail: string
-  actionLabel: string
-  to: string
+  actionLabel?: string
+  to?: string
   count?: number
 }
 
@@ -360,9 +360,18 @@ function buildHealthItems({
     (view) => view.seat_used > 0 && view.account.opened_at.trim() === "",
   )
 
-  if (overdue.length > 0) {
+  if (subscriptions.length === 0) {
     items.push({
-      key: "overdue",
+      key: "due",
+      tone: "warning",
+      title: t("dash.health.emptyTitle"),
+      detail: t("dash.health.emptyDetail"),
+      actionLabel: t("dash.health.goAccounts"),
+      to: "/accounts",
+    })
+  } else if (overdue.length > 0) {
+    items.push({
+      key: "due",
       tone: "critical",
       title: t("dash.health.overdueTitle", { count: overdue.length }),
       detail: t("dash.health.overdueDetail", {
@@ -374,7 +383,7 @@ function buildHealthItems({
     })
   } else if (dueSoon.length > 0) {
     items.push({
-      key: "dueSoon",
+      key: "due",
       tone: "warning",
       title: t("dash.health.dueSoonTitle", { count: dueSoon.length }),
       detail: t("dash.health.dueSoonDetail", {
@@ -383,6 +392,13 @@ function buildHealthItems({
       actionLabel: t("dash.health.goCalendar"),
       to: "/calendar",
       count: dueSoon.length,
+    })
+  } else {
+    items.push({
+      key: "due",
+      tone: "success",
+      title: t("dash.health.dueHealthyTitle"),
+      detail: t("dash.health.dueHealthyDetail"),
     })
   }
 
@@ -398,6 +414,13 @@ function buildHealthItems({
       to: "/users",
       count: missingCustomerEmail.length,
     })
+  } else {
+    items.push({
+      key: "customerEmail",
+      tone: "success",
+      title: t("dash.health.customerEmailHealthyTitle"),
+      detail: t("dash.health.customerEmailHealthyDetail"),
+    })
   }
 
   if (missingReminderOffsets.length > 0) {
@@ -411,6 +434,13 @@ function buildHealthItems({
       actionLabel: t("dash.health.goCards"),
       to: "/users",
       count: missingReminderOffsets.length,
+    })
+  } else {
+    items.push({
+      key: "reminders",
+      tone: "success",
+      title: t("dash.health.remindersHealthyTitle"),
+      detail: t("dash.health.remindersHealthyDetail"),
     })
   }
 
@@ -426,6 +456,13 @@ function buildHealthItems({
       to: "/accounts",
       count: missingAccountCost.length,
     })
+  } else {
+    items.push({
+      key: "accountCost",
+      tone: "success",
+      title: t("dash.health.accountCostHealthyTitle"),
+      detail: t("dash.health.accountCostHealthyDetail"),
+    })
   }
 
   if (missingOpenedAt.length > 0) {
@@ -440,6 +477,13 @@ function buildHealthItems({
       to: "/accounts",
       count: missingOpenedAt.length,
     })
+  } else {
+    items.push({
+      key: "openedAt",
+      tone: "success",
+      title: t("dash.health.openedAtHealthyTitle"),
+      detail: t("dash.health.openedAtHealthyDetail"),
+    })
   }
 
   if (dashboard.notify_failed_30d > 0) {
@@ -452,27 +496,12 @@ function buildHealthItems({
       to: "/settings",
       count: dashboard.notify_failed_30d,
     })
-  }
-
-  if (subscriptions.length === 0) {
+  } else {
     items.push({
-      key: "empty",
-      tone: "warning",
-      title: t("dash.health.emptyTitle"),
-      detail: t("dash.health.emptyDetail"),
-      actionLabel: t("dash.health.goAccounts"),
-      to: "/accounts",
-    })
-  }
-
-  if (items.length === 0) {
-    items.push({
-      key: "healthy",
+      key: "notify",
       tone: "success",
-      title: t("dash.health.healthyTitle"),
-      detail: t("dash.health.healthyDetail"),
-      actionLabel: t("dash.health.goCalendar"),
-      to: "/calendar",
+      title: t("dash.health.notifyHealthyTitle"),
+      detail: t("dash.health.notifyHealthyDetail"),
     })
   }
 
@@ -516,9 +545,14 @@ function OperationsHealthCard({
         subscriptions,
         accounts,
         t,
-      }).slice(0, 5),
+      }),
     [accounts, calendar, dashboard, subscriptions, t],
   )
+  const overallTone: HealthTone = items.some((item) => item.tone === "critical")
+    ? "critical"
+    : items.some((item) => item.tone === "warning")
+      ? "warning"
+      : "success"
 
   return (
     <Card className="h-full min-h-0 gap-4 overflow-y-auto p-5 animate-fade-up" style={{ animationDelay: `${delay}ms` }}>
@@ -527,8 +561,17 @@ function OperationsHealthCard({
           <h2 className="panel-heading text-sm font-semibold">{t("dash.health.title")}</h2>
           <p className="mt-0.5 text-xs text-muted-foreground">{t("dash.health.desc")}</p>
         </div>
-        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand">
-          <CheckCircle2 className="size-4" />
+        <span
+          className={cn(
+            "grid size-8 shrink-0 place-items-center rounded-lg",
+            iconClass[overallTone],
+          )}
+        >
+          {overallTone === "success" ? (
+            <CheckCircle2 className="size-4" />
+          ) : (
+            <AlertTriangle className="size-4" />
+          )}
         </span>
       </div>
 
@@ -580,9 +623,11 @@ function OperationsHealthCard({
                 </div>
                 <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{item.detail}</p>
               </div>
-              <Button variant="ghost" size="sm" asChild className="shrink-0">
-                <Link to={item.to}>{item.actionLabel}</Link>
-              </Button>
+              {item.to && item.actionLabel ? (
+                <Button variant="ghost" size="sm" asChild className="shrink-0">
+                  <Link to={item.to}>{item.actionLabel}</Link>
+                </Button>
+              ) : null}
             </div>
           ))}
         </div>
