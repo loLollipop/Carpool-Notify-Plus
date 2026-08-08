@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import {
   Bar,
   BarChart,
+  CartesianGrid,
   Cell,
   Pie,
   PieChart,
@@ -72,6 +73,47 @@ function formatCents(cents: number) {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`
+}
+
+function formatAxisCents(cents: number) {
+  const yuan = cents / 100
+  return `¥${yuan.toLocaleString("zh-CN", {
+    notation: Math.abs(yuan) >= 10_000 ? "compact" : "standard",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: Math.abs(yuan) < 10 ? 2 : 1,
+  })}`
+}
+
+function getChartScale(values: number[]) {
+  const minValue = Math.min(0, ...values)
+  const maxValue = Math.max(0, ...values)
+  const range = maxValue - minValue
+
+  if (range === 0) {
+    return { domain: [0, 10_000] as [number, number], ticks: [0, 2_500, 5_000, 7_500, 10_000] }
+  }
+
+  const roughStep = range / 5
+  const magnitude = 10 ** Math.floor(Math.log10(roughStep))
+  const normalizedStep = roughStep / magnitude
+  const niceFactor = normalizedStep <= 1
+    ? 1
+    : normalizedStep <= 2
+      ? 2
+      : normalizedStep <= 2.5
+        ? 2.5
+        : normalizedStep <= 5
+          ? 5
+          : 10
+  const step = Math.max(1, niceFactor * magnitude)
+  const domainMin = Math.floor(minValue / step) * step
+  const domainMax = Math.ceil(maxValue / step) * step
+  const ticks = Array.from(
+    { length: Math.round((domainMax - domainMin) / step) + 1 },
+    (_, index) => domainMin + index * step,
+  )
+
+  return { domain: [domainMin, domainMax] as [number, number], ticks }
 }
 
 function ChartTooltip({
@@ -484,9 +526,10 @@ function MonthlyTrendCard({ summary }: { summary: BillsSummary }) {
     refundCents: item.refund_cents,
     count: item.count,
   }))
+  const chartScale = getChartScale(data.map((item) => item.cents))
 
   return (
-    <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "240ms" }}>
+    <Card className="h-[280px] gap-4 overflow-hidden p-5 animate-fade-up" style={{ animationDelay: "240ms" }}>
       <div>
         <h2 className="panel-heading text-sm font-semibold">{t("bills.chartTrendTitle")}</h2>
         <p className="mt-0.5 text-xs text-muted-foreground">{t("bills.chartTrendDesc")}</p>
@@ -497,16 +540,30 @@ function MonthlyTrendCard({ summary }: { summary: BillsSummary }) {
           {t("bills.chartEmptyTrend")}
         </p>
       ) : (
-        <div className="h-[190px]">
+        <div className="min-h-0 flex-1">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 18, right: 8, bottom: 0, left: 8 }}>
+            <BarChart data={data} margin={{ top: 22, right: 8, bottom: 0, left: 0 }}>
+              <CartesianGrid
+                vertical={false}
+                stroke="var(--border)"
+                strokeDasharray="3 5"
+              />
               <XAxis
                 dataKey="label"
                 axisLine={false}
                 tickLine={false}
                 tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
               />
-              <YAxis hide />
+              <YAxis
+                axisLine={false}
+                domain={chartScale.domain}
+                tickLine={false}
+                ticks={chartScale.ticks}
+                tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+                tickFormatter={formatAxisCents}
+                tickMargin={8}
+                width={58}
+              />
               <RechartsTooltip cursor={{ fill: "var(--accent)" }} content={<ChartTooltip />} />
               <Bar
                 dataKey="cents"
