@@ -591,7 +591,7 @@ function OperationsHealthCard({
             <div
               key={item.key}
               className={cn(
-                "flex items-start gap-3 rounded-md border border-l-2 bg-muted/25 px-3 py-1.5",
+                "flex items-start gap-3 rounded-md border border-l-2 bg-muted/25 px-3 py-1",
                 item.tone === "critical" && "border-l-destructive",
                 item.tone === "warning" && "border-l-gold",
                 item.tone === "success" && "border-l-success",
