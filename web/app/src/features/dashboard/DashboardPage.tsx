@@ -39,7 +39,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
-import { VALUE_MASK, maskAmount } from "@/lib/amount-privacy"
+import { AMOUNT_MASK, VALUE_MASK, maskAmount, maskValue } from "@/lib/amount-privacy"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { SubscriptionDialog } from "@/features/subscriptions/SubscriptionDialog"
 
@@ -222,7 +222,7 @@ function KpiRow({
         label={t("dash.kpiRevenue")}
         value={`¥${summary?.total_amount_yuan ?? "0.00"}`}
         hint={t("dash.kpiRevenueHint", {
-          count: summary?.bill_count ?? 0,
+          count: maskValue(amountsHidden, summary?.bill_count ?? 0),
           refund: amountsHidden ? VALUE_MASK : summary?.total_refund_yuan ?? "0.00",
         })}
         icon={<Wallet className="size-4" />}
@@ -258,8 +258,8 @@ function KpiRow({
         label={t("dash.kpiAccountCost")}
         value={`¥${dashboard.total_cost_yuan}`}
         hint={t("dash.kpiAccountCostHint", {
-          accounts: accountCount,
-          active: dashboard.active_count,
+          accounts: maskValue(amountsHidden, accountCount),
+          active: maskValue(amountsHidden, dashboard.active_count),
         })}
         icon={<CreditCard className="size-4" />}
         tone="gold"
@@ -270,7 +270,7 @@ function KpiRow({
         label={t("dash.kpiPendingMonth")}
         value={`¥${calendar?.pending_month_amount_yuan ?? "0.00"}`}
         hint={t("dash.kpiPendingMonthHint", {
-          count: calendar?.pending_month_count ?? 0,
+          count: maskValue(amountsHidden, calendar?.pending_month_count ?? 0),
         })}
         icon={<CalendarClock className="size-4" />}
         tone="violet"
@@ -330,7 +330,7 @@ function RevenueTrendCard({
                 axisLine={{ stroke: "var(--border)" }}
                 tickLine={{ stroke: "var(--border)" }}
                 tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
-                tickFormatter={(value) => (amountsHidden ? "¥••" : formatAxisCents(value))}
+                tickFormatter={(value) => (amountsHidden ? AMOUNT_MASK : formatAxisCents(value))}
               />
               <RechartsTooltip
                 cursor={{ stroke: "var(--border)", strokeWidth: 1 }}

@@ -58,9 +58,9 @@ export default {
       submitting: "Verifying…",
     },
     privacy: {
-      hideAmounts: "Hide amounts",
-      showAmounts: "Show amounts",
-      amountHidden: "Amount hidden",
+      hideAmounts: "Hide data",
+      showAmounts: "Show data",
+      amountHidden: "Data hidden",
       relativeOnly: "Privacy mode shows relative trends only",
     },
     dashboard: {

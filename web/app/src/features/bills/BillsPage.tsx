@@ -57,7 +57,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { AMOUNT_MASK, VALUE_MASK, maskAmount } from "@/lib/amount-privacy"
+import { AMOUNT_MASK, VALUE_MASK, maskAmount, maskValue } from "@/lib/amount-privacy"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { BillEditDialog } from "./BillEditDialog"
 import { SubscriptionViewDialog } from "./SubscriptionViewDialog"
@@ -537,7 +537,9 @@ function AccountDonutCard({
                 />
                 <span className="truncate">{item.name}</span>
                 <span className="shrink-0 tabular-nums text-muted-foreground">
-                  {maskAmount(amountsHidden, `¥${item.yuan}`)} · {t("bills.countSuffix", { count: item.count })}
+                  {maskAmount(amountsHidden, `¥${item.yuan}`)} · {t("bills.countSuffix", {
+                    count: maskValue(amountsHidden, item.count),
+                  })}
                 </span>
               </li>
             ))}
@@ -600,7 +602,7 @@ function MonthlyTrendCard({
                 tickLine={false}
                 ticks={chartScale.ticks}
                 tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
-                tickFormatter={(value) => (amountsHidden ? "¥••" : formatAxisCents(value))}
+                tickFormatter={(value) => (amountsHidden ? AMOUNT_MASK : formatAxisCents(value))}
                 tickMargin={8}
                 width={58}
               />
@@ -755,7 +757,7 @@ export function BillsPage() {
               label={t("bills.kpiAgencyFee")}
               value={maskAmount(amountsHidden, `¥${summary.total_agency_fee_yuan}`)}
               hint={t("bills.kpiAgencyFeeHint", {
-                count: summary.resale_bill_count,
+                count: maskValue(amountsHidden, summary.resale_bill_count),
                 month: amountsHidden ? VALUE_MASK : summary.this_month_agency_fee_yuan,
               })}
               icon={<HandCoins className="size-4" />}
@@ -764,7 +766,7 @@ export function BillsPage() {
             />
             <KpiCard
               label={t("bills.kpiActive")}
-              value={summary.active_count}
+              value={maskValue(amountsHidden, summary.active_count)}
               hint={t("bills.kpiActiveHint")}
               icon={<CircleDot className="size-4" />}
               delay={200}
