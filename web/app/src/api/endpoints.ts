@@ -19,6 +19,7 @@ import type {
   RedemptionCodeView,
   RedeemPageSettings,
   RedemptionInviteInput,
+  RedemptionRejectInput,
   RedemptionStatus,
   RedemptionSubmitInput,
   SandboxStatus,
@@ -64,7 +65,7 @@ export function fetchSubscriptions() {
   )
 }
 
-export function fetchRedemptions(status?: "pending" | "invited" | "all") {
+export function fetchRedemptions(status?: "pending" | "invited" | "rejected" | "all") {
   const query = status && status !== "all" ? `?status=${encodeURIComponent(status)}` : ""
   return api<{ redemptions: RedemptionApplicationView[] | null; pending_count: number }>(
     `/api/redemptions${query}`,
@@ -210,6 +211,13 @@ export function setDuePaid(id: number, dueDate: string, paid: boolean) {
 
 export function inviteRedemption(id: number, input: RedemptionInviteInput) {
   return api<MessageResult & { subscription_id: number }>(`/api/redemptions/${id}/invite`, {
+    method: "POST",
+    body: input,
+  })
+}
+
+export function rejectRedemption(id: number, input: RedemptionRejectInput) {
+  return api<MessageResult>(`/api/redemptions/${id}/reject`, {
     method: "POST",
     body: input,
   })

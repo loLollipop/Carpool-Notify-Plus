@@ -26,13 +26,14 @@ import {
   fetchRedemptionStatus,
   submitRedemptionApplication,
 } from "@/api/endpoints"
-import type { RedeemPageSettings } from "@/api/types"
+import type { RedeemPageSettings, RedemptionStatus } from "@/api/types"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -318,6 +319,263 @@ function RedeemSafetyNoticeDialog({
   )
 }
 
+type RedeemFlowStep = "review" | "progress"
+
+function ReviewItem({
+  icon,
+  label,
+  value,
+  mono = false,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  mono?: boolean
+}) {
+  return (
+    <div className="grid gap-2 px-4 py-3.5 sm:grid-cols-[130px_minmax(0,1fr)] sm:items-center sm:px-5">
+      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+        {icon}
+        {label}
+      </div>
+      <div className={cn("break-all text-sm font-semibold sm:text-right", mono && "font-mono")}>
+        {value}
+      </div>
+    </div>
+  )
+}
+
+function RedemptionFlowDialog({
+  open,
+  step,
+  reviewValues,
+  submitting,
+  status,
+  statusLoadFailed,
+  onOpenChange,
+  onConfirm,
+  onRestart,
+}: {
+  open: boolean
+  step: RedeemFlowStep
+  reviewValues: FormValues | null
+  submitting: boolean
+  status: RedemptionStatus | undefined
+  statusLoadFailed: boolean
+  onOpenChange: (open: boolean) => void
+  onConfirm: () => void
+  onRestart: () => void
+}) {
+  const resolvedStatus = status?.status ?? "pending"
+  const invited = resolvedStatus === "invited"
+  const rejected = resolvedStatus === "rejected"
+  const pending = !statusLoadFailed && !invited && !rejected
+  const rejectionReason = status?.rejection_reason?.trim() ?? ""
+  const canRestartApplication = statusLoadFailed || invited || rejected
+  const statusEyebrow = statusLoadFailed
+    ? "Application"
+    : invited
+      ? "Invitation Sent"
+      : rejected
+        ? "Rejected"
+        : "Processing"
+  const statusHeadline = statusLoadFailed
+    ? "没有找到这条申请，请重新提交"
+    : invited
+      ? "已成功发送邀请，请在邮箱中点击确认加入空间"
+      : rejected
+        ? "申请已驳回，请修改信息后重新提交"
+        : "申请已提交，管理员正在处理"
+  const statusDescription = statusLoadFailed
+    ? "可能是本地保存的旧记录已经失效，重新提交兑换信息即可。"
+    : invited
+      ? "如果收件箱没看到邀请，可以检查垃圾邮件或稍等邮箱同步。"
+      : rejected
+        ? rejectionReason
+          ? `管理员说明：${rejectionReason}`
+          : "提交的信息有误，请检查兑换资料后重新提交。"
+        : "进度会在这里自动更新，通常需要 1-2 分钟。"
+  const statusActionLabel = statusLoadFailed
+    ? "重新提交兑换"
+    : invited
+      ? "继续兑换"
+      : rejected
+        ? "重新提交兑换"
+        : "等待管理员处理中"
+
+  if (step === "review" && reviewValues === null) {
+    return null
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {step === "review" && reviewValues ? (
+        <DialogContent
+          key="review"
+          className="gap-5 sm:max-w-[600px] sm:p-7"
+          showCloseButton={!submitting}
+          onInteractOutside={(event) => {
+            if (submitting) event.preventDefault()
+          }}
+          onEscapeKeyDown={(event) => {
+            if (submitting) event.preventDefault()
+          }}
+        >
+          <DialogHeader className="gap-2 pr-8">
+            <div className="mb-1 grid size-11 place-items-center rounded-lg border border-brand/15 bg-brand/10 text-brand">
+              <TicketCheck className="size-5" />
+            </div>
+            <DialogTitle className="text-xl leading-tight sm:text-2xl">请核对兑换信息</DialogTitle>
+            <DialogDescription className="leading-6">
+              管理员会按照以下资料发送 Team 邀请，提交前请确认信息准确无误。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="divide-y overflow-hidden rounded-lg border bg-muted/20">
+            <ReviewItem
+              icon={<TicketCheck className="size-4 text-brand" />}
+              label="兑换码"
+              value={reviewValues.redeem_code}
+              mono
+            />
+            <ReviewItem
+              icon={<Mail className="size-4 text-brand" />}
+              label="GPT 邮箱"
+              value={reviewValues.customer_email}
+              mono
+            />
+            <ReviewItem
+              icon={<MessageCircle className="size-4 text-success" />}
+              label="微信号"
+              value={reviewValues.customer_contact}
+            />
+          </div>
+
+          <div className="flex items-start gap-3 rounded-lg border border-warning/25 bg-warning/[0.07] px-4 py-3 text-sm leading-6">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
+            <p className="text-muted-foreground">
+              请重点核对 GPT 邮箱。邮箱填写错误会导致邀请发送到错误账号。
+            </p>
+          </div>
+
+          <DialogFooter className="border-t pt-5 sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={submitting}
+              onClick={() => onOpenChange(false)}
+            >
+              返回修改
+            </Button>
+            <Button type="button" className="sm:min-w-44" disabled={submitting} onClick={onConfirm}>
+              {submitting ? (
+                <>
+                  <LoaderCircle data-slot="icon" className="animate-spin" />
+                  正在提交
+                </>
+              ) : (
+                <>
+                  确认无误，继续兑换
+                  <ArrowRight data-slot="icon" />
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      ) : (
+        <DialogContent
+          key="progress"
+          className="gap-6 sm:max-w-[680px] sm:p-7"
+          showCloseButton={false}
+          onInteractOutside={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => event.preventDefault()}
+        >
+          <div aria-live="polite" className="grid gap-6">
+            <DialogHeader className="items-center gap-2 text-center">
+              <div
+                className={cn(
+                  "mb-2 grid size-16 place-items-center rounded-xl border",
+                  statusLoadFailed
+                    ? "border-muted bg-muted"
+                    : rejected
+                      ? "border-destructive/20 bg-destructive/10"
+                      : invited
+                        ? "border-success/20 bg-success/10"
+                        : "border-brand/20 bg-brand/10",
+                )}
+              >
+                {statusLoadFailed ? (
+                  <TicketCheck className="size-8 text-muted-foreground" />
+                ) : rejected ? (
+                  <AlertTriangle className="size-8 text-destructive" />
+                ) : invited ? (
+                  <CheckCircle2 className="size-8 text-success" />
+                ) : (
+                  <Clock3 className="size-8 text-brand" />
+                )}
+              </div>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {statusEyebrow}
+              </p>
+              <DialogTitle className="text-xl leading-tight sm:text-2xl">
+                {statusHeadline}
+              </DialogTitle>
+              <DialogDescription className="max-w-lg text-center leading-6">
+                {statusDescription}
+              </DialogDescription>
+            </DialogHeader>
+
+            {pending ? (
+              <div className="flex items-start gap-3 rounded-lg border border-brand/20 bg-brand/[0.06] px-4 py-3.5">
+                <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full bg-brand/10 text-brand">
+                  <Clock3 className="size-4 animate-pulse" />
+                </span>
+                <div>
+                  <p className="text-sm font-semibold">请不要关闭此页面</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    管理员正在处理兑换申请，请耐心等待，处理结果会自动显示在此弹窗中。
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
+            {!statusLoadFailed ? (
+              <div className="divide-y border-y text-sm">
+                <div className="flex items-center justify-between gap-4 py-3">
+                  <span className="text-muted-foreground">GPT 邮箱</span>
+                  <span className="min-w-0 truncate font-mono">
+                    {status?.customer_email || "加载中"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-4 py-3">
+                  <span className="text-muted-foreground">提交时间</span>
+                  <span className="tabular-nums">{status?.created_at_label || "加载中"}</span>
+                </div>
+                {invited ? (
+                  <div className="flex items-center justify-between gap-4 py-3">
+                    <span className="text-muted-foreground">邀请时间</span>
+                    <span className="tabular-nums">{status?.invited_at_label || "刚刚"}</span>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 w-full"
+              disabled={!canRestartApplication}
+              onClick={canRestartApplication ? onRestart : undefined}
+            >
+              {statusActionLabel}
+            </Button>
+          </div>
+        </DialogContent>
+      )}
+    </Dialog>
+  )
+}
+
 export function RedeemPage() {
   const [searchParams] = useSearchParams()
   const sandboxAccessToken = searchParams.get("sandbox")?.trim() ?? ""
@@ -325,7 +583,12 @@ export function RedeemPage() {
   const sandboxMode = sandboxAccessToken !== ""
   const tokenStorageKey = redemptionTokenStorageKey(sandboxAccessToken)
   const [trackingToken, setTrackingToken] = React.useState(() => readStoredToken(tokenStorageKey))
-  const [noticeOpen, setNoticeOpen] = React.useState(true)
+  const [noticeOpen, setNoticeOpen] = React.useState(() => trackingToken === "")
+  const [flowStep, setFlowStep] = React.useState<RedeemFlowStep>(() =>
+    trackingToken ? "progress" : "review",
+  )
+  const [flowDialogOpen, setFlowDialogOpen] = React.useState(() => trackingToken !== "")
+  const [reviewValues, setReviewValues] = React.useState<FormValues | null>(null)
 
   const settingsQuery = useQuery({
     queryKey: ["public-redeem-settings", sandboxAccessToken || "live"],
@@ -362,24 +625,49 @@ export function RedeemPage() {
     onSuccess: (result) => {
       setTrackingToken(result.tracking_token)
       writeStoredToken(tokenStorageKey, result.tracking_token)
+      setFlowStep("progress")
+      setFlowDialogOpen(true)
+      setReviewValues(null)
       form.reset()
       toast.success(result.message ?? "申请已提交")
     },
     onError: (error: Error) => toast.error(error.message),
   })
 
+  const reviewSubmission = (values: FormValues) => {
+    setReviewValues({
+      customer_email: values.customer_email.trim(),
+      customer_contact: values.customer_contact.trim(),
+      redeem_code: values.redeem_code.trim(),
+    })
+    setFlowStep("review")
+    setFlowDialogOpen(true)
+  }
+
+  const confirmSubmission = () => {
+    if (reviewValues) {
+      submitMutation.mutate(reviewValues)
+    }
+  }
+
+  const handleFlowDialogOpenChange = (open: boolean) => {
+    if (!open && (submitMutation.isPending || flowStep === "progress")) return
+    setFlowDialogOpen(open)
+  }
+
   const resetApplication = () => {
     setTrackingToken("")
     writeStoredToken(tokenStorageKey, "")
+    setFlowDialogOpen(false)
+    setFlowStep("review")
+    setReviewValues(null)
     form.reset({
       customer_email: sandboxMode ? "sandbox-customer@example.com" : "",
-      redeem_code: initialRedeemCode,
+      redeem_code: "",
       customer_contact: sandboxMode ? "sandbox_wechat" : "",
     })
   }
 
-  const status = statusQuery.data?.status ?? (trackingToken ? "pending" : null)
-  const invited = status === "invited"
   const statusLoadFailed = trackingToken !== "" && statusQuery.isError
   const supportConfigured = hasSupportContact(redeemSettings)
   const supportColumnVisible = supportConfigured || settingsQuery.isPending
@@ -390,6 +678,17 @@ export function RedeemPage() {
         open={noticeOpen}
         onOpenChange={setNoticeOpen}
         settings={redeemSettings}
+      />
+      <RedemptionFlowDialog
+        open={flowDialogOpen}
+        step={flowStep}
+        reviewValues={reviewValues}
+        submitting={submitMutation.isPending}
+        status={statusQuery.data}
+        statusLoadFailed={statusLoadFailed}
+        onOpenChange={handleFlowDialogOpenChange}
+        onConfirm={confirmSubmission}
+        onRestart={resetApplication}
       />
 
       <section className="border-b border-[var(--login-panel-border)] bg-[var(--login-panel)] text-[var(--login-panel-foreground)]">
@@ -455,91 +754,15 @@ export function RedeemPage() {
               <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
                 <TicketCheck className="size-4" />
               </span>
-              {trackingToken ? "申请进度" : "填写兑换信息"}
+              填写兑换信息
             </div>
             <span className="text-[11px] font-medium text-muted-foreground">
-              {trackingToken ? "CHATGPT TEAM" : "3 项资料"}
+              3 项资料
             </span>
           </div>
-          {trackingToken ? (
-            <div className="grid min-h-[360px] gap-6 p-6 sm:p-8">
-              <div
-                className={cn(
-                  "mx-auto grid size-16 place-items-center rounded-lg border",
-                  statusLoadFailed
-                    ? "border-muted bg-muted"
-                    : invited
-                      ? "border-success/20 bg-success/10"
-                      : "border-brand/20 bg-brand/10",
-                )}
-              >
-                {statusLoadFailed ? (
-                  <TicketCheck className="size-8 text-muted-foreground" />
-                ) : invited ? (
-                  <CheckCircle2 className="size-8 text-success" />
-                ) : (
-                  <Clock3 className="size-8 text-brand" />
-                )}
-              </div>
-
-              <div className="text-center">
-                <p className="text-xs font-semibold uppercase text-muted-foreground">
-                  {statusLoadFailed ? "Application" : invited ? "Invitation Sent" : "Processing"}
-                </p>
-                <h2 className="mt-3 text-2xl font-semibold sm:text-3xl">
-                  {statusLoadFailed
-                    ? "没有找到这条申请，请重新提交"
-                    : invited
-                      ? "已成功发送邀请，请在邮箱中点击确认加入空间"
-                      : "申请已提交，请耐心等待 1-2 分钟"}
-                </h2>
-                <p className="mx-auto mt-3 max-w-md text-sm leading-7 text-muted-foreground">
-                  {statusLoadFailed
-                    ? "可能是本地保存的旧记录已经失效，重新提交兑换信息即可。"
-                    : invited
-                      ? "如果收件箱没看到邀请，可以检查垃圾邮件或稍等邮箱同步。"
-                      : "当前页面会自动同步处理进度，完成后会直接更新为邀请已发送。"}
-                </p>
-              </div>
-
-              {!statusLoadFailed ? (
-                <div className="divide-y border-y text-sm">
-                  <div className="flex items-center justify-between gap-4 py-3">
-                    <span className="text-muted-foreground">GPT 邮箱</span>
-                    <span className="min-w-0 truncate font-mono">
-                      {statusQuery.data?.customer_email || "加载中"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between gap-4 py-3">
-                    <span className="text-muted-foreground">提交时间</span>
-                    <span className="tabular-nums">
-                      {statusQuery.data?.created_at_label || "加载中"}
-                    </span>
-                  </div>
-                  {invited ? (
-                    <div className="flex items-center justify-between gap-4 py-3">
-                      <span className="text-muted-foreground">邀请时间</span>
-                      <span className="tabular-nums">
-                        {statusQuery.data?.invited_at_label || "刚刚"}
-                      </span>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-
-              <Button
-                type="button"
-                variant="outline"
-                className="h-11 w-full"
-                onClick={resetApplication}
-              >
-                重新提交兑换
-              </Button>
-            </div>
-          ) : (
             <Form {...form}>
               <form
-                onSubmit={form.handleSubmit((values) => submitMutation.mutate(values))}
+                onSubmit={form.handleSubmit(reviewSubmission)}
                 className="grid gap-6 p-6 sm:p-8"
               >
                 <div className="border-b pb-5">
@@ -620,7 +843,7 @@ export function RedeemPage() {
 
                 <div className="flex items-start gap-2 rounded-md border border-brand/15 bg-brand/[0.045] px-3.5 py-3 text-xs leading-5 text-muted-foreground">
                   <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-brand" />
-                  提交后页面会自动同步处理状态，请保持页面打开并留意邮箱邀请。
+                  确认提交后，处理进度会显示在弹窗中，请保持页面打开并留意邮箱邀请。
                 </div>
 
                 <Button
@@ -642,7 +865,6 @@ export function RedeemPage() {
                 </Button>
               </form>
             </Form>
-          )}
         </Card>
         {settingsQuery.isPending ? (
           <aside className="hidden h-[430px] animate-pulse rounded-lg border bg-muted/45 lg:block" />
@@ -652,7 +874,7 @@ export function RedeemPage() {
         </div>
 
         <p className="mt-6 max-w-[720px] text-center text-xs leading-6 text-muted-foreground sm:text-sm">
-          兑换码仅限本人使用，提交后请保持本页打开等待邀请状态更新。
+          兑换码仅限本人使用，确认提交后请保持本页打开，处理进度会在弹窗中自动更新。
         </p>
       </div>
     </main>

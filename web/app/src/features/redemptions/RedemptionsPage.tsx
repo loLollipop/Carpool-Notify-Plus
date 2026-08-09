@@ -26,6 +26,7 @@ import {
   enableRedemptionCode,
   generateRedemptionCodes,
   inviteRedemption,
+  rejectRedemption,
 } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
 import { useAccountOptions, useRedemptionCodes, useRedemptions } from "@/api/queries"
@@ -58,7 +59,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { todayShanghai } from "@/features/subscriptions/subscription-prefill"
 
-type RedemptionFilter = "pending" | "invited" | "all"
+type RedemptionFilter = "pending" | "invited" | "rejected" | "all"
 type RedemptionSection = "applications" | "codes"
 
 interface SelectableSeat {
@@ -94,6 +95,14 @@ function statusBadge(status: RedemptionApplicationView["application"]["status"])
       <Badge variant="success">
         <CheckCircle2 className="size-3.5" />
         已邀请
+      </Badge>
+    )
+  }
+  if (status === "rejected") {
+    return (
+      <Badge variant="destructive">
+        <Ban className="size-3.5" />
+        已驳回
       </Badge>
     )
   }
@@ -441,13 +450,14 @@ function InvitePanel({
   const [remark, setRemark] = React.useState("")
   const [tradeURL, setTradeURL] = React.useState("")
   const [operatorNote, setOperatorNote] = React.useState("")
+  const [rejectOpen, setRejectOpen] = React.useState(false)
 
   const selectedSeat = seats.find((option) => String(option.seat.id) === seatId) ?? null
   const priceValid = MONEY_PATTERN.test(priceYuan.trim())
   const agencyFeeValid = !isResale || agencyFeeYuan.trim() === "" || MONEY_PATTERN.test(agencyFeeYuan.trim())
   const canSubmit = selectedSeat !== null && priceValid && agencyFeeValid && cronExpr.trim() !== ""
 
-  const mutation = useAppMutation(
+  const inviteMutation = useAppMutation(
     () =>
       inviteRedemption(view.application.id, {
         seat_id: Number(seatId),
@@ -462,6 +472,13 @@ function InvitePanel({
         operator_note: operatorNote.trim(),
       }),
     { successMessage: "已邀请，并已自动创建订阅" },
+  )
+  const rejectMutation = useAppMutation(
+    () => rejectRedemption(view.application.id, { reason: operatorNote.trim() }),
+    {
+      successMessage: "兑换申请已驳回，兑换码已恢复可用",
+      onSuccess: () => setRejectOpen(false),
+    },
   )
 
   return (
@@ -605,11 +622,12 @@ function InvitePanel({
       </div>
 
       <div className="grid gap-2">
-        <Label>处理备注</Label>
+        <Label>处理备注 / 驳回原因</Label>
         <Textarea
           rows={2}
           value={operatorNote}
           onChange={(event) => setOperatorNote(event.target.value)}
+          placeholder="驳回时会显示给客户；留空则使用默认说明"
         />
       </div>
 
@@ -617,11 +635,39 @@ function InvitePanel({
         {!priceValid && priceYuan.trim() !== "" ? (
           <span className="mr-auto text-xs text-destructive">实收金额格式不正确</span>
         ) : null}
-        <Button disabled={!canSubmit || mutation.isPending} onClick={() => mutation.mutate()}>
+        <Button
+          type="button"
+          variant="outline"
+          className="text-destructive hover:text-destructive"
+          disabled={inviteMutation.isPending || rejectMutation.isPending}
+          onClick={() => setRejectOpen(true)}
+        >
+          <Ban data-slot="icon" />
+          驳回
+        </Button>
+        <Button
+          type="button"
+          disabled={!canSubmit || inviteMutation.isPending || rejectMutation.isPending}
+          onClick={() => inviteMutation.mutate()}
+        >
           <Send data-slot="icon" />
           已邀请
         </Button>
       </div>
+      <ConfirmDialog
+        open={rejectOpen}
+        onOpenChange={(open) => {
+          if (!open && !rejectMutation.isPending) {
+            setRejectOpen(false)
+          }
+        }}
+        title="驳回兑换申请？"
+        description={`确认驳回 ${view.application.customer_email} 的兑换申请？兑换码将恢复可用，客户可以修改资料后重新提交。`}
+        actionLabel="确认驳回"
+        destructive
+        pending={rejectMutation.isPending}
+        onConfirm={() => rejectMutation.mutate()}
+      />
     </div>
   )
 }
@@ -637,12 +683,17 @@ function RedemptionCard({
 }) {
   const application = view.application
   const invited = application.status === "invited"
+  const rejected = application.status === "rejected"
 
   return (
     <Card
       className={cn(
         "relative gap-0 overflow-hidden p-5 transition-colors hover:border-foreground/15 animate-fade-up",
-        invited ? "border-l-4 border-l-success" : "border-l-4 border-l-gold",
+        invited
+          ? "border-l-4 border-l-success"
+          : rejected
+            ? "border-l-4 border-l-destructive"
+            : "border-l-4 border-l-gold",
       )}
       style={{ animationDelay: `${Math.min(index * 35, 280)}ms` }}
     >
@@ -698,10 +749,20 @@ function RedemptionCard({
               </Button>
             ) : null}
           </div>
+        ) : rejected ? (
+          <div className="min-w-0 rounded-md border border-destructive/20 bg-destructive/[0.06] p-3 text-xs">
+            <div className="flex items-center gap-1.5 font-medium text-destructive">
+              <Ban className="size-3.5" />
+              已驳回
+            </div>
+            <p className="mt-2 max-w-sm leading-5 text-muted-foreground">
+              {application.operator_note || "提交的信息有误，请修改后重新提交"}
+            </p>
+          </div>
         ) : null}
       </div>
 
-      {!invited ? <InvitePanel view={view} seats={seats} /> : null}
+      {application.status === "pending" ? <InvitePanel view={view} seats={seats} /> : null}
     </Card>
   )
 }
@@ -817,6 +878,7 @@ export function RedemptionsPage() {
                 <SelectContent>
                   <SelectItem value="pending">待处理</SelectItem>
                   <SelectItem value="invited">已邀请</SelectItem>
+                  <SelectItem value="rejected">已驳回</SelectItem>
                   <SelectItem value="all">全部</SelectItem>
                 </SelectContent>
               </Select>

@@ -209,6 +209,76 @@ func TestRedemptionSubmitRequiresUnusedGeneratedCode(t *testing.T) {
 	}
 }
 
+func TestRedemptionRejectReleasesCodeForCorrectedSubmission(t *testing.T) {
+	subscriptionService := openTestService(t)
+	codes, err := subscriptionService.GenerateRedemptionCodes(service.RedemptionCodeGenerateInput{
+		Count: 1,
+		Note:  "信息纠正",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := subscriptionService.SubmitRedemptionApplication(service.RedemptionSubmitInput{
+		CustomerEmail:   "wrong@example.com",
+		CustomerContact: "微信：wrong",
+		RedeemCode:      codes[0].Code.Code,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applications, err := subscriptionService.ListRedemptionApplicationsView(model.RedemptionStatusPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applications) != 1 {
+		t.Fatalf("pending applications = %d, want 1", len(applications))
+	}
+
+	err = subscriptionService.RejectRedemptionApplication(
+		applications[0].Application.ID,
+		service.RedemptionRejectInput{Reason: "邮箱填写错误"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := subscriptionService.GetRedemptionStatus(first.TrackingToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != model.RedemptionStatusRejected || status.RejectionReason != "邮箱填写错误" {
+		t.Fatalf("rejected status = %#v, want rejected with reason", status)
+	}
+
+	code, err := subscriptionService.Store.GetRedemptionCode(codes[0].Code.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code.Status != model.RedemptionCodeStatusUnused || code.UsedByApplicationID != 0 || code.UsedAt != nil {
+		t.Fatalf("released code = %#v, want unused without application", code)
+	}
+
+	corrected, err := subscriptionService.SubmitRedemptionApplication(service.RedemptionSubmitInput{
+		CustomerEmail:   "correct@example.com",
+		CustomerContact: "微信：correct",
+		RedeemCode:      codes[0].Code.Code,
+	})
+	if err != nil {
+		t.Fatalf("submit corrected application: %v", err)
+	}
+	if corrected.Status != model.RedemptionStatusPending || corrected.TrackingToken == first.TrackingToken {
+		t.Fatalf("corrected submit result = %#v, want new pending application", corrected)
+	}
+
+	err = subscriptionService.RejectRedemptionApplication(
+		applications[0].Application.ID,
+		service.RedemptionRejectInput{},
+	)
+	if err == nil || !strings.Contains(err.Error(), "已经处理过") {
+		t.Fatalf("second reject error = %v, want already processed", err)
+	}
+}
+
 func TestRedemptionCodeDeleteOnlyAllowsUnusedOrDisabled(t *testing.T) {
 	subscriptionService := openTestService(t)
 	codes, err := subscriptionService.GenerateRedemptionCodes(service.RedemptionCodeGenerateInput{

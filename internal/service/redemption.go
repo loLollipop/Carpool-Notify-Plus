@@ -62,10 +62,11 @@ type RedemptionCodeView struct {
 
 // RedemptionStatusView is safe for the unauthenticated public status page.
 type RedemptionStatusView struct {
-	Status         string `json:"status"`
-	CustomerEmail  string `json:"customer_email"`
-	CreatedAtLabel string `json:"created_at_label"`
-	InvitedAtLabel string `json:"invited_at_label"`
+	Status          string `json:"status"`
+	CustomerEmail   string `json:"customer_email"`
+	CreatedAtLabel  string `json:"created_at_label"`
+	InvitedAtLabel  string `json:"invited_at_label"`
+	RejectionReason string `json:"rejection_reason"`
 }
 
 // RedemptionApplicationView is the operator-facing row.
@@ -93,6 +94,11 @@ type RedemptionInviteInput struct {
 	Remark           string
 	TradeURL         string
 	OperatorNote     string
+}
+
+// RedemptionRejectInput explains why an operator rejected a pending request.
+type RedemptionRejectInput struct {
+	Reason string
 }
 
 // SubmitRedemptionApplication stores one public customer redemption request.
@@ -378,13 +384,45 @@ func (service *SubscriptionService) InviteRedemptionApplication(applicationID in
 	return subscriptionID, nil
 }
 
+// RejectRedemptionApplication rejects a pending request and releases its code.
+func (service *SubscriptionService) RejectRedemptionApplication(applicationID int64, input RedemptionRejectInput) error {
+	application, err := service.Store.GetRedemptionApplication(applicationID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("兑换申请不存在")
+		}
+		return err
+	}
+	if application.Status != model.RedemptionStatusPending {
+		return fmt.Errorf("这条兑换申请已经处理过")
+	}
+	reason, err := trimLimited("驳回原因", input.Reason, maxRedemptionOperatorNoteLength)
+	if err != nil {
+		return err
+	}
+	if reason == "" {
+		reason = "提交的信息有误，请修改后重新提交"
+	}
+	if err := service.Store.RejectRedemptionApplication(application.ID, reason); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("兑换申请状态已变化，请刷新后再处理")
+		}
+		return err
+	}
+	return nil
+}
+
 func (service *SubscriptionService) buildRedemptionStatusView(application model.RedemptionApplication) RedemptionStatusView {
-	return RedemptionStatusView{
+	view := RedemptionStatusView{
 		Status:         application.Status,
 		CustomerEmail:  application.CustomerEmail,
 		CreatedAtLabel: cycle.FormatDateTime(application.CreatedAt),
 		InvitedAtLabel: formatOptionalTime(application.InvitedAt),
 	}
+	if application.Status == model.RedemptionStatusRejected {
+		view.RejectionReason = application.OperatorNote
+	}
+	return view
 }
 
 func (service *SubscriptionService) buildRedemptionApplicationView(application model.RedemptionApplication) (RedemptionApplicationView, error) {

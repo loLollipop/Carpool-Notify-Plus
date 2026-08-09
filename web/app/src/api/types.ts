@@ -57,7 +57,7 @@ export interface SubscriptionView {
   can_soft_delete: boolean
 }
 
-export type RedemptionStatusValue = "pending" | "invited"
+export type RedemptionStatusValue = "pending" | "invited" | "rejected"
 export type RedemptionCodeStatusValue = "unused" | "used" | "disabled"
 
 export interface RedemptionApplication {
@@ -112,6 +112,7 @@ export interface RedemptionStatus {
   customer_email: string
   created_at_label: string
   invited_at_label: string
+  rejection_reason: string
 }
 
 export interface CalendarOccurrence {
@@ -542,6 +543,10 @@ export interface RedemptionInviteInput {
   remark: string
   trade_url: string
   operator_note: string
+}
+
+export interface RedemptionRejectInput {
+  reason: string
 }
 
 export interface AccountInput {

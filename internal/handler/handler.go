@@ -101,6 +101,7 @@ func (server *Server) registerBusinessRoutes(routes *gin.RouterGroup) {
 
 	routes.GET("/redemptions", server.getRedemptions)
 	routes.POST("/redemptions/:id/invite", server.postInviteRedemption)
+	routes.POST("/redemptions/:id/reject", server.postRejectRedemption)
 	routes.GET("/redemption-codes", server.getRedemptionCodes)
 	routes.POST("/redemption-codes", server.postGenerateRedemptionCodes)
 	routes.POST("/redemption-codes/:id/disable", server.postDisableRedemptionCode)

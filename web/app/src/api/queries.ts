@@ -19,7 +19,7 @@ export const queryKeys = {
   data: ["data"] as const,
   calendar: (month?: string) => ["data", "calendar", month ?? "current"] as const,
   dashboard: ["data", "dashboard"] as const,
-  redemptions: (status?: "pending" | "invited" | "all") =>
+  redemptions: (status?: "pending" | "invited" | "rejected" | "all") =>
     ["data", "redemptions", status ?? "all"] as const,
   redemptionCodes: ["data", "redemption-codes"] as const,
   subscriptions: ["data", "subscriptions"] as const,
@@ -50,7 +50,7 @@ export function useSubscriptions() {
   return useQuery({ queryKey: queryKeys.subscriptions, queryFn: fetchSubscriptions })
 }
 
-export function useRedemptions(status?: "pending" | "invited" | "all") {
+export function useRedemptions(status?: "pending" | "invited" | "rejected" | "all") {
   return useQuery({
     queryKey: queryKeys.redemptions(status),
     queryFn: () => fetchRedemptions(status),

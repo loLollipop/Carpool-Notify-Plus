@@ -14,8 +14,9 @@ const (
 	NotificationKindScheduled = "scheduled"
 	NotificationKindTest      = "test"
 
-	RedemptionStatusPending = "pending"
-	RedemptionStatusInvited = "invited"
+	RedemptionStatusPending  = "pending"
+	RedemptionStatusInvited  = "invited"
+	RedemptionStatusRejected = "rejected"
 
 	RedemptionCodeStatusUnused   = "unused"
 	RedemptionCodeStatusUsed     = "used"
