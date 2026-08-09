@@ -60,7 +60,7 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 		}
 		sandboxPublic := api.Group("/sandbox")
 		sandboxPublic.Use(server.requireSandboxAccess())
-		sandboxPublic.GET("/redeem-settings", server.getRedeemSettings)
+		sandboxPublic.GET("/redeem-settings", sandboxServer.getRedeemSettings)
 		sandboxPublic.POST("/redeem", sandboxServer.postRedeemApplication)
 		sandboxPublic.GET("/redeem/:token", sandboxServer.getRedeemStatus)
 	}

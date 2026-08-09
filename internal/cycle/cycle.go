@@ -2,6 +2,7 @@ package cycle
 
 import (
         "fmt"
+        "math"
         "sort"
         "strconv"
         "strings"
@@ -433,10 +434,8 @@ func ParseYuanToCents(raw string) (int64, error) {
         if raw == "" {
                 return 0, fmt.Errorf("price is required")
         }
-        negative := false
         if strings.HasPrefix(raw, "-") {
-                negative = true
-                raw = strings.TrimPrefix(raw, "-")
+                return 0, fmt.Errorf("price must be non-negative")
         }
         parts := strings.Split(raw, ".")
         if len(parts) > 2 {
@@ -445,6 +444,11 @@ func ParseYuanToCents(raw string) (int64, error) {
         yuanPart := parts[0]
         if yuanPart == "" {
                 yuanPart = "0"
+        }
+        if strings.IndexFunc(yuanPart, func(character rune) bool {
+                return character < '0' || character > '9'
+        }) >= 0 {
+                return 0, fmt.Errorf("invalid price %q", raw)
         }
         yuanValue, err := strconv.ParseInt(yuanPart, 10, 64)
         if err != nil {
@@ -456,6 +460,14 @@ func ParseYuanToCents(raw string) (int64, error) {
                 if len(fraction) > 2 {
                         return 0, fmt.Errorf("price supports at most 2 decimal places")
                 }
+                if fraction == "" && parts[0] == "" {
+                        return 0, fmt.Errorf("invalid price %q", raw)
+                }
+                if strings.IndexFunc(fraction, func(character rune) bool {
+                        return character < '0' || character > '9'
+                }) >= 0 {
+                        return 0, fmt.Errorf("invalid price %q", raw)
+                }
                 for len(fraction) < 2 {
                         fraction += "0"
                 }
@@ -464,13 +476,10 @@ func ParseYuanToCents(raw string) (int64, error) {
                         return 0, fmt.Errorf("invalid price %q", raw)
                 }
         }
+        if yuanValue > (math.MaxInt64-centsPart)/100 {
+                return 0, fmt.Errorf("price is too large")
+        }
         total := yuanValue*100 + centsPart
-        if negative {
-                total = -total
-        }
-        if total < 0 {
-                return 0, fmt.Errorf("price must be non-negative")
-        }
         return total, nil
 }
 

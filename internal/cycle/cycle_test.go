@@ -29,6 +29,19 @@ func TestParseYuanToCents(t *testing.T) {
         }
 }
 
+func TestParseYuanToCentsRejectsMalformedAndOverflowingAmounts(t *testing.T) {
+        for _, input := range []string{
+                "--1",
+                "1.-1",
+                ".",
+                "184467440737095517.00",
+        } {
+                if cents, err := cycle.ParseYuanToCents(input); err == nil {
+                        t.Fatalf("%q: got %d cents, want an error", input, cents)
+                }
+        }
+}
+
 func TestParseOffsets(t *testing.T) {
         offsets, err := cycle.ParseOffsets("3, 1,0,3")
         if err != nil {
