@@ -12,8 +12,10 @@ import {
   Megaphone,
   MessageCircle,
   Moon,
+  ShieldCheck,
   Sun,
   TicketCheck,
+  Zap,
 } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useForm } from "react-hook-form"
@@ -27,6 +29,7 @@ import {
   submitRedemptionApplication,
 } from "@/api/endpoints"
 import type { RedeemPageSettings, RedemptionStatus } from "@/api/types"
+import { APP_NAME, BrandIcon } from "@/components/brand"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
@@ -67,6 +70,12 @@ const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
   support_wechat_id: "",
   support_qr_data_url: "",
 }
+const TRUST_CHIPS = [
+  { icon: Zap, label: "通常 1-2 分钟完成" },
+  { icon: Mail, label: "邀请直达 GPT 邮箱" },
+  { icon: ShieldCheck, label: "客服微信全程协助" },
+] as const
+
 const schema = z.object({
   customer_email: z
     .string()
@@ -193,7 +202,7 @@ function WechatQrBlock({
   return (
     <div className={cn("grid gap-4", stretched && "min-h-0 flex-1 grid-rows-[1fr_auto]")}>
       {qrDataURL ? (
-        <div className="mx-auto w-full max-w-[260px] self-center bg-white p-2">
+        <div className="mx-auto w-full max-w-[260px] self-center rounded-lg border bg-white p-2.5 shadow-sm">
           <img
             src={qrDataURL}
             alt="客服微信二维码"
@@ -231,9 +240,9 @@ function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
   }
 
   return (
-    <aside className="hidden h-full overflow-hidden rounded-lg border bg-card p-5 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_4%,transparent)] lg:flex lg:flex-col">
+    <aside className="hidden h-full overflow-hidden rounded-xl border bg-card p-5 shadow-card lg:flex lg:flex-col">
       <div className="mb-5 flex items-center gap-3 border-b pb-4">
-        <div className="grid size-9 place-items-center rounded-md bg-success/10 text-success">
+        <div className="grid size-9 place-items-center rounded-lg bg-success/10 text-success">
           <MessageCircle className="size-5" />
         </div>
         <div className="min-w-0">
@@ -691,10 +700,19 @@ export function RedeemPage() {
         onRestart={resetApplication}
       />
 
-      <section className="border-b border-[var(--login-panel-border)] bg-[var(--login-panel)] text-[var(--login-panel-foreground)]">
-        <div className="mx-auto w-full max-w-[1160px] px-4 pb-10 pt-5 sm:px-6 sm:pb-12 sm:pt-6">
+      <section className="login-surface relative overflow-hidden border-b border-[var(--login-panel-border)] text-[var(--login-panel-foreground)]">
+        <BrandIcon className="pointer-events-none absolute -right-24 -top-24 size-80 opacity-[0.05] shadow-none" />
+        <div className="relative mx-auto w-full max-w-[1160px] px-4 pb-24 pt-6 sm:px-6 sm:pb-28 sm:pt-7">
           <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2 text-[11px] font-semibold text-[var(--login-panel-muted)]">
+            <div className="flex min-w-0 items-center gap-2.5 text-[11px] font-semibold text-[var(--login-panel-muted)]">
+              <BrandIcon className="size-8" />
+              <span className="hidden text-sm font-semibold tracking-wide text-[var(--login-panel-foreground)] sm:block">
+                {APP_NAME}
+              </span>
+              <span
+                className="hidden h-4 w-px bg-[var(--login-panel-border)] sm:block"
+                aria-hidden="true"
+              />
               <TicketCheck className="size-4 text-gold" />
               CHATGPT TEAM ACCESS
               {sandboxMode ? (
@@ -710,26 +728,46 @@ export function RedeemPage() {
             </div>
           </div>
 
-          <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.8fr)] lg:items-end">
+          <div className="mt-12 grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.8fr)] lg:items-end">
             <div className="max-w-[680px] animate-fade-up">
-              <h1 className="text-[30px] font-semibold leading-tight sm:text-[42px]">
+              <div className="mb-5 flex items-center gap-3 text-[11px] font-semibold tracking-wider text-[var(--login-panel-muted)]">
+                <span className="h-px w-8 bg-gold" aria-hidden="true" />
+                自助兑换通道
+              </div>
+              <h1 className="text-[32px] font-semibold leading-[1.18] sm:text-[44px]">
                 ChatGPT Team 兑换中心
               </h1>
               <p className="mt-4 max-w-[620px] text-sm leading-7 text-[var(--login-panel-muted)] sm:text-base">
                 提交兑换码与账号资料，管理员处理完成后，Team 邀请会直接发送到你的 GPT 邮箱。
               </p>
+              <div className="mt-7 flex flex-wrap gap-2.5">
+                {TRUST_CHIPS.map((chip) => (
+                  <span
+                    key={chip.label}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.06] px-3.5 py-1.5 text-xs font-medium backdrop-blur-sm"
+                  >
+                    <chip.icon className="size-3.5 text-gold" />
+                    {chip.label}
+                  </span>
+                ))}
+              </div>
             </div>
 
-            <ol className="grid border-t border-[var(--login-panel-border)] pt-4 sm:grid-cols-3 lg:gap-4">
+            <ol className="grid gap-y-3 border-t border-[var(--login-panel-border)] pt-5 sm:grid-cols-3 sm:gap-x-6 sm:gap-y-0">
               {[
                 ["01", "填写资料", "兑换码、邮箱与微信"],
                 ["02", "等待处理", "通常需要 1-2 分钟"],
                 ["03", "确认邀请", "前往邮箱加入 Team"],
               ].map(([number, title, description]) => (
-                <li key={number} className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2 py-2 sm:block sm:py-0">
-                  <span className="font-mono text-[11px] text-gold">{number}</span>
+                <li
+                  key={number}
+                  className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2 py-1 sm:block sm:border-l sm:border-[var(--login-panel-border)] sm:py-0 sm:pl-5 sm:first:border-l-0 sm:first:pl-0"
+                >
+                  <span className="font-mono text-[11px] font-semibold tracking-wider text-gold">
+                    {number}
+                  </span>
                   <div>
-                    <p className="text-sm font-semibold">{title}</p>
+                    <p className="text-sm font-semibold sm:mt-1.5">{title}</p>
                     <p className="mt-1 text-xs leading-5 text-[var(--login-panel-muted)]">
                       {description}
                     </p>
@@ -741,23 +779,28 @@ export function RedeemPage() {
         </div>
       </section>
 
-      <div className="mx-auto w-full max-w-[1160px] px-4 py-8 sm:px-6 sm:py-10">
+      <div className="relative z-10 mx-auto w-full max-w-[1160px] px-4 pb-12 sm:px-6">
         <div
           className={cn(
-            "grid items-start gap-6 lg:items-stretch",
-            supportColumnVisible ? "lg:grid-cols-[minmax(0,1fr)_340px]" : "max-w-[760px]",
+            "-mt-14 grid items-start gap-6 sm:-mt-16 lg:items-stretch",
+            supportColumnVisible ? "lg:grid-cols-[minmax(0,1fr)_340px]" : "mx-auto max-w-[760px]",
           )}
         >
-        <Card className="overflow-hidden p-0 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_4%,transparent),0_18px_40px_color-mix(in_oklab,var(--foreground)_4%,transparent)] animate-fade-up [animation-delay:80ms]">
-          <div className="flex items-center justify-between border-b bg-muted/30 px-5 py-4 sm:px-7">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
+        <Card className="overflow-hidden p-0 shadow-lift animate-fade-up [animation-delay:80ms]">
+          <div className="flex items-center justify-between gap-4 border-b bg-muted/30 px-5 py-4 sm:px-7 sm:py-5">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand">
                 <TicketCheck className="size-4" />
               </span>
-              填写兑换信息
+              <div className="min-w-0">
+                <p className="text-sm font-semibold sm:text-base">填写兑换信息</p>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  请确认 GPT 邮箱可以正常收信，管理员会通过微信协助核对订单
+                </p>
+              </div>
             </div>
-            <span className="text-[11px] font-medium text-muted-foreground">
-              3 项资料
+            <span className="hidden shrink-0 rounded-full border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground sm:inline-block">
+              共 3 项
             </span>
           </div>
             <Form {...form}>
@@ -765,13 +808,6 @@ export function RedeemPage() {
                 onSubmit={form.handleSubmit(reviewSubmission)}
                 className="grid gap-6 p-6 sm:p-8"
               >
-                <div className="border-b pb-5">
-                  <h2 className="text-lg font-semibold">开始兑换</h2>
-                  <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
-                    请确认 GPT 邮箱可以正常收信，管理员会通过微信协助核对订单。
-                  </p>
-                </div>
-
                 <FormField
                   control={form.control}
                   name="redeem_code"
@@ -841,7 +877,7 @@ export function RedeemPage() {
                   />
                 </div>
 
-                <div className="flex items-start gap-2 rounded-md border border-brand/15 bg-brand/[0.045] px-3.5 py-3 text-xs leading-5 text-muted-foreground">
+                <div className="flex items-start gap-2 rounded-lg border border-brand/15 bg-brand/[0.045] px-3.5 py-3 text-xs leading-5 text-muted-foreground">
                   <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-brand" />
                   确认提交后，处理进度会显示在弹窗中，请保持页面打开并留意邮箱邀请。
                 </div>
@@ -867,13 +903,14 @@ export function RedeemPage() {
             </Form>
         </Card>
         {settingsQuery.isPending ? (
-          <aside className="hidden h-[430px] animate-pulse rounded-lg border bg-muted/45 lg:block" />
+          <aside className="hidden h-[430px] animate-pulse rounded-xl border bg-muted/45 lg:block" />
         ) : (
           <SupportWechatPanel settings={redeemSettings} />
         )}
         </div>
 
-        <p className="mt-6 max-w-[720px] text-center text-xs leading-6 text-muted-foreground sm:text-sm">
+        <p className="mx-auto mt-8 max-w-[720px] text-center text-xs leading-6 text-muted-foreground">
+          <ShieldCheck className="mr-1.5 inline-block size-3.5 align-[-2px] text-brand" />
           兑换码仅限本人使用，确认提交后请保持本页打开，处理进度会在弹窗中自动更新。
         </p>
       </div>
