@@ -172,7 +172,7 @@ function RedeemAnnouncementButton({ onClick }: { onClick: () => void }) {
           onClick={onClick}
         >
           <Megaphone data-slot="icon" className="size-4" />
-          公告
+          <span className="hidden sm:inline">公告</span>
         </Button>
       </TooltipTrigger>
       <TooltipContent>查看加入空间说明</TooltipContent>
@@ -183,32 +183,17 @@ function RedeemAnnouncementButton({ onClick }: { onClick: () => void }) {
 function WechatQrBlock({
   settings,
   compact = false,
-  stretched = false,
-  horizontal = false,
 }: {
   settings: RedeemPageSettings
   compact?: boolean
-  stretched?: boolean
-  horizontal?: boolean
 }) {
   const wechatId = settings.support_wechat_id.trim()
   const qrDataURL = settings.support_qr_data_url.trim()
 
   return (
-    <div
-      className={cn(
-        "grid gap-4",
-        stretched && "min-h-0 flex-1 grid-rows-[1fr_auto]",
-        horizontal && qrDataURL && "grid-cols-[88px_minmax(0,1fr)] items-center gap-3",
-      )}
-    >
+    <div className="grid gap-4">
       {qrDataURL ? (
-        <div
-          className={cn(
-            "mx-auto w-full self-center rounded-lg border bg-white p-2.5 shadow-sm",
-            horizontal ? "max-w-[88px] p-1.5" : "max-w-[260px]",
-          )}
-        >
+        <div className="mx-auto w-full max-w-[260px] self-center rounded-lg border bg-white p-2.5 shadow-sm">
           <img
             src={qrDataURL}
             alt="客服微信二维码"
@@ -217,12 +202,7 @@ function WechatQrBlock({
         </div>
       ) : null}
       {wechatId ? (
-        <div
-          className={cn(
-            "flex items-center justify-between gap-3 border-t pt-4",
-            horizontal && qrDataURL && "border-l border-t-0 py-1 pl-3",
-          )}
-        >
+        <div className="flex items-center justify-between gap-3 border-t pt-4">
           <div className="min-w-0">
             <p className="text-xs font-medium text-muted-foreground">
               {settings.support_contact_label || "微信号"}
@@ -251,23 +231,43 @@ function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
   }
 
   return (
-    <aside className="redeem-support-panel hidden lg:block">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <span className="redeem-support-icon">
-            <MessageCircle className="size-4" />
+    <aside className="redeem-support-panel hidden overflow-hidden lg:flex lg:flex-col">
+      <div className="redeem-support-terminal-bar">
+        <div className="flex items-center gap-2">
+          <span className="redeem-window-dot bg-[#ff6b63]" />
+          <span className="redeem-window-dot bg-[#e9bd4e]" />
+          <span className="redeem-window-dot bg-[var(--redeem-accent)]" />
+          <span className="ml-1 font-mono text-[10px] font-medium tracking-[0.08em] text-[var(--redeem-muted)]">
+            support.channel
           </span>
-          <div>
-            <p className="text-sm font-semibold">{settings.support_title}</p>
-            <p className="mt-0.5 text-xs text-[var(--redeem-muted)]">
+        </div>
+        <span className="redeem-online-label">ONLINE</span>
+      </div>
+
+      <div className="flex flex-1 flex-col p-5 xl:p-6">
+        <div className="flex items-start gap-3">
+          <span className="redeem-support-icon size-10">
+            <MessageCircle className="size-5" />
+          </span>
+          <div className="min-w-0">
+            <p className="font-mono text-[9px] font-semibold tracking-[0.16em] text-[var(--redeem-accent)]">
+              HUMAN SUPPORT
+            </p>
+            <h2 className="mt-1.5 text-lg font-semibold">{settings.support_title}</h2>
+            <p className="mt-1 text-xs leading-5 text-[var(--redeem-muted)]">
               {settings.support_description}
             </p>
           </div>
         </div>
-        <span className="redeem-online-label">ONLINE</span>
-      </div>
-      <div className="mt-4 border-t border-[var(--redeem-line)] pt-4">
-        <WechatQrBlock settings={settings} compact horizontal />
+
+        <div className="redeem-support-qr-shell mt-5">
+          <WechatQrBlock settings={settings} compact />
+        </div>
+
+        <div className="mt-5 flex items-start gap-2.5 border-t border-[var(--redeem-line)] pt-4 text-xs leading-5 text-[var(--redeem-muted)]">
+          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[var(--redeem-accent)]" />
+          <p>兑换异常、续期提醒或邮箱核对，都可以通过客服微信获得协助。</p>
+        </div>
       </div>
     </aside>
   )
@@ -289,7 +289,7 @@ function SupportWechatDialogButton({ settings }: { settings: RedeemPageSettings 
           className="redeem-nav-button lg:hidden"
         >
           <MessageCircle data-slot="icon" />
-          客服
+          <span className="hidden sm:inline">客服</span>
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-[390px]">
@@ -694,6 +694,8 @@ export function RedeemPage() {
   }
 
   const statusLoadFailed = trackingToken !== "" && statusQuery.isError
+  const supportConfigured = hasSupportContact(redeemSettings)
+  const supportColumnVisible = supportConfigured || settingsQuery.isPending
 
   return (
     <main className="redeem-console min-h-dvh overflow-hidden text-[var(--redeem-text)]">
@@ -720,8 +722,8 @@ export function RedeemPage() {
             <BrandIcon className="size-8 rounded-md shadow-none sm:size-9" />
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold leading-none sm:text-[15px]">{APP_NAME}</p>
-              <div className="mt-1.5 flex items-center gap-2 font-mono text-[9px] font-semibold tracking-[0.14em] text-[var(--redeem-muted)] sm:text-[10px]">
-                <span>REDEEM GATEWAY</span>
+              <div className="mt-1.5 flex items-center gap-2 whitespace-nowrap font-mono text-[9px] font-semibold tracking-[0.14em] text-[var(--redeem-muted)] sm:text-[10px]">
+                <span className="hidden sm:inline">REDEEM GATEWAY</span>
                 <span className="redeem-status-dot" aria-hidden="true" />
                 <span className="text-[var(--redeem-accent)]">ONLINE</span>
               </div>
@@ -738,75 +740,65 @@ export function RedeemPage() {
         </div>
       </header>
 
-      <section className="relative mx-auto grid w-full max-w-[1200px] gap-8 px-4 pb-8 pt-7 sm:px-6 sm:pb-10 sm:pt-10 lg:grid-cols-[320px_minmax(0,1fr)] lg:gap-12 lg:px-8 lg:pb-12 lg:pt-14 xl:grid-cols-[340px_minmax(0,1fr)] xl:gap-16">
-        <aside className="animate-fade-up lg:pt-4">
-          <div className="flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.18em] text-[var(--redeem-accent)]">
-            <span className="h-px w-7 bg-[var(--redeem-accent)]" aria-hidden="true" />
-            ACCESS / REDEEM
+      <section className="relative mx-auto w-full max-w-[1200px] px-4 pb-8 pt-7 sm:px-6 sm:pb-10 sm:pt-10 lg:px-8 lg:pb-12 lg:pt-12">
+        <div className="redeem-overview grid gap-8 animate-fade-up lg:grid-cols-[minmax(300px,0.78fr)_minmax(0,1.22fr)] lg:items-end lg:gap-12">
+          <div>
+            <div className="flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.18em] text-[var(--redeem-accent)]">
+              <span className="h-px w-7 bg-[var(--redeem-accent)]" aria-hidden="true" />
+              ACCESS / REDEEM
+            </div>
+            <h1 className="mt-3 max-w-[560px] text-[30px] font-semibold leading-[1.14] tracking-[-0.035em] sm:text-[38px] lg:text-[40px]">
+              兑换你的 <span className="text-[var(--redeem-accent)]">Team 席位</span>
+            </h1>
+            <p className="mt-3 max-w-[560px] text-sm leading-6 text-[var(--redeem-muted)] sm:text-[15px] sm:leading-7">
+              填写兑换凭证与接收账号，提交后处理状态会自动同步，无需重复刷新。
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span className="redeem-mini-chip">
+                <Clock3 className="size-3.5" /> 约 1–2 分钟
+              </span>
+              <span className="redeem-mini-chip">
+                <ShieldCheck className="size-3.5" /> 提交前可核对
+              </span>
+            </div>
           </div>
-          <h1 className="mt-4 max-w-[520px] text-[30px] font-semibold leading-[1.14] tracking-[-0.035em] sm:text-[38px] lg:text-[42px]">
-            接入你的
-            <span className="block text-[var(--redeem-accent)]">Team 席位</span>
-          </h1>
-          <p className="mt-4 max-w-[520px] text-sm leading-6 text-[var(--redeem-muted)] sm:text-[15px] sm:leading-7">
-            输入兑换凭证与接收账号。申请提交后，无需重复刷新，处理状态会自动同步。
-          </p>
 
-          <div className="mt-5 flex flex-wrap gap-2 lg:hidden">
-            <span className="redeem-mini-chip">
-              <Clock3 className="size-3.5" /> 约 1–2 分钟
-            </span>
-            <span className="redeem-mini-chip">
-              <ShieldCheck className="size-3.5" /> 进度自动更新
-            </span>
-          </div>
-
-          <div className="mt-10 hidden lg:block">
-            <div className="mb-5 flex items-center justify-between font-mono text-[10px] font-semibold tracking-[0.16em] text-[var(--redeem-muted)]">
+          <div className="hidden lg:block">
+            <div className="mb-3 flex items-center justify-between font-mono text-[10px] font-semibold tracking-[0.16em] text-[var(--redeem-muted)]">
               <span>PROCESS SEQUENCE</span>
               <span>03 STEPS</span>
             </div>
-            <ol className="redeem-process-rail">
+            <ol className="redeem-process-grid">
               {[
                 ["01", "验证兑换凭证", "填写兑换码与账号信息", "READY"],
                 ["02", "进入处理队列", "管理员核验并发送邀请", "QUEUE"],
                 ["03", "获取空间权限", "前往邮箱确认加入 Team", "ACCESS"],
               ].map(([number, title, description, state], index) => (
-                <li key={number} className={cn("redeem-process-step", index === 0 && "is-active")}>
-                  <span className="redeem-process-number">{number}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold">{title}</p>
-                      <span className="font-mono text-[9px] tracking-[0.12em] text-[var(--redeem-muted)]">
-                        {state}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-xs leading-5 text-[var(--redeem-muted)]">
-                      {description}
-                    </p>
+                <li key={number} className={cn("redeem-process-card", index === 0 && "is-active")}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="redeem-process-number">{number}</span>
+                    <span className="font-mono text-[9px] tracking-[0.12em] text-[var(--redeem-muted)]">
+                      {state}
+                    </span>
                   </div>
+                  <p className="mt-3 text-sm font-semibold">{title}</p>
+                  <p className="mt-1 text-[11px] leading-5 text-[var(--redeem-muted)]">
+                    {description}
+                  </p>
                 </li>
               ))}
             </ol>
           </div>
+        </div>
 
-          <div className="redeem-privacy-note mt-8 hidden lg:flex">
-            <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[var(--redeem-accent)]" />
-            <div>
-              <p className="text-xs font-semibold">资料仅用于本次兑换核验</p>
-              <p className="mt-1 text-[11px] leading-5 text-[var(--redeem-muted)]">
-                请使用能够正常收取 Team 邀请的 GPT 邮箱。
-              </p>
-            </div>
-          </div>
-
-          {settingsQuery.isPending ? (
-            <div className="mt-4 hidden h-32 animate-pulse rounded-xl border border-[var(--redeem-line)] bg-[var(--redeem-panel)] lg:block" />
-          ) : (
-            <SupportWechatPanel settings={redeemSettings} />
+        <div
+          className={cn(
+            "mt-7 grid items-start gap-6 sm:mt-8",
+            supportColumnVisible
+              ? "lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_350px]"
+              : "mx-auto max-w-[880px]",
           )}
-        </aside>
-
+        >
         <Card className="redeem-terminal animate-fade-up overflow-hidden p-0 [animation-delay:80ms]">
           <div className="redeem-terminal-bar">
             <div className="flex items-center gap-2">
@@ -963,6 +955,13 @@ export function RedeemPage() {
             <span>STATUS SYNC · 5S</span>
           </div>
         </Card>
+
+          {settingsQuery.isPending ? (
+            <aside className="hidden h-[560px] animate-pulse rounded-[14px] border border-[var(--redeem-line)] bg-[var(--redeem-panel)] lg:block" />
+          ) : (
+            <SupportWechatPanel settings={redeemSettings} />
+          )}
+        </div>
       </section>
 
       <footer className="relative mx-auto flex w-full max-w-[1200px] items-center justify-between gap-4 border-t border-[var(--redeem-line)] px-4 py-5 font-mono text-[9px] tracking-[0.12em] text-[var(--redeem-muted)] sm:px-6 lg:px-8">

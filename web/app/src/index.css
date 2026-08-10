@@ -405,6 +405,7 @@
   }
 
   .redeem-online-label {
+    display: inline-flex;
     color: var(--redeem-accent);
   }
 
@@ -422,70 +423,87 @@
     font-weight: 600;
   }
 
-  .redeem-process-rail {
-    position: relative;
+  .redeem-overview {
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--redeem-line);
   }
 
-  .redeem-process-rail::before {
+  .redeem-process-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.8rem;
+  }
+
+  .redeem-process-card {
+    position: relative;
+    min-width: 0;
+    border-top: 1px solid var(--redeem-line);
+    padding-top: 0.75rem;
+  }
+
+  .redeem-process-card::before {
     position: absolute;
-    top: 33px;
-    bottom: 33px;
-    left: 16px;
-    width: 1px;
-    background: var(--redeem-line);
+    top: -1px;
+    left: 0;
+    width: 2.25rem;
+    height: 1px;
+    background: var(--redeem-line-strong);
     content: "";
   }
 
-  .redeem-process-step {
-    position: relative;
-    display: grid;
-    grid-template-columns: 34px minmax(0, 1fr);
-    gap: 14px;
-    padding-bottom: 24px;
-  }
-
-  .redeem-process-step:last-child {
-    padding-bottom: 0;
+  .redeem-process-card.is-active::before {
+    width: 3.25rem;
+    background: var(--redeem-accent);
+    box-shadow: 0 0 12px color-mix(in oklab, var(--redeem-accent) 34%, transparent);
   }
 
   .redeem-process-number {
-    position: relative;
-    z-index: 1;
     display: grid;
-    width: 34px;
-    height: 34px;
+    width: 27px;
+    height: 24px;
     place-items: center;
     border: 1px solid var(--redeem-line);
-    border-radius: 6px;
-    background: var(--redeem-bg);
+    border-radius: 5px;
+    background: var(--redeem-panel-muted);
     color: var(--redeem-muted);
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: 9px;
     font-weight: 700;
   }
 
-  .redeem-process-step.is-active .redeem-process-number {
+  .redeem-process-card.is-active .redeem-process-number {
     border-color: color-mix(in oklab, var(--redeem-accent) 72%, var(--redeem-line));
     background: var(--redeem-accent-soft);
     color: var(--redeem-accent);
     box-shadow: 0 0 20px color-mix(in oklab, var(--redeem-accent) 14%, transparent);
   }
 
-  .redeem-privacy-note,
   .redeem-support-panel {
-    border: 1px solid var(--redeem-line);
-    border-radius: 10px;
-    background: color-mix(in oklab, var(--redeem-panel) 82%, transparent);
+    border: 1px solid var(--redeem-line-strong);
+    border-radius: 14px;
+    background: color-mix(in oklab, var(--redeem-panel) 94%, transparent);
+    color: var(--redeem-text);
+    box-shadow:
+      0 1px 0 color-mix(in oklab, white 38%, transparent) inset,
+      0 24px 64px -42px color-mix(in oklab, #07110f 52%, transparent);
+    backdrop-filter: blur(14px);
   }
 
-  .redeem-privacy-note {
-    gap: 0.65rem;
-    padding: 0.85rem;
+  .dark .redeem-support-panel {
+    box-shadow:
+      0 1px 0 color-mix(in oklab, white 5%, transparent) inset,
+      0 30px 72px -40px rgb(0 0 0 / 0.72);
   }
 
-  .redeem-support-panel {
-    margin-top: 0.75rem;
-    padding: 0.9rem;
+  .redeem-support-terminal-bar {
+    display: flex;
+    min-height: 45px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-bottom: 1px solid var(--redeem-line);
+    padding: 0.65rem 0.9rem;
+    background: var(--redeem-panel-muted);
   }
 
   .redeem-support-icon {
@@ -498,6 +516,20 @@
     border-radius: 6px;
     background: var(--redeem-accent-soft);
     color: var(--redeem-accent);
+  }
+
+  .redeem-support-panel .redeem-support-icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .redeem-support-qr-shell {
+    border: 1px solid var(--redeem-line);
+    border-radius: 10px;
+    padding: 1rem;
+    background:
+      linear-gradient(135deg, var(--redeem-accent-soft), transparent 55%),
+      var(--redeem-panel-muted);
   }
 
   .redeem-terminal {
