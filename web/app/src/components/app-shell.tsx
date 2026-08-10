@@ -209,10 +209,10 @@ export function AppShell() {
               onClick={() => setOpenNavTooltip(null)}
               className={({ isActive }) =>
                 cn(
-                  "group flex h-10 items-center gap-3 rounded-md px-2.5 text-sm font-medium transition-[background-color,color]",
+                  "group flex h-10 items-center gap-3 rounded-lg px-2.5 text-sm font-medium transition-[background-color,color,box-shadow]",
                   sidebarCollapsed && "justify-center px-0",
                   isActive
-                    ? "bg-brand/[0.09] text-brand dark:bg-brand/15"
+                    ? "bg-brand/10 text-brand ring-1 ring-inset ring-brand/15 dark:bg-brand/15 dark:ring-brand/25"
                     : "text-[var(--sidebar-muted)] hover:bg-accent hover:text-[var(--sidebar-foreground)]",
                 )
               }
@@ -307,7 +307,7 @@ export function AppShell() {
       </aside>
 
       <div className="min-w-0 lg:col-start-2">
-        <header className="sticky top-0 z-40 hidden h-16 items-center border-b bg-card/90 px-8 backdrop-blur lg:flex">
+        <header className="sticky top-0 z-40 hidden h-16 items-center border-b border-border/70 bg-background/75 px-8 backdrop-blur-xl lg:flex">
           <div className="flex min-w-0 items-center gap-2 text-sm">
             <span className="font-medium text-muted-foreground">{APP_NAME}</span>
             <ChevronRight className="size-3.5 text-muted-foreground/70" />
@@ -319,7 +319,7 @@ export function AppShell() {
           </div>
         </header>
 
-        <header className="sticky top-0 z-40 border-b bg-card/95 backdrop-blur lg:hidden">
+        <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 backdrop-blur-xl lg:hidden">
           <div className="flex h-16 items-center gap-2 px-4">
             <BrandMark />
             <div className="ml-auto flex items-center gap-1">

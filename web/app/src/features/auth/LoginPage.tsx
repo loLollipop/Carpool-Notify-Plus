@@ -51,7 +51,7 @@ export function LoginPage() {
 
   return (
     <div className="grid min-h-dvh bg-background lg:grid-cols-[minmax(400px,0.9fr)_minmax(560px,1.1fr)]">
-      <aside className="relative hidden overflow-hidden border-r border-[var(--login-panel-border)] bg-[var(--login-panel)] p-10 text-[var(--login-panel-foreground)] lg:flex lg:flex-col lg:justify-between xl:p-14">
+      <aside className="login-surface relative hidden overflow-hidden border-r border-[var(--login-panel-border)] p-10 text-[var(--login-panel-foreground)] lg:flex lg:flex-col lg:justify-between xl:p-14">
         <BrandIcon
           className="pointer-events-none absolute -bottom-24 -right-24 size-80 opacity-[0.055] shadow-none"
         />
@@ -107,7 +107,7 @@ export function LoginPage() {
           </div>
 
           <Card
-            className="relative gap-0 overflow-hidden border-border/90 p-6 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_5%,transparent),0_20px_48px_color-mix(in_oklab,var(--foreground)_5%,transparent)] animate-fade-up sm:p-9"
+            className="relative gap-0 overflow-hidden border-border/90 p-6 shadow-lift animate-fade-up sm:p-9"
             style={{ animationDelay: "120ms" }}
           >
             <div>

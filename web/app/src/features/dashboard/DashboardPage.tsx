@@ -177,7 +177,7 @@ function KpiCard({
   }
   return (
     <Card
-      className="group relative min-h-[112px] gap-0 overflow-hidden p-4 transition-[border-color,box-shadow] duration-200 animate-fade-up hover:border-input hover:shadow-[0_8px_24px_color-mix(in_oklab,var(--foreground)_6%,transparent)]"
+      className="group relative min-h-[112px] gap-0 overflow-hidden p-4 transition-[border-color,box-shadow] duration-200 animate-fade-up hover:border-input hover:shadow-lift"
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="flex min-w-0 items-start gap-3">

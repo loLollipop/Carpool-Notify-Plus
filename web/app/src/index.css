@@ -5,7 +5,7 @@
 
 :root {
   /* Calm teal operations workspace inspired by Sub2API's clear hierarchy. */
-  --background: #f6f9f8;
+  --background: #f4f7f6;
   --foreground: #1f2933;
   --card: #ffffff;
   --card-foreground: #1f2933;
@@ -48,15 +48,15 @@
   --login-panel-foreground: #f7f9fc;
   --login-panel-muted: #b6cbc7;
   --login-panel-border: #31514c;
-  --radius: 0.5rem;
+  --radius: 0.625rem;
 }
 
 .dark {
-  --background: #0f1514;
+  --background: #0c1211;
   --foreground: #eef3f2;
-  --card: #18201f;
+  --card: #151d1c;
   --card-foreground: #f0f2f4;
-  --popover: #1b2523;
+  --popover: #192221;
   --popover-foreground: #f0f2f4;
   --primary: #5eead4;
   --primary-foreground: #073b36;
@@ -87,7 +87,7 @@
   --coral: #f07a78;
   --gold: #e2ae55;
   --cyan: #65c7d8;
-  --sidebar: #141b1a;
+  --sidebar: #101715;
   --sidebar-foreground: #eef3f2;
   --sidebar-muted: #a3b1ae;
   --sidebar-border: #293633;
@@ -138,6 +138,14 @@
   --color-coral: var(--coral);
   --color-gold: var(--gold);
   --color-cyan: var(--cyan);
+
+  /* Elevation tokens: layered soft shadows that adapt to light/dark via --foreground. */
+  --shadow-card: 0 1px 2px color-mix(in oklab, var(--foreground) 4%, transparent),
+    0 12px 32px -16px color-mix(in oklab, var(--foreground) 12%, transparent);
+  --shadow-lift: 0 2px 6px color-mix(in oklab, var(--foreground) 6%, transparent),
+    0 20px 48px -16px color-mix(in oklab, var(--foreground) 20%, transparent);
+  --shadow-brand: 0 1px 2px color-mix(in oklab, var(--brand) 22%, transparent),
+    0 8px 20px -8px color-mix(in oklab, var(--brand) 42%, transparent);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -193,6 +201,18 @@
     min-width: 320px;
     min-height: 100dvh;
     text-rendering: optimizeLegibility;
+    /* Fixed ambient glow so pages never feel like flat gray slabs. */
+    background-image:
+      radial-gradient(48rem 24rem at 100% 0%, color-mix(in oklab, var(--brand) 7%, transparent), transparent 62%),
+      radial-gradient(42rem 22rem at 0% 100%, color-mix(in oklab, var(--cyan) 6%, transparent), transparent 60%);
+    background-repeat: no-repeat;
+    background-attachment: fixed;
+  }
+
+  .dark body {
+    background-image:
+      radial-gradient(48rem 24rem at 100% 0%, color-mix(in oklab, var(--brand) 11%, transparent), transparent 62%),
+      radial-gradient(42rem 22rem at 0% 100%, color-mix(in oklab, var(--cyan) 9%, transparent), transparent 60%);
   }
 
   strong,
@@ -259,6 +279,15 @@
 
   .panel-heading {
     color: var(--foreground);
+  }
+
+  /* Login aside: brand-tinted gradient surface with warm/cool glows. */
+  .login-surface {
+    background-color: var(--login-panel);
+    background-image:
+      radial-gradient(40rem 20rem at 85% -10%, color-mix(in oklab, var(--brand) 26%, transparent), transparent 62%),
+      radial-gradient(30rem 18rem at -10% 110%, color-mix(in oklab, var(--gold) 16%, transparent), transparent 58%),
+      linear-gradient(165deg, transparent, color-mix(in oklab, black 24%, transparent));
   }
 
   .metric-rule {
