@@ -345,6 +345,7 @@ func (server *Server) getRedeemStatus(context *gin.Context) {
 
 type subscriptionRequest struct {
 	Name           string `json:"name"`
+	BusinessType   string `json:"business_type"`
 	PriceYuan      string `json:"price_yuan"`
 	CostYuan       string `json:"cost_yuan"`
 	IsResale       bool   `json:"is_resale"`
@@ -371,6 +372,7 @@ func offsetsToRaw(offsets []int) string {
 func (request subscriptionRequest) toCreateInput() service.CreateInput {
 	return service.CreateInput{
 		Name:             request.Name,
+		BusinessType:     request.BusinessType,
 		PriceYuan:        request.PriceYuan,
 		CostYuan:         request.CostYuan,
 		IsResale:         request.IsResale,
@@ -546,6 +548,22 @@ func (server *Server) deleteSubscription(context *gin.Context) {
 func (server *Server) postArchiveSubscription(context *gin.Context) {
 	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
 	if !ok {
+		return
+	}
+	subscription, err := server.Service.Get(subscriptionID)
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	if subscription.BusinessType == model.SubscriptionBusinessPlus {
+		if err := server.Service.Archive(subscriptionID); err != nil {
+			respondError(context, http.StatusBadRequest, err.Error())
+			return
+		}
+		respondOK(context, gin.H{
+			"message":  "Plus 出租已结束，账号席位已释放",
+			"archived": true,
+		})
 		return
 	}
 	result, err := server.Service.RequestCancellation(subscriptionID)

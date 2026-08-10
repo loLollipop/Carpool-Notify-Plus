@@ -55,6 +55,7 @@ type CalendarDayView struct {
 type CalendarOccurrenceView struct {
 	SubscriptionID int64    `json:"subscription_id"`
 	Name           string   `json:"name"`
+	BusinessType   string   `json:"business_type"`
 	DueDate        string   `json:"due_date"`
 	DayNumber      int      `json:"day_number"`
 	WeekdayLabel   string   `json:"weekday_label"`
@@ -434,6 +435,7 @@ func (service *SubscriptionService) buildOccurrenceView(
 	return CalendarOccurrenceView{
 		SubscriptionID: subscription.ID,
 		Name:           subscription.Name,
+		BusinessType:   subscription.BusinessType,
 		DueDate:        cycle.FormatDate(dueAt),
 		DayNumber:      dueAt.In(cycle.Location).Day(),
 		WeekdayLabel:   calendarWeekdayLabel(dueAt.Weekday()),
@@ -444,7 +446,7 @@ func (service *SubscriptionService) buildOccurrenceView(
 		ProfitYuan:     cycle.FormatCents(profitCents),
 		CycleDesc:      cycle.DescribeCron(subscription.CronExpr),
 		ReminderLabel:  calendarReminderLabel(subscription.NotifyOffsets),
-		ChannelLabels:  scheduledNotificationLabelText(subscription.NotifyOffsets),
+		ChannelLabels:  scheduledNotificationLabelText(subscription),
 		Paid:           paid,
 		AccountName:    displayAccountName(subscription),
 		SeatName:       subscription.SeatName,

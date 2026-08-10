@@ -397,10 +397,14 @@ function buildHealthItems({
     (occurrence) => occurrence.days_remaining >= 0 && occurrence.days_remaining <= 7,
   )
   const missingCustomerEmail = subscriptions.filter(
-    (view) => view.subscription.customer_email.trim() === "",
+    (view) =>
+      view.subscription.business_type !== "plus" &&
+      view.subscription.customer_email.trim() === "",
   )
   const missingReminderOffsets = subscriptions.filter(
-    (view) => (view.subscription.notify_offsets?.length ?? 0) === 0,
+    (view) =>
+      view.subscription.business_type !== "plus" &&
+      (view.subscription.notify_offsets?.length ?? 0) === 0,
   )
   const activeSaleAccounts = accounts.filter((view) =>
     (view.seats ?? []).some((seat) => seat.occupied && !seat.active_is_resale),

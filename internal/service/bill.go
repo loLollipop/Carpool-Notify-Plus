@@ -184,7 +184,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 		cycleDesc = cycle.DescribeCron(subscription.CronExpr)
 		cronExpr = subscription.CronExpr
 		offsetsText = cycle.FormatOffsets(subscription.NotifyOffsets)
-		channelLabels = scheduledNotificationLabelText(subscription.NotifyOffsets)
+		channelLabels = scheduledNotificationLabelText(subscription)
 		remark = subscription.Remark
 		boardedAt = subscription.BoardedAt
 		if subscription.ArchivedAt != nil {

@@ -117,6 +117,7 @@ func (store *Store) migrate() error {
 		`CREATE TABLE IF NOT EXISTS subscriptions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         name TEXT NOT NULL,
+						business_type TEXT NOT NULL DEFAULT 'team',
                         price_per_person_cents INTEGER NOT NULL,
                         cron_expr TEXT NOT NULL,
                         notify_offsets TEXT NOT NULL,
@@ -246,6 +247,9 @@ func (store *Store) migrate() error {
 	}
 
 	if err := store.ensureSubscriptionTypeColumn(); err != nil {
+		return err
+	}
+	if err := store.ensureSubscriptionBusinessTypeColumn(); err != nil {
 		return err
 	}
 	if err := store.ensureCostCentsColumn(); err != nil {
@@ -498,6 +502,23 @@ func (store *Store) ensureSubscriptionTypeColumn() error {
 	)
 	if err != nil {
 		return fmt.Errorf("add subscription_type: %w", err)
+	}
+	return nil
+}
+
+func (store *Store) ensureSubscriptionBusinessTypeColumn() error {
+	hasColumn, err := store.subscriptionsHasColumn("business_type")
+	if err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	_, err = store.database.Exec(
+		`ALTER TABLE subscriptions ADD COLUMN business_type TEXT NOT NULL DEFAULT 'team'`,
+	)
+	if err != nil {
+		return fmt.Errorf("add business_type: %w", err)
 	}
 	return nil
 }
@@ -905,6 +926,7 @@ func (store *Store) ensureActiveSeatOccupancyTriggers() error {
 const subscriptionSelectColumns = `
 	subscription.id,
 	subscription.name,
+	COALESCE(subscription.business_type, 'team'),
 	subscription.price_per_person_cents,
 	subscription.cost_cents,
 	COALESCE(subscription.is_resale, 0),
@@ -1057,6 +1079,7 @@ func insertSubscription(
 	if subscriptionType == "" {
 		subscriptionType = model.SubscriptionTypeOther
 	}
+	businessType := normalizeStoredBusinessType(subscription.BusinessType)
 	boardedAt := strings.TrimSpace(subscription.BoardedAt)
 	var seatID interface{}
 	if subscription.SeatID > 0 {
@@ -1068,10 +1091,11 @@ func insertSubscription(
 	}
 	result, err := executor.Exec(`
                 INSERT INTO subscriptions (
-                        name, price_per_person_cents, cost_cents, is_resale, agency_fee_cents, cron_expr, notify_offsets, channels,
+                        name, business_type, price_per_person_cents, cost_cents, is_resale, agency_fee_cents, cron_expr, notify_offsets, channels,
                         remark, trade_url, customer_email, customer_wechat, subscription_type, seat_id, boarded_at, archived_at, deleted_at, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
 		subscription.Name,
+		businessType,
 		subscription.PricePerPersonCents,
 		subscription.CostCents,
 		isResale,
@@ -1141,6 +1165,7 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 	if subscriptionType == "" {
 		subscriptionType = model.SubscriptionTypeOther
 	}
+	businessType := normalizeStoredBusinessType(subscription.BusinessType)
 	boardedAt := strings.TrimSpace(subscription.BoardedAt)
 	var seatID interface{}
 	if subscription.SeatID > 0 {
@@ -1152,7 +1177,7 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 	}
 	result, err := store.database.Exec(`
                 UPDATE subscriptions
-                SET name = ?, price_per_person_cents = ?, cost_cents = ?, is_resale = ?, agency_fee_cents = ?, cron_expr = ?, notify_offsets = ?,
+                SET name = ?, business_type = ?, price_per_person_cents = ?, cost_cents = ?, is_resale = ?, agency_fee_cents = ?, cron_expr = ?, notify_offsets = ?,
                     channels = ?, remark = ?, trade_url = ?, customer_email = ?, customer_wechat = ?, subscription_type = ?, seat_id = ?, boarded_at = ?, updated_at = ?
                 WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL
                   AND NOT EXISTS (
@@ -1162,6 +1187,7 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 					  AND status IN (?, ?)
 				  )`,
 		subscription.Name,
+		businessType,
 		subscription.PricePerPersonCents,
 		subscription.CostCents,
 		isResale,
@@ -2846,6 +2872,7 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 	err := scanner.Scan(
 		&subscription.ID,
 		&subscription.Name,
+		&subscription.BusinessType,
 		&subscription.PricePerPersonCents,
 		&subscription.CostCents,
 		&isResale,
@@ -2875,6 +2902,7 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 		return model.Subscription{}, err
 	}
 	subscription.IsResale = isResale != 0
+	subscription.BusinessType = normalizeStoredBusinessType(subscription.BusinessType)
 	subscription.CustomerEmail = strings.TrimSpace(customerEmail)
 	subscription.CustomerWechat = strings.TrimSpace(customerWechat)
 	subscription.SeatID = seatID
@@ -2936,6 +2964,13 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 		return model.Subscription{}, err
 	}
 	return subscription, nil
+}
+
+func normalizeStoredBusinessType(raw string) string {
+	if strings.EqualFold(strings.TrimSpace(raw), model.SubscriptionBusinessPlus) {
+		return model.SubscriptionBusinessPlus
+	}
+	return model.SubscriptionBusinessTeam
 }
 
 func scanBill(scanner scannable) (model.Bill, error) {

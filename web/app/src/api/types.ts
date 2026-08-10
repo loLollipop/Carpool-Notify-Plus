@@ -1,8 +1,11 @@
 // DTO types mirroring the Go JSON tags (internal/service + internal/model).
 
+export type SubscriptionBusinessType = "team" | "plus"
+
 export interface Subscription {
   id: number
   name: string
+  business_type: SubscriptionBusinessType
   price_per_person_cents: number
   cost_cents: number
   is_resale: boolean
@@ -118,6 +121,7 @@ export interface RedemptionStatus {
 export interface CalendarOccurrence {
   subscription_id: number
   name: string
+  business_type: SubscriptionBusinessType
   due_date: string
   day_number: number
   weekday_label: string
@@ -237,6 +241,7 @@ export interface SeatView {
   occupied: boolean
   active_subscription_id: number
   active_subscription_name: string
+  active_business_type: SubscriptionBusinessType
   active_price_yuan: string
   active_cost_yuan: string
   active_agency_fee_yuan: string
@@ -505,6 +510,7 @@ export interface ReminderPreview {
 
 export interface SubscriptionInput {
   name: string
+  business_type: SubscriptionBusinessType
   price_yuan: string
   cost_yuan: string
   is_resale: boolean

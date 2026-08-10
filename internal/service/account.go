@@ -27,6 +27,7 @@ type SeatView struct {
 	Occupied               bool       `json:"occupied"`
 	ActiveSubscriptionID   int64      `json:"active_subscription_id"`
 	ActiveSubscriptionName string     `json:"active_subscription_name"`
+	ActiveBusinessType     string     `json:"active_business_type"`
 	// Edit form fields for the occupying subscription (empty when free).
 	ActivePriceYuan         string `json:"active_price_yuan"`
 	ActiveCostYuan          string `json:"active_cost_yuan"`
@@ -163,6 +164,7 @@ func (service *SubscriptionService) buildSeatView(seat model.Seat) (SeatView, er
 		view.Occupied = true
 		view.ActiveSubscriptionID = activeSubscription.ID
 		view.ActiveSubscriptionName = activeSubscription.Name
+		view.ActiveBusinessType = activeSubscription.BusinessType
 		view.ActivePriceYuan = cycle.FormatCents(activeSubscription.PricePerPersonCents)
 		view.ActiveCostYuan = cycle.FormatCents(activeSubscription.CostCents)
 		view.ActiveAgencyFeeYuan = cycle.FormatCents(activeSubscription.AgencyFeeCents)

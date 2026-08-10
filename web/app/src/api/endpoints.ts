@@ -179,7 +179,12 @@ export function updateSubscription(id: number, input: SubscriptionInput) {
 
 export function archiveSubscription(id: number) {
   return api<
-    MessageResult & { case_id: number; expires_at: string; expires_at_label: string }
+    MessageResult & {
+      archived?: boolean
+      case_id?: number
+      expires_at?: string
+      expires_at_label?: string
+    }
   >(`/api/subscriptions/${id}/archive`, { method: "POST" })
 }
 

@@ -127,6 +127,7 @@ export function SubscriptionDialog({
   const schema = React.useMemo(
     () =>
       z.object({
+        business_type: z.enum(["team", "plus"]),
         account_id: z.string().min(1, t("subscriptionDialog.validation.accountRequired")),
         name: z.string(),
         price_yuan: z
@@ -159,6 +160,14 @@ export function SubscriptionDialog({
         customer_wechat: z.string().trim(),
         trade_url: z.string(),
         remark: z.string(),
+      }).superRefine((values, context) => {
+        if (values.business_type === "plus" && values.customer_wechat.trim() === "") {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["customer_wechat"],
+            message: t("subscriptionDialog.validation.wechatRequired"),
+          })
+        }
       }),
     [t],
   )
@@ -167,6 +176,7 @@ export function SubscriptionDialog({
 
   const defaultValues = React.useCallback(
     (): FormValues => ({
+      business_type: prefill?.businessType ?? "team",
       account_id: prefill && prefill.accountId > 0 ? String(prefill.accountId) : "",
       name: prefill?.name ?? "",
       price_yuan: prefill?.priceYuan ?? "",
@@ -199,6 +209,8 @@ export function SubscriptionDialog({
   const cronExpr = useWatch({ control: form.control, name: "cron_expr" })
   const boardedAt = useWatch({ control: form.control, name: "boarded_at" })
   const isResale = useWatch({ control: form.control, name: "is_resale" })
+  const businessType = useWatch({ control: form.control, name: "business_type" })
+  const isPlus = businessType === "plus"
   const accountId = useWatch({ control: form.control, name: "account_id" })
   const cronPreview = useCronPreview(cronExpr, boardedAt, open)
   const cronInputRef = React.useRef<HTMLInputElement | null>(null)
@@ -207,15 +219,16 @@ export function SubscriptionDialog({
     (values: FormValues) => {
       const input: SubscriptionInput = {
         name: values.name.trim(),
+        business_type: values.business_type,
         price_yuan: values.price_yuan.trim(),
         cost_yuan: isEdit ? values.cost_yuan.trim() : "",
-        is_resale: values.is_resale,
-        agency_fee_yuan: values.is_resale ? values.agency_fee_yuan.trim() : "0",
+        is_resale: isPlus ? false : values.is_resale,
+        agency_fee_yuan: !isPlus && values.is_resale ? values.agency_fee_yuan.trim() : "0",
         cron_expr: values.cron_expr.trim(),
-        notify_offsets: values.notify_offsets,
+        notify_offsets: isPlus ? [] : values.notify_offsets,
         remark: values.remark.trim(),
         trade_url: values.trade_url.trim(),
-        customer_email: values.customer_email.trim(),
+        customer_email: isPlus ? "" : values.customer_email.trim(),
         customer_wechat: values.customer_wechat.trim(),
         account_id: Number(values.account_id),
         seat_id: prefill?.seatId ?? 0,
@@ -241,7 +254,7 @@ export function SubscriptionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
             {isEdit ? t("subscriptionDialog.editTitle") : t("subscriptionDialog.createTitle")}
@@ -254,6 +267,40 @@ export function SubscriptionDialog({
             onSubmit={form.handleSubmit((values) => saveMutation.mutate(values))}
             className="grid gap-5"
           >
+            <FormField
+              control={form.control}
+              name="business_type"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t("subscriptionDialog.businessType")}</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="team">{t("subscriptionDialog.businessTeam")}</SelectItem>
+                      <SelectItem value="plus">{t("subscriptionDialog.businessPlus")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormDescription>{t("subscriptionDialog.businessTypeHint")}</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            {isPlus ? (
+              <div className="rounded-lg border border-brand/25 bg-brand/[0.06] px-3.5 py-3 text-sm leading-6">
+                <div className="font-medium text-foreground">
+                  {t("subscriptionDialog.plusNoticeTitle")}
+                </div>
+                <div className="mt-0.5 text-xs text-muted-foreground">
+                  {t("subscriptionDialog.plusNotice")}
+                </div>
+              </div>
+            ) : null}
+
             <FormField
               control={form.control}
               name="account_id"
@@ -301,7 +348,9 @@ export function SubscriptionDialog({
                         : t("subscriptionDialog.accountCostHint", {
                             cost: selectedAccount.cost_yuan,
                           })
-                      : t("subscriptionDialog.accountHint")}
+                      : isPlus
+                        ? t("subscriptionDialog.plusAccountHint")
+                        : t("subscriptionDialog.accountHint")}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -331,7 +380,11 @@ export function SubscriptionDialog({
               name="price_yuan"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("subscriptionDialog.price")}</FormLabel>
+                  <FormLabel>
+                    {isPlus
+                      ? t("subscriptionDialog.plusPrice")
+                      : t("subscriptionDialog.price")}
+                  </FormLabel>
                   <FormControl>
                     <Input inputMode="decimal" placeholder="20.00" {...field} />
                   </FormControl>
@@ -340,23 +393,25 @@ export function SubscriptionDialog({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="is_resale"
-              render={({ field }) => (
-                <FormItem className="flex flex-row items-center justify-between rounded-lg border border-border/60 px-3 py-2.5">
-                  <div className="space-y-0.5 pr-4">
-                    <FormLabel>{t("subscriptionDialog.resale")}</FormLabel>
-                    <FormDescription>{t("subscriptionDialog.resaleHint")}</FormDescription>
-                  </div>
-                  <FormControl>
-                    <Switch checked={field.value} onCheckedChange={field.onChange} />
-                  </FormControl>
-                </FormItem>
-              )}
-            />
+            {!isPlus ? (
+              <FormField
+                control={form.control}
+                name="is_resale"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border border-border/60 px-3 py-2.5">
+                    <div className="space-y-0.5 pr-4">
+                      <FormLabel>{t("subscriptionDialog.resale")}</FormLabel>
+                      <FormDescription>{t("subscriptionDialog.resaleHint")}</FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch checked={field.value} onCheckedChange={field.onChange} />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+            ) : null}
 
-            {isResale ? (
+            {!isPlus && isResale ? (
               <FormField
                 control={form.control}
                 name="agency_fee_yuan"
@@ -378,11 +433,19 @@ export function SubscriptionDialog({
               name="boarded_at"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("subscriptionDialog.boardedAt")}</FormLabel>
+                  <FormLabel>
+                    {isPlus
+                      ? t("subscriptionDialog.plusStartedAt")
+                      : t("subscriptionDialog.boardedAt")}
+                  </FormLabel>
                   <FormControl>
                     <Input type="date" {...field} />
                   </FormControl>
-                  <FormDescription>{t("subscriptionDialog.boardedAtHint")}</FormDescription>
+                  <FormDescription>
+                    {isPlus
+                      ? t("subscriptionDialog.plusStartedAtHint")
+                      : t("subscriptionDialog.boardedAtHint")}
+                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
@@ -464,72 +527,79 @@ export function SubscriptionDialog({
               )}
             />
 
-            <FormField
-              control={form.control}
-              name="notify_offsets"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t("subscriptionDialog.offsets")}</FormLabel>
-                  <div className="flex flex-wrap gap-1.5">
-                    {OFFSET_OPTIONS.map((offset) => {
-                      const checked = field.value.includes(offset)
-                      return (
-                        <label
-                          key={offset}
-                          className={cn(
-                            "flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-[13px] transition-colors select-none",
-                            checked
-                              ? "border-brand/40 bg-brand/10 text-foreground"
-                              : "hover:bg-accent",
-                          )}
-                        >
-                          <Checkbox
-                            checked={checked}
-                            onCheckedChange={(value) => {
-                              field.onChange(
-                                value === true
-                                  ? [...field.value, offset].sort((a, b) => a - b)
-                                  : field.value.filter((item) => item !== offset),
-                              )
-                            }}
-                          />
-                          {offset === 0
-                            ? t("subscriptionDialog.offsetToday")
-                            : t("subscriptionDialog.offsetDays", { count: offset })}
-                        </label>
-                      )
-                    })}
-                  </div>
-                  <FormDescription>{t("subscriptionDialog.offsetsHint")}</FormDescription>
-                </FormItem>
-              )}
-            />
+            {!isPlus ? (
+              <FormField
+                control={form.control}
+                name="notify_offsets"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("subscriptionDialog.offsets")}</FormLabel>
+                    <div className="flex flex-wrap gap-1.5">
+                      {OFFSET_OPTIONS.map((offset) => {
+                        const checked = field.value.includes(offset)
+                        return (
+                          <label
+                            key={offset}
+                            className={cn(
+                              "flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-[13px] transition-colors select-none",
+                              checked
+                                ? "border-brand/40 bg-brand/10 text-foreground"
+                                : "hover:bg-accent",
+                            )}
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(value) => {
+                                field.onChange(
+                                  value === true
+                                    ? [...field.value, offset].sort((a, b) => a - b)
+                                    : field.value.filter((item) => item !== offset),
+                                )
+                              }}
+                            />
+                            {offset === 0
+                              ? t("subscriptionDialog.offsetToday")
+                              : t("subscriptionDialog.offsetDays", { count: offset })}
+                          </label>
+                        )
+                      })}
+                    </div>
+                    <FormDescription>{t("subscriptionDialog.offsetsHint")}</FormDescription>
+                  </FormItem>
+                )}
+              />
+            ) : null}
 
-            <FormField
-              control={form.control}
-              name="customer_email"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t("subscriptionDialog.customerEmail")}</FormLabel>
-                  <FormControl>
-                    <Input
-                      type="email"
-                      autoComplete="email"
-                      placeholder={t("common.optional")}
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            {!isPlus ? (
+              <FormField
+                control={form.control}
+                name="customer_email"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("subscriptionDialog.customerEmail")}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="email"
+                        autoComplete="email"
+                        placeholder={t("common.optional")}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            ) : null}
 
             <FormField
               control={form.control}
               name="customer_wechat"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t("subscriptionDialog.customerWechat")}</FormLabel>
+                  <FormLabel>
+                    {t("subscriptionDialog.customerWechat")}
+                    {isPlus ? " *" : ""}
+                  </FormLabel>
                   <FormControl>
                     <Input
                       autoComplete="off"
@@ -537,6 +607,9 @@ export function SubscriptionDialog({
                       {...field}
                     />
                   </FormControl>
+                  {isPlus ? (
+                    <FormDescription>{t("subscriptionDialog.plusWechatHint")}</FormDescription>
+                  ) : null}
                   <FormMessage />
                 </FormItem>
               )}

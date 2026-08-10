@@ -31,6 +31,9 @@ const (
 	// New code uses AccountName for display; this remains for migration/export compatibility.
 	SubscriptionTypeOther = "其它"
 
+	SubscriptionBusinessTeam = "team"
+	SubscriptionBusinessPlus = "plus"
+
 	// UnclassifiedAccountName is the account name used when migrating legacy "其它" types.
 	UnclassifiedAccountName = "未分类"
 
@@ -146,8 +149,10 @@ type Seat struct {
 
 // Subscription is a carpool collect-payment reminder record.
 type Subscription struct {
-	ID                  int64  `json:"id"`
-	Name                string `json:"name"`
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+	// BusinessType distinguishes Team carpools from manually managed Plus rentals.
+	BusinessType        string `json:"business_type"`
 	PricePerPersonCents int64  `json:"price_per_person_cents"`
 	// CostCents is the per-seat cost price in integer cents (0 if unset).
 	// For normal seats, profit = PricePerPersonCents - CostCents.
@@ -363,6 +368,7 @@ type ExportSeat struct {
 type ExportSubscription struct {
 	ID                  int64    `json:"id"`
 	Name                string   `json:"name"`
+	BusinessType        string   `json:"business_type"`
 	PricePerPersonCents int64    `json:"price_per_person_cents"`
 	PricePerPersonYuan  string   `json:"price_per_person_yuan"`
 	CostCents           int64    `json:"cost_cents"`

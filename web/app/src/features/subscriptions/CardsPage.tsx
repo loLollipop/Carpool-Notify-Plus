@@ -49,7 +49,7 @@ import { ReminderPreviewDialog } from "./ReminderPreviewDialog"
 import { SubscriptionDialog } from "./SubscriptionDialog"
 import { prefillFromView, type SubscriptionPrefill } from "./subscription-prefill"
 
-type CardsFilter = "all" | "pending" | "paid" | "archived" | "resale"
+type CardsFilter = "all" | "team" | "plus" | "pending" | "paid" | "archived" | "resale"
 
 const EMPTY_SUBSCRIPTION_VIEWS: SubscriptionView[] = []
 const USERS_PER_PAGE = 9
@@ -59,7 +59,9 @@ function normalizeCardsFilter(value: string | null): CardsFilter {
     value === "pending" ||
     value === "paid" ||
     value === "archived" ||
-    value === "resale"
+    value === "resale" ||
+    value === "team" ||
+    value === "plus"
   ) {
     return value
   }
@@ -86,18 +88,28 @@ function MetaCell({ label, children }: { label: string; children: React.ReactNod
   )
 }
 
-function CustomerContactRow({ email, wechat }: { email: string; wechat: string }) {
+function CustomerContactRow({
+  email,
+  wechat,
+  plusRental,
+}: {
+  email: string
+  wechat: string
+  plusRental: boolean
+}) {
   const { t } = useTranslation()
 
   return (
     <div className="mt-2 grid min-w-0 gap-1.5">
-      <span
-        className="flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-md border border-brand/10 bg-brand/[0.06] px-2 text-xs text-muted-foreground"
-        title={`${t("subscriptionDialog.customerEmail")}: ${email || t("cards.contactMissing")}`}
-      >
-        <Mail className="size-3.5 shrink-0" aria-hidden="true" />
-        <span className="truncate font-mono">{email || t("cards.contactMissing")}</span>
-      </span>
+      {!plusRental ? (
+        <span
+          className="flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-md border border-brand/10 bg-brand/[0.06] px-2 text-xs text-muted-foreground"
+          title={`${t("subscriptionDialog.customerEmail")}: ${email || t("cards.contactMissing")}`}
+        >
+          <Mail className="size-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate font-mono">{email || t("cards.contactMissing")}</span>
+        </span>
+      ) : null}
       <span
         className="flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-md border border-success/10 bg-success/[0.06] px-2 text-xs text-muted-foreground"
         title={`${t("subscriptionDialog.customerWechat")}: ${wechat || t("cards.contactMissing")}`}
@@ -167,6 +179,7 @@ function SubscriptionCard({
 }) {
   const { t } = useTranslation()
   const subscription = view.subscription
+  const plusRental = subscription.business_type === "plus"
   const archived = subscription.archived_at !== null
   const cancellationPending = view.cancellation_pending
   const displayedCostYuan = view.allocated_cost_yuan || view.cost_yuan
@@ -193,11 +206,18 @@ function SubscriptionCard({
           <h3 className="truncate text-[15px] font-semibold">
             {view.account_name || subscription.name}
           </h3>
-          {subscription.is_resale ? (
+          {plusRental || subscription.is_resale ? (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <Badge variant="outline" className="font-normal">
-                {t("cards.resale")}
-              </Badge>
+              {plusRental ? (
+                <Badge className="border-brand/25 bg-brand/10 font-normal text-brand">
+                  {t("cards.plusRental")}
+                </Badge>
+              ) : null}
+              {subscription.is_resale ? (
+                <Badge variant="outline" className="font-normal">
+                  {t("cards.resale")}
+                </Badge>
+              ) : null}
             </div>
           ) : null}
           {subscription.remark ? (
@@ -208,6 +228,7 @@ function SubscriptionCard({
           <CustomerContactRow
             email={subscription.customer_email}
             wechat={subscription.customer_wechat}
+            plusRental={plusRental}
           />
         </div>
         {cancellationPending ? (
@@ -274,7 +295,7 @@ function SubscriptionCard({
             {t("cards.renew")}
           </Button>
         ) : null}
-        {!archived && !cancellationPending && subscription.customer_email ? (
+        {!plusRental && !archived && !cancellationPending && subscription.customer_email ? (
           <Button variant="outline" size="sm" onClick={() => onSendReminder(view)}>
             <Mail data-slot="icon" />
             {t("cards.sendReminder")}
@@ -296,7 +317,7 @@ function SubscriptionCard({
             onClick={() => onArchive(view)}
           >
             <UserRoundMinus data-slot="icon" />
-            {t("calendar.getOff")}
+            {plusRental ? t("cards.endRental") : t("calendar.getOff")}
           </Button>
         ) : null}
         {cancellationPending ? (
@@ -335,7 +356,11 @@ export function CardsPage() {
   const [editing, setEditing] = React.useState<SubscriptionPrefill | null>(null)
   const [duePaidTarget, setDuePaidTarget] = React.useState<DuePaidTarget | null>(null)
   const [reminderId, setReminderId] = React.useState<number | null>(null)
-  const [archiveTarget, setArchiveTarget] = React.useState<{ id: number; name: string } | null>(null)
+  const [archiveTarget, setArchiveTarget] = React.useState<{
+    id: number
+    name: string
+    plusRental: boolean
+  } | null>(null)
   const [cancellationResult, setCancellationResult] = React.useState<{
     caseId: number
     expiresAtLabel: string
@@ -344,12 +369,12 @@ export function CardsPage() {
   const filter = routeFilter
 
   const archiveMutation = useAppMutation((id: number) => archiveSubscription(id), {
-    successMessage: t("confirms.archiveQueued"),
     onSuccess: (data) => {
       setArchiveTarget(null)
+      if (data.archived) return
       setCancellationResult({
-        caseId: data.case_id,
-        expiresAtLabel: data.expires_at_label,
+        caseId: data.case_id ?? 0,
+        expiresAtLabel: data.expires_at_label ?? "",
       })
     },
   })
@@ -465,6 +490,8 @@ export function CardsPage() {
       pool = archivedViews
     } else if (filter === "resale") {
       pool = [...activeViews, ...archivedViews].filter((view) => view.subscription.is_resale)
+    } else if (filter === "team" || filter === "plus") {
+      pool = activeViews.filter((view) => view.subscription.business_type === filter)
     } else if (filter === "pending") {
       pool = activeViews.filter(
         (view) => paymentDueBySubscription.get(view.subscription.id) === true,
@@ -487,6 +514,7 @@ export function CardsPage() {
     return pool.filter((view) =>
       [
         view.subscription.name,
+        view.subscription.business_type,
         String(view.subscription.id),
         view.account_name,
         view.seat_name,
@@ -554,6 +582,8 @@ export function CardsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t("calendar.filterAll")}</SelectItem>
+                <SelectItem value="team">{t("cards.filterTeam")}</SelectItem>
+                <SelectItem value="plus">{t("cards.filterPlus")}</SelectItem>
                 <SelectItem value="pending">{t("calendar.filterPending")}</SelectItem>
                 <SelectItem value="paid">{t("calendar.filterPaid")}</SelectItem>
                 <SelectItem value="archived">{t("calendar.filterArchived")}</SelectItem>
@@ -615,7 +645,11 @@ export function CardsPage() {
                 onRenew={openRenew}
                 onSendReminder={(item) => setReminderId(item.subscription.id)}
                 onArchive={(item) =>
-                  setArchiveTarget({ id: item.subscription.id, name: item.subscription.name })
+                  setArchiveTarget({
+                    id: item.subscription.id,
+                    name: item.subscription.name,
+                    plusRental: item.subscription.business_type === "plus",
+                  })
                 }
                 onGoAfterSales={(caseId) => navigate(`/after-sales?case=${caseId}`)}
               />
@@ -677,9 +711,21 @@ export function CardsPage() {
         onOpenChange={(open) => {
           if (!open) setArchiveTarget(null)
         }}
-        title={t("confirms.archiveTitle")}
-        description={t("confirms.archiveDesc", { name: archiveTarget?.name ?? "" })}
-        actionLabel={t("confirms.archiveAction")}
+        title={
+          archiveTarget?.plusRental
+            ? t("confirms.endRentalTitle")
+            : t("confirms.archiveTitle")
+        }
+        description={
+          archiveTarget?.plusRental
+            ? t("confirms.endRentalDesc", { name: archiveTarget.name })
+            : t("confirms.archiveDesc", { name: archiveTarget?.name ?? "" })
+        }
+        actionLabel={
+          archiveTarget?.plusRental
+            ? t("confirms.endRentalAction")
+            : t("confirms.archiveAction")
+        }
         destructive
         pending={archiveMutation.isPending}
         onConfirm={() => {

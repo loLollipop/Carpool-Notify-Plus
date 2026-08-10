@@ -33,7 +33,11 @@ function EventPill({
   onView: (occurrence: CalendarOccurrence) => void
 }) {
   const { t } = useTranslation()
-  const label = occurrence.customer_email || occurrence.account_name || occurrence.name
+  const label =
+    occurrence.customer_email ||
+    occurrence.customer_wechat ||
+    occurrence.account_name ||
+    occurrence.name
   return (
     <Tooltip delayDuration={150}>
       <TooltipTrigger asChild>
@@ -57,6 +61,9 @@ function EventPill({
       <TooltipContent side="top" className="grid gap-0.5">
         <span className="font-semibold">{occurrence.account_name || occurrence.name}</span>
         {occurrence.customer_email ? <span>{occurrence.customer_email}</span> : null}
+        {!occurrence.customer_email && occurrence.customer_wechat ? (
+          <span>{occurrence.customer_wechat}</span>
+        ) : null}
         <span className="tabular-nums">
           {occurrence.due_date} · ¥{occurrence.price_yuan}
         </span>

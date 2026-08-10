@@ -17,6 +17,7 @@ import {
 
 export interface SeatSubscriptionInfo {
   subscriptionId: number
+  businessType: "team" | "plus"
   name: string
   accountName: string
   seatName: string
@@ -49,6 +50,7 @@ export function seatInfoFromOccurrence(
 ): SeatSubscriptionInfo {
   return {
     subscriptionId: occurrence.subscription_id,
+    businessType: occurrence.business_type || "team",
     name: occurrence.name,
     accountName: occurrence.account_name,
     seatName: occurrence.seat_name,
@@ -77,6 +79,7 @@ export function seatInfoFromOccurrence(
 export function seatInfoFromArchived(view: SubscriptionView, t: Translate): SeatSubscriptionInfo {
   return {
     subscriptionId: view.subscription.id,
+    businessType: view.subscription.business_type || "team",
     name: view.subscription.name,
     accountName: view.account_name,
     seatName: view.seat_name,
@@ -156,8 +159,13 @@ export function SeatSubscriptionDialog({
               <div className="text-base font-semibold">{info.accountName || info.name}</div>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <Badge variant="secondary" className="font-normal">
-                  {info.customerEmail || info.name}
+                  {info.customerEmail || info.customerWechat || info.name}
                 </Badge>
+                {info.businessType === "plus" ? (
+                  <Badge className="border-brand/25 bg-brand/10 font-normal text-brand">
+                    {t("cards.plusRental")}
+                  </Badge>
+                ) : null}
                 {info.isResale ? (
                   <Badge variant="outline" className="font-normal">
                     {t("cards.resale")}
@@ -199,9 +207,11 @@ export function SeatSubscriptionDialog({
               <ViewItem label={t("bills.viewChannels")}>
                 {info.channelLabels}
               </ViewItem>
-              <ViewItem label={t("subscriptionDialog.customerEmail")}>
-                {info.customerEmail || "—"}
-              </ViewItem>
+              {info.businessType !== "plus" ? (
+                <ViewItem label={t("subscriptionDialog.customerEmail")}>
+                  {info.customerEmail || "—"}
+                </ViewItem>
+              ) : null}
               <ViewItem label={t("subscriptionDialog.customerWechat")}>
                 {info.customerWechat || "—"}
               </ViewItem>

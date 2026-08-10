@@ -239,7 +239,7 @@ func (service *SubscriptionService) buildView(
 		NextDueDate:                cycle.FormatDate(nextDue),
 		DaysRemaining:              cycle.DaysRemaining(nextDue, now),
 		CycleDays:                  cycleDays,
-		ChannelLabels:              scheduledNotificationLabels(subscription.NotifyOffsets),
+		ChannelLabels:              scheduledNotificationLabels(subscription),
 		OffsetsText:                cycle.FormatOffsets(subscription.NotifyOffsets),
 		LastError:                  lastError,
 		AccountID:                  subscription.AccountID,
@@ -271,9 +271,12 @@ func channelDisplayLabels(channels []string) []string {
 	return labels
 }
 
-func scheduledNotificationLabels(offsets []int) []string {
+func scheduledNotificationLabels(subscription model.Subscription) []string {
+	if isPlusSubscription(subscription) {
+		return []string{"IYUU 到期当天（微信人工续费）"}
+	}
 	labels := make([]string, 0, 2)
-	for _, offset := range offsets {
+	for _, offset := range subscription.NotifyOffsets {
 		if offset > 0 {
 			labels = append(labels, "SMTP 客户邮件")
 			break
@@ -282,8 +285,8 @@ func scheduledNotificationLabels(offsets []int) []string {
 	return append(labels, "IYUU 到期当天")
 }
 
-func scheduledNotificationLabelText(offsets []int) string {
-	return strings.Join(scheduledNotificationLabels(offsets), " · ")
+func scheduledNotificationLabelText(subscription model.Subscription) string {
+	return strings.Join(scheduledNotificationLabels(subscription), " · ")
 }
 
 // Stats holds dashboard counters.
@@ -456,9 +459,10 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 
 // CreateInput is validated form input for create/update.
 type CreateInput struct {
-	Name      string
-	PriceYuan string
-	CostYuan  string
+	Name         string
+	BusinessType string
+	PriceYuan    string
+	CostYuan     string
 	// IsResale marks 串货; AgencyFeeYuan is the middleman fee (may be empty/0).
 	IsResale         bool
 	AgencyFeeYuan    string
@@ -717,6 +721,7 @@ func (service *SubscriptionService) Copy(subscriptionID int64, targetSeatID int6
 	}
 	copiedSubscriptionID, err := service.Store.CreateSubscription(model.Subscription{
 		Name:                copyName,
+		BusinessType:        source.BusinessType,
 		PricePerPersonCents: source.PricePerPersonCents,
 		CostCents:           source.CostCents,
 		IsResale:            source.IsResale,
@@ -805,6 +810,11 @@ func displayAccountName(subscription model.Subscription) string {
 }
 
 func (service *SubscriptionService) parseInput(input CreateInput, existingSubscriptionID int64) (model.Subscription, error) {
+	businessType, err := normalizeBusinessType(input.BusinessType)
+	if err != nil {
+		return model.Subscription{}, err
+	}
+	plusRental := businessType == model.SubscriptionBusinessPlus
 	cents, err := cycle.ParseYuanToCents(input.PriceYuan)
 	if err != nil {
 		return model.Subscription{}, fmt.Errorf("人均价格无效: %w", err)
@@ -817,21 +827,30 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 		}
 	}
 	agencyFeeCents := int64(0)
-	if strings.TrimSpace(input.AgencyFeeYuan) != "" {
+	if !plusRental && strings.TrimSpace(input.AgencyFeeYuan) != "" {
 		agencyFeeCents, err = cycle.ParseYuanToCents(input.AgencyFeeYuan)
 		if err != nil {
 			return model.Subscription{}, fmt.Errorf("中介费无效: %w", err)
 		}
 	}
-	offsets, err := cycle.ParseOffsets(input.NotifyOffsetsRaw)
-	if err != nil {
-		return model.Subscription{}, err
+	offsets := []int{}
+	if !plusRental {
+		offsets, err = cycle.ParseOffsets(input.NotifyOffsetsRaw)
+		if err != nil {
+			return model.Subscription{}, err
+		}
 	}
-	customerEmail, err := normalizeCustomerEmail(input.CustomerEmail)
-	if err != nil {
-		return model.Subscription{}, err
+	customerEmail := ""
+	if !plusRental {
+		customerEmail, err = normalizeCustomerEmail(input.CustomerEmail)
+		if err != nil {
+			return model.Subscription{}, err
+		}
 	}
 	customerWechat := strings.TrimSpace(input.CustomerWechat)
+	if plusRental && customerWechat == "" {
+		return model.Subscription{}, fmt.Errorf("Plus 出租必须填写客户微信，方便到期后人工联系续费")
+	}
 
 	seatID, err := service.resolveSeatID(input.AccountID, input.SeatID, existingSubscriptionID)
 	if err != nil {
@@ -888,9 +907,10 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 	}
 	return model.Subscription{
 		Name:                name,
+		BusinessType:        businessType,
 		PricePerPersonCents: cents,
 		CostCents:           costCents,
-		IsResale:            input.IsResale,
+		IsResale:            input.IsResale && !plusRental,
 		AgencyFeeCents:      agencyFeeCents,
 		CronExpr:            strings.TrimSpace(input.CronExpr),
 		NotifyOffsets:       offsets,
@@ -907,6 +927,21 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 		SubscriptionType: account.Name,
 		BoardedAt:        boardedAt,
 	}, nil
+}
+
+func normalizeBusinessType(raw string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", model.SubscriptionBusinessTeam:
+		return model.SubscriptionBusinessTeam, nil
+	case model.SubscriptionBusinessPlus:
+		return model.SubscriptionBusinessPlus, nil
+	default:
+		return "", fmt.Errorf("不支持的业务类型")
+	}
+}
+
+func isPlusSubscription(subscription model.Subscription) bool {
+	return strings.EqualFold(strings.TrimSpace(subscription.BusinessType), model.SubscriptionBusinessPlus)
 }
 
 // countedAmountCents is the amount that contributes to dashboard total amount.
@@ -1390,6 +1425,9 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 		}
 		return err
 	}
+	if isPlusSubscription(subscription) {
+		return fmt.Errorf("Plus 出租仅使用微信人工续费，不发送客户邮件")
+	}
 	if strings.TrimSpace(subscription.CustomerEmail) == "" {
 		return fmt.Errorf("该订阅未填写客户邮箱")
 	}
@@ -1490,6 +1528,7 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 		payload.Subscriptions = append(payload.Subscriptions, model.ExportSubscription{
 			ID:                  subscription.ID,
 			Name:                subscription.Name,
+			BusinessType:        subscription.BusinessType,
 			PricePerPersonCents: subscription.PricePerPersonCents,
 			PricePerPersonYuan:  cycle.FormatCents(subscription.PricePerPersonCents),
 			CostCents:           subscription.CostCents,
@@ -1549,6 +1588,9 @@ func (service *SubscriptionService) PreviewCustomerEmail(subscriptionID int64) (
 			return "", "", "", fmt.Errorf("订阅不存在")
 		}
 		return "", "", "", err
+	}
+	if isPlusSubscription(subscription) {
+		return "", "", "", fmt.Errorf("Plus 出租仅使用微信人工续费，不发送客户邮件")
 	}
 	if strings.TrimSpace(subscription.CustomerEmail) == "" {
 		return "", "", "", fmt.Errorf("该订阅未填写客户邮箱")
@@ -1703,6 +1745,9 @@ func (service *SubscriptionService) planSubscription(
 		if err := service.planScheduledNotification(subscription.ID, dueAt, now, today, 0, model.ChannelIYUU); err != nil {
 			return err
 		}
+		if isPlusSubscription(subscription) {
+			continue
+		}
 		for _, offsetDays := range subscription.NotifyOffsets {
 			if offsetDays <= 0 {
 				continue
@@ -1778,13 +1823,6 @@ func (service *SubscriptionService) attemptScheduledSend(ctx context.Context, ch
 
 func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Context, logEntries []model.NotificationLog) error {
 	sender, ok := service.Notify.Get(model.ChannelSMTP)
-	if !ok {
-		for _, logEntry := range logEntries {
-			logEntry.AttemptCount = logEntry.AttemptCount + 1
-			_ = service.failWithRetry(logEntry, "smtp is not configured")
-		}
-		return fmt.Errorf("smtp is not configured")
-	}
 
 	var failures []string
 	for _, logEntry := range logEntries {
@@ -1809,6 +1847,22 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 				continue
 			}
 			return err
+		}
+		if isPlusSubscription(subscription) {
+			_ = service.Store.MarkNotificationFailure(
+				logEntry.ID,
+				logEntry.AttemptCount+1,
+				"Plus rentals do not send customer email",
+				nil,
+				true,
+			)
+			continue
+		}
+		if !ok {
+			logEntry.AttemptCount++
+			_ = service.failWithRetry(logEntry, "smtp is not configured")
+			failures = append(failures, "smtp is not configured")
+			continue
 		}
 		customerEmail := strings.TrimSpace(subscription.CustomerEmail)
 		if customerEmail == "" {

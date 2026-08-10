@@ -1,8 +1,14 @@
-import type { CalendarOccurrence, SeatView, SubscriptionView } from "@/api/types"
+import type {
+  CalendarOccurrence,
+  SeatView,
+  SubscriptionBusinessType,
+  SubscriptionView,
+} from "@/api/types"
 
 /** Normalized prefill payload for the subscription dialog (edit mode). */
 export interface SubscriptionPrefill {
   id: number
+  businessType: SubscriptionBusinessType
   name: string
   priceYuan: string
   costYuan: string
@@ -31,6 +37,7 @@ export function parseOffsetsText(offsetsText: string): number[] {
 export function prefillFromView(view: SubscriptionView): SubscriptionPrefill {
   return {
     id: view.subscription.id,
+    businessType: view.subscription.business_type || "team",
     name: view.subscription.name,
     priceYuan: view.price_yuan,
     costYuan: view.cost_yuan,
@@ -51,6 +58,7 @@ export function prefillFromView(view: SubscriptionView): SubscriptionPrefill {
 export function prefillFromOccurrence(occurrence: CalendarOccurrence): SubscriptionPrefill {
   return {
     id: occurrence.subscription_id,
+    businessType: occurrence.business_type || "team",
     name: occurrence.name,
     priceYuan: occurrence.price_yuan,
     costYuan: occurrence.cost_yuan,
@@ -71,6 +79,7 @@ export function prefillFromOccurrence(occurrence: CalendarOccurrence): Subscript
 export function prefillFromSeat(seat: SeatView): SubscriptionPrefill {
   return {
     id: seat.active_subscription_id,
+    businessType: seat.active_business_type || "team",
     name: seat.active_subscription_name,
     priceYuan: seat.active_price_yuan,
     costYuan: seat.active_cost_yuan,
