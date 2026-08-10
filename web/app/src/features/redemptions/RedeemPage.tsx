@@ -15,7 +15,6 @@ import {
   ShieldCheck,
   Sun,
   TicketCheck,
-  Zap,
 } from "lucide-react"
 import { useTheme } from "next-themes"
 import { useForm } from "react-hook-form"
@@ -70,12 +69,6 @@ const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
   support_wechat_id: "",
   support_qr_data_url: "",
 }
-const TRUST_CHIPS = [
-  { icon: Zap, label: "通常 1-2 分钟完成" },
-  { icon: Mail, label: "邀请直达 GPT 邮箱" },
-  { icon: ShieldCheck, label: "客服微信全程协助" },
-] as const
-
 const schema = z.object({
   customer_email: z
     .string()
@@ -154,7 +147,7 @@ function RedeemThemeToggle() {
           variant="ghost"
           size="icon-sm"
           aria-label="切换深浅色"
-          className="border border-white/15 bg-white/[0.06] text-white hover:bg-white/10 hover:text-white"
+          className="redeem-nav-button"
           onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
         >
           <Sun className="size-4 scale-100 rotate-0 transition-all duration-300 dark:scale-0 dark:-rotate-90" />
@@ -175,7 +168,7 @@ function RedeemAnnouncementButton({ onClick }: { onClick: () => void }) {
           variant="ghost"
           size="sm"
           aria-label="查看公告"
-          className="h-8 border border-white/15 bg-white/[0.06] px-3 text-white hover:bg-white/10 hover:text-white"
+          className="redeem-nav-button px-3"
           onClick={onClick}
         >
           <Megaphone data-slot="icon" className="size-4" />
@@ -191,18 +184,31 @@ function WechatQrBlock({
   settings,
   compact = false,
   stretched = false,
+  horizontal = false,
 }: {
   settings: RedeemPageSettings
   compact?: boolean
   stretched?: boolean
+  horizontal?: boolean
 }) {
   const wechatId = settings.support_wechat_id.trim()
   const qrDataURL = settings.support_qr_data_url.trim()
 
   return (
-    <div className={cn("grid gap-4", stretched && "min-h-0 flex-1 grid-rows-[1fr_auto]")}>
+    <div
+      className={cn(
+        "grid gap-4",
+        stretched && "min-h-0 flex-1 grid-rows-[1fr_auto]",
+        horizontal && qrDataURL && "grid-cols-[88px_minmax(0,1fr)] items-center gap-3",
+      )}
+    >
       {qrDataURL ? (
-        <div className="mx-auto w-full max-w-[260px] self-center rounded-lg border bg-white p-2.5 shadow-sm">
+        <div
+          className={cn(
+            "mx-auto w-full self-center rounded-lg border bg-white p-2.5 shadow-sm",
+            horizontal ? "max-w-[88px] p-1.5" : "max-w-[260px]",
+          )}
+        >
           <img
             src={qrDataURL}
             alt="客服微信二维码"
@@ -211,7 +217,12 @@ function WechatQrBlock({
         </div>
       ) : null}
       {wechatId ? (
-        <div className="flex items-center justify-between gap-3 border-t pt-4">
+        <div
+          className={cn(
+            "flex items-center justify-between gap-3 border-t pt-4",
+            horizontal && qrDataURL && "border-l border-t-0 py-1 pl-3",
+          )}
+        >
           <div className="min-w-0">
             <p className="text-xs font-medium text-muted-foreground">
               {settings.support_contact_label || "微信号"}
@@ -240,19 +251,24 @@ function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
   }
 
   return (
-    <aside className="hidden h-full overflow-hidden rounded-xl border bg-card p-5 shadow-card lg:flex lg:flex-col">
-      <div className="mb-5 flex items-center gap-3 border-b pb-4">
-        <div className="grid size-9 place-items-center rounded-lg bg-success/10 text-success">
-          <MessageCircle className="size-5" />
+    <aside className="redeem-support-panel hidden lg:block">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <span className="redeem-support-icon">
+            <MessageCircle className="size-4" />
+          </span>
+          <div>
+            <p className="text-sm font-semibold">{settings.support_title}</p>
+            <p className="mt-0.5 text-xs text-[var(--redeem-muted)]">
+              {settings.support_description}
+            </p>
+          </div>
         </div>
-        <div className="min-w-0">
-          <p className="text-base font-semibold">{settings.support_title}</p>
-          <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
-            {settings.support_description}
-          </p>
-        </div>
+        <span className="redeem-online-label">ONLINE</span>
       </div>
-      <WechatQrBlock settings={settings} stretched />
+      <div className="mt-4 border-t border-[var(--redeem-line)] pt-4">
+        <WechatQrBlock settings={settings} compact horizontal />
+      </div>
     </aside>
   )
 }
@@ -270,7 +286,7 @@ function SupportWechatDialogButton({ settings }: { settings: RedeemPageSettings 
           variant="ghost"
           size="sm"
           aria-label="客服微信"
-          className="h-8 border border-white/15 bg-white/[0.06] text-white hover:bg-white/10 hover:text-white lg:hidden"
+          className="redeem-nav-button lg:hidden"
         >
           <MessageCircle data-slot="icon" />
           客服
@@ -678,11 +694,9 @@ export function RedeemPage() {
   }
 
   const statusLoadFailed = trackingToken !== "" && statusQuery.isError
-  const supportConfigured = hasSupportContact(redeemSettings)
-  const supportColumnVisible = supportConfigured || settingsQuery.isPending
 
   return (
-    <main className="min-h-dvh bg-background text-foreground">
+    <main className="redeem-console min-h-dvh overflow-hidden text-[var(--redeem-text)]">
       <RedeemSafetyNoticeDialog
         open={noticeOpen}
         onOpenChange={setNoticeOpen}
@@ -700,75 +714,74 @@ export function RedeemPage() {
         onRestart={resetApplication}
       />
 
-      <section className="login-surface relative overflow-hidden border-b border-[var(--login-panel-border)] text-[var(--login-panel-foreground)]">
-        <BrandIcon className="pointer-events-none absolute -right-24 -top-24 size-80 opacity-[0.05] shadow-none" />
-        <div className="relative mx-auto w-full max-w-[1160px] px-4 pb-24 pt-6 sm:px-6 sm:pb-28 sm:pt-7">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex min-w-0 items-center gap-2.5 text-[11px] font-semibold text-[var(--login-panel-muted)]">
-              <BrandIcon className="size-8" />
-              <span className="hidden text-sm font-semibold tracking-wide text-[var(--login-panel-foreground)] sm:block">
-                {APP_NAME}
-              </span>
-              <span
-                className="hidden h-4 w-px bg-[var(--login-panel-border)] sm:block"
-                aria-hidden="true"
-              />
-              <TicketCheck className="size-4 text-gold" />
-              CHATGPT TEAM ACCESS
-              {sandboxMode ? (
-                <span className="rounded-sm border border-gold/30 bg-gold/10 px-2 py-0.5 text-gold">
-                  业务演练
-                </span>
-              ) : null}
+      <header className="redeem-topbar">
+        <div className="mx-auto flex h-16 w-full max-w-[1200px] items-center justify-between gap-4 px-4 sm:h-[72px] sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <BrandIcon className="size-8 rounded-md shadow-none sm:size-9" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold leading-none sm:text-[15px]">{APP_NAME}</p>
+              <div className="mt-1.5 flex items-center gap-2 font-mono text-[9px] font-semibold tracking-[0.14em] text-[var(--redeem-muted)] sm:text-[10px]">
+                <span>REDEEM GATEWAY</span>
+                <span className="redeem-status-dot" aria-hidden="true" />
+                <span className="text-[var(--redeem-accent)]">ONLINE</span>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <RedeemAnnouncementButton onClick={() => setNoticeOpen(true)} />
-              <SupportWechatDialogButton settings={redeemSettings} />
-              <RedeemThemeToggle />
-            </div>
+            {sandboxMode ? (
+              <span className="redeem-sandbox-badge">SANDBOX</span>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <RedeemAnnouncementButton onClick={() => setNoticeOpen(true)} />
+            <SupportWechatDialogButton settings={redeemSettings} />
+            <RedeemThemeToggle />
+          </div>
+        </div>
+      </header>
+
+      <section className="relative mx-auto grid w-full max-w-[1200px] gap-8 px-4 pb-8 pt-7 sm:px-6 sm:pb-10 sm:pt-10 lg:grid-cols-[320px_minmax(0,1fr)] lg:gap-12 lg:px-8 lg:pb-12 lg:pt-14 xl:grid-cols-[340px_minmax(0,1fr)] xl:gap-16">
+        <aside className="animate-fade-up lg:pt-4">
+          <div className="flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.18em] text-[var(--redeem-accent)]">
+            <span className="h-px w-7 bg-[var(--redeem-accent)]" aria-hidden="true" />
+            ACCESS / REDEEM
+          </div>
+          <h1 className="mt-4 max-w-[520px] text-[30px] font-semibold leading-[1.14] tracking-[-0.035em] sm:text-[38px] lg:text-[42px]">
+            接入你的
+            <span className="block text-[var(--redeem-accent)]">Team 席位</span>
+          </h1>
+          <p className="mt-4 max-w-[520px] text-sm leading-6 text-[var(--redeem-muted)] sm:text-[15px] sm:leading-7">
+            输入兑换凭证与接收账号。申请提交后，无需重复刷新，处理状态会自动同步。
+          </p>
+
+          <div className="mt-5 flex flex-wrap gap-2 lg:hidden">
+            <span className="redeem-mini-chip">
+              <Clock3 className="size-3.5" /> 约 1–2 分钟
+            </span>
+            <span className="redeem-mini-chip">
+              <ShieldCheck className="size-3.5" /> 进度自动更新
+            </span>
           </div>
 
-          <div className="mt-12 grid gap-10 lg:grid-cols-[minmax(0,1fr)_minmax(420px,0.8fr)] lg:items-end">
-            <div className="max-w-[680px] animate-fade-up">
-              <div className="mb-5 flex items-center gap-3 text-[11px] font-semibold tracking-wider text-[var(--login-panel-muted)]">
-                <span className="h-px w-8 bg-gold" aria-hidden="true" />
-                自助兑换通道
-              </div>
-              <h1 className="text-[32px] font-semibold leading-[1.18] sm:text-[44px]">
-                ChatGPT Team 兑换中心
-              </h1>
-              <p className="mt-4 max-w-[620px] text-sm leading-7 text-[var(--login-panel-muted)] sm:text-base">
-                提交兑换码与账号资料，管理员处理完成后，Team 邀请会直接发送到你的 GPT 邮箱。
-              </p>
-              <div className="mt-7 flex flex-wrap gap-2.5">
-                {TRUST_CHIPS.map((chip) => (
-                  <span
-                    key={chip.label}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.06] px-3.5 py-1.5 text-xs font-medium backdrop-blur-sm"
-                  >
-                    <chip.icon className="size-3.5 text-gold" />
-                    {chip.label}
-                  </span>
-                ))}
-              </div>
+          <div className="mt-10 hidden lg:block">
+            <div className="mb-5 flex items-center justify-between font-mono text-[10px] font-semibold tracking-[0.16em] text-[var(--redeem-muted)]">
+              <span>PROCESS SEQUENCE</span>
+              <span>03 STEPS</span>
             </div>
-
-            <ol className="grid gap-y-3 border-t border-[var(--login-panel-border)] pt-5 sm:grid-cols-3 sm:gap-x-6 sm:gap-y-0">
+            <ol className="redeem-process-rail">
               {[
-                ["01", "填写资料", "兑换码、邮箱与微信"],
-                ["02", "等待处理", "通常需要 1-2 分钟"],
-                ["03", "确认邀请", "前往邮箱加入 Team"],
-              ].map(([number, title, description]) => (
-                <li
-                  key={number}
-                  className="grid grid-cols-[2rem_minmax(0,1fr)] gap-2 py-1 sm:block sm:border-l sm:border-[var(--login-panel-border)] sm:py-0 sm:pl-5 sm:first:border-l-0 sm:first:pl-0"
-                >
-                  <span className="font-mono text-[11px] font-semibold tracking-wider text-gold">
-                    {number}
-                  </span>
-                  <div>
-                    <p className="text-sm font-semibold sm:mt-1.5">{title}</p>
-                    <p className="mt-1 text-xs leading-5 text-[var(--login-panel-muted)]">
+                ["01", "验证兑换凭证", "填写兑换码与账号信息", "READY"],
+                ["02", "进入处理队列", "管理员核验并发送邀请", "QUEUE"],
+                ["03", "获取空间权限", "前往邮箱确认加入 Team", "ACCESS"],
+              ].map(([number, title, description, state], index) => (
+                <li key={number} className={cn("redeem-process-step", index === 0 && "is-active")}>
+                  <span className="redeem-process-number">{number}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold">{title}</p>
+                      <span className="font-mono text-[9px] tracking-[0.12em] text-[var(--redeem-muted)]">
+                        {state}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-[var(--redeem-muted)]">
                       {description}
                     </p>
                   </div>
@@ -776,51 +789,107 @@ export function RedeemPage() {
               ))}
             </ol>
           </div>
-        </div>
-      </section>
 
-      <div className="relative z-10 mx-auto w-full max-w-[1160px] px-4 pb-12 sm:px-6">
-        <div
-          className={cn(
-            "-mt-14 grid items-start gap-6 sm:-mt-16 lg:items-stretch",
-            supportColumnVisible ? "lg:grid-cols-[minmax(0,1fr)_340px]" : "mx-auto max-w-[760px]",
+          <div className="redeem-privacy-note mt-8 hidden lg:flex">
+            <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[var(--redeem-accent)]" />
+            <div>
+              <p className="text-xs font-semibold">资料仅用于本次兑换核验</p>
+              <p className="mt-1 text-[11px] leading-5 text-[var(--redeem-muted)]">
+                请使用能够正常收取 Team 邀请的 GPT 邮箱。
+              </p>
+            </div>
+          </div>
+
+          {settingsQuery.isPending ? (
+            <div className="mt-4 hidden h-32 animate-pulse rounded-xl border border-[var(--redeem-line)] bg-[var(--redeem-panel)] lg:block" />
+          ) : (
+            <SupportWechatPanel settings={redeemSettings} />
           )}
-        >
-        <Card className="overflow-hidden p-0 shadow-lift animate-fade-up [animation-delay:80ms]">
-          <div className="flex items-center justify-between gap-4 border-b bg-muted/30 px-5 py-4 sm:px-7 sm:py-5">
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand">
-                <TicketCheck className="size-4" />
+        </aside>
+
+        <Card className="redeem-terminal animate-fade-up overflow-hidden p-0 [animation-delay:80ms]">
+          <div className="redeem-terminal-bar">
+            <div className="flex items-center gap-2">
+              <span className="redeem-window-dot bg-[#ff6b63]" />
+              <span className="redeem-window-dot bg-[#e9bd4e]" />
+              <span className="redeem-window-dot bg-[var(--redeem-accent)]" />
+              <span className="ml-2 font-mono text-[10px] font-medium tracking-[0.08em] text-[var(--redeem-muted)] sm:text-[11px]">
+                redemption.request
               </span>
-              <div className="min-w-0">
-                <p className="text-sm font-semibold sm:text-base">填写兑换信息</p>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  请确认 GPT 邮箱可以正常收信，管理员会通过微信协助核对订单
+            </div>
+            <div className="flex items-center gap-2 font-mono text-[9px] font-semibold tracking-[0.14em] text-[var(--redeem-accent)] sm:text-[10px]">
+              <span className="redeem-status-dot" />
+              SYSTEM READY
+            </div>
+          </div>
+
+          <div className="px-5 pb-1 pt-6 sm:px-8 sm:pt-8 lg:px-10 lg:pt-10">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="font-mono text-[10px] font-semibold tracking-[0.18em] text-[var(--redeem-accent)]">
+                  NEW ACCESS REQUEST
+                </p>
+                <h2 className="mt-2 text-xl font-semibold tracking-[-0.02em] sm:text-2xl">
+                  提交兑换申请
+                </h2>
+                <p className="mt-2 text-xs leading-5 text-[var(--redeem-muted)] sm:text-sm">
+                  三项信息填写完成后，你还可以在提交前进行最终核对。
                 </p>
               </div>
+              <span className="redeem-required-badge hidden sm:inline-flex">3 REQUIRED</span>
             </div>
-            <span className="hidden shrink-0 rounded-full border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground sm:inline-block">
-              共 3 项
-            </span>
           </div>
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit(reviewSubmission)}
-                className="grid gap-6 p-6 sm:p-8"
-              >
+
+          <Form {...form}>
+            <form
+              onSubmit={form.handleSubmit(reviewSubmission)}
+              className="grid gap-6 px-5 pb-6 pt-6 sm:px-8 sm:pb-8 lg:gap-7 lg:px-10 lg:pb-10"
+            >
+              <FormField
+                control={form.control}
+                name="redeem_code"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="redeem-field-label">
+                      <span className="redeem-field-index">01</span>
+                      兑换码
+                      <span className="redeem-field-code">REDEEM TOKEN</span>
+                    </FormLabel>
+                    <FormControl>
+                      <div className="relative">
+                        <TicketCheck className="redeem-input-icon" />
+                        <Input
+                          autoComplete="off"
+                          placeholder="CPN-XXXX-XXXX-XXXX"
+                          className="redeem-input h-14 pl-11 font-mono tracking-[0.04em]"
+                          {...field}
+                        />
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="grid gap-6 md:grid-cols-2">
                 <FormField
                   control={form.control}
-                  name="redeem_code"
+                  name="customer_email"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>兑换码</FormLabel>
+                      <FormLabel className="redeem-field-label">
+                        <span className="redeem-field-index">02</span>
+                        GPT 邮箱
+                        <span className="redeem-field-code">INVITE TARGET</span>
+                      </FormLabel>
                       <FormControl>
                         <div className="relative">
-                          <TicketCheck className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-brand" />
+                          <Mail className="redeem-input-icon" />
                           <Input
-                            autoComplete="off"
-                            placeholder="CPN-XXXX-XXXX-XXXX"
-                            className="h-12 pl-10"
+                            type="email"
+                            autoComplete="email"
+                            placeholder="name@example.com"
+                            className="redeem-input h-[52px] pl-11"
                             {...field}
                           />
                         </div>
@@ -830,90 +899,76 @@ export function RedeemPage() {
                   )}
                 />
 
-                <div className="grid gap-5 md:grid-cols-2">
-                  <FormField
-                    control={form.control}
-                    name="customer_email"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>GPT 邮箱</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <Mail className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-brand" />
-                            <Input
-                              type="email"
-                              autoComplete="email"
-                              placeholder="name@example.com"
-                              className="h-12 pl-10"
-                              {...field}
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="customer_contact"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>微信号</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <MessageCircle className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-success" />
-                            <Input
-                              autoComplete="username"
-                              placeholder="请输入常用微信号"
-                              className="h-12 pl-10"
-                              {...field}
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-
-                <div className="flex items-start gap-2 rounded-lg border border-brand/15 bg-brand/[0.045] px-3.5 py-3 text-xs leading-5 text-muted-foreground">
-                  <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-brand" />
-                  确认提交后，处理进度会显示在弹窗中，请保持页面打开并留意邮箱邀请。
-                </div>
-
-                <Button
-                  type="submit"
-                  className="h-12"
-                  disabled={submitMutation.isPending}
-                >
-                  {submitMutation.isPending ? (
-                    <>
-                      <LoaderCircle data-slot="icon" className="animate-spin" />
-                      提交中
-                    </>
-                  ) : (
-                    <>
-                      提交兑换申请
-                      <ArrowRight data-slot="icon" />
-                    </>
+                <FormField
+                  control={form.control}
+                  name="customer_contact"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="redeem-field-label">
+                        <span className="redeem-field-index">03</span>
+                        微信号
+                        <span className="redeem-field-code">SUPPORT ID</span>
+                      </FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <MessageCircle className="redeem-input-icon" />
+                          <Input
+                            autoComplete="username"
+                            placeholder="请输入常用微信号"
+                            className="redeem-input h-[52px] pl-11"
+                            {...field}
+                          />
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
                   )}
-                </Button>
-              </form>
-            </Form>
-        </Card>
-        {settingsQuery.isPending ? (
-          <aside className="hidden h-[430px] animate-pulse rounded-xl border bg-muted/45 lg:block" />
-        ) : (
-          <SupportWechatPanel settings={redeemSettings} />
-        )}
-        </div>
+                />
+              </div>
 
-        <p className="mx-auto mt-8 max-w-[720px] text-center text-xs leading-6 text-muted-foreground">
-          <ShieldCheck className="mr-1.5 inline-block size-3.5 align-[-2px] text-brand" />
-          兑换码仅限本人使用，确认提交后请保持本页打开，处理进度会在弹窗中自动更新。
-        </p>
-      </div>
+              <div className="redeem-form-notice">
+                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[var(--redeem-accent)]" />
+                <p>
+                  提交前会再次展示全部信息供你核对；确认后请保持页面打开，进度会自动更新。
+                </p>
+              </div>
+
+              <Button
+                type="submit"
+                className="redeem-submit-button h-14 w-full"
+                disabled={submitMutation.isPending}
+              >
+                {submitMutation.isPending ? (
+                  <>
+                    <LoaderCircle data-slot="icon" className="animate-spin" />
+                    正在建立兑换请求
+                  </>
+                ) : (
+                  <>
+                    <span>开始兑换</span>
+                    <span className="hidden font-mono text-[10px] font-semibold tracking-[0.12em] opacity-70 sm:inline">
+                      INITIATE REQUEST
+                    </span>
+                    <ArrowRight data-slot="icon" className="ml-auto" />
+                  </>
+                )}
+              </Button>
+            </form>
+          </Form>
+
+          <div className="redeem-terminal-footer">
+            <span className="flex items-center gap-2">
+              <ShieldCheck className="size-3.5" /> SECURE INPUT
+            </span>
+            <span>STATUS SYNC · 5S</span>
+          </div>
+        </Card>
+      </section>
+
+      <footer className="relative mx-auto flex w-full max-w-[1200px] items-center justify-between gap-4 border-t border-[var(--redeem-line)] px-4 py-5 font-mono text-[9px] tracking-[0.12em] text-[var(--redeem-muted)] sm:px-6 lg:px-8">
+        <span>CARPOOL NOTIFY PLUS / REDEMPTION SERVICE</span>
+        <span className="hidden sm:inline">PRIVACY MODE · SYSTEM OPERATIONAL</span>
+      </footer>
     </main>
   )
 }
