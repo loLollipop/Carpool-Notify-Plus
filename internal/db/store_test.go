@@ -256,6 +256,14 @@ func TestOpenUpdatesDueSoonDefaultTemplatesToDueInText(t *testing.T) {
 func TestRedemptionApplicationLifecycle(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "carpool.db"))
 	defer store.Close()
+	accountID, err := store.CreateAccount(model.Account{Name: "owner@example.com"}, 0, "2026-08-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seatID, err := store.CreateSeat(model.Seat{AccountID: accountID, Name: "seat1"})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	applicationID, err := store.CreateRedemptionApplication(model.RedemptionApplication{
 		TrackingToken:   "token-abc",
@@ -287,7 +295,27 @@ func TestRedemptionApplicationLifecycle(t *testing.T) {
 		t.Fatalf("pending count = %d, want 1", pendingCount)
 	}
 
-	if err := store.MarkRedemptionApplicationInvited(applicationID, 11, 22, 33, "sent"); err != nil {
+	subscriptionID, err := store.CreateSubscriptionAndInviteRedemption(
+		applicationID,
+		accountID,
+		seatID,
+		model.Subscription{
+			Name:                "customer@example.com",
+			PricePerPersonCents: 2500,
+			CronExpr:            "interval:30d",
+			NotifyOffsets:       []int{3},
+			Channels:            append([]string(nil), model.DefaultEnabledChannels...),
+			CustomerEmail:       "customer@example.com",
+			SeatID:              seatID,
+			AccountID:           accountID,
+			SubscriptionType:    "owner@example.com",
+			BoardedAt:           "2026-08-01",
+		},
+		"2026-08-01",
+		2500,
+		"sent",
+	)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -298,11 +326,61 @@ func TestRedemptionApplicationLifecycle(t *testing.T) {
 	if updated.Status != model.RedemptionStatusInvited {
 		t.Fatalf("status = %q, want invited", updated.Status)
 	}
-	if updated.AssignedAccountID != 11 || updated.AssignedSeatID != 22 || updated.AssignedSubscriptionID != 33 {
+	if updated.AssignedAccountID != accountID || updated.AssignedSeatID != seatID || updated.AssignedSubscriptionID != subscriptionID {
 		t.Fatalf("assigned ids = %d/%d/%d", updated.AssignedAccountID, updated.AssignedSeatID, updated.AssignedSubscriptionID)
 	}
 	if updated.OperatorNote != "sent" || updated.InvitedAt == nil {
 		t.Fatalf("operator note/invited_at = %q/%v", updated.OperatorNote, updated.InvitedAt)
+	}
+
+	_, err = store.CreateSubscriptionAndInviteRedemption(
+		applicationID,
+		accountID,
+		seatID,
+		model.Subscription{SeatID: seatID},
+		"2026-08-01",
+		2500,
+		"duplicate",
+	)
+	if !errors.Is(err, db.ErrRedemptionAlreadyProcessed) {
+		t.Fatalf("second invite error = %v, want ErrRedemptionAlreadyProcessed", err)
+	}
+	bills, err := store.ListBills()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bills) != 1 || bills[0].SubscriptionID != subscriptionID {
+		t.Fatalf("bills after duplicate invite = %#v, want one atomic initial bill", bills)
+	}
+}
+
+func TestActiveSeatTriggerRejectsSecondSubscription(t *testing.T) {
+	store := openStore(t, filepath.Join(t.TempDir(), "carpool.db"))
+	defer store.Close()
+	accountID, err := store.CreateAccount(model.Account{Name: "owner@example.com"}, 0, "2026-08-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seatID, err := store.CreateSeat(model.Seat{AccountID: accountID, Name: "seat1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := model.Subscription{
+		Name:                "first",
+		PricePerPersonCents: 1000,
+		CronExpr:            "interval:30d",
+		NotifyOffsets:       []int{3},
+		Channels:            append([]string(nil), model.DefaultEnabledChannels...),
+		SeatID:              seatID,
+		SubscriptionType:    "owner@example.com",
+		BoardedAt:           "2026-08-01",
+	}
+	if _, err := store.CreateSubscription(base); err != nil {
+		t.Fatal(err)
+	}
+	base.Name = "second"
+	if _, err := store.CreateSubscription(base); !errors.Is(err, db.ErrActiveSeatOccupied) {
+		t.Fatalf("second occupant error = %v, want ErrActiveSeatOccupied", err)
 	}
 }
 

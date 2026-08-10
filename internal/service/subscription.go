@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/mail"
 	"sort"
@@ -521,7 +522,11 @@ func (service *SubscriptionService) Create(input CreateInput) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return service.Store.CreateSubscription(subscription)
+	subscriptionID, err := service.Store.CreateSubscription(subscription)
+	if err != nil {
+		return 0, publicSubscriptionMutationError(err)
+	}
+	return subscriptionID, nil
 }
 
 // CreateWithInitialBill creates a subscription from the operator form/import flow
@@ -535,13 +540,13 @@ func (service *SubscriptionService) CreateWithInitialBill(input CreateInput) (in
 	if err != nil {
 		return 0, err
 	}
-	subscriptionID, err := service.Store.CreateSubscription(subscription)
+	subscriptionID, err := service.Store.CreateSubscriptionWithInitialBill(
+		subscription,
+		initialDueDate,
+		billDefaultAmountCents(subscription),
+	)
 	if err != nil {
-		return 0, err
-	}
-	if err := service.Store.SetDuePaid(subscriptionID, initialDueDate, true, billDefaultAmountCents(subscription)); err != nil {
-		_ = service.Store.SoftDeleteSubscription(subscriptionID)
-		return 0, err
+		return 0, publicSubscriptionMutationError(err)
 	}
 	return subscriptionID, nil
 }
@@ -565,8 +570,8 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 	if err != nil {
 		return err
 	}
-	if previous.CancellationCaseID > 0 {
-		return fmt.Errorf("该订阅正在等待售后处理，暂时不能编辑")
+	if err := service.ensureNoPendingAfterSales(subscriptionID, "编辑"); err != nil {
+		return err
 	}
 	subscription, err := service.parseInput(input, subscriptionID)
 	if err != nil {
@@ -574,7 +579,7 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 	}
 	subscription.ID = subscriptionID
 	if err := service.Store.UpdateSubscription(subscription); err != nil {
-		return err
+		return publicSubscriptionMutationError(err)
 	}
 	previousBillAmount := billDefaultAmountCents(previous)
 	newBillAmount := billDefaultAmountCents(subscription)
@@ -608,7 +613,15 @@ func (service *SubscriptionService) syncCurrentPeriodBillAmount(subscription mod
 	if bill.AmountCents == amountCents {
 		return nil
 	}
-	return service.Store.UpdateBill(bill.ID, amountCents, bill.Note)
+	if err := service.Store.UpdateBill(bill.ID, amountCents, bill.Note); err != nil {
+		// An after-sales snapshot freezes the historical bill, but a completed
+		// reassignment may continue using the subscription for future periods.
+		if errors.Is(err, db.ErrBillHasAfterSalesCase) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 
 // SoftDelete soft-deletes a subscription (legacy unrestricted helper).
@@ -627,6 +640,13 @@ func (service *SubscriptionService) SoftDeleteArchived(subscriptionID int64) err
 	}
 	if subscription.ArchivedAt == nil {
 		return fmt.Errorf("只能伪删除已下车的订阅；请先下车归档")
+	}
+	afterSalesCount, err := service.Store.CountAfterSalesCasesBySubscription(subscriptionID)
+	if err != nil {
+		return err
+	}
+	if afterSalesCount > 0 {
+		return fmt.Errorf("该订阅仍关联 %d 条售后记录，为保留退款与处理历史不能删除", afterSalesCount)
 	}
 
 	billCount, err := service.Store.CountBillsForSubscription(subscriptionID)
@@ -648,7 +668,13 @@ func (service *SubscriptionService) SoftDeleteArchived(subscriptionID int64) err
 
 // Archive marks a subscription as 下车 (archived): leaves list and scheduler, bills remain.
 func (service *SubscriptionService) Archive(subscriptionID int64) error {
-	return service.Store.ArchiveSubscription(subscriptionID)
+	if err := service.ensureNoPendingAfterSales(subscriptionID, "下车归档"); err != nil {
+		return err
+	}
+	if err := service.Store.ArchiveSubscription(subscriptionID); err != nil {
+		return publicSubscriptionMutationError(err)
+	}
+	return nil
 }
 
 // Copy duplicates an active or archived subscription as a new active subscription.
@@ -656,6 +682,9 @@ func (service *SubscriptionService) Archive(subscriptionID int64) error {
 func (service *SubscriptionService) Copy(subscriptionID int64, targetSeatID int64) (int64, error) {
 	source, err := service.Store.GetSubscriptionIncludingArchived(subscriptionID)
 	if err != nil {
+		return 0, err
+	}
+	if err := service.ensureNoPendingAfterSales(subscriptionID, "复制"); err != nil {
 		return 0, err
 	}
 	if targetSeatID <= 0 {
@@ -686,7 +715,7 @@ func (service *SubscriptionService) Copy(subscriptionID int64, targetSeatID int6
 	if !strings.HasSuffix(copyName, "（副本）") {
 		copyName = copyName + "（副本）"
 	}
-	return service.Store.CreateSubscription(model.Subscription{
+	copiedSubscriptionID, err := service.Store.CreateSubscription(model.Subscription{
 		Name:                copyName,
 		PricePerPersonCents: source.PricePerPersonCents,
 		CostCents:           source.CostCents,
@@ -709,6 +738,31 @@ func (service *SubscriptionService) Copy(subscriptionID int64, targetSeatID int6
 		// Resetting to "today" would hide this month's already-passed due dates.
 		BoardedAt: source.BoardedAt,
 	})
+	if err != nil {
+		return 0, publicSubscriptionMutationError(err)
+	}
+	return copiedSubscriptionID, nil
+}
+
+func publicSubscriptionMutationError(err error) error {
+	if errors.Is(err, db.ErrActiveSeatOccupied) {
+		return fmt.Errorf("所选车位已被其他活跃订阅占用，请刷新后重试")
+	}
+	if errors.Is(err, db.ErrSubscriptionHasPendingAfterSales) {
+		return fmt.Errorf("该订阅正在等待售后处理，暂时不能修改")
+	}
+	return err
+}
+
+func (service *SubscriptionService) ensureNoPendingAfterSales(subscriptionID int64, action string) error {
+	pendingCount, err := service.Store.CountPendingAfterSalesCasesBySubscription(subscriptionID)
+	if err != nil {
+		return err
+	}
+	if pendingCount > 0 {
+		return fmt.Errorf("该订阅正在等待售后处理，暂时不能%s", action)
+	}
+	return nil
 }
 
 // ListArchivedView returns archived subscriptions for the 已下车 tab.
@@ -1339,8 +1393,8 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 	if strings.TrimSpace(subscription.CustomerEmail) == "" {
 		return fmt.Errorf("该订阅未填写客户邮箱")
 	}
-	if subscription.CancellationCaseID > 0 {
-		return fmt.Errorf("该订阅正在等待售后处理，暂时不能发送提醒")
+	if err := service.ensureNoPendingAfterSales(subscriptionID, "发送提醒"); err != nil {
+		return err
 	}
 	if !service.Config.SMTPConfigured() {
 		return fmt.Errorf("SMTP 未配置（需 host/port/from/username/password）")
@@ -1471,8 +1525,8 @@ func (service *SubscriptionService) TestNotify(ctx context.Context, subscription
 	if err != nil {
 		return err
 	}
-	if subscription.CancellationCaseID > 0 {
-		return fmt.Errorf("该订阅正在等待售后处理，暂时不能发送通知")
+	if err := service.ensureNoPendingAfterSales(subscriptionID, "发送通知"); err != nil {
+		return err
 	}
 	message, err := service.RenderMessage(subscription)
 	if err != nil {
@@ -1556,7 +1610,11 @@ func (service *SubscriptionService) ProcessDueNotifications(ctx context.Context)
 	today := cycle.FormatDate(now)
 
 	for _, subscription := range subscriptions {
-		if subscription.CancellationCaseID > 0 {
+		pendingCount, err := service.Store.CountPendingAfterSalesCasesBySubscription(subscription.ID)
+		if err != nil {
+			return err
+		}
+		if pendingCount > 0 {
 			continue
 		}
 		if err := service.planSubscription(ctx, subscription, now, today); err != nil {

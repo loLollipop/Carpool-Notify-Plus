@@ -95,14 +95,16 @@ func (store *Store) BanAccountAndCreateAfterSalesCases(
 	}
 
 	type affectedSubscription struct {
-		ID             int64
-		CustomerEmail  string
-		CustomerWechat string
+		ID                 int64
+		CustomerEmail      string
+		CustomerWechat     string
+		CancellationCaseID int64
 	}
 	rows, err := transaction.Query(`
 		SELECT subscription.id,
 		       COALESCE(subscription.customer_email, ''),
-		       COALESCE(subscription.customer_wechat, '')
+		       COALESCE(subscription.customer_wechat, ''),
+		       COALESCE(subscription.cancellation_case_id, 0)
 		FROM subscriptions AS subscription
 		INNER JOIN seats AS seat ON seat.id = subscription.seat_id
 		WHERE seat.account_id = ?
@@ -119,6 +121,7 @@ func (store *Store) BanAccountAndCreateAfterSalesCases(
 			&subscription.ID,
 			&subscription.CustomerEmail,
 			&subscription.CustomerWechat,
+			&subscription.CancellationCaseID,
 		); err != nil {
 			_ = rows.Close()
 			return 0, err
@@ -139,6 +142,35 @@ func (store *Store) BanAccountAndCreateAfterSalesCases(
 	now := formatTime(time.Now().UTC())
 	insertedCount := 0
 	for _, subscription := range affected {
+		// Account-ban handling supersedes a still-pending customer cancellation.
+		// Keeping both cases lets the cancellation expire or complete first and
+		// strands the account-ban case without an active subscription.
+		if subscription.CancellationCaseID > 0 {
+			if _, err := transaction.Exec(`
+				DELETE FROM after_sales_cases
+				WHERE id = ? AND source = ? AND status IN (?, ?)`,
+				subscription.CancellationCaseID,
+				model.AfterSalesSourceCustomerCancellation,
+				model.AfterSalesStatusPending,
+				model.AfterSalesStatusReview,
+			); err != nil {
+				return 0, err
+			}
+			if _, err := transaction.Exec(`
+				UPDATE subscriptions
+				SET cancellation_requested_at = NULL,
+				    cancellation_expires_at = NULL,
+				    cancellation_case_id = 0,
+				    updated_at = ?
+				WHERE id = ? AND cancellation_case_id = ?`,
+				now,
+				subscription.ID,
+				subscription.CancellationCaseID,
+			); err != nil {
+				return 0, err
+			}
+		}
+
 		billID := int64(0)
 		periodStart := ""
 		periodEnd := ""
@@ -229,10 +261,28 @@ func (store *Store) BanAccountAndCreateAfterSalesCases(
 
 // ListAfterSalesCases returns newest ban events first.
 func (store *Store) ListAfterSalesCases() ([]model.AfterSalesCase, error) {
+	return store.listAfterSalesCases("", nil)
+}
+
+// ListVisibleAfterSalesCases keeps pending work visible indefinitely and hides
+// completed cases after the caller-provided retention cutoff. The underlying
+// rows remain available for refund accounting and historical bill totals.
+func (store *Store) ListVisibleAfterSalesCases(processedAfter time.Time) ([]model.AfterSalesCase, error) {
+	return store.listAfterSalesCases(`
+		WHERE status IN (?, ?)
+		   OR processed_at IS NULL
+		   OR processed_at > ?`, []any{
+		model.AfterSalesStatusPending,
+		model.AfterSalesStatusReview,
+		formatTime(processedAfter.UTC()),
+	})
+}
+
+func (store *Store) listAfterSalesCases(whereClause string, arguments []any) ([]model.AfterSalesCase, error) {
 	rows, err := store.database.Query(`
-		SELECT ` + afterSalesSelectColumns + `
-		FROM after_sales_cases
-		ORDER BY banned_date DESC, id DESC`)
+		SELECT `+afterSalesSelectColumns+`
+		FROM after_sales_cases `+whereClause+`
+		ORDER BY banned_date DESC, id DESC`, arguments...)
 	if err != nil {
 		return nil, err
 	}
@@ -254,6 +304,41 @@ func (store *Store) CountAfterSalesCasesByAccount(accountID int64) (int, error) 
 	err := store.database.QueryRow(
 		`SELECT COUNT(1) FROM after_sales_cases WHERE account_id = ?`,
 		accountID,
+	).Scan(&count)
+	return count, err
+}
+
+func (store *Store) CountPendingAfterSalesCasesByAccount(accountID int64) (int, error) {
+	var count int
+	err := store.database.QueryRow(`
+		SELECT COUNT(1)
+		FROM after_sales_cases
+		WHERE account_id = ? AND status IN (?, ?)`,
+		accountID,
+		model.AfterSalesStatusPending,
+		model.AfterSalesStatusReview,
+	).Scan(&count)
+	return count, err
+}
+
+func (store *Store) CountAfterSalesCasesBySubscription(subscriptionID int64) (int, error) {
+	var count int
+	err := store.database.QueryRow(
+		`SELECT COUNT(1) FROM after_sales_cases WHERE subscription_id = ?`,
+		subscriptionID,
+	).Scan(&count)
+	return count, err
+}
+
+func (store *Store) CountPendingAfterSalesCasesBySubscription(subscriptionID int64) (int, error) {
+	var count int
+	err := store.database.QueryRow(`
+		SELECT COUNT(1)
+		FROM after_sales_cases
+		WHERE subscription_id = ? AND status IN (?, ?)`,
+		subscriptionID,
+		model.AfterSalesStatusPending,
+		model.AfterSalesStatusReview,
 	).Scan(&count)
 	return count, err
 }
@@ -302,6 +387,21 @@ func (store *Store) SetAfterSalesCaseRefunded(caseID int64, refunded bool, proce
 		return store.CompleteCancellationRefund(caseID, processedTime)
 	}
 
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	var subscriptionID int64
+	var billID int64
+	if err := transaction.QueryRow(`
+		SELECT subscription_id, bill_id
+		FROM after_sales_cases
+		WHERE id = ?`, caseID).Scan(&subscriptionID, &billID); err != nil {
+		return err
+	}
+
 	status := model.AfterSalesStatusPending
 	processedAt := any(nil)
 	allowedStatus := model.AfterSalesStatusRefunded
@@ -311,26 +411,18 @@ func (store *Store) SetAfterSalesCaseRefunded(caseID int64, refunded bool, proce
 		processedAt = formatTime(processedTime.UTC())
 		allowedStatus = model.AfterSalesStatusPending
 		allowedStatus2 = model.AfterSalesStatusReview
-	} else {
-		var billID int64
-		if err := store.database.QueryRow(
-			`SELECT bill_id FROM after_sales_cases WHERE id = ?`,
-			caseID,
-		).Scan(&billID); err != nil {
-			return err
-		}
-		if billID == 0 {
-			status = model.AfterSalesStatusReview
-		}
+	} else if billID == 0 {
+		status = model.AfterSalesStatusReview
 	}
-	result, err := store.database.Exec(`
+	nowText := formatTime(processedTime.UTC())
+	result, err := transaction.Exec(`
 		UPDATE after_sales_cases
 		SET status = ?, processed_at = ?, updated_at = ?
 		WHERE id = ?
 		  AND status IN (?, ?)`,
 		status,
 		processedAt,
-		formatTime(processedTime.UTC()),
+		nowText,
 		caseID,
 		allowedStatus,
 		allowedStatus2,
@@ -345,7 +437,96 @@ func (store *Store) SetAfterSalesCaseRefunded(caseID int64, refunded bool, proce
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
 	}
-	return nil
+
+	if refunded {
+		var cancellationCaseID int64
+		if err := transaction.QueryRow(`
+			SELECT COALESCE(cancellation_case_id, 0)
+			FROM subscriptions
+			WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL`,
+			subscriptionID,
+		).Scan(&cancellationCaseID); err != nil {
+			return err
+		}
+		result, err = transaction.Exec(`
+			UPDATE subscriptions
+			SET archived_at = ?, cancellation_requested_at = NULL,
+			    cancellation_expires_at = NULL, cancellation_case_id = 0,
+			    updated_at = ?
+			WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL`,
+			nowText,
+			nowText,
+			subscriptionID,
+		)
+		if err != nil {
+			return err
+		}
+		rowsAffected, err = result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rowsAffected != 1 {
+			return sql.ErrNoRows
+		}
+		if cancellationCaseID > 0 && cancellationCaseID != caseID {
+			if _, err := transaction.Exec(`
+				DELETE FROM after_sales_cases
+				WHERE id = ? AND source = ? AND status IN (?, ?)`,
+				cancellationCaseID,
+				model.AfterSalesSourceCustomerCancellation,
+				model.AfterSalesStatusPending,
+				model.AfterSalesStatusReview,
+			); err != nil {
+				return err
+			}
+		}
+	} else {
+		var seatID sql.NullInt64
+		if err := transaction.QueryRow(`
+			SELECT seat_id
+			FROM subscriptions
+			WHERE id = ? AND deleted_at IS NULL AND archived_at IS NOT NULL`,
+			subscriptionID,
+		).Scan(&seatID); err != nil {
+			return err
+		}
+		if !seatID.Valid || seatID.Int64 <= 0 {
+			return ErrAfterSalesOriginalSeatBusy
+		}
+		var occupiedCount int
+		if err := transaction.QueryRow(`
+			SELECT COUNT(1)
+			FROM subscriptions
+			WHERE seat_id = ? AND id <> ?
+			  AND deleted_at IS NULL AND archived_at IS NULL`,
+			seatID.Int64,
+			subscriptionID,
+		).Scan(&occupiedCount); err != nil {
+			return err
+		}
+		if occupiedCount > 0 {
+			return ErrAfterSalesOriginalSeatBusy
+		}
+		result, err = transaction.Exec(`
+			UPDATE subscriptions
+			SET archived_at = NULL, updated_at = ?
+			WHERE id = ? AND deleted_at IS NULL AND archived_at IS NOT NULL`,
+			nowText,
+			subscriptionID,
+		)
+		if err != nil {
+			return err
+		}
+		rowsAffected, err = result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if rowsAffected != 1 {
+			return sql.ErrNoRows
+		}
+	}
+
+	return transaction.Commit()
 }
 
 // ReassignAfterSalesCase moves an affected active subscription to one free seat

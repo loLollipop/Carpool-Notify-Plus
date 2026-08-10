@@ -1,12 +1,14 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 )
 
@@ -92,8 +94,8 @@ func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate str
 	if err != nil {
 		return err
 	}
-	if subscription.CancellationCaseID > 0 {
-		return fmt.Errorf("该订阅正在等待售后处理，暂时不能续费记账")
+	if err := service.ensureNoPendingAfterSales(subscriptionID, "续费记账"); err != nil {
+		return err
 	}
 	if _, err := time.ParseInLocation("2006-01-02", dueDate, cycle.Location); err != nil {
 		return fmt.Errorf("无效的到期日: %w", err)
@@ -109,7 +111,13 @@ func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate str
 	if !ok {
 		return fmt.Errorf("%s 不是该订阅的到期日", dueDate)
 	}
-	return service.Store.SetDuePaid(subscriptionID, dueDate, paid, billDefaultAmountCents(subscription))
+	if err := service.Store.SetDuePaid(subscriptionID, dueDate, paid, billDefaultAmountCents(subscription)); err != nil {
+		if errors.Is(err, db.ErrBillHasAfterSalesCase) {
+			return fmt.Errorf("该期账单已关联售后处理记录，不能取消缴费")
+		}
+		return err
+	}
+	return nil
 }
 
 // DuePeriodOption is one billing window between consecutive cron due dates.

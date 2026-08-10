@@ -14,6 +14,7 @@ import (
 
 const afterSalesWarrantyDays = 30
 const cancellationGracePeriod = 24 * time.Hour
+const processedAfterSalesRetention = 24 * time.Hour
 
 type BanAccountInput struct {
 	BannedDate string
@@ -127,7 +128,9 @@ func (service *SubscriptionService) ListAfterSalesPage() (AfterSalesPage, error)
 	if _, err := service.Store.RestoreExpiredCancellationRequests(service.now()); err != nil {
 		return AfterSalesPage{}, err
 	}
-	cases, err := service.Store.ListAfterSalesCases()
+	cases, err := service.Store.ListVisibleAfterSalesCases(
+		service.now().Add(-processedAfterSalesRetention),
+	)
 	if err != nil {
 		return AfterSalesPage{}, err
 	}
@@ -184,6 +187,9 @@ func (service *SubscriptionService) SetAfterSalesCaseRefunded(caseID int64, refu
 		}
 		if errors.Is(err, db.ErrAfterSalesProcessed) {
 			return fmt.Errorf("该退订售后已处理完成，不能撤销")
+		}
+		if errors.Is(err, db.ErrAfterSalesOriginalSeatBusy) {
+			return fmt.Errorf("原车位已被其他订阅占用，无法撤销退款状态")
 		}
 		return err
 	}

@@ -22,18 +22,23 @@ type Store struct {
 }
 
 var (
-	ErrRedemptionCodeNotFound      = errors.New("redemption code not found")
-	ErrRedemptionCodeUsed          = errors.New("redemption code used")
-	ErrRedemptionCodeDisabled      = errors.New("redemption code disabled")
-	ErrRedemptionCodeNotUnused     = errors.New("redemption code not unused")
-	ErrAfterSalesProcessed         = errors.New("after-sales case already processed")
-	ErrCancellationPending         = errors.New("subscription cancellation already pending")
-	ErrCancellationCaseConflict    = errors.New("subscription already has an after-sales case for this date")
-	ErrCancellationNotReassignable = errors.New("cancellation case cannot be reassigned")
-	ErrReplacementAccountBanned    = errors.New("replacement account is banned")
-	ErrReplacementSeatUnavailable  = errors.New("replacement seat unavailable")
-	ErrReplacementSeatOccupied     = errors.New("replacement seat is occupied")
-	ErrReplacementSeatUnchanged    = errors.New("replacement seat is unchanged")
+	ErrRedemptionCodeNotFound           = errors.New("redemption code not found")
+	ErrRedemptionCodeUsed               = errors.New("redemption code used")
+	ErrRedemptionCodeDisabled           = errors.New("redemption code disabled")
+	ErrRedemptionCodeNotUnused          = errors.New("redemption code not unused")
+	ErrRedemptionAlreadyProcessed       = errors.New("redemption application already processed")
+	ErrActiveSeatOccupied               = errors.New("active seat already occupied")
+	ErrBillHasAfterSalesCase            = errors.New("bill is referenced by an after-sales case")
+	ErrSubscriptionHasPendingAfterSales = errors.New("subscription has a pending after-sales case")
+	ErrAfterSalesProcessed              = errors.New("after-sales case already processed")
+	ErrCancellationPending              = errors.New("subscription cancellation already pending")
+	ErrCancellationCaseConflict         = errors.New("subscription already has an after-sales case for this date")
+	ErrCancellationNotReassignable      = errors.New("cancellation case cannot be reassigned")
+	ErrAfterSalesOriginalSeatBusy       = errors.New("original after-sales seat is occupied")
+	ErrReplacementAccountBanned         = errors.New("replacement account is banned")
+	ErrReplacementSeatUnavailable       = errors.New("replacement seat unavailable")
+	ErrReplacementSeatOccupied          = errors.New("replacement seat is occupied")
+	ErrReplacementSeatUnchanged         = errors.New("replacement seat is unchanged")
 )
 
 // Open creates the database file if needed, opens a connection, and migrates.
@@ -280,6 +285,9 @@ func (store *Store) migrate() error {
 		return err
 	}
 	if err := store.ensureAfterSalesSourceColumns(); err != nil {
+		return err
+	}
+	if err := store.ensureActiveSeatOccupancyTriggers(); err != nil {
 		return err
 	}
 	if err := store.backfillAccountCostRecords(); err != nil {
@@ -851,6 +859,49 @@ func (store *Store) ensureAfterSalesSourceColumns() error {
 	return nil
 }
 
+// ensureActiveSeatOccupancyTriggers enforces the core invariant that one seat
+// can have at most one active subscription. Triggers protect all write paths,
+// including concurrent requests that both observed the seat as free.
+func (store *Store) ensureActiveSeatOccupancyTriggers() error {
+	statements := []string{
+		`CREATE TRIGGER IF NOT EXISTS prevent_duplicate_active_seat_insert
+		BEFORE INSERT ON subscriptions
+		WHEN NEW.seat_id IS NOT NULL
+		 AND NEW.deleted_at IS NULL
+		 AND NEW.archived_at IS NULL
+		 AND EXISTS (
+			SELECT 1 FROM subscriptions
+			WHERE seat_id = NEW.seat_id
+			  AND deleted_at IS NULL
+			  AND archived_at IS NULL
+		 )
+		BEGIN
+			SELECT RAISE(ABORT, 'active seat already occupied');
+		END;`,
+		`CREATE TRIGGER IF NOT EXISTS prevent_duplicate_active_seat_update
+		BEFORE UPDATE OF seat_id, archived_at, deleted_at ON subscriptions
+		WHEN NEW.seat_id IS NOT NULL
+		 AND NEW.deleted_at IS NULL
+		 AND NEW.archived_at IS NULL
+		 AND EXISTS (
+			SELECT 1 FROM subscriptions
+			WHERE seat_id = NEW.seat_id
+			  AND id <> NEW.id
+			  AND deleted_at IS NULL
+			  AND archived_at IS NULL
+		 )
+		BEGIN
+			SELECT RAISE(ABORT, 'active seat already occupied');
+		END;`,
+	}
+	for _, statement := range statements {
+		if _, err := store.database.Exec(statement); err != nil {
+			return fmt.Errorf("create active seat occupancy trigger: %w", err)
+		}
+	}
+	return nil
+}
+
 const subscriptionSelectColumns = `
 	subscription.id,
 	subscription.name,
@@ -951,6 +1002,46 @@ func (store *Store) ListArchivedSubscriptions() ([]model.Subscription, error) {
 // CreateSubscription inserts a new active subscription.
 func (store *Store) CreateSubscription(subscription model.Subscription) (int64, error) {
 	now := formatTime(time.Now().UTC())
+	return insertSubscription(store.database, subscription, now)
+}
+
+// CreateSubscriptionWithInitialBill atomically creates a subscription and its
+// first paid billing period. A failure cannot leave a soft-deleted subscription
+// or an orphan bill behind.
+func (store *Store) CreateSubscriptionWithInitialBill(
+	subscription model.Subscription,
+	dueDate string,
+	amountCents int64,
+) (int64, error) {
+	now := formatTime(time.Now().UTC())
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	subscriptionID, err := insertSubscription(transaction, subscription, now)
+	if err != nil {
+		return 0, err
+	}
+	if err := insertInitialBill(transaction, subscriptionID, dueDate, amountCents, now); err != nil {
+		return 0, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return 0, err
+	}
+	return subscriptionID, nil
+}
+
+type sqlExecer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func insertSubscription(
+	executor sqlExecer,
+	subscription model.Subscription,
+	now string,
+) (int64, error) {
 	offsetsJSON, err := json.Marshal(subscription.NotifyOffsets)
 	if err != nil {
 		return 0, err
@@ -975,7 +1066,7 @@ func (store *Store) CreateSubscription(subscription model.Subscription) (int64, 
 	if subscription.IsResale {
 		isResale = 1
 	}
-	result, err := store.database.Exec(`
+	result, err := executor.Exec(`
                 INSERT INTO subscriptions (
                         name, price_per_person_cents, cost_cents, is_resale, agency_fee_cents, cron_expr, notify_offsets, channels,
                         remark, trade_url, customer_email, customer_wechat, subscription_type, seat_id, boarded_at, archived_at, deleted_at, created_at, updated_at
@@ -999,9 +1090,37 @@ func (store *Store) CreateSubscription(subscription model.Subscription) (int64, 
 		now,
 	)
 	if err != nil {
+		if isActiveSeatOccupancyError(err) {
+			return 0, ErrActiveSeatOccupied
+		}
 		return 0, err
 	}
 	return result.LastInsertId()
+}
+
+func insertInitialBill(
+	executor sqlExecer,
+	subscriptionID int64,
+	dueDate string,
+	amountCents int64,
+	now string,
+) error {
+	_, err := executor.Exec(`
+		INSERT INTO bills (
+			subscription_id, due_date, amount_cents, note, paid_at, created_at, updated_at
+		) VALUES (?, ?, ?, '', ?, ?, ?)`,
+		subscriptionID,
+		strings.TrimSpace(dueDate),
+		amountCents,
+		now,
+		now,
+		now,
+	)
+	return err
+}
+
+func isActiveSeatOccupancyError(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), ErrActiveSeatOccupied.Error())
 }
 
 // UpdateSubscription updates an existing active (non-deleted, non-archived) subscription.
@@ -1035,7 +1154,13 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
                 UPDATE subscriptions
                 SET name = ?, price_per_person_cents = ?, cost_cents = ?, is_resale = ?, agency_fee_cents = ?, cron_expr = ?, notify_offsets = ?,
                     channels = ?, remark = ?, trade_url = ?, customer_email = ?, customer_wechat = ?, subscription_type = ?, seat_id = ?, boarded_at = ?, updated_at = ?
-                WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL`,
+                WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL
+                  AND NOT EXISTS (
+					SELECT 1
+					FROM after_sales_cases
+					WHERE subscription_id = subscriptions.id
+					  AND status IN (?, ?)
+				  )`,
 		subscription.Name,
 		subscription.PricePerPersonCents,
 		subscription.CostCents,
@@ -1053,8 +1178,13 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 		boardedAt,
 		now,
 		subscription.ID,
+		model.AfterSalesStatusPending,
+		model.AfterSalesStatusReview,
 	)
 	if err != nil {
+		if isActiveSeatOccupancyError(err) {
+			return ErrActiveSeatOccupied
+		}
 		return err
 	}
 	rowsAffected, err := result.RowsAffected()
@@ -1062,6 +1192,13 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 		return err
 	}
 	if rowsAffected == 0 {
+		pendingCount, pendingErr := store.CountPendingAfterSalesCasesBySubscription(subscription.ID)
+		if pendingErr != nil {
+			return pendingErr
+		}
+		if pendingCount > 0 {
+			return ErrSubscriptionHasPendingAfterSales
+		}
 		return sql.ErrNoRows
 	}
 	return nil
@@ -1136,6 +1273,20 @@ func (store *Store) ArchiveSubscription(subscriptionID int64) error {
 	defer func() {
 		_ = transaction.Rollback()
 	}()
+	var pendingAfterSalesCount int
+	if err := transaction.QueryRow(`
+		SELECT COUNT(1)
+		FROM after_sales_cases
+		WHERE subscription_id = ? AND status IN (?, ?)`,
+		subscriptionID,
+		model.AfterSalesStatusPending,
+		model.AfterSalesStatusReview,
+	).Scan(&pendingAfterSalesCount); err != nil {
+		return err
+	}
+	if pendingAfterSalesCount > 0 {
+		return ErrSubscriptionHasPendingAfterSales
+	}
 
 	if err := archiveSubscriptionInTransaction(transaction, subscriptionID, now, 0); err != nil {
 		return err
@@ -1149,12 +1300,14 @@ func (store *Store) ArchiveSubscription(subscriptionID int64) error {
 // When paid=false, deletes the bill for that occurrence.
 func (store *Store) SetDuePaid(subscriptionID int64, dueDate string, paid bool, amountCents int64) error {
 	if !paid {
-		_, err := store.database.Exec(`
-			DELETE FROM bills
-			WHERE subscription_id = ? AND due_date = ?`,
-			subscriptionID, dueDate,
-		)
-		return err
+		bill, err := store.GetBillByOccurrence(subscriptionID, dueDate)
+		if err == sql.ErrNoRows {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return store.deleteBillIfUnreferenced(bill.ID)
 	}
 
 	existing, err := store.GetBillByOccurrence(subscriptionID, dueDate)
@@ -1256,10 +1409,20 @@ func (store *Store) ListBills() ([]model.Bill, error) {
 	return bills, rows.Err()
 }
 
-// UpdateBill updates amount and note for a bill.
+// UpdateBill updates amount and note for a bill that is not part of an
+// after-sales snapshot. Referenced bills are immutable financial history.
 func (store *Store) UpdateBill(billID int64, amountCents int64, note string) error {
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	if err := ensureBillUnreferenced(transaction, billID); err != nil {
+		return err
+	}
 	now := formatTime(time.Now().UTC())
-	result, err := store.database.Exec(`
+	result, err := transaction.Exec(`
 		UPDATE bills
 		SET amount_cents = ?, note = ?, updated_at = ?
 		WHERE id = ?`,
@@ -1275,12 +1438,25 @@ func (store *Store) UpdateBill(billID int64, amountCents int64, note string) err
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
 	}
-	return nil
+	return transaction.Commit()
 }
 
 // DeleteBill removes one bill by id (same effect as unmarking that due as paid).
 func (store *Store) DeleteBill(billID int64) error {
-	result, err := store.database.Exec(`DELETE FROM bills WHERE id = ?`, billID)
+	return store.deleteBillIfUnreferenced(billID)
+}
+
+func (store *Store) deleteBillIfUnreferenced(billID int64) error {
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	if err := ensureBillUnreferenced(transaction, billID); err != nil {
+		return err
+	}
+	result, err := transaction.Exec(`DELETE FROM bills WHERE id = ?`, billID)
 	if err != nil {
 		return err
 	}
@@ -1290,6 +1466,20 @@ func (store *Store) DeleteBill(billID int64) error {
 	}
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
+	}
+	return transaction.Commit()
+}
+
+func ensureBillUnreferenced(transaction *sql.Tx, billID int64) error {
+	var afterSalesCount int
+	if err := transaction.QueryRow(`
+		SELECT COUNT(1)
+		FROM after_sales_cases
+		WHERE bill_id = ?`, billID).Scan(&afterSalesCount); err != nil {
+		return err
+	}
+	if afterSalesCount > 0 {
+		return ErrBillHasAfterSalesCase
 	}
 	return nil
 }
@@ -1660,16 +1850,61 @@ func (store *Store) CountRedemptionApplicationsByStatus(status string) (int, err
 	return count, err
 }
 
-// MarkRedemptionApplicationInvited marks a pending application as invited.
-func (store *Store) MarkRedemptionApplicationInvited(
+// CreateSubscriptionAndInviteRedemption atomically creates the assigned
+// subscription and first bill, then marks the pending application invited.
+// Concurrent handling can therefore never leave an extra subscription or bill.
+func (store *Store) CreateSubscriptionAndInviteRedemption(
 	applicationID int64,
 	accountID int64,
 	seatID int64,
-	subscriptionID int64,
+	subscription model.Subscription,
+	dueDate string,
+	amountCents int64,
 	operatorNote string,
-) error {
+) (int64, error) {
 	now := formatTime(time.Now().UTC())
-	result, err := store.database.Exec(`
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	var applicationStatus string
+	if err := transaction.QueryRow(`
+		SELECT status
+		FROM redemption_applications
+		WHERE id = ?`, applicationID).Scan(&applicationStatus); err != nil {
+		return 0, err
+	}
+	if applicationStatus != model.RedemptionStatusPending {
+		return 0, ErrRedemptionAlreadyProcessed
+	}
+
+	var actualAccountID int64
+	var bannedAt string
+	if err := transaction.QueryRow(`
+		SELECT seat.account_id, COALESCE(account.banned_at, '')
+		FROM seats AS seat
+		INNER JOIN accounts AS account ON account.id = seat.account_id
+		WHERE seat.id = ?`, seatID).Scan(&actualAccountID, &bannedAt); err != nil {
+		return 0, err
+	}
+	if actualAccountID != accountID || subscription.SeatID != seatID {
+		return 0, ErrReplacementSeatUnavailable
+	}
+	if strings.TrimSpace(bannedAt) != "" {
+		return 0, ErrReplacementAccountBanned
+	}
+
+	subscriptionID, err := insertSubscription(transaction, subscription, now)
+	if err != nil {
+		return 0, err
+	}
+	if err := insertInitialBill(transaction, subscriptionID, dueDate, amountCents, now); err != nil {
+		return 0, err
+	}
+
+	result, err := transaction.Exec(`
 		UPDATE redemption_applications
 		SET status = ?,
 			assigned_account_id = ?,
@@ -1690,16 +1925,19 @@ func (store *Store) MarkRedemptionApplicationInvited(
 		model.RedemptionStatusPending,
 	)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return err
+		return 0, err
 	}
 	if rowsAffected == 0 {
-		return sql.ErrNoRows
+		return 0, ErrRedemptionAlreadyProcessed
 	}
-	return nil
+	if err := transaction.Commit(); err != nil {
+		return 0, err
+	}
+	return subscriptionID, nil
 }
 
 const accountSelectColumns = `
@@ -2317,9 +2555,18 @@ func (store *Store) ListRetryableNotifications(now time.Time) ([]model.Notificat
 				  AND log.status = ?
 				  AND subscription.deleted_at IS NULL
 				  AND subscription.archived_at IS NULL
-				  AND COALESCE(subscription.cancellation_case_id, 0) = 0
+				  AND NOT EXISTS (
+					SELECT 1
+					FROM after_sales_cases AS after_sales
+					WHERE after_sales.subscription_id = subscription.id
+					  AND after_sales.status IN (?, ?)
+				  )
 				  AND (log.next_retry_at IS NULL OR log.next_retry_at <= ?)`,
-		model.NotificationKindScheduled, model.NotificationStatusPending, nowText,
+		model.NotificationKindScheduled,
+		model.NotificationStatusPending,
+		model.AfterSalesStatusPending,
+		model.AfterSalesStatusReview,
+		nowText,
 	)
 	if err != nil {
 		return nil, err

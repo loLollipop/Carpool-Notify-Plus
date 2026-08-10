@@ -123,6 +123,22 @@ func TestSandboxFixturesSupportCompleteRehearsalWithoutLeakingState(t *testing.T
 	if err := subscriptionService.SetAfterSalesCaseRefunded(pendingBanCases[1], true); err != nil {
 		t.Fatal(err)
 	}
+	activeOnBannedAccount, err := subscriptionService.Store.CountActiveSubscriptionsByAccount(accountIDs["沙盒封禁主号"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if activeOnBannedAccount != 0 {
+		t.Fatalf("handled sandbox ban still occupies %d seats", activeOnBannedAccount)
+	}
+	accountViews, err := subscriptionService.ListAccountsView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, view := range accountViews {
+		if view.Account.ID == accountIDs["沙盒封禁主号"] {
+			t.Fatal("handled sandbox banned account remains visible")
+		}
+	}
 
 	oldToken := status.AccessToken
 	resetStatus, err := subscriptionService.ResetSandboxFixtures()

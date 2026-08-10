@@ -98,6 +98,17 @@ func (service *SubscriptionService) ListAccountsView() ([]AccountView, error) {
 		if err != nil {
 			return nil, err
 		}
+		if strings.TrimSpace(account.BannedAt) != "" && view.SeatUsed == 0 {
+			pendingCases, err := service.Store.CountPendingAfterSalesCasesByAccount(account.ID)
+			if err != nil {
+				return nil, err
+			}
+			// Keep the database snapshot for bills and refund history, but remove a
+			// fully handled banned account from the operational account list.
+			if pendingCases == 0 {
+				continue
+			}
+		}
 		views = append(views, view)
 	}
 	return views, nil
@@ -261,6 +272,13 @@ func (service *SubscriptionService) UpdateAccount(accountID int64, input UpdateA
 	if err != nil {
 		return err
 	}
+	// Validate capacity before persisting metadata/cost changes. Previously an
+	// invalid shrink returned an error after those unrelated fields were saved.
+	if input.SeatCount > 0 {
+		if err := service.validateAccountSeatCount(accountID, input.SeatCount); err != nil {
+			return err
+		}
+	}
 	if err := service.Store.UpdateAccount(model.Account{
 		ID:                   accountID,
 		Name:                 name,
@@ -278,6 +296,20 @@ func (service *SubscriptionService) UpdateAccount(accountID int64, input UpdateA
 		if err := service.resizeAccountSeats(accountID, input.SeatCount); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func (service *SubscriptionService) validateAccountSeatCount(accountID int64, targetCount int) error {
+	if targetCount < model.MinInitialSeatCount || targetCount > model.MaxInitialSeatCount {
+		return fmt.Errorf("车位数量须为 %d～%d 的整数", model.MinInitialSeatCount, model.MaxInitialSeatCount)
+	}
+	usedCount, err := service.Store.CountActiveSubscriptionsByAccount(accountID)
+	if err != nil {
+		return err
+	}
+	if targetCount < usedCount {
+		return fmt.Errorf("车位数量不能少于当前占用数 %d", usedCount)
 	}
 	return nil
 }

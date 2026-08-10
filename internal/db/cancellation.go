@@ -58,6 +58,20 @@ func (store *Store) RequestSubscriptionCancellation(
 	if cancellationCaseID > 0 {
 		return model.AfterSalesCase{}, ErrCancellationPending
 	}
+	var pendingAfterSalesCount int
+	if err := transaction.QueryRow(`
+		SELECT COUNT(1)
+		FROM after_sales_cases
+		WHERE subscription_id = ? AND status IN (?, ?)`,
+		subscriptionID,
+		model.AfterSalesStatusPending,
+		model.AfterSalesStatusReview,
+	).Scan(&pendingAfterSalesCount); err != nil {
+		return model.AfterSalesCase{}, err
+	}
+	if pendingAfterSalesCount > 0 {
+		return model.AfterSalesCase{}, ErrCancellationCaseConflict
+	}
 	if accountID <= 0 {
 		return model.AfterSalesCase{}, fmt.Errorf("subscription has no owner account")
 	}

@@ -66,7 +66,11 @@ export function useAccounts() {
 }
 
 export function useAfterSales() {
-  return useQuery({ queryKey: queryKeys.afterSales, queryFn: fetchAfterSales })
+  return useQuery({
+    queryKey: queryKeys.afterSales,
+    queryFn: fetchAfterSales,
+    refetchInterval: 60_000,
+  })
 }
 
 export function useAccountOptions(includeSeatId = 0, enabled = true) {

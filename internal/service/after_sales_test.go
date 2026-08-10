@@ -1,12 +1,14 @@
 package service_test
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 	"time"
 
 	"carpool-notify/internal/cycle"
 	"carpool-notify/internal/model"
+	"carpool-notify/internal/notify"
 	"carpool-notify/internal/service"
 )
 
@@ -189,6 +191,233 @@ func TestExpiredCancellationRestoresSubscriptionAndRemovesTemporaryCase(t *testi
 	}
 }
 
+func TestAccountBanSupersedesPendingCancellationWithoutLeavingOrphanedCase(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	accountID, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-08-01", true)
+
+	cancellation, err := subscriptionService.RequestCancellation(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subscriptionService.BanAccount(accountID, service.BanAccountInput{
+		BannedDate: "2026-08-10",
+		Note:       "平台封禁",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	cases, err := subscriptionService.Store.ListAfterSalesCases()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) != 1 {
+		t.Fatalf("after-sales cases = %d, want only the account-ban case", len(cases))
+	}
+	if cases[0].ID == cancellation.CaseID || cases[0].Source != model.AfterSalesSourceAccountBan {
+		t.Fatalf("remaining case = %#v, want account ban replacing cancellation %d", cases[0], cancellation.CaseID)
+	}
+	active, err := subscriptionService.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.CancellationCaseID != 0 || active.CancellationRequestedAt != nil || active.CancellationExpiresAt != nil {
+		t.Fatalf("stale cancellation state after account ban = %#v", active)
+	}
+
+	now = now.Add(25 * time.Hour)
+	restored, err := subscriptionService.RestoreExpiredCancellationRequests()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restored != 0 {
+		t.Fatalf("expired cancellation restore count = %d, want 0", restored)
+	}
+	cases, err = subscriptionService.Store.ListAfterSalesCases()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) != 1 || cases[0].Source != model.AfterSalesSourceAccountBan {
+		t.Fatalf("account-ban case disappeared after cancellation grace period: %#v", cases)
+	}
+}
+
+func TestCancellationIsRejectedWhileAccountBanAfterSalesIsPending(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	}
+	accountID, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-08-01", true)
+	if _, err := subscriptionService.BanAccount(accountID, service.BanAccountInput{BannedDate: "2026-08-10"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := subscriptionService.RequestCancellation(subscriptionID); err == nil {
+		t.Fatal("cancellation succeeded while account-ban after-sales was pending")
+	}
+	cases, err := subscriptionService.Store.ListAfterSalesCases()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) != 1 || cases[0].Source != model.AfterSalesSourceAccountBan {
+		t.Fatalf("conflicting cancellation changed after-sales cases: %#v", cases)
+	}
+	active, err := subscriptionService.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.CancellationCaseID != 0 {
+		t.Fatalf("rejected cancellation left case id %d", active.CancellationCaseID)
+	}
+}
+
+func TestPendingAccountBanAfterSalesBlocksSubscriptionSideDoors(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	}
+	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "待售后母号",
+		Email:     "owner@example.com",
+		SpaceName: "Pending Space",
+		SeatCount: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := subscriptionService.Store.ListSeatsByAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "待售后客户",
+		PriceYuan:        "30.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "0",
+		CustomerEmail:    "customer@example.com",
+		CustomerWechat:   "wx-customer",
+		SeatID:           seats[0].ID,
+		BoardedAt:        "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subscriptionService.BanAccount(accountID, service.BanAccountInput{BannedDate: "2026-08-10"}); err != nil {
+		t.Fatal(err)
+	}
+
+	mutations := []struct {
+		name string
+		run  func() error
+	}{
+		{
+			name: "edit",
+			run: func() error {
+				return subscriptionService.Update(subscriptionID, service.CreateInput{
+					Name:             "不应保存的新名称",
+					PriceYuan:        "35.00",
+					CronExpr:         "interval:30d",
+					NotifyOffsetsRaw: "0",
+					CustomerEmail:    "customer@example.com",
+					CustomerWechat:   "wx-customer",
+					SeatID:           seats[0].ID,
+					BoardedAt:        "2026-08-01",
+				})
+			},
+		},
+		{name: "copy", run: func() error {
+			_, copyErr := subscriptionService.Copy(subscriptionID, seats[1].ID)
+			return copyErr
+		}},
+		{name: "archive", run: func() error { return subscriptionService.Archive(subscriptionID) }},
+		{name: "mark paid", run: func() error {
+			return subscriptionService.SetDuePaid(subscriptionID, "2026-08-01", true)
+		}},
+		{name: "manual customer email", run: func() error {
+			return subscriptionService.SendCustomerEmail(context.Background(), subscriptionID)
+		}},
+		{name: "manual test notification", run: func() error {
+			return subscriptionService.TestNotify(context.Background(), subscriptionID)
+		}},
+	}
+	for _, mutation := range mutations {
+		t.Run(mutation.name, func(t *testing.T) {
+			if err := mutation.run(); err == nil {
+				t.Fatalf("%s succeeded while after-sales was pending", mutation.name)
+			}
+		})
+	}
+
+	active, err := subscriptionService.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.Name != "待售后客户" || active.SeatID != seats[0].ID {
+		t.Fatalf("blocked operations changed subscription: %#v", active)
+	}
+	freeSeats, err := subscriptionService.Store.ListFreeSeats(accountID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(freeSeats) != 1 || freeSeats[0].ID != seats[1].ID {
+		t.Fatalf("blocked operations changed seat occupancy: %#v", freeSeats)
+	}
+}
+
+func TestPendingAccountBanAfterSalesSuppressesQueuedNotificationRetry(t *testing.T) {
+	subscriptionService := openTestService(t)
+	clock := time.Date(2026, time.July, 15, 10, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return clock }
+	failing := &failingSender{}
+	subscriptionService.Notify = notify.Registry{IYUU: failing}
+
+	accountID, seatIDs := createTestAccountWithSeats(t, subscriptionService, "通知母号", "车位1")
+	subscriptionID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "通知客户",
+		PriceYuan:        "35.00",
+		CronExpr:         "0 0 15 * *",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2000-01-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if failing.calls != 1 {
+		t.Fatalf("initial notification attempts = %d, want 1", failing.calls)
+	}
+	if _, err := subscriptionService.BanAccount(accountID, service.BanAccountInput{BannedDate: "2026-07-15"}); err != nil {
+		t.Fatal(err)
+	}
+
+	clock = clock.Add(2 * time.Minute)
+	recorder := &recordingSender{}
+	subscriptionService.Notify = notify.Registry{IYUU: recorder}
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("queued retry sent %d notifications during pending after-sales", recorder.calls)
+	}
+	logEntry, err := subscriptionService.Store.GetNotificationLog(
+		subscriptionID,
+		"2026-07-15",
+		0,
+		model.ChannelIYUU,
+		model.NotificationKindScheduled,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if logEntry.Status != model.NotificationStatusPending || logEntry.AttemptCount != 1 {
+		t.Fatalf("suppressed retry changed notification log: %#v", logEntry)
+	}
+}
+
 func TestBanAccountUsesLatestEligiblePaidBillAndIsIdempotent(t *testing.T) {
 	subscriptionService := openTestService(t)
 	subscriptionService.Clock = func() time.Time {
@@ -274,7 +503,7 @@ func TestAfterSalesCaseCanBeAdjustedCompletedAndReopened(t *testing.T) {
 	subscriptionService.Clock = func() time.Time {
 		return time.Date(2026, time.July, 20, 12, 0, 0, 0, cycle.Location)
 	}
-	accountID, _ := createWarrantyCustomer(t, subscriptionService, "2026-07-01", true)
+	accountID, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-07-01", true)
 	if _, err := subscriptionService.BanAccount(accountID, service.BanAccountInput{BannedDate: "2026-07-11"}); err != nil {
 		t.Fatal(err)
 	}
@@ -292,6 +521,32 @@ func TestAfterSalesCaseCanBeAdjustedCompletedAndReopened(t *testing.T) {
 	if err := subscriptionService.SetAfterSalesCaseRefunded(caseID, true); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := subscriptionService.Store.GetSubscription(subscriptionID); err != sql.ErrNoRows {
+		t.Fatalf("active subscription after account-ban refund error = %v, want sql.ErrNoRows", err)
+	}
+	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.ArchivedAt == nil {
+		t.Fatalf("subscription was not archived after refund: %#v", archived)
+	}
+	freeSeats, err := subscriptionService.Store.ListFreeSeats(accountID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(freeSeats) != 1 {
+		t.Fatalf("free seats after account-ban refund = %d, want 1", len(freeSeats))
+	}
+	accountViews, err := subscriptionService.ListAccountsView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, view := range accountViews {
+		if view.Account.ID == accountID {
+			t.Fatal("fully handled banned account remains visible")
+		}
+	}
 	page, err = subscriptionService.ListAfterSalesPage()
 	if err != nil {
 		t.Fatal(err)
@@ -303,6 +558,16 @@ func TestAfterSalesCaseCanBeAdjustedCompletedAndReopened(t *testing.T) {
 	if err := subscriptionService.SetAfterSalesCaseRefunded(caseID, false); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := subscriptionService.Store.GetSubscription(subscriptionID); err != nil {
+		t.Fatalf("subscription was not restored after undo: %v", err)
+	}
+	freeSeats, err = subscriptionService.Store.ListFreeSeats(accountID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(freeSeats) != 0 {
+		t.Fatalf("undo left %d free seats, want 0", len(freeSeats))
+	}
 	page, err = subscriptionService.ListAfterSalesPage()
 	if err != nil {
 		t.Fatal(err)
@@ -310,6 +575,207 @@ func TestAfterSalesCaseCanBeAdjustedCompletedAndReopened(t *testing.T) {
 	reopened := page.Cases[0].Case
 	if reopened.Status != model.AfterSalesStatusPending || reopened.ProcessedAt != nil {
 		t.Fatalf("reopened case = status %q processed %v", reopened.Status, reopened.ProcessedAt)
+	}
+}
+
+func TestCompletedAfterSalesCaseLeavesPageAfter24HoursButKeepsRefundAccounting(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	accountID, _ := createWarrantyCustomer(t, subscriptionService, "2026-08-01", true)
+	if _, err := subscriptionService.BanAccount(accountID, service.BanAccountInput{
+		BannedDate: "2026-08-10",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := subscriptionService.ListAfterSalesPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseID := page.Cases[0].Case.ID
+	refundCents := page.Cases[0].Case.RefundAmountCents
+	if err := subscriptionService.SetAfterSalesCaseRefunded(caseID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(23*time.Hour + 59*time.Minute)
+	page, err = subscriptionService.ListAfterSalesPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Cases) != 1 {
+		t.Fatalf("case disappeared before 24 hours: %d", len(page.Cases))
+	}
+
+	now = now.Add(2 * time.Minute)
+	page, err = subscriptionService.ListAfterSalesPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Cases) != 0 || page.Summary.TotalCount != 0 {
+		t.Fatalf("expired processed cases remain visible: %#v", page)
+	}
+	stored, err := subscriptionService.Store.GetAfterSalesCase(caseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != model.AfterSalesStatusRefunded {
+		t.Fatalf("stored case status = %q, want refunded", stored.Status)
+	}
+	dashboard, err := subscriptionService.ComputeDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.TotalRefundCents != refundCents {
+		t.Fatalf("refund accounting after page cleanup = %d, want %d", dashboard.TotalRefundCents, refundCents)
+	}
+}
+
+func TestPendingAfterSalesCaseRemainsVisibleAfter24Hours(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	accountID, _ := createWarrantyCustomer(t, subscriptionService, "2026-08-01", true)
+	if _, err := subscriptionService.BanAccount(accountID, service.BanAccountInput{
+		BannedDate: "2026-08-10",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(48 * time.Hour)
+	page, err := subscriptionService.ListAfterSalesPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Cases) != 1 || page.Cases[0].Case.Status != model.AfterSalesStatusPending {
+		t.Fatalf("pending case was removed by retention cleanup: %#v", page.Cases)
+	}
+}
+
+func TestUndoAccountBanRefundRollsBackWhenOriginalSeatIsOccupied(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	}
+	accountID, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-08-01", true)
+	if _, err := subscriptionService.BanAccount(accountID, service.BanAccountInput{
+		BannedDate: "2026-08-10",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := subscriptionService.ListAfterSalesPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseID := page.Cases[0].Case.ID
+	if err := subscriptionService.SetAfterSalesCaseRefunded(caseID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archived.ID = 0
+	archived.Name = "replacement occupant"
+	if _, err := subscriptionService.Store.CreateSubscription(archived); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := subscriptionService.SetAfterSalesCaseRefunded(caseID, false); err == nil {
+		t.Fatal("undo succeeded even though the original seat was occupied")
+	}
+	storedCase, err := subscriptionService.Store.GetAfterSalesCase(caseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedCase.Status != model.AfterSalesStatusRefunded || storedCase.ProcessedAt == nil {
+		t.Fatalf("failed undo did not roll back case state: %#v", storedCase)
+	}
+	stillArchived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stillArchived.ArchivedAt == nil {
+		t.Fatal("failed undo unexpectedly restored the refunded subscription")
+	}
+}
+
+func TestAfterSalesReferencedBillCannotBeDeletedOrUnmarked(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	}
+	accountID, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-08-01", true)
+	if _, err := subscriptionService.BanAccount(accountID, service.BanAccountInput{
+		BannedDate: "2026-08-10",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := subscriptionService.ListAfterSalesPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseItem := page.Cases[0].Case
+	if caseItem.BillID <= 0 {
+		t.Fatalf("after-sales case has no bill reference: %#v", caseItem)
+	}
+	if err := subscriptionService.SetDuePaid(subscriptionID, caseItem.PeriodStart, false); err == nil {
+		t.Fatal("calendar unmarked a bill referenced by after-sales")
+	}
+	if err := subscriptionService.DeleteBill(caseItem.BillID); err == nil {
+		t.Fatal("bills page deleted a bill referenced by after-sales")
+	}
+	if err := subscriptionService.UpdateBill(caseItem.BillID, service.BillEditInput{
+		AmountYuan: "99.00",
+		Note:       "不应写入",
+	}); err == nil {
+		t.Fatal("bills page edited a bill referenced by after-sales")
+	}
+	if _, err := subscriptionService.Store.GetBill(caseItem.BillID); err != nil {
+		t.Fatalf("protected bill disappeared: %v", err)
+	}
+	protectedBill, err := subscriptionService.Store.GetBill(caseItem.BillID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if protectedBill.AmountCents != caseItem.PaidAmountCents || protectedBill.Note == "不应写入" {
+		t.Fatalf("protected bill was modified: %#v", protectedBill)
+	}
+	if err := subscriptionService.SetAfterSalesCaseRefunded(caseItem.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.DeleteBill(caseItem.BillID); err == nil {
+		t.Fatal("completed refund bill should remain protected")
+	}
+}
+
+func TestAfterSalesSubscriptionWithoutBillCannotBeSoftDeleted(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	}
+	accountID, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-08-01", false)
+	if _, err := subscriptionService.BanAccount(accountID, service.BanAccountInput{
+		BannedDate: "2026-08-10",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := subscriptionService.ListAfterSalesPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Cases[0].Case.BillID != 0 {
+		t.Fatalf("test case unexpectedly has a bill: %#v", page.Cases[0].Case)
+	}
+	if err := subscriptionService.SetAfterSalesCaseRefunded(page.Cases[0].Case.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SoftDeleteArchived(subscriptionID); err == nil {
+		t.Fatal("soft delete removed a subscription still referenced by after-sales")
+	}
+	if _, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID); err != nil {
+		t.Fatalf("protected archived subscription disappeared: %v", err)
 	}
 }
 

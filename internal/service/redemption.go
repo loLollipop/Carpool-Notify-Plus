@@ -349,7 +349,7 @@ func (service *SubscriptionService) InviteRedemptionApplication(applicationID in
 		boardedAt = cycle.FormatDate(service.now())
 	}
 
-	subscriptionID, err := service.CreateWithInitialBill(CreateInput{
+	subscription, err := service.parseInput(CreateInput{
 		Name:             application.CustomerEmail,
 		PriceYuan:        strings.TrimSpace(input.PriceYuan),
 		IsResale:         input.IsResale,
@@ -363,21 +363,33 @@ func (service *SubscriptionService) InviteRedemptionApplication(applicationID in
 		AccountID:        seat.AccountID,
 		SeatID:           seat.ID,
 		BoardedAt:        boardedAt,
-	})
+	}, 0)
 	if err != nil {
 		return 0, err
 	}
-
-	if err := service.Store.MarkRedemptionApplicationInvited(
+	initialDueDate, err := initialBillDueDate(subscription)
+	if err != nil {
+		return 0, err
+	}
+	subscriptionID, err := service.Store.CreateSubscriptionAndInviteRedemption(
 		application.ID,
 		seat.AccountID,
 		seat.ID,
-		subscriptionID,
+		subscription,
+		initialDueDate,
+		billDefaultAmountCents(subscription),
 		operatorNote,
-	); err != nil {
-		_ = service.Store.SoftDeleteSubscription(subscriptionID)
-		if err == sql.ErrNoRows {
+	)
+	if err != nil {
+		switch {
+		case errors.Is(err, db.ErrRedemptionAlreadyProcessed):
 			return 0, fmt.Errorf("兑换申请状态已变化，请刷新后再处理")
+		case errors.Is(err, db.ErrActiveSeatOccupied):
+			return 0, fmt.Errorf("所选车位已被占用，请刷新后选择其他车位")
+		case errors.Is(err, db.ErrReplacementAccountBanned):
+			return 0, fmt.Errorf("所选母号已封禁，请选择其他空间")
+		case errors.Is(err, db.ErrReplacementSeatUnavailable), errors.Is(err, sql.ErrNoRows):
+			return 0, fmt.Errorf("所选车位或兑换申请不存在，请刷新后重试")
 		}
 		return 0, err
 	}

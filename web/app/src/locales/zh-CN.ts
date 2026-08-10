@@ -397,7 +397,7 @@ export default {
     },
     afterSales: {
       title: "售后处理",
-      desc: "集中处理母号封禁和客户主动退订；退款完成后会自动计入账单、利润与累计退款。",
+      desc: "集中处理母号封禁和客户主动退订；已处理记录保留 24 小时后自动从本页清除，退款统计会继续保留。",
       showAllAccounts: "查看全部售后",
       kpiAffected: "受影响客户",
       kpiAffectedHint: "全部售后事件快照",

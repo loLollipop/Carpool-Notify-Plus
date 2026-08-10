@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -87,6 +88,46 @@ func TestListAccountsViewOrdersByOpenedAtThenImportOrder(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("account order = %#v, want %#v", got, want)
+	}
+}
+
+func TestInvalidAccountSeatShrinkDoesNotPartiallySaveMetadataOrCost(t *testing.T) {
+	subscriptionService := openTestService(t)
+	accountID, seatIDs := createTestAccountWithSeats(
+		t,
+		subscriptionService,
+		"owner@example.com",
+		"seat1",
+		"seat2",
+	)
+	for index, seatID := range seatIDs {
+		if _, err := subscriptionService.Create(service.CreateInput{
+			Name:             fmt.Sprintf("customer-%d", index+1),
+			PriceYuan:        "20.00",
+			CronExpr:         "interval:30d",
+			NotifyOffsetsRaw: "3",
+			SeatID:           seatID,
+			BoardedAt:        "2026-08-01",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	targetTotal := "99.00"
+	err := subscriptionService.UpdateAccount(accountID, service.UpdateAccountInput{
+		Name:          "changed@example.com",
+		CostYuan:      "50.00",
+		TotalCostYuan: &targetTotal,
+		SeatCount:     1,
+	})
+	if err == nil {
+		t.Fatal("shrinking below active occupancy should fail")
+	}
+	account, err := subscriptionService.Store.GetAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.Name != "owner@example.com" || account.CostCents != 0 || account.TotalCostCents != 0 {
+		t.Fatalf("failed update partially changed account: %#v", account)
 	}
 }
 

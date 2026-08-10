@@ -399,7 +399,7 @@ export default {
     },
     afterSales: {
       title: "After-sales",
-      desc: "Handle banned owner accounts and customer cancellations. Completed refunds flow into bills, profit, and refund totals automatically.",
+      desc: "Handle banned owner accounts and customer cancellations. Completed cases leave this page after 24 hours while refund totals remain available.",
       showAllAccounts: "Show all cases",
       kpiAffected: "Affected customers",
       kpiAffectedHint: "All after-sales snapshots",

@@ -2,12 +2,14 @@ package service
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 )
 
@@ -483,7 +485,13 @@ func (service *SubscriptionService) UpdateBill(billID int64, input BillEditInput
 		return fmt.Errorf("金额无效: %w", err)
 	}
 	note := strings.TrimSpace(input.Note)
-	return service.Store.UpdateBill(billID, amountCents, note)
+	if err := service.Store.UpdateBill(billID, amountCents, note); err != nil {
+		if errors.Is(err, db.ErrBillHasAfterSalesCase) {
+			return fmt.Errorf("该账单已关联售后处理记录，不能修改")
+		}
+		return err
+	}
+	return nil
 }
 
 // DeleteBill removes a bill permanently. The corresponding due date becomes unpaid again.
@@ -497,6 +505,9 @@ func (service *SubscriptionService) DeleteBill(billID int64) error {
 	if err := service.Store.DeleteBill(billID); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("账单不存在")
+		}
+		if errors.Is(err, db.ErrBillHasAfterSalesCase) {
+			return fmt.Errorf("该账单已关联售后处理记录，不能删除或取消缴费")
 		}
 		return err
 	}
