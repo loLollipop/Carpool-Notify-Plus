@@ -279,6 +279,9 @@ func (store *Store) migrate() error {
 	if err := store.ensureAccountDetailColumns(); err != nil {
 		return err
 	}
+	if err := store.detachPlusRentalSeats(); err != nil {
+		return err
+	}
 	if err := store.ensureAccountBanColumns(); err != nil {
 		return err
 	}
@@ -519,6 +522,30 @@ func (store *Store) ensureSubscriptionBusinessTypeColumn() error {
 	)
 	if err != nil {
 		return fmt.Errorf("add business_type: %w", err)
+	}
+	return nil
+}
+
+// detachPlusRentalSeats migrates Plus rentals created by older releases away
+// from the Team account/seat model. It is idempotent and releases any legacy
+// seat immediately on startup.
+func (store *Store) detachPlusRentalSeats() error {
+	_, err := store.database.Exec(`
+		UPDATE subscriptions
+		SET customer_email = CASE
+				WHEN TRIM(COALESCE(customer_email, '')) <> '' THEN customer_email
+				ELSE COALESCE((
+					SELECT COALESCE(NULLIF(TRIM(account.email), ''), account.name)
+					FROM seats AS seat
+					JOIN accounts AS account ON account.id = seat.account_id
+					WHERE seat.id = subscriptions.seat_id
+				), '')
+			END,
+			seat_id = NULL,
+			subscription_type = 'Plus 出租'
+		WHERE business_type = 'plus' AND seat_id IS NOT NULL`)
+	if err != nil {
+		return fmt.Errorf("detach Plus rental seats: %w", err)
 	}
 	return nil
 }
@@ -2909,7 +2936,9 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 	subscription.AccountID = accountID
 	subscription.AccountName = strings.TrimSpace(accountName)
 	subscription.SeatName = strings.TrimSpace(seatName)
-	if subscription.AccountName == "" && subscription.SubscriptionType != "" {
+	if subscription.AccountName == "" &&
+		subscription.SubscriptionType != "" &&
+		subscription.BusinessType != model.SubscriptionBusinessPlus {
 		subscription.AccountName = subscription.SubscriptionType
 	}
 	if subscription.SubscriptionType == "" {

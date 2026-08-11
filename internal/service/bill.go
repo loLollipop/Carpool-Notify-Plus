@@ -18,6 +18,7 @@ type BillView struct {
 	ID               int64     `json:"id"`
 	SubscriptionID   int64     `json:"subscription_id"`
 	SubscriptionName string    `json:"subscription_name"`
+	BusinessType     string    `json:"business_type"`
 	AccountName      string    `json:"account_name"`
 	AccountEmail     string    `json:"account_email"`
 	AccountSpaceName string    `json:"account_space_name"`
@@ -141,6 +142,7 @@ func (service *SubscriptionService) ListBillsView() ([]BillView, error) {
 func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents int64) (BillView, error) {
 	subscription, err := service.Store.GetSubscriptionIncludingArchived(bill.SubscriptionID)
 	subscriptionName := fmt.Sprintf("订阅 #%d", bill.SubscriptionID)
+	businessType := model.SubscriptionBusinessTeam
 	accountName := model.UnclassifiedAccountName
 	accountEmail := ""
 	accountSpaceName := ""
@@ -167,6 +169,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 	channelLabels := ""
 	if err == nil {
 		subscriptionName = subscription.Name
+		businessType = subscription.BusinessType
 		accountName = displayAccountName(subscription)
 		seatName = subscription.SeatName
 		customerEmail = subscription.CustomerEmail
@@ -212,6 +215,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 		ID:               bill.ID,
 		SubscriptionID:   bill.SubscriptionID,
 		SubscriptionName: subscriptionName,
+		BusinessType:     businessType,
 		AccountName:      accountName,
 		AccountEmail:     accountEmail,
 		AccountSpaceName: accountSpaceName,

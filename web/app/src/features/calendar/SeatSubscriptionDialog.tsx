@@ -137,6 +137,12 @@ export function SeatSubscriptionDialog({
   const { t } = useTranslation()
   const manageHref = React.useMemo(() => {
     if (!info) return "/users"
+    if (info.businessType === "plus") {
+      const params = new URLSearchParams()
+      params.set("q", info.customerEmail || info.customerWechat || info.name)
+      if (info.archived) params.set("filter", "archived")
+      return `/plus-rentals?${params.toString()}`
+    }
     const params = new URLSearchParams()
     params.set("subscription", String(info.subscriptionId))
     if (info.archived) params.set("filter", "archived")
@@ -156,7 +162,9 @@ export function SeatSubscriptionDialog({
         {info ? (
           <div className="grid gap-4">
             <div>
-              <div className="text-base font-semibold">{info.accountName || info.name}</div>
+              <div className="text-base font-semibold">
+                {info.businessType === "plus" ? info.name : info.accountName || info.name}
+              </div>
               <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                 <Badge variant="secondary" className="font-normal">
                   {info.customerEmail || info.customerWechat || info.name}
@@ -207,11 +215,15 @@ export function SeatSubscriptionDialog({
               <ViewItem label={t("bills.viewChannels")}>
                 {info.channelLabels}
               </ViewItem>
-              {info.businessType !== "plus" ? (
-                <ViewItem label={t("subscriptionDialog.customerEmail")}>
-                  {info.customerEmail || "—"}
-                </ViewItem>
-              ) : null}
+              <ViewItem
+                label={
+                  info.businessType === "plus"
+                    ? t("plusRentals.accountEmail")
+                    : t("subscriptionDialog.customerEmail")
+                }
+              >
+                {info.customerEmail || "—"}
+              </ViewItem>
               <ViewItem label={t("subscriptionDialog.customerWechat")}>
                 {info.customerWechat || "—"}
               </ViewItem>

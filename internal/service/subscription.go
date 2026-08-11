@@ -157,6 +157,13 @@ func (service *SubscriptionService) allocateActiveAccountCosts(views []Subscript
 	groupCosts := make(map[string]int64)
 	for index := range views {
 		view := &views[index]
+		if isPlusSubscription(view.Subscription) {
+			view.AllocatedCostYuan = cycle.FormatCents(view.Subscription.CostCents)
+			view.AllocatedProfitYuan = cycle.FormatCents(
+				view.Subscription.PricePerPersonCents - view.Subscription.CostCents,
+			)
+			continue
+		}
 		if view.Subscription.IsResale {
 			view.AllocatedCostYuan = cycle.FormatCents(0)
 			view.AllocatedProfitYuan = cycle.FormatCents(view.Subscription.AgencyFeeCents)
@@ -800,6 +807,9 @@ func (service *SubscriptionService) Get(subscriptionID int64) (model.Subscriptio
 }
 
 func displayAccountName(subscription model.Subscription) string {
+	if isPlusSubscription(subscription) {
+		return "Plus 出租"
+	}
 	if name := strings.TrimSpace(subscription.AccountName); name != "" {
 		return name
 	}
@@ -840,58 +850,72 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 			return model.Subscription{}, err
 		}
 	}
-	customerEmail := ""
-	if !plusRental {
-		customerEmail, err = normalizeCustomerEmail(input.CustomerEmail)
-		if err != nil {
-			return model.Subscription{}, err
-		}
+	customerEmail, err := normalizeCustomerEmail(input.CustomerEmail)
+	if err != nil {
+		return model.Subscription{}, err
+	}
+	if plusRental && customerEmail == "" {
+		return model.Subscription{}, fmt.Errorf("Plus 出租必须填写出租账号邮箱")
 	}
 	customerWechat := strings.TrimSpace(input.CustomerWechat)
 	if plusRental && customerWechat == "" {
 		return model.Subscription{}, fmt.Errorf("Plus 出租必须填写客户微信，方便到期后人工联系续费")
 	}
 
-	seatID, err := service.resolveSeatID(input.AccountID, input.SeatID, existingSubscriptionID)
-	if err != nil {
-		return model.Subscription{}, err
-	}
-	seat, err := service.Store.GetSeat(seatID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return model.Subscription{}, fmt.Errorf("车位不存在")
-		}
-		return model.Subscription{}, err
-	}
-	if err := service.ensureSeatAvailable(seatID, existingSubscriptionID); err != nil {
-		return model.Subscription{}, err
-	}
-	account, err := service.Store.GetAccount(seat.AccountID)
-	if err != nil {
-		return model.Subscription{}, err
-	}
-	if account.BannedAt != "" {
-		keepsExistingSeat := false
-		if existingSubscriptionID > 0 {
-			existing, existingErr := service.Store.GetSubscription(existingSubscriptionID)
-			if existingErr == nil && existing.SeatID == seat.ID {
-				keepsExistingSeat = true
-			}
-		}
-		if !keepsExistingSeat {
-			return model.Subscription{}, fmt.Errorf("该账号已封禁，不能再分配新用户")
-		}
-	}
-	if strings.TrimSpace(input.CostYuan) == "" {
-		costCents = account.CostCents
-	}
-
 	name := strings.TrimSpace(input.Name)
-	if name == "" {
-		name, err = service.defaultSubscriptionName(account, existingSubscriptionID)
+	seatID := int64(0)
+	accountID := int64(0)
+	accountName := ""
+	seatName := ""
+	subscriptionType := "Plus 出租"
+	if plusRental {
+		if name == "" {
+			return model.Subscription{}, fmt.Errorf("Plus 出租必须填写客户名称")
+		}
+	} else {
+		seatID, err = service.resolveSeatID(input.AccountID, input.SeatID, existingSubscriptionID)
 		if err != nil {
 			return model.Subscription{}, err
 		}
+		seat, seatErr := service.Store.GetSeat(seatID)
+		if seatErr != nil {
+			if seatErr == sql.ErrNoRows {
+				return model.Subscription{}, fmt.Errorf("车位不存在")
+			}
+			return model.Subscription{}, seatErr
+		}
+		if err := service.ensureSeatAvailable(seatID, existingSubscriptionID); err != nil {
+			return model.Subscription{}, err
+		}
+		account, accountErr := service.Store.GetAccount(seat.AccountID)
+		if accountErr != nil {
+			return model.Subscription{}, accountErr
+		}
+		if account.BannedAt != "" {
+			keepsExistingSeat := false
+			if existingSubscriptionID > 0 {
+				existing, existingErr := service.Store.GetSubscription(existingSubscriptionID)
+				if existingErr == nil && existing.SeatID == seat.ID {
+					keepsExistingSeat = true
+				}
+			}
+			if !keepsExistingSeat {
+				return model.Subscription{}, fmt.Errorf("该账号已封禁，不能再分配新用户")
+			}
+		}
+		if strings.TrimSpace(input.CostYuan) == "" {
+			costCents = account.CostCents
+		}
+		if name == "" {
+			name, err = service.defaultSubscriptionName(account, existingSubscriptionID)
+			if err != nil {
+				return model.Subscription{}, err
+			}
+		}
+		accountID = seat.AccountID
+		accountName = account.Name
+		seatName = seat.Name
+		subscriptionType = account.Name
 	}
 
 	boardedAt := strings.TrimSpace(input.BoardedAt)
@@ -921,10 +945,10 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 		CustomerEmail:    customerEmail,
 		CustomerWechat:   customerWechat,
 		SeatID:           seatID,
-		AccountID:        seat.AccountID,
-		AccountName:      account.Name,
-		SeatName:         seat.Name,
-		SubscriptionType: account.Name,
+		AccountID:        accountID,
+		AccountName:      accountName,
+		SeatName:         seatName,
+		SubscriptionType: subscriptionType,
 		BoardedAt:        boardedAt,
 	}, nil
 }

@@ -372,6 +372,7 @@ export interface BillView {
   id: number
   subscription_id: number
   subscription_name: string
+  business_type: SubscriptionBusinessType
   account_name: string
   account_email: string
   account_space_name: string

@@ -37,8 +37,11 @@ export function SubscriptionViewDialog({
   amountsHidden: boolean
 }) {
   const { t } = useTranslation()
+  const plusRental = bill?.business_type === "plus"
   const nextRenewalDate = getNextMonthlyRenewalDate(bill?.account_opened_at ?? "")
-  const primaryName = bill?.account_name || bill?.subscription_name || ""
+  const primaryName = plusRental
+    ? bill?.subscription_name || ""
+    : bill?.account_name || bill?.subscription_name || ""
   const customerLine = bill?.customer_email || bill?.subscription_name || ""
 
   return (
@@ -61,6 +64,11 @@ export function SubscriptionViewDialog({
                 {bill.is_resale ? (
                   <Badge variant="outline" className="font-normal">
                     {t("cards.resale")}
+                  </Badge>
+                ) : null}
+                {plusRental ? (
+                  <Badge className="border-brand/25 bg-brand/10 font-normal text-brand">
+                    {t("cards.plusRental")}
                   </Badge>
                 ) : null}
                 <Badge
@@ -127,24 +135,35 @@ export function SubscriptionViewDialog({
                 </ViewItem>
               ) : null}
               <ViewItem label={t("bills.viewChannels")}>{bill.channel_labels}</ViewItem>
-              <ViewItem label={t("subscriptionDialog.customerEmail")} mono>
+              <ViewItem
+                label={
+                  plusRental
+                    ? t("plusRentals.accountEmail")
+                    : t("subscriptionDialog.customerEmail")
+                }
+                mono
+              >
                 {bill.customer_email || "—"}
               </ViewItem>
               <ViewItem label={t("subscriptionDialog.customerWechat")} mono>
                 {bill.customer_wechat || "—"}
               </ViewItem>
-              <ViewItem label={t("accounts.email")} mono>
-                {bill.account_email || "—"}
-              </ViewItem>
-              <ViewItem label={t("accounts.spaceName")}>
-                {bill.account_space_name || "—"}
-              </ViewItem>
-              <ViewItem label={t("accounts.openedAt")}>
-                <span className="tabular-nums">{bill.account_opened_at || "—"}</span>
-              </ViewItem>
-              <ViewItem label={t("accounts.nextRenewalAt")}>
-                <span className="tabular-nums">{nextRenewalDate || "—"}</span>
-              </ViewItem>
+              {!plusRental ? (
+                <>
+                  <ViewItem label={t("accounts.email")} mono>
+                    {bill.account_email || "—"}
+                  </ViewItem>
+                  <ViewItem label={t("accounts.spaceName")}>
+                    {bill.account_space_name || "—"}
+                  </ViewItem>
+                  <ViewItem label={t("accounts.openedAt")}>
+                    <span className="tabular-nums">{bill.account_opened_at || "—"}</span>
+                  </ViewItem>
+                  <ViewItem label={t("accounts.nextRenewalAt")}>
+                    <span className="tabular-nums">{nextRenewalDate || "—"}</span>
+                  </ViewItem>
+                </>
+              ) : null}
             </div>
 
             <div>

@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import {
   CalendarDays,
+  CircleDollarSign,
   ChevronRight,
   ExternalLink,
   FlaskConical,
@@ -144,6 +145,7 @@ export function AppShell() {
     { to: "/", label: t("nav.dashboard"), icon: LayoutDashboard, end: true },
     { to: "/calendar", label: t("nav.calendar"), icon: CalendarDays, end: true },
     { to: "/users", label: t("nav.users"), icon: Users, end: true },
+    { to: "/plus-rentals", label: t("nav.plusRentals"), icon: CircleDollarSign, end: true },
     { to: "/redemptions", label: t("nav.redemptions"), icon: TicketCheck, end: true },
     { to: "/accounts", label: t("nav.accounts"), icon: KeyRound, end: true },
     { to: "/after-sales", label: t("nav.afterSales"), icon: HandCoins, end: true },

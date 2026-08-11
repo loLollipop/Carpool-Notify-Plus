@@ -561,7 +561,7 @@ func (server *Server) postArchiveSubscription(context *gin.Context) {
 			return
 		}
 		respondOK(context, gin.H{
-			"message":  "Plus 出租已结束，账号席位已释放",
+			"message":  "Plus 出租已结束并归档",
 			"archived": true,
 		})
 		return

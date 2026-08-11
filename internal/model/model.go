@@ -173,8 +173,8 @@ type Subscription struct {
 	TradeURL       string   `json:"trade_url"`
 	CustomerEmail  string   `json:"customer_email"`
 	CustomerWechat string   `json:"customer_wechat"`
-	// SeatID links this subscription to a named seat under an account.
-	// Active subscriptions must occupy a free seat; archive releases the seat.
+	// SeatID links Team subscriptions to a named seat under an account.
+	// Plus rentals deliberately keep this at zero and do not occupy a seat.
 	SeatID int64 `json:"seat_id"`
 	// AccountID / AccountName / SeatName are joined presentation fields (not always stored).
 	AccountID   int64  `json:"account_id"`

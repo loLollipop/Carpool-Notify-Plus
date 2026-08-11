@@ -49,7 +49,7 @@ import { ReminderPreviewDialog } from "./ReminderPreviewDialog"
 import { SubscriptionDialog } from "./SubscriptionDialog"
 import { prefillFromView, type SubscriptionPrefill } from "./subscription-prefill"
 
-type CardsFilter = "all" | "team" | "plus" | "pending" | "paid" | "archived" | "resale"
+type CardsFilter = "all" | "pending" | "paid" | "archived" | "resale"
 
 const EMPTY_SUBSCRIPTION_VIEWS: SubscriptionView[] = []
 const USERS_PER_PAGE = 9
@@ -59,9 +59,7 @@ function normalizeCardsFilter(value: string | null): CardsFilter {
     value === "pending" ||
     value === "paid" ||
     value === "archived" ||
-    value === "resale" ||
-    value === "team" ||
-    value === "plus"
+    value === "resale"
   ) {
     return value
   }
@@ -410,8 +408,20 @@ export function CardsPage() {
     setSearchParams(next, { replace: true })
   }
 
-  const activeViews = subscriptionsQuery.data?.subscriptions ?? EMPTY_SUBSCRIPTION_VIEWS
-  const archivedViews = subscriptionsQuery.data?.archived ?? EMPTY_SUBSCRIPTION_VIEWS
+  const activeViews = React.useMemo(
+    () =>
+      (subscriptionsQuery.data?.subscriptions ?? EMPTY_SUBSCRIPTION_VIEWS).filter(
+        (view) => view.subscription.business_type !== "plus",
+      ),
+    [subscriptionsQuery.data?.subscriptions],
+  )
+  const archivedViews = React.useMemo(
+    () =>
+      (subscriptionsQuery.data?.archived ?? EMPTY_SUBSCRIPTION_VIEWS).filter(
+        (view) => view.subscription.business_type !== "plus",
+      ),
+    [subscriptionsQuery.data?.archived],
+  )
   const calendar = calendarQuery.data
 
   const nextCancellationExpiry = React.useMemo(() => {
@@ -490,8 +500,6 @@ export function CardsPage() {
       pool = archivedViews
     } else if (filter === "resale") {
       pool = [...activeViews, ...archivedViews].filter((view) => view.subscription.is_resale)
-    } else if (filter === "team" || filter === "plus") {
-      pool = activeViews.filter((view) => view.subscription.business_type === filter)
     } else if (filter === "pending") {
       pool = activeViews.filter(
         (view) => paymentDueBySubscription.get(view.subscription.id) === true,
@@ -548,6 +556,21 @@ export function CardsPage() {
   const pagedViews = filteredViews.slice(pageStartIndex, pageStartIndex + USERS_PER_PAGE)
   const pageEndIndex = pageStartIndex + pagedViews.length
 
+  const teamPendingMonthCount = (calendar?.occurrences ?? []).filter(
+    (occurrence) => occurrence.business_type !== "plus" && !occurrence.paid,
+  ).length
+  const teamDashboard = dashboardQuery.data
+    ? {
+        ...dashboardQuery.data,
+        subscription_count: activeViews.length,
+        active_count: activeViews.length,
+        archived_count: archivedViews.length,
+        accounts: (dashboardQuery.data.accounts ?? []).filter(
+          (account) => account.account_name !== "Plus 出租",
+        ),
+      }
+    : null
+
   const updatePage = (value: number) => {
     const nextPage = Math.min(Math.max(value, 1), pageCount)
     const next = new URLSearchParams(searchParams)
@@ -582,8 +605,6 @@ export function CardsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t("calendar.filterAll")}</SelectItem>
-                <SelectItem value="team">{t("cards.filterTeam")}</SelectItem>
-                <SelectItem value="plus">{t("cards.filterPlus")}</SelectItem>
                 <SelectItem value="pending">{t("calendar.filterPending")}</SelectItem>
                 <SelectItem value="paid">{t("calendar.filterPaid")}</SelectItem>
                 <SelectItem value="archived">{t("calendar.filterArchived")}</SelectItem>
@@ -598,10 +619,10 @@ export function CardsPage() {
         }
       />
 
-      {dashboardQuery.data ? (
+      {teamDashboard ? (
         <KpiSection
-          dashboard={dashboardQuery.data}
-          pendingCount={calendarQuery.data?.pending_month_count ?? 0}
+          dashboard={teamDashboard}
+          pendingCount={teamPendingMonthCount}
           pendingMode="monthDue"
         />
       ) : (

@@ -28,6 +28,7 @@ export interface DuePaidTarget {
   priceYuan: string
   cycleDesc: string
   dueDate: string
+  kind?: "team" | "plus"
 }
 
 export function DuePaidDialog({
@@ -40,6 +41,7 @@ export function DuePaidDialog({
   target: DuePaidTarget | null
 }) {
   const { t } = useTranslation()
+  const plusRental = target?.kind === "plus"
   // User pick overrides the derived default; cleared whenever the dialog closes.
   const [overrideStart, setOverrideStart] = React.useState("")
 
@@ -68,7 +70,7 @@ export function DuePaidDialog({
   const confirmMutation = useAppMutation(
     () => setDuePaid(target!.subscriptionId, selectedStart, true),
     {
-      successMessage: t("duePaid.markedPaid"),
+      successMessage: t(plusRental ? "plusRentals.renewalRecorded" : "duePaid.markedPaid"),
       onSuccess: () => handleOpenChange(false),
     },
   )
@@ -77,21 +79,23 @@ export function DuePaidDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t("duePaid.title")}</DialogTitle>
-          <DialogDescription className="leading-relaxed">{t("duePaid.desc")}</DialogDescription>
+          <DialogTitle>{t(plusRental ? "plusRentals.renewalTitle" : "duePaid.title")}</DialogTitle>
+          <DialogDescription className="leading-relaxed">
+            {t(plusRental ? "plusRentals.renewalDesc" : "duePaid.desc")}
+          </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4 text-sm">
           <div className="grid gap-1">
             <span className="text-xs font-medium text-muted-foreground">
-              {t("duePaid.subscription")}
+              {t(plusRental ? "plusRentals.customerName" : "duePaid.subscription")}
             </span>
             <span className="font-medium">{target?.name ?? "—"}</span>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-1">
               <span className="text-xs font-medium text-muted-foreground">
-                {t("duePaid.price")}
+                {t(plusRental ? "plusRentals.rentShort" : "duePaid.price")}
               </span>
               <span className="tabular-nums">
                 {target?.priceYuan ? `¥${target.priceYuan}` : "—"}
@@ -163,7 +167,7 @@ export function DuePaidDialog({
             }
             onClick={() => confirmMutation.mutate(undefined)}
           >
-            {t("duePaid.confirm")}
+            {t(plusRental ? "plusRentals.confirmRenewal" : "duePaid.confirm")}
           </Button>
         </DialogFooter>
       </DialogContent>

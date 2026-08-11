@@ -16,19 +16,18 @@ import (
 
 func TestPlusRentalCreateEnforcesManualWechatRenewal(t *testing.T) {
 	subscriptionService := openTestService(t)
-	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Plus account", "seat1")
 
 	subscriptionID, err := subscriptionService.Create(service.CreateInput{
 		Name:             "Plus customer",
 		BusinessType:     model.SubscriptionBusinessPlus,
 		PriceYuan:        "68.00",
+		CostYuan:         "20.50",
 		CronExpr:         "interval:30d",
 		NotifyOffsetsRaw: "14,7,3",
-		CustomerEmail:    "not-an-email",
+		CustomerEmail:    "rented-plus@example.com",
 		CustomerWechat:   "wx-plus-customer",
 		IsResale:         true,
 		AgencyFeeYuan:    "not-an-amount",
-		SeatID:           seatIDs[0],
 		BoardedAt:        "2026-07-01",
 	})
 	if err != nil {
@@ -45,8 +44,14 @@ func TestPlusRentalCreateEnforcesManualWechatRenewal(t *testing.T) {
 	if subscription.CustomerWechat != "wx-plus-customer" {
 		t.Fatalf("customer WeChat = %q", subscription.CustomerWechat)
 	}
-	if subscription.CustomerEmail != "" {
-		t.Fatalf("customer email = %q, want empty", subscription.CustomerEmail)
+	if subscription.SeatID != 0 || subscription.AccountID != 0 || subscription.AccountName != "" || subscription.SeatName != "" {
+		t.Fatalf("Plus rental retained Team placement: seat=%d account=%d/%q seat_name=%q", subscription.SeatID, subscription.AccountID, subscription.AccountName, subscription.SeatName)
+	}
+	if subscription.CostCents != 2050 {
+		t.Fatalf("cost cents = %d, want 2050", subscription.CostCents)
+	}
+	if subscription.CustomerEmail != "rented-plus@example.com" {
+		t.Fatalf("rented account email = %q", subscription.CustomerEmail)
 	}
 	if len(subscription.NotifyOffsets) != 0 {
 		t.Fatalf("notify offsets = %#v, want empty", subscription.NotifyOffsets)
@@ -58,17 +63,64 @@ func TestPlusRentalCreateEnforcesManualWechatRenewal(t *testing.T) {
 
 func TestPlusRentalRequiresCustomerWechat(t *testing.T) {
 	subscriptionService := openTestService(t)
-	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Plus account", "seat1")
 
 	_, err := subscriptionService.Create(service.CreateInput{
-		BusinessType: model.SubscriptionBusinessPlus,
-		PriceYuan:    "68.00",
-		CronExpr:     "interval:30d",
-		SeatID:       seatIDs[0],
-		BoardedAt:    "2026-07-01",
+		Name:          "Plus customer",
+		BusinessType:  model.SubscriptionBusinessPlus,
+		PriceYuan:     "68.00",
+		CronExpr:      "interval:30d",
+		CustomerEmail: "rented-plus@example.com",
+		BoardedAt:     "2026-07-01",
 	})
 	if err == nil || !strings.Contains(err.Error(), "客户微信") {
 		t.Fatalf("create error = %v, want customer WeChat validation", err)
+	}
+}
+
+func TestPlusRentalRequiresRentedAccountEmail(t *testing.T) {
+	subscriptionService := openTestService(t)
+
+	_, err := subscriptionService.Create(service.CreateInput{
+		Name:           "Plus customer",
+		BusinessType:   model.SubscriptionBusinessPlus,
+		PriceYuan:      "68.00",
+		CronExpr:       "interval:30d",
+		CustomerWechat: "wx-customer",
+		BoardedAt:      "2026-07-01",
+	})
+	if err == nil || !strings.Contains(err.Error(), "出租账号邮箱") {
+		t.Fatalf("create error = %v, want rented account email validation", err)
+	}
+}
+
+func TestPlusRentalRequiresCustomerName(t *testing.T) {
+	subscriptionService := openTestService(t)
+
+	_, err := subscriptionService.Create(service.CreateInput{
+		BusinessType:   model.SubscriptionBusinessPlus,
+		PriceYuan:      "68.00",
+		CronExpr:       "interval:30d",
+		CustomerEmail:  "rented-plus@example.com",
+		CustomerWechat: "wx-customer",
+		BoardedAt:      "2026-07-01",
+	})
+	if err == nil || !strings.Contains(err.Error(), "客户名称") {
+		t.Fatalf("create error = %v, want customer name validation", err)
+	}
+}
+
+func TestTeamSubscriptionStillRequiresAccount(t *testing.T) {
+	subscriptionService := openTestService(t)
+
+	_, err := subscriptionService.Create(service.CreateInput{
+		Name:         "Team customer",
+		BusinessType: model.SubscriptionBusinessTeam,
+		PriceYuan:    "25.00",
+		CronExpr:     "interval:30d",
+		BoardedAt:    "2026-07-01",
+	})
+	if err == nil || !strings.Contains(err.Error(), "请选择所属账号") {
+		t.Fatalf("create error = %v, want Team account validation", err)
 	}
 }
 
@@ -80,15 +132,14 @@ func TestPlusRentalOnlySendsDueDayOperatorReminder(t *testing.T) {
 	smtpRecorder := &recordingSender{}
 	subscriptionService.Notify = notify.Registry{IYUU: iyuuRecorder, SMTP: smtpRecorder}
 
-	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Plus reminder account", "seat1")
 	subscriptionID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "Plus reminder customer",
 		BusinessType:     model.SubscriptionBusinessPlus,
 		PriceYuan:        "68.00",
 		CronExpr:         "0 0 15 * *",
 		NotifyOffsetsRaw: "3",
-		CustomerEmail:    "customer@example.com",
+		CustomerEmail:    "rented-plus@example.com",
 		CustomerWechat:   "wx-customer",
-		SeatID:           seatIDs[0],
 		BoardedAt:        "2000-01-01",
 	})
 	if err != nil {
@@ -131,13 +182,13 @@ func TestPlusRentalRejectsManualAndLegacyCustomerEmail(t *testing.T) {
 	smtpRecorder := &recordingSender{}
 	subscriptionService.Notify = notify.Registry{SMTP: smtpRecorder}
 
-	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Plus email guard", "seat1")
 	subscriptionID, err := subscriptionService.Create(service.CreateInput{
+		Name:           "Plus email guard",
 		BusinessType:   model.SubscriptionBusinessPlus,
 		PriceYuan:      "68.00",
 		CronExpr:       "0 0 15 * *",
+		CustomerEmail:  "rented-plus@example.com",
 		CustomerWechat: "wx-customer",
-		SeatID:         seatIDs[0],
 		BoardedAt:      "2000-01-01",
 	})
 	if err != nil {

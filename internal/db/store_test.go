@@ -384,6 +384,60 @@ func TestActiveSeatTriggerRejectsSecondSubscription(t *testing.T) {
 	}
 }
 
+func TestOpenDetachesLegacyPlusRentalSeat(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "carpool.db")
+	store := openStore(t, databasePath)
+	accountID, err := store.CreateAccount(model.Account{
+		Name:  "Legacy Plus",
+		Email: "rented-plus@example.com",
+	}, 0, "2026-08-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seatID, err := store.CreateSeat(model.Seat{AccountID: accountID, Name: "seat1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscriptionID, err := store.CreateSubscription(model.Subscription{
+		Name:                "legacy Plus customer",
+		BusinessType:        model.SubscriptionBusinessPlus,
+		PricePerPersonCents: 6800,
+		CronExpr:            "interval:30d",
+		NotifyOffsets:       []int{},
+		Channels:            append([]string(nil), model.DefaultEnabledChannels...),
+		CustomerWechat:      "wx-customer",
+		SeatID:              seatID,
+		SubscriptionType:    "Legacy Plus",
+		BoardedAt:           "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store = openStore(t, databasePath)
+	defer store.Close()
+	subscription, err := store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subscription.SeatID != 0 || subscription.AccountID != 0 || subscription.SeatName != "" {
+		t.Fatalf("legacy Plus placement = seat %d account %d seat name %q, want detached", subscription.SeatID, subscription.AccountID, subscription.SeatName)
+	}
+	if subscription.CustomerEmail != "rented-plus@example.com" {
+		t.Fatalf("migrated rented account email = %q, want rented-plus@example.com", subscription.CustomerEmail)
+	}
+	freeSeats, err := store.ListFreeSeats(accountID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(freeSeats) != 1 || freeSeats[0].ID != seatID {
+		t.Fatalf("free seats = %#v, want released seat %d", freeSeats, seatID)
+	}
+}
+
 func TestRedemptionCodeCanBeUsedOnceForApplication(t *testing.T) {
 	store := openStore(t, filepath.Join(t.TempDir(), "carpool.db"))
 	defer store.Close()
