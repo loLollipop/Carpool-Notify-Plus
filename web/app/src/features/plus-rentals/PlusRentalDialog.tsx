@@ -152,7 +152,7 @@ export function PlusRentalDialog({
             className="grid gap-6"
             onSubmit={form.handleSubmit((values) => saveMutation.mutate(values))}
           >
-            <section className="grid gap-4 rounded-xl border border-border/70 bg-muted/20 p-4 sm:grid-cols-2">
+            <section className="grid items-start gap-4 rounded-xl border border-border/70 bg-muted/20 p-4 sm:grid-cols-2">
               <div className="flex items-center gap-2 text-sm font-semibold sm:col-span-2">
                 <MessageCircle className="size-4 text-brand" />
                 {t("plusRentals.customerSection")}
@@ -203,7 +203,7 @@ export function PlusRentalDialog({
               />
             </section>
 
-            <section className="grid gap-4 sm:grid-cols-2">
+            <section className="grid items-start gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
                 name="price_yuan"
@@ -277,7 +277,7 @@ export function PlusRentalDialog({
               />
             </section>
 
-            <section className="grid gap-4 sm:grid-cols-2">
+            <section className="grid items-start gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
                 name="trade_url"

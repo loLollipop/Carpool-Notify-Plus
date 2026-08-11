@@ -31,6 +31,10 @@ func (store *Store) RequestSubscriptionCancellation(
 	var customerEmail string
 	var customerWechat string
 	var cancellationCaseID int64
+	var businessType string
+	var subscriptionName string
+	var cronExpr string
+	var boardedAt string
 	if err := transaction.QueryRow(`
 		SELECT COALESCE(seat.account_id, 0),
 		       COALESCE(account.name, ''),
@@ -38,7 +42,11 @@ func (store *Store) RequestSubscriptionCancellation(
 		       COALESCE(account.space_name, ''),
 		       COALESCE(subscription.customer_email, ''),
 		       COALESCE(subscription.customer_wechat, ''),
-		       COALESCE(subscription.cancellation_case_id, 0)
+		       COALESCE(subscription.cancellation_case_id, 0),
+		       COALESCE(subscription.business_type, 'team'),
+		       subscription.name,
+		       subscription.cron_expr,
+		       subscription.boarded_at
 		FROM subscriptions AS subscription
 		LEFT JOIN seats AS seat ON seat.id = subscription.seat_id
 		LEFT JOIN accounts AS account ON account.id = seat.account_id
@@ -52,6 +60,10 @@ func (store *Store) RequestSubscriptionCancellation(
 		&customerEmail,
 		&customerWechat,
 		&cancellationCaseID,
+		&businessType,
+		&subscriptionName,
+		&cronExpr,
+		&boardedAt,
 	); err != nil {
 		return model.AfterSalesCase{}, err
 	}
@@ -72,8 +84,20 @@ func (store *Store) RequestSubscriptionCancellation(
 	if pendingAfterSalesCount > 0 {
 		return model.AfterSalesCase{}, ErrCancellationCaseConflict
 	}
-	if accountID <= 0 {
+	businessType = normalizeStoredBusinessType(businessType)
+	plusRental := businessType == model.SubscriptionBusinessPlus
+	if accountID <= 0 && !plusRental {
 		return model.AfterSalesCase{}, fmt.Errorf("subscription has no owner account")
+	}
+	var storedAccountID any = accountID
+	if plusRental {
+		storedAccountID = nil
+		accountName = strings.TrimSpace(subscriptionName)
+		accountEmail = strings.TrimSpace(customerEmail)
+		accountSpaceName = ""
+		// Plus stores the rented login email in subscription.customer_email. Keep
+		// it as the affected account snapshot, not as the customer's contact email.
+		customerEmail = ""
 	}
 
 	requestedAt = requestedAt.In(cycle.Location)
@@ -111,12 +135,26 @@ func (store *Store) RequestSubscriptionCancellation(
 		if usedDays < 0 {
 			usedDays = 0
 		}
-		if usedDays > warrantyDays {
-			usedDays = warrantyDays
+		periodDays := warrantyDays
+		periodEndDay := periodDay.AddDate(0, 0, periodDays)
+		if plusRental {
+			schedule, scheduleErr := cycle.ParseBillingSchedule(cronExpr, boardedAt)
+			if scheduleErr != nil {
+				return model.AfterSalesCase{}, fmt.Errorf("parse Plus billing schedule: %w", scheduleErr)
+			}
+			periodEndDay = schedule.NextDue(cycle.StartOfDay(periodDay))
+			periodDays = int(periodEndDay.Sub(periodDay).Hours() / 24)
+			if periodDays <= 0 {
+				return model.AfterSalesCase{}, fmt.Errorf("invalid Plus billing period")
+			}
+			warrantyDays = periodDays
 		}
-		remainingDays = warrantyDays - usedDays
-		periodEnd = periodDay.AddDate(0, 0, warrantyDays).Format("2006-01-02")
-		refundAmountCents = (paidAmountCents*int64(remainingDays) + int64(warrantyDays/2)) / int64(warrantyDays)
+		if usedDays > periodDays {
+			usedDays = periodDays
+		}
+		remainingDays = periodDays - usedDays
+		periodEnd = periodEndDay.Format("2006-01-02")
+		refundAmountCents = (paidAmountCents*int64(remainingDays) + int64(periodDays/2)) / int64(periodDays)
 		status = model.AfterSalesStatusPending
 		note = ""
 	}
@@ -125,15 +163,16 @@ func (store *Store) RequestSubscriptionCancellation(
 	expiresText := formatTime(expiresAt.UTC())
 	result, err := transaction.Exec(`
 		INSERT INTO after_sales_cases (
-			account_id, subscription_id, bill_id,
+			account_id, subscription_id, bill_id, business_type,
 			account_name, account_email, account_space_name, customer_email, customer_wechat,
 			period_start, period_end, banned_date, warranty_days,
 			used_days, remaining_days, paid_amount_cents, refund_amount_cents,
 			source, expires_at, status, note, processed_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
-		accountID,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+		storedAccountID,
 		subscriptionID,
 		billID,
+		businessType,
 		strings.TrimSpace(accountName),
 		strings.TrimSpace(accountEmail),
 		strings.TrimSpace(accountSpaceName),

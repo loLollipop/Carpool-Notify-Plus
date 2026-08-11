@@ -555,24 +555,17 @@ func (server *Server) postArchiveSubscription(context *gin.Context) {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
 	}
-	if subscription.BusinessType == model.SubscriptionBusinessPlus {
-		if err := server.Service.Archive(subscriptionID); err != nil {
-			respondError(context, http.StatusBadRequest, err.Error())
-			return
-		}
-		respondOK(context, gin.H{
-			"message":  "Plus 出租已结束并归档",
-			"archived": true,
-		})
-		return
-	}
 	result, err := server.Service.RequestCancellation(subscriptionID)
 	if err != nil {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
 	}
+	message := "已进入退订售后，处理完成前不会释放车位"
+	if subscription.BusinessType == model.SubscriptionBusinessPlus {
+		message = "Plus 出租已进入售后处理，确认退款后将自动归档"
+	}
 	respondOK(context, gin.H{
-		"message":          "已进入退订售后，处理完成前不会释放车位",
+		"message":          message,
 		"case_id":          result.CaseID,
 		"expires_at":       result.ExpiresAt,
 		"expires_at_label": result.ExpiresAtLabel,

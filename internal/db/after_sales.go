@@ -12,9 +12,10 @@ import (
 
 const afterSalesSelectColumns = `
 	id,
-	account_id,
+	COALESCE(account_id, 0),
 	subscription_id,
 	bill_id,
+	COALESCE(business_type, 'team'),
 	account_name,
 	account_email,
 	account_space_name,
@@ -695,6 +696,7 @@ func scanAfterSalesCase(scanner scannable) (model.AfterSalesCase, error) {
 		&caseItem.AccountID,
 		&caseItem.SubscriptionID,
 		&caseItem.BillID,
+		&caseItem.BusinessType,
 		&caseItem.AccountName,
 		&caseItem.AccountEmail,
 		&caseItem.AccountSpaceName,

@@ -109,13 +109,62 @@ func TestOpenAddsReplacementColumnsToLegacyAfterSalesTable(t *testing.T) {
 	}
 
 	store := openStore(t, databasePath)
-	defer store.Close()
 	cases, err := store.ListAfterSalesCases()
 	if err != nil {
 		t.Fatalf("list migrated after-sales cases: %v", err)
 	}
 	if len(cases) != 0 {
 		t.Fatalf("cases = %d, want 0", len(cases))
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err = sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	rows, err := database.Query(`PRAGMA table_info(after_sales_cases)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	accountIDNullable := false
+	businessTypeFound := false
+	for rows.Next() {
+		var columnID int
+		var name string
+		var columnType string
+		var notNull int
+		var defaultValue sql.NullString
+		var primaryKey int
+		if err := rows.Scan(&columnID, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			t.Fatal(err)
+		}
+		if name == "account_id" {
+			accountIDNullable = notNull == 0
+		}
+		if name == "business_type" {
+			businessTypeFound = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !accountIDNullable || !businessTypeFound {
+		t.Fatalf(
+			"after-sales schema account nullable/business type = %v/%v, want true/true",
+			accountIDNullable,
+			businessTypeFound,
+		)
+	}
+	var foreignKeyViolations int
+	if err := database.QueryRow(`SELECT COUNT(1) FROM pragma_foreign_key_check('after_sales_cases')`).Scan(&foreignKeyViolations); err != nil {
+		t.Fatal(err)
+	}
+	if foreignKeyViolations != 0 {
+		t.Fatalf("after-sales foreign key violations = %d, want 0", foreignKeyViolations)
 	}
 }
 

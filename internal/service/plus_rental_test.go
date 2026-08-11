@@ -225,3 +225,128 @@ func TestPlusRentalRejectsManualAndLegacyCustomerEmail(t *testing.T) {
 		t.Fatalf("legacy log status = %q, want failed", legacyLog.Status)
 	}
 }
+
+func TestPlusRentalBillsContributeRevenueCostAndProfit(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:           "Plus finance customer",
+		BusinessType:   model.SubscriptionBusinessPlus,
+		PriceYuan:      "68.00",
+		CostYuan:       "20.50",
+		CronExpr:       "interval:30d",
+		CustomerEmail:  "finance-plus@example.com",
+		CustomerWechat: "wx-finance",
+		BoardedAt:      "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dashboard, err := subscriptionService.ComputeDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.TotalAmountYuan != "68.00" || dashboard.TotalCostYuan != "20.50" || dashboard.TotalProfitYuan != "47.50" {
+		t.Fatalf(
+			"initial Plus dashboard amount/cost/profit = %s/%s/%s, want 68.00/20.50/47.50",
+			dashboard.TotalAmountYuan,
+			dashboard.TotalCostYuan,
+			dashboard.TotalProfitYuan,
+		)
+	}
+
+	page, err := subscriptionService.ListBillsPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Bills) != 1 {
+		t.Fatalf("Plus bills = %d, want 1", len(page.Bills))
+	}
+	if page.Bills[0].BusinessType != model.SubscriptionBusinessPlus || page.Bills[0].CostCents != 2050 || page.Bills[0].ProfitYuan != "47.50" {
+		t.Fatalf("Plus bill snapshot = %#v", page.Bills[0])
+	}
+	if page.Summary.TotalCostYuan != "20.50" || page.Summary.TotalProfitYuan != "47.50" {
+		t.Fatalf("bill summary cost/profit = %s/%s", page.Summary.TotalCostYuan, page.Summary.TotalProfitYuan)
+	}
+
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-31", true); err != nil {
+		t.Fatal(err)
+	}
+	dashboard, err = subscriptionService.ComputeDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.TotalAmountYuan != "136.00" || dashboard.TotalCostYuan != "41.00" || dashboard.TotalProfitYuan != "95.00" {
+		t.Fatalf(
+			"renewed Plus dashboard amount/cost/profit = %s/%s/%s, want 136.00/41.00/95.00",
+			dashboard.TotalAmountYuan,
+			dashboard.TotalCostYuan,
+			dashboard.TotalProfitYuan,
+		)
+	}
+}
+
+func TestPlusRentalAfterSalesRefundArchivesAndAdjustsFinance(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.July, 11, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:           "Plus after-sales customer",
+		BusinessType:   model.SubscriptionBusinessPlus,
+		PriceYuan:      "68.00",
+		CostYuan:       "20.50",
+		CronExpr:       "interval:30d",
+		CustomerEmail:  "after-sales-plus@example.com",
+		CustomerWechat: "wx-after-sales",
+		BoardedAt:      "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	request, err := subscriptionService.RequestCancellation(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caseItem, err := subscriptionService.Store.GetAfterSalesCase(request.CaseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if caseItem.BusinessType != model.SubscriptionBusinessPlus || caseItem.AccountID != 0 {
+		t.Fatalf("Plus after-sales identity = business %q account %d", caseItem.BusinessType, caseItem.AccountID)
+	}
+	if caseItem.AccountName != "Plus after-sales customer" || caseItem.AccountEmail != "after-sales-plus@example.com" || caseItem.CustomerEmail != "" {
+		t.Fatalf("Plus after-sales snapshot = %#v", caseItem)
+	}
+	if caseItem.PeriodStart != "2026-07-01" || caseItem.PeriodEnd != "2026-07-31" || caseItem.WarrantyDays != 30 || caseItem.UsedDays != 10 || caseItem.RemainingDays != 20 {
+		t.Fatalf("Plus after-sales period = %#v", caseItem)
+	}
+	if caseItem.RefundAmountCents != 4533 {
+		t.Fatalf("Plus refund = %d, want 4533", caseItem.RefundAmountCents)
+	}
+
+	if err := subscriptionService.SetAfterSalesCaseRefunded(caseItem.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.ArchivedAt == nil || archived.CancellationCaseID != 0 {
+		t.Fatalf("Plus subscription was not archived cleanly: %#v", archived)
+	}
+
+	dashboard, err := subscriptionService.ComputeDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.TotalRefundYuan != "45.33" || dashboard.NetRevenueYuan != "22.67" || dashboard.TotalCostYuan != "20.50" || dashboard.TotalProfitYuan != "2.17" {
+		t.Fatalf(
+			"refunded Plus dashboard refund/net/cost/profit = %s/%s/%s/%s",
+			dashboard.TotalRefundYuan,
+			dashboard.NetRevenueYuan,
+			dashboard.TotalCostYuan,
+			dashboard.TotalProfitYuan,
+		)
+	}
+}

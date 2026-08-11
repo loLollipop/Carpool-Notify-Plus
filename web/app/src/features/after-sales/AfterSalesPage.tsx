@@ -100,12 +100,20 @@ function StatusBadge({ status }: { status: AfterSalesStatus }) {
 
 function ContactLines({ view }: { view: AfterSalesCaseView }) {
   const { t } = useTranslation()
+  const plusRental = view.case.business_type === "plus"
   return (
     <div className="grid min-w-0 gap-1 text-xs text-muted-foreground">
       <div className="flex min-w-0 items-center gap-1.5">
-        <Mail className="size-3.5 shrink-0 text-brand" />
-        <span className="truncate font-mono" title={view.case.customer_email || undefined}>
-          {view.case.customer_email || t("afterSales.missingContact")}
+        {plusRental ? (
+          <UserRoundMinus className="size-3.5 shrink-0 text-brand" />
+        ) : (
+          <Mail className="size-3.5 shrink-0 text-brand" />
+        )}
+        <span
+          className={cn("truncate", !plusRental && "font-mono")}
+          title={(plusRental ? view.case.account_name : view.case.customer_email) || undefined}
+        >
+          {(plusRental ? view.case.account_name : view.case.customer_email) || t("afterSales.missingContact")}
         </span>
       </div>
       <div className="flex min-w-0 items-center gap-1.5">
@@ -120,6 +128,7 @@ function ContactLines({ view }: { view: AfterSalesCaseView }) {
 
 function SourceBadge({ view }: { view: AfterSalesCaseView }) {
   const { t } = useTranslation()
+  const plusRental = view.case.business_type === "plus"
   const cancellation = view.case.source === "customer_cancellation"
   return (
     <Badge
@@ -127,22 +136,27 @@ function SourceBadge({ view }: { view: AfterSalesCaseView }) {
       className="mb-1.5 w-fit font-normal"
     >
       {cancellation ? <UserRoundMinus /> : <ShieldAlert />}
-      {cancellation ? t("afterSales.sourceCancellation") : t("afterSales.sourceAccountBan")}
+      {plusRental
+        ? t("afterSales.sourcePlus")
+        : cancellation
+          ? t("afterSales.sourceCancellation")
+          : t("afterSales.sourceAccountBan")}
     </Badge>
   )
 }
 
 function AccountSnapshot({ view }: { view: AfterSalesCaseView }) {
   const { t } = useTranslation()
+  const plusRental = view.case.business_type === "plus"
   const cancellation = view.case.source === "customer_cancellation"
   return (
     <div className="min-w-0">
       <SourceBadge view={view} />
       <div className="truncate font-medium" title={view.case.account_email || view.case.account_name}>
-        {view.case.account_email || view.case.account_name}
+        {view.case.account_email || view.case.account_name || "-"}
       </div>
       <div className="mt-1 truncate text-xs text-muted-foreground" title={view.case.account_space_name}>
-        {view.case.account_space_name || "-"}
+        {plusRental ? t("afterSales.plusAccount") : view.case.account_space_name || "-"}
       </div>
       <div className={cn("mt-1 font-mono text-xs tabular-nums", cancellation ? "text-muted-foreground" : "text-destructive")}>
         {cancellation ? t("afterSales.requestedAt") : t("afterSales.bannedAt")} · {view.case.banned_date}
@@ -170,6 +184,14 @@ function ReplacementSnapshot({ view }: { view: AfterSalesCaseView }) {
       </div>
     </div>
   )
+}
+
+function customerLabel(view: AfterSalesCaseView | null) {
+  if (!view) return ""
+  if (view.case.business_type === "plus") {
+    return view.case.account_name || view.case.customer_wechat || view.case.account_email
+  }
+  return view.case.customer_email || view.case.customer_wechat
 }
 
 function PeriodDetail({ view }: { view: AfterSalesCaseView }) {
@@ -678,14 +700,17 @@ export function AfterSalesPage() {
         title={refundTarget?.case.status === "refunded" ? t("afterSales.undoTitle") : t("afterSales.refundTitle")}
         description={
           refundTarget?.case.status === "refunded"
-            ? t("afterSales.undoDesc", { email: refundTarget.case.customer_email })
+            ? t("afterSales.undoDesc", { email: customerLabel(refundTarget) })
             : t(
-                refundTarget?.case.source === "customer_cancellation"
-                  ? "afterSales.cancellationRefundDesc"
-                  : "afterSales.refundDesc",
+                refundTarget?.case.business_type === "plus"
+                  ? "afterSales.plusRefundDesc"
+                  : refundTarget?.case.source === "customer_cancellation"
+                    ? "afterSales.cancellationRefundDesc"
+                    : "afterSales.refundDesc",
                 {
-                email: refundTarget?.case.customer_email ?? "",
-                amount: refundTarget?.refund_amount_yuan ?? "0.00",
+                  email: customerLabel(refundTarget),
+                  customer: customerLabel(refundTarget),
+                  amount: refundTarget?.refund_amount_yuan ?? "0.00",
                 },
               )
         }

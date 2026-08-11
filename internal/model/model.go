@@ -204,10 +204,13 @@ type Bill struct {
 	SubscriptionID int64
 	DueDate        string
 	AmountCents    int64
-	Note           string
-	PaidAt         time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// CostCents snapshots the expense for this paid period. Team account costs
+	// are tracked separately; Plus bills store the rental's period cost here.
+	CostCents int64
+	Note      string
+	PaidAt    time.Time
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 const (
@@ -227,6 +230,7 @@ type AfterSalesCase struct {
 	AccountID               int64      `json:"account_id"`
 	SubscriptionID          int64      `json:"subscription_id"`
 	BillID                  int64      `json:"bill_id"`
+	BusinessType            string     `json:"business_type"`
 	AccountName             string     `json:"account_name"`
 	AccountEmail            string     `json:"account_email"`
 	AccountSpaceName        string     `json:"account_space_name"`

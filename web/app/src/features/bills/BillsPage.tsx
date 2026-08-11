@@ -21,8 +21,10 @@ import {
   Eye,
   HandCoins,
   Pencil,
+  ReceiptText,
   Search,
   Trash2,
+  TrendingUp,
   Wallet,
 } from "lucide-react"
 
@@ -700,8 +702,8 @@ export function BillsPage() {
 
       {billsQuery.isPending ? (
         <div className="grid gap-4">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-            {Array.from({ length: 6 }).map((_, index) => (
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, index) => (
               <Skeleton key={index} className="h-28 rounded-xl" />
             ))}
           </div>
@@ -717,7 +719,7 @@ export function BillsPage() {
         </Card>
       ) : summary ? (
         <>
-          <section aria-label={t("bills.title")} className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <section aria-label={t("bills.title")} className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <KpiCard
               label={t("bills.kpiTotal")}
               value={maskAmount(amountsHidden, `¥${summary.total_amount_yuan}`)}
@@ -743,6 +745,22 @@ export function BillsPage() {
               tone="success"
             />
             <KpiCard
+              label={t("bills.kpiCost")}
+              value={maskAmount(amountsHidden, `¥${summary.total_cost_yuan}`)}
+              hint={t("bills.kpiCostHint")}
+              icon={<ReceiptText className="size-4" />}
+              delay={120}
+              tone="gold"
+            />
+            <KpiCard
+              label={t("bills.kpiProfit")}
+              value={maskAmount(amountsHidden, `¥${summary.total_profit_yuan}`)}
+              hint={t("bills.kpiProfitHint")}
+              icon={<TrendingUp className="size-4" />}
+              delay={160}
+              tone="success"
+            />
+            <KpiCard
               label={t("bills.kpiThisMonth")}
               value={maskAmount(amountsHidden, `¥${summary.this_month_net_amount_yuan}`)}
               hint={t("bills.kpiThisMonthHint", {
@@ -750,7 +768,7 @@ export function BillsPage() {
                 refund: amountsHidden ? VALUE_MASK : summary.this_month_refund_yuan,
               })}
               icon={<CalendarDays className="size-4" />}
-              delay={120}
+              delay={200}
               tone="brand"
             />
             <KpiCard
@@ -761,7 +779,7 @@ export function BillsPage() {
                 month: amountsHidden ? VALUE_MASK : summary.this_month_agency_fee_yuan,
               })}
               icon={<HandCoins className="size-4" />}
-              delay={160}
+              delay={240}
               tone="gold"
             />
             <KpiCard
@@ -769,7 +787,7 @@ export function BillsPage() {
               value={maskValue(amountsHidden, summary.active_count)}
               hint={t("bills.kpiActiveHint")}
               icon={<CircleDot className="size-4" />}
-              delay={200}
+              delay={280}
               tone="brand"
             />
           </section>

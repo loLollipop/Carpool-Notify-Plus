@@ -1,10 +1,11 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { useSearchParams } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   Archive,
   CalendarClock,
   CircleDollarSign,
+  Clock3,
   ExternalLink,
   Mail,
   MessageCircle,
@@ -29,6 +30,14 @@ import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -92,6 +101,7 @@ function RentalCard({
   onEdit,
   onRenew,
   onArchive,
+  onGoAfterSales,
 }: {
   view: SubscriptionView
   archived: boolean
@@ -99,13 +109,20 @@ function RentalCard({
   onEdit: (view: SubscriptionView) => void
   onRenew: (view: SubscriptionView) => void
   onArchive: (view: SubscriptionView) => void
+  onGoAfterSales: (caseId: number) => void
 }) {
   const { t } = useTranslation()
   const subscription = view.subscription
   const profitCents = subscription.price_per_person_cents - subscription.cost_cents
+  const cancellationPending = view.cancellation_pending
 
   return (
-    <Card className="group relative gap-0 overflow-hidden p-0 transition-[border-color,box-shadow] hover:border-brand/25 hover:shadow-sm">
+    <Card
+      className={cn(
+        "group relative gap-0 overflow-hidden p-0 transition-[border-color,box-shadow] hover:border-brand/25 hover:shadow-sm",
+        cancellationPending && "border-dashed bg-muted/35",
+      )}
+    >
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand/45 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
       <div className="p-5">
         <div className="flex items-start justify-between gap-3">
@@ -124,6 +141,11 @@ function RentalCard({
             <Badge variant="outline" className="shrink-0 text-muted-foreground">
               <Archive className="size-3" />
               {t("plusRentals.archived")}
+            </Badge>
+          ) : cancellationPending ? (
+            <Badge variant="warning" className="shrink-0">
+              <Clock3 className="size-3" />
+              {t("plusRentals.afterSalesPending")}
             </Badge>
           ) : (
             <DueStatusBadge paid={false} daysRemaining={view.days_remaining} />
@@ -168,7 +190,13 @@ function RentalCard({
           </div>
         </div>
 
-        {!archived ? (
+        {!archived && cancellationPending ? (
+          <div className="mt-4 rounded-lg border border-gold/20 bg-gold/[0.06] px-3 py-3 text-xs leading-5 text-muted-foreground">
+            {t("plusRentals.afterSalesPendingHint", {
+              time: view.cancellation_expires_at_label,
+            })}
+          </div>
+        ) : !archived ? (
           <div className="mt-4 rounded-lg border border-brand/10 bg-brand/[0.035] px-3 py-3">
             <div className="flex items-center justify-between gap-3">
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -193,7 +221,7 @@ function RentalCard({
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 border-t bg-muted/20 px-5 py-3.5">
-        {!archived ? (
+        {!archived && !cancellationPending ? (
           <>
             <Button variant="outline" size="sm" onClick={() => onEdit(view)}>
               <Pencil data-slot="icon" />
@@ -213,7 +241,7 @@ function RentalCard({
             </a>
           </Button>
         ) : null}
-        {!archived ? (
+        {!archived && !cancellationPending ? (
           <Button
             variant="ghost"
             size="sm"
@@ -222,6 +250,17 @@ function RentalCard({
           >
             <XCircle data-slot="icon" />
             {t("plusRentals.endRental")}
+          </Button>
+        ) : null}
+        {cancellationPending ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            onClick={() => onGoAfterSales(view.cancellation_case_id)}
+          >
+            <Clock3 data-slot="icon" />
+            {t("cards.goAfterSales")}
           </Button>
         ) : null}
       </div>
@@ -262,8 +301,10 @@ function SummaryCard({
 
 export function PlusRentalsPage() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const subscriptionsQuery = useSubscriptions()
+  const { refetch: refetchSubscriptions } = subscriptionsQuery
   const { amountsHidden, toggleAmounts } = useAmountPrivacy()
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<SubscriptionPrefill | null>(null)
@@ -274,6 +315,10 @@ export function PlusRentalsPage() {
   const [search, setSearch] = React.useState(() => searchParams.get("q") ?? "")
   const [renewTarget, setRenewTarget] = React.useState<DuePaidTarget | null>(null)
   const [archiveTarget, setArchiveTarget] = React.useState<SubscriptionView | null>(null)
+  const [cancellationResult, setCancellationResult] = React.useState<{
+    caseId: number
+    expiresAtLabel: string
+  } | null>(null)
 
   const active = React.useMemo(
     () =>
@@ -295,6 +340,23 @@ export function PlusRentalsPage() {
   const costCents = active.reduce((sum, view) => sum + view.subscription.cost_cents, 0)
   const profitCents = rentCents - costCents
 
+  const nextCancellationExpiry = React.useMemo(() => {
+    const expiries = active
+      .filter((view) => view.cancellation_pending && view.subscription.cancellation_expires_at)
+      .map((view) => Date.parse(view.subscription.cancellation_expires_at ?? ""))
+      .filter(Number.isFinite)
+    return expiries.length > 0 ? Math.min(...expiries) : 0
+  }, [active])
+
+  React.useEffect(() => {
+    if (nextCancellationExpiry <= 0) return
+    const delay = Math.max(1_000, nextCancellationExpiry - Date.now() + 1_000)
+    const timer = window.setTimeout(() => {
+      void refetchSubscriptions()
+    }, delay)
+    return () => window.clearTimeout(timer)
+  }, [nextCancellationExpiry, refetchSubscriptions])
+
   const filtered = React.useMemo(() => {
     let pool = filter === "archived" ? archived : filter === "all" ? [...active, ...archived] : active
     if (filter === "due") pool = active.filter((view) => view.days_remaining <= 7)
@@ -314,7 +376,13 @@ export function PlusRentalsPage() {
 
   const archiveMutation = useAppMutation((id: number) => archiveSubscription(id), {
     successMessage: t("plusRentals.ended"),
-    onSuccess: () => setArchiveTarget(null),
+    onSuccess: (data) => {
+      setArchiveTarget(null)
+      setCancellationResult({
+        caseId: data.case_id ?? 0,
+        expiresAtLabel: data.expires_at_label ?? "",
+      })
+    },
   })
 
   const openCreate = () => {
@@ -447,6 +515,7 @@ export function PlusRentalsPage() {
                 })
               }
               onArchive={setArchiveTarget}
+              onGoAfterSales={(caseId) => navigate(`/after-sales?case=${caseId}`)}
             />
           ))}
         </div>
@@ -474,6 +543,38 @@ export function PlusRentalsPage() {
           if (archiveTarget) archiveMutation.mutate(archiveTarget.subscription.id)
         }}
       />
+      <Dialog
+        open={cancellationResult !== null}
+        onOpenChange={(open) => {
+          if (!open) setCancellationResult(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("plusRentals.afterSalesQueuedTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("plusRentals.afterSalesQueuedDesc", {
+                time: cancellationResult?.expiresAtLabel ?? "",
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancellationResult(null)}>
+              {t("confirms.archiveLater")}
+            </Button>
+            <Button
+              onClick={() => {
+                const caseId = cancellationResult?.caseId
+                setCancellationResult(null)
+                if (caseId) navigate(`/after-sales?case=${caseId}`)
+              }}
+            >
+              <Clock3 data-slot="icon" />
+              {t("cards.goAfterSales")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

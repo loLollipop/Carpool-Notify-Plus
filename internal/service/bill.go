@@ -29,6 +29,7 @@ type BillView struct {
 	DueDate          string    `json:"due_date"`
 	AmountYuan       string    `json:"amount_yuan"`
 	AmountCents      int64     `json:"amount_cents"`
+	CostCents        int64     `json:"cost_cents"`
 	RefundYuan       string    `json:"refund_yuan"`
 	RefundCents      int64     `json:"refund_cents"`
 	NetAmountYuan    string    `json:"net_amount_yuan"`
@@ -64,6 +65,10 @@ type BillsSummary struct {
 	TotalAmountYuan        string             `json:"total_amount_yuan"`
 	TotalRefundYuan        string             `json:"total_refund_yuan"`
 	NetAmountYuan          string             `json:"net_amount_yuan"`
+	TotalCostCents         int64              `json:"total_cost_cents"`
+	TotalCostYuan          string             `json:"total_cost_yuan"`
+	TotalProfitCents       int64              `json:"total_profit_cents"`
+	TotalProfitYuan        string             `json:"total_profit_yuan"`
 	TotalAgencyFeeYuan     string             `json:"total_agency_fee_yuan"`
 	ThisMonthCount         int                `json:"this_month_count"`
 	ThisMonthAmountYuan    string             `json:"this_month_amount_yuan"`
@@ -123,10 +128,18 @@ func (service *SubscriptionService) ListBillsPage() (BillsPage, error) {
 		}
 		views = append(views, view)
 	}
+	accounts, err := service.Store.ListAccounts()
+	if err != nil {
+		return BillsPage{}, err
+	}
+	var accountCostCents int64
+	for _, account := range accounts {
+		accountCostCents += account.TotalCostCents
+	}
 
 	return BillsPage{
 		Bills:   views,
-		Summary: buildBillsSummaryWithRefunds(views, afterSalesCases, service.now()),
+		Summary: buildBillsSummaryWithRefunds(views, afterSalesCases, accountCostCents, service.now()),
 	}, nil
 }
 
@@ -155,7 +168,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 	archived := false
 	tradeURL := ""
 	priceYuan := ""
-	costYuan := ""
+	costYuan := cycle.FormatCents(bill.CostCents)
 	agencyFeeYuan := ""
 	isResale := false
 	profitCents := int64(0)
@@ -179,10 +192,16 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 		archived = subscription.ArchivedAt != nil
 		tradeURL = subscription.TradeURL
 		priceYuan = cycle.FormatCents(subscription.PricePerPersonCents)
-		costYuan = cycle.FormatCents(subscription.CostCents)
+		if !isPlusSubscription(subscription) {
+			costYuan = cycle.FormatCents(subscription.CostCents)
+		}
 		agencyFeeYuan = cycle.FormatCents(subscription.AgencyFeeCents)
 		isResale = subscription.IsResale
-		profitCents = countedProfitCents(subscription) - refundCents
+		if isPlusSubscription(subscription) {
+			profitCents = bill.AmountCents - bill.CostCents - refundCents
+		} else {
+			profitCents = countedProfitCents(subscription) - refundCents
+		}
 		profitYuan = cycle.FormatCents(profitCents)
 		cycleDesc = cycle.DescribeCron(subscription.CronExpr)
 		cronExpr = subscription.CronExpr
@@ -228,6 +247,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 		DueDate:          bill.DueDate,
 		AmountYuan:       cycle.FormatCents(bill.AmountCents),
 		AmountCents:      bill.AmountCents,
+		CostCents:        bill.CostCents,
 		RefundYuan:       cycle.FormatCents(refundCents),
 		RefundCents:      refundCents,
 		NetAmountYuan:    cycle.FormatCents(netAmountCents),
@@ -254,12 +274,13 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 }
 
 func buildBillsSummary(views []BillView, now time.Time) BillsSummary {
-	return buildBillsSummaryWithRefunds(views, nil, now)
+	return buildBillsSummaryWithRefunds(views, nil, 0, now)
 }
 
 func buildBillsSummaryWithRefunds(
 	views []BillView,
 	afterSalesCases []model.AfterSalesCase,
+	accountCostCents int64,
 	now time.Time,
 ) BillsSummary {
 	now = now.In(cycle.Location)
@@ -270,6 +291,7 @@ func buildBillsSummaryWithRefunds(
 	var thisMonthCents int64
 	var thisMonthRefundCents int64
 	var totalAgencyFeeCents int64
+	totalCostCents := accountCostCents
 	var thisMonthAgencyFeeCents int64
 	thisMonthCount := 0
 	activeCount := 0
@@ -293,6 +315,7 @@ func buildBillsSummaryWithRefunds(
 			netAmountCents = view.AmountCents - view.RefundCents
 		}
 		totalCents += view.AmountCents
+		totalCostCents += view.CostCents
 		if view.Archived {
 			archivedCount++
 		} else {
@@ -428,6 +451,7 @@ func buildBillsSummaryWithRefunds(
 		averageYuan = cycle.FormatCents(totalCents / int64(len(views)))
 	}
 
+	totalProfitCents := totalCents - totalRefundCents - totalCostCents
 	return BillsSummary{
 		BillCount:              len(views),
 		ActiveCount:            activeCount,
@@ -436,6 +460,10 @@ func buildBillsSummaryWithRefunds(
 		TotalAmountYuan:        cycle.FormatCents(totalCents),
 		TotalRefundYuan:        cycle.FormatCents(totalRefundCents),
 		NetAmountYuan:          cycle.FormatCents(totalCents - totalRefundCents),
+		TotalCostCents:         totalCostCents,
+		TotalCostYuan:          cycle.FormatCents(totalCostCents),
+		TotalProfitCents:       totalProfitCents,
+		TotalProfitYuan:        cycle.FormatCents(totalProfitCents),
 		TotalAgencyFeeYuan:     cycle.FormatCents(totalAgencyFeeCents),
 		ThisMonthCount:         thisMonthCount,
 		ThisMonthAmountYuan:    cycle.FormatCents(thisMonthCents),

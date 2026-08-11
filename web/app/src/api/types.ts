@@ -290,6 +290,7 @@ export interface AfterSalesCase {
   account_id: number
   subscription_id: number
   bill_id: number
+  business_type: SubscriptionBusinessType
   account_name: string
   account_email: string
   account_space_name: string
@@ -383,6 +384,7 @@ export interface BillView {
   due_date: string
   amount_yuan: string
   amount_cents: number
+  cost_cents: number
   refund_yuan: string
   refund_cents: number
   net_amount_yuan: string
@@ -430,6 +432,10 @@ export interface BillsSummary {
   total_amount_yuan: string
   total_refund_yuan: string
   net_amount_yuan: string
+  total_cost_cents: number
+  total_cost_yuan: string
+  total_profit_cents: number
+  total_profit_yuan: string
   total_agency_fee_yuan: string
   this_month_count: number
   this_month_amount_yuan: string

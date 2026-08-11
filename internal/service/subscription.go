@@ -354,8 +354,13 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 	var totalAgencyFeeCents int64
 	for _, bill := range bills {
 		totalReceivedCents += bill.AmountCents
-		if subscription, exists := subscriptionsByID[bill.SubscriptionID]; exists && subscription.IsResale {
-			totalAgencyFeeCents += bill.AmountCents
+		if subscription, exists := subscriptionsByID[bill.SubscriptionID]; exists {
+			if subscription.IsResale {
+				totalAgencyFeeCents += bill.AmountCents
+			}
+			if isPlusSubscription(subscription) {
+				totalCostCents += bill.CostCents
+			}
 		}
 	}
 	afterSalesCases, err := service.Store.ListAfterSalesCases()
@@ -594,7 +599,9 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 	}
 	previousBillAmount := billDefaultAmountCents(previous)
 	newBillAmount := billDefaultAmountCents(subscription)
-	if previousBillAmount != newBillAmount || previous.IsResale != subscription.IsResale {
+	previousBillCost := billDefaultCostCents(previous)
+	newBillCost := billDefaultCostCents(subscription)
+	if previousBillAmount != newBillAmount || previousBillCost != newBillCost || previous.IsResale != subscription.IsResale {
 		if err := service.syncCurrentPeriodBillAmount(subscription); err != nil {
 			return err
 		}
@@ -621,10 +628,11 @@ func (service *SubscriptionService) syncCurrentPeriodBillAmount(subscription mod
 		return err
 	}
 	amountCents := billDefaultAmountCents(subscription)
-	if bill.AmountCents == amountCents {
+	costCents := billDefaultCostCents(subscription)
+	if bill.AmountCents == amountCents && bill.CostCents == costCents {
 		return nil
 	}
-	if err := service.Store.UpdateBill(bill.ID, amountCents, bill.Note); err != nil {
+	if err := service.Store.UpdateBillFinancials(bill.ID, amountCents, costCents, bill.Note); err != nil {
 		// An after-sales snapshot freezes the historical bill, but a completed
 		// reassignment may continue using the subscription for future periods.
 		if errors.Is(err, db.ErrBillHasAfterSalesCase) {
@@ -990,6 +998,13 @@ func billDefaultAmountCents(subscription model.Subscription) int64 {
 		return subscription.AgencyFeeCents
 	}
 	return subscription.PricePerPersonCents
+}
+
+func billDefaultCostCents(subscription model.Subscription) int64 {
+	if isPlusSubscription(subscription) && subscription.CostCents > 0 {
+		return subscription.CostCents
+	}
+	return 0
 }
 
 func normalizeCustomerEmail(raw string) (string, error) {

@@ -112,7 +112,13 @@ func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate str
 	if !ok {
 		return fmt.Errorf("%s 不是该订阅的到期日", dueDate)
 	}
-	if err := service.Store.SetDuePaid(subscriptionID, dueDate, paid, billDefaultAmountCents(subscription)); err != nil {
+	if err := service.Store.SetDuePaid(
+		subscriptionID,
+		dueDate,
+		paid,
+		billDefaultAmountCents(subscription),
+		billDefaultCostCents(subscription),
+	); err != nil {
 		if errors.Is(err, db.ErrBillHasAfterSalesCase) {
 			return fmt.Errorf("该期账单已关联售后处理记录，不能取消缴费")
 		}

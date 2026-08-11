@@ -159,6 +159,7 @@ func (store *Store) migrate() error {
 				subscription_id INTEGER NOT NULL,
 				due_date TEXT NOT NULL,
 				amount_cents INTEGER NOT NULL,
+				cost_cents INTEGER NOT NULL DEFAULT 0,
 				note TEXT NOT NULL DEFAULT '',
 				paid_at TEXT NOT NULL,
 				created_at TEXT NOT NULL,
@@ -168,9 +169,10 @@ func (store *Store) migrate() error {
 		);`,
 		`CREATE TABLE IF NOT EXISTS after_sales_cases (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			account_id INTEGER NOT NULL,
+			account_id INTEGER,
 			subscription_id INTEGER NOT NULL,
 			bill_id INTEGER NOT NULL DEFAULT 0,
+			business_type TEXT NOT NULL DEFAULT 'team',
 			account_name TEXT NOT NULL DEFAULT '',
 			account_email TEXT NOT NULL DEFAULT '',
 			account_space_name TEXT NOT NULL DEFAULT '',
@@ -255,6 +257,9 @@ func (store *Store) migrate() error {
 	if err := store.ensureCostCentsColumn(); err != nil {
 		return err
 	}
+	if err := store.ensureBillCostCentsColumn(); err != nil {
+		return err
+	}
 	if err := store.ensureResaleColumns(); err != nil {
 		return err
 	}
@@ -292,6 +297,9 @@ func (store *Store) migrate() error {
 		return err
 	}
 	if err := store.ensureAfterSalesSourceColumns(); err != nil {
+		return err
+	}
+	if err := store.ensureAfterSalesBusinessTypeColumn(); err != nil {
 		return err
 	}
 	if err := store.ensureActiveSeatOccupancyTriggers(); err != nil {
@@ -567,6 +575,34 @@ func (store *Store) ensureCostCentsColumn() error {
 	return nil
 }
 
+func (store *Store) ensureBillCostCentsColumn() error {
+	hasColumn, err := store.tableHasColumn("bills", "cost_cents")
+	if err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	if _, err := store.database.Exec(
+		`ALTER TABLE bills ADD COLUMN cost_cents INTEGER NOT NULL DEFAULT 0`,
+	); err != nil {
+		return fmt.Errorf("add bills.cost_cents: %w", err)
+	}
+	// Existing Plus bills predate cost snapshots. Seed them from the current
+	// rental cost once; all new bills keep their own immutable period value.
+	if _, err := store.database.Exec(`
+		UPDATE bills
+		SET cost_cents = COALESCE((
+			SELECT subscription.cost_cents
+			FROM subscriptions AS subscription
+			WHERE subscription.id = bills.subscription_id
+			  AND LOWER(TRIM(COALESCE(subscription.business_type, 'team'))) = 'plus'
+		), 0)`); err != nil {
+		return fmt.Errorf("backfill Plus bill costs: %w", err)
+	}
+	return nil
+}
+
 func (store *Store) ensureResaleColumns() error {
 	hasResale, err := store.subscriptionsHasColumn("is_resale")
 	if err != nil {
@@ -823,6 +859,8 @@ func (store *Store) tableHasColumn(tableName string, columnName string) (bool, e
 		pragma = `PRAGMA table_info(subscriptions)`
 	case "accounts":
 		pragma = `PRAGMA table_info(accounts)`
+	case "bills":
+		pragma = `PRAGMA table_info(bills)`
 	case "after_sales_cases":
 		pragma = `PRAGMA table_info(after_sales_cases)`
 	default:
@@ -903,6 +941,160 @@ func (store *Store) ensureAfterSalesSourceColumns() error {
 		ON after_sales_cases(source, status, expires_at)`)
 	if err != nil {
 		return fmt.Errorf("create after-sales expiry index: %w", err)
+	}
+	return nil
+}
+
+func (store *Store) ensureAfterSalesBusinessTypeColumn() error {
+	hasColumn, err := store.tableHasColumn("after_sales_cases", "business_type")
+	if err != nil {
+		return err
+	}
+	if !hasColumn {
+		// Legacy rows require account_id, which prevents Plus rentals (they have
+		// no Team owner account) from entering after-sales. Rebuild atomically so
+		// account_id can be NULL while retaining the foreign key for Team rows.
+		if _, err := store.database.Exec(`PRAGMA foreign_keys = OFF`); err != nil {
+			return fmt.Errorf("disable foreign keys for after-sales migration: %w", err)
+		}
+		migrationErr := func() error {
+			transaction, err := store.database.Begin()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = transaction.Rollback() }()
+			if _, err := transaction.Exec(`
+				CREATE TABLE after_sales_cases_new (
+					id INTEGER PRIMARY KEY AUTOINCREMENT,
+					account_id INTEGER,
+					subscription_id INTEGER NOT NULL,
+					bill_id INTEGER NOT NULL DEFAULT 0,
+					business_type TEXT NOT NULL DEFAULT 'team',
+					account_name TEXT NOT NULL DEFAULT '',
+					account_email TEXT NOT NULL DEFAULT '',
+					account_space_name TEXT NOT NULL DEFAULT '',
+					customer_email TEXT NOT NULL DEFAULT '',
+					customer_wechat TEXT NOT NULL DEFAULT '',
+					period_start TEXT NOT NULL DEFAULT '',
+					period_end TEXT NOT NULL DEFAULT '',
+					banned_date TEXT NOT NULL,
+					warranty_days INTEGER NOT NULL DEFAULT 30,
+					used_days INTEGER NOT NULL DEFAULT 0,
+					remaining_days INTEGER NOT NULL DEFAULT 30,
+					paid_amount_cents INTEGER NOT NULL DEFAULT 0,
+					refund_amount_cents INTEGER NOT NULL DEFAULT 0,
+					replacement_account_id INTEGER NOT NULL DEFAULT 0,
+					replacement_seat_id INTEGER NOT NULL DEFAULT 0,
+					replacement_account_name TEXT NOT NULL DEFAULT '',
+					replacement_account_email TEXT NOT NULL DEFAULT '',
+					replacement_space_name TEXT NOT NULL DEFAULT '',
+					replacement_seat_name TEXT NOT NULL DEFAULT '',
+					source TEXT NOT NULL DEFAULT 'account_ban',
+					expires_at TEXT,
+					status TEXT NOT NULL,
+					note TEXT NOT NULL DEFAULT '',
+					processed_at TEXT,
+					created_at TEXT NOT NULL,
+					updated_at TEXT NOT NULL,
+					UNIQUE(account_id, subscription_id, banned_date),
+					FOREIGN KEY(account_id) REFERENCES accounts(id),
+					FOREIGN KEY(subscription_id) REFERENCES subscriptions(id)
+				)`); err != nil {
+				return fmt.Errorf("create migrated after-sales table: %w", err)
+			}
+			if _, err := transaction.Exec(`
+				INSERT INTO after_sales_cases_new (
+					id, account_id, subscription_id, bill_id, business_type,
+					account_name, account_email, account_space_name, customer_email, customer_wechat,
+					period_start, period_end, banned_date, warranty_days, used_days, remaining_days,
+					paid_amount_cents, refund_amount_cents,
+					replacement_account_id, replacement_seat_id, replacement_account_name,
+					replacement_account_email, replacement_space_name, replacement_seat_name,
+					source, expires_at, status, note, processed_at, created_at, updated_at
+				)
+				SELECT old.id, NULLIF(old.account_id, 0), old.subscription_id, old.bill_id,
+				       COALESCE(NULLIF((
+					       SELECT LOWER(TRIM(subscription.business_type))
+					       FROM subscriptions AS subscription
+					       WHERE subscription.id = old.subscription_id
+				       ), ''), 'team'),
+				       old.account_name, old.account_email, old.account_space_name,
+				       old.customer_email, old.customer_wechat,
+				       old.period_start, old.period_end, old.banned_date,
+				       old.warranty_days, old.used_days, old.remaining_days,
+				       old.paid_amount_cents, old.refund_amount_cents,
+				       old.replacement_account_id, old.replacement_seat_id,
+				       old.replacement_account_name, old.replacement_account_email,
+				       old.replacement_space_name, old.replacement_seat_name,
+				       old.source, old.expires_at, old.status, old.note,
+				       old.processed_at, old.created_at, old.updated_at
+				FROM after_sales_cases AS old`); err != nil {
+				return fmt.Errorf("copy after-sales rows: %w", err)
+			}
+			if _, err := transaction.Exec(`DROP TABLE after_sales_cases`); err != nil {
+				return fmt.Errorf("drop legacy after-sales table: %w", err)
+			}
+			if _, err := transaction.Exec(`ALTER TABLE after_sales_cases_new RENAME TO after_sales_cases`); err != nil {
+				return fmt.Errorf("rename migrated after-sales table: %w", err)
+			}
+			for _, statement := range []string{
+				`CREATE INDEX idx_after_sales_status ON after_sales_cases(status, banned_date DESC, id DESC)`,
+				`CREATE INDEX idx_after_sales_account ON after_sales_cases(account_id, banned_date DESC, id DESC)`,
+				`CREATE INDEX idx_after_sales_expiry ON after_sales_cases(source, status, expires_at)`,
+			} {
+				if _, err := transaction.Exec(statement); err != nil {
+					return fmt.Errorf("recreate after-sales indexes: %w", err)
+				}
+			}
+			return transaction.Commit()
+		}()
+		if _, enableErr := store.database.Exec(`PRAGMA foreign_keys = ON`); enableErr != nil && migrationErr == nil {
+			migrationErr = fmt.Errorf("re-enable foreign keys after after-sales migration: %w", enableErr)
+		}
+		if migrationErr != nil {
+			return migrationErr
+		}
+	}
+
+	if _, err := store.database.Exec(`
+		UPDATE after_sales_cases
+		SET business_type = COALESCE(NULLIF((
+			SELECT LOWER(TRIM(subscription.business_type))
+			FROM subscriptions AS subscription
+			WHERE subscription.id = after_sales_cases.subscription_id
+		), ''), 'team')
+		WHERE TRIM(COALESCE(business_type, '')) = ''`); err != nil {
+		return fmt.Errorf("backfill after-sales business type: %w", err)
+	}
+	if _, err := store.database.Exec(`
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_after_sales_plus_occurrence
+		ON after_sales_cases(subscription_id, banned_date)
+		WHERE business_type = 'plus'`); err != nil {
+		return fmt.Errorf("create Plus after-sales uniqueness index: %w", err)
+	}
+	rows, err := store.database.Query(`PRAGMA foreign_key_check(after_sales_cases)`)
+	if err != nil {
+		return fmt.Errorf("check after-sales foreign keys: %w", err)
+	}
+	defer rows.Close()
+	if rows.Next() {
+		var tableName string
+		var rowID int64
+		var parentTable string
+		var foreignKeyID int
+		if err := rows.Scan(&tableName, &rowID, &parentTable, &foreignKeyID); err != nil {
+			return fmt.Errorf("scan after-sales foreign key violation: %w", err)
+		}
+		return fmt.Errorf(
+			"after-sales foreign key violation: table=%s rowid=%d parent=%s key=%d",
+			tableName,
+			rowID,
+			parentTable,
+			foreignKeyID,
+		)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("check after-sales foreign keys: %w", err)
 	}
 	return nil
 }
@@ -1073,7 +1265,14 @@ func (store *Store) CreateSubscriptionWithInitialBill(
 	if err != nil {
 		return 0, err
 	}
-	if err := insertInitialBill(transaction, subscriptionID, dueDate, amountCents, now); err != nil {
+	if err := insertInitialBill(
+		transaction,
+		subscriptionID,
+		dueDate,
+		amountCents,
+		storedBillCostCents(subscription),
+		now,
+	); err != nil {
 		return 0, err
 	}
 	if err := transaction.Commit(); err != nil {
@@ -1154,15 +1353,17 @@ func insertInitialBill(
 	subscriptionID int64,
 	dueDate string,
 	amountCents int64,
+	costCents int64,
 	now string,
 ) error {
 	_, err := executor.Exec(`
 		INSERT INTO bills (
-			subscription_id, due_date, amount_cents, note, paid_at, created_at, updated_at
-		) VALUES (?, ?, ?, '', ?, ?, ?)`,
+			subscription_id, due_date, amount_cents, cost_cents, note, paid_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, '', ?, ?, ?)`,
 		subscriptionID,
 		strings.TrimSpace(dueDate),
 		amountCents,
+		costCents,
 		now,
 		now,
 		now,
@@ -1351,7 +1552,13 @@ func (store *Store) ArchiveSubscription(subscriptionID int64) error {
 // SetDuePaid marks or unmarks one subscription due date as paid via bills.
 // When paid=true, creates a bill with the given amount if none exists (keeps existing bill).
 // When paid=false, deletes the bill for that occurrence.
-func (store *Store) SetDuePaid(subscriptionID int64, dueDate string, paid bool, amountCents int64) error {
+func (store *Store) SetDuePaid(
+	subscriptionID int64,
+	dueDate string,
+	paid bool,
+	amountCents int64,
+	costSnapshotCents ...int64,
+) error {
 	if !paid {
 		bill, err := store.GetBillByOccurrence(subscriptionID, dueDate)
 		if err == sql.ErrNoRows {
@@ -1371,13 +1578,17 @@ func (store *Store) SetDuePaid(subscriptionID int64, dueDate string, paid bool, 
 		return err
 	}
 
+	costCents := int64(0)
+	if len(costSnapshotCents) > 0 && costSnapshotCents[0] > 0 {
+		costCents = costSnapshotCents[0]
+	}
 	now := formatTime(time.Now().UTC())
 	_, err = store.database.Exec(`
 		INSERT INTO bills (
-			subscription_id, due_date, amount_cents, note, paid_at, created_at, updated_at
-		) VALUES (?, ?, ?, '', ?, ?, ?)
+			subscription_id, due_date, amount_cents, cost_cents, note, paid_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, '', ?, ?, ?)
 		ON CONFLICT(subscription_id, due_date) DO NOTHING`,
-		subscriptionID, dueDate, amountCents, now, now, now,
+		subscriptionID, dueDate, amountCents, costCents, now, now, now,
 	)
 	return err
 }
@@ -1423,7 +1634,7 @@ func (store *Store) ListPaidDueOccurrences(startDate string, endDate string) ([]
 // GetBill returns a bill by id.
 func (store *Store) GetBill(billID int64) (model.Bill, error) {
 	row := store.database.QueryRow(`
-		SELECT id, subscription_id, due_date, amount_cents, note, paid_at, created_at, updated_at
+		SELECT id, subscription_id, due_date, amount_cents, cost_cents, note, paid_at, created_at, updated_at
 		FROM bills
 		WHERE id = ?`, billID)
 	return scanBill(row)
@@ -1432,7 +1643,7 @@ func (store *Store) GetBill(billID int64) (model.Bill, error) {
 // GetBillByOccurrence returns the bill for one subscription due date.
 func (store *Store) GetBillByOccurrence(subscriptionID int64, dueDate string) (model.Bill, error) {
 	row := store.database.QueryRow(`
-		SELECT id, subscription_id, due_date, amount_cents, note, paid_at, created_at, updated_at
+		SELECT id, subscription_id, due_date, amount_cents, cost_cents, note, paid_at, created_at, updated_at
 		FROM bills
 		WHERE subscription_id = ? AND due_date = ?`,
 		subscriptionID, dueDate,
@@ -1443,7 +1654,7 @@ func (store *Store) GetBillByOccurrence(subscriptionID int64, dueDate string) (m
 // ListBills returns all bills newest-paid first.
 func (store *Store) ListBills() ([]model.Bill, error) {
 	rows, err := store.database.Query(`
-		SELECT id, subscription_id, due_date, amount_cents, note, paid_at, created_at, updated_at
+		SELECT id, subscription_id, due_date, amount_cents, cost_cents, note, paid_at, created_at, updated_at
 		FROM bills
 		ORDER BY paid_at DESC, id DESC`)
 	if err != nil {
@@ -1480,6 +1691,47 @@ func (store *Store) UpdateBill(billID int64, amountCents int64, note string) err
 		SET amount_cents = ?, note = ?, updated_at = ?
 		WHERE id = ?`,
 		amountCents, note, now, billID,
+	)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return transaction.Commit()
+}
+
+// UpdateBillFinancials updates the current period snapshot after an operator
+// corrects a subscription's rent or cost. Referenced historical bills stay
+// immutable once they participate in after-sales.
+func (store *Store) UpdateBillFinancials(
+	billID int64,
+	amountCents int64,
+	costCents int64,
+	note string,
+) error {
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	if err := ensureBillUnreferenced(transaction, billID); err != nil {
+		return err
+	}
+	now := formatTime(time.Now().UTC())
+	result, err := transaction.Exec(`
+		UPDATE bills
+		SET amount_cents = ?, cost_cents = ?, note = ?, updated_at = ?
+		WHERE id = ?`,
+		amountCents,
+		costCents,
+		note,
+		now,
+		billID,
 	)
 	if err != nil {
 		return err
@@ -1953,7 +2205,14 @@ func (store *Store) CreateSubscriptionAndInviteRedemption(
 	if err != nil {
 		return 0, err
 	}
-	if err := insertInitialBill(transaction, subscriptionID, dueDate, amountCents, now); err != nil {
+	if err := insertInitialBill(
+		transaction,
+		subscriptionID,
+		dueDate,
+		amountCents,
+		storedBillCostCents(subscription),
+		now,
+	); err != nil {
 		return 0, err
 	}
 
@@ -3002,6 +3261,13 @@ func normalizeStoredBusinessType(raw string) string {
 	return model.SubscriptionBusinessTeam
 }
 
+func storedBillCostCents(subscription model.Subscription) int64 {
+	if normalizeStoredBusinessType(subscription.BusinessType) == model.SubscriptionBusinessPlus && subscription.CostCents > 0 {
+		return subscription.CostCents
+	}
+	return 0
+}
+
 func scanBill(scanner scannable) (model.Bill, error) {
 	var bill model.Bill
 	var paidAt string
@@ -3013,6 +3279,7 @@ func scanBill(scanner scannable) (model.Bill, error) {
 		&bill.SubscriptionID,
 		&bill.DueDate,
 		&bill.AmountCents,
+		&bill.CostCents,
 		&bill.Note,
 		&paidAt,
 		&createdAt,
