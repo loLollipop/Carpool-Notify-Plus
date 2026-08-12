@@ -10,7 +10,6 @@ import {
   Mail,
   MessageCircle,
   Pencil,
-  Plus,
   Receipt,
   Search,
   TimerReset,
@@ -129,7 +128,7 @@ function RentalCard({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="truncate text-base font-semibold">{subscription.name}</h2>
-              <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60">
+              <span className="shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
                 #{subscription.id}
               </span>
             </div>
@@ -160,7 +159,7 @@ function RentalCard({
           <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-xs">
             <Mail className="size-3.5 shrink-0 text-brand" />
             <span className="shrink-0 text-muted-foreground">{t("plusRentals.accountEmailShort")}</span>
-            <span className="ml-auto truncate font-mono" title={subscription.customer_email}>
+            <span className="ml-auto truncate" title={subscription.customer_email}>
               {subscription.customer_email || t("cards.contactMissing")}
             </span>
           </div>
@@ -207,7 +206,7 @@ function RentalCard({
                 <CalendarClock className="size-3.5" />
                 {t("plusRentals.nextDue")}
               </span>
-              <span className="font-mono text-sm font-semibold tabular-nums">{view.next_due_date}</span>
+              <span className="text-sm font-semibold tabular-nums">{view.next_due_date}</span>
             </div>
             <RentalProgress view={view} />
           </div>
@@ -402,11 +401,6 @@ export function PlusRentalsPage() {
     },
   })
 
-  const openCreate = () => {
-    setEditing(null)
-    setDialogOpen(true)
-  }
-
   const openEdit = (view: SubscriptionView) => {
     setEditing(prefillFromView(view))
     setDialogOpen(true)
@@ -418,12 +412,6 @@ export function PlusRentalsPage() {
         title={t("plusRentals.title")}
         description={t("plusRentals.desc")}
         titleAccessory={<AmountPrivacyToggle amountsHidden={amountsHidden} onToggle={toggleAmounts} />}
-        actions={
-          <Button onClick={openCreate}>
-            <Plus data-slot="icon" />
-            {t("plusRentals.newRental")}
-          </Button>
-        }
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -505,12 +493,6 @@ export function PlusRentalsPage() {
           </span>
           <p className="text-sm font-medium">{t("plusRentals.empty")}</p>
           <p className="max-w-sm text-xs leading-5 text-muted-foreground">{t("plusRentals.emptyHint")}</p>
-          {active.length === 0 && archived.length === 0 ? (
-            <Button size="sm" onClick={openCreate}>
-              <Plus data-slot="icon" />
-              {t("plusRentals.newRental")}
-            </Button>
-          ) : null}
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

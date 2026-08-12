@@ -782,7 +782,7 @@ export function DashboardPage() {
         description={t("dash.desc")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" asChild>
+            <Button asChild>
               <Link to="/plus-rentals?create=1">
                 <Plus data-slot="icon" />
                 {t("dash.newPlusRental")}

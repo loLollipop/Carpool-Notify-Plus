@@ -9,7 +9,6 @@ import {
   Mail,
   MessageCircle,
   Pencil,
-  Plus,
   Receipt,
   Search,
   UserRoundMinus,
@@ -377,10 +376,6 @@ export function CardsPage() {
     },
   })
 
-  const openCreate = () => {
-    setEditing(null)
-    setDialogOpen(true)
-  }
   const openEdit = (view: SubscriptionView) => {
     setEditing(prefillFromView(view))
     setDialogOpen(true)
@@ -611,10 +606,6 @@ export function CardsPage() {
                 <SelectItem value="resale">{t("calendar.filterResale")}</SelectItem>
               </SelectContent>
             </Select>
-            <Button className="flex-1 sm:flex-none" onClick={openCreate}>
-              <Plus data-slot="icon" />
-              {t("nav.newSubscription")}
-            </Button>
           </>
         }
       />
@@ -643,12 +634,8 @@ export function CardsPage() {
           </Button>
         </Card>
       ) : activeViews.length === 0 && archivedViews.length === 0 ? (
-        <Card className="items-center gap-4 py-20 text-center animate-fade-up">
+        <Card className="items-center py-20 text-center animate-fade-up">
           <p className="text-sm text-muted-foreground">{t("cards.empty")}</p>
-          <Button onClick={openCreate}>
-            <Plus data-slot="icon" />
-            {t("cards.createFirst")}
-          </Button>
         </Card>
       ) : filteredViews.length === 0 ? (
         <Card className="items-center py-16 text-center animate-fade-up">
