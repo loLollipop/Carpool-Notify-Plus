@@ -301,7 +301,7 @@ export default {
       rentShort: "租金",
       costShort: "成本",
       profitShort: "利润",
-      nextDue: "下次到期",
+      nextDue: "下次待续费",
       rentalProgress: "出租周期",
       remainingDays: "剩余 {{count}} 天",
       expired: "已到期",

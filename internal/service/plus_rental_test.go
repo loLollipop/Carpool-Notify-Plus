@@ -286,6 +286,150 @@ func TestPlusRentalBillsContributeRevenueCostAndProfit(t *testing.T) {
 	}
 }
 
+func TestPlusRentalInitialPaymentStateAndNextUnpaidPeriod(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.July, 11, 12, 0, 0, 0, cycle.Location)
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:           "Plus paid-state customer",
+		BusinessType:   model.SubscriptionBusinessPlus,
+		PriceYuan:      "68.00",
+		CostYuan:       "20.50",
+		CronExpr:       "interval:30d",
+		CustomerEmail:  "paid-state-plus@example.com",
+		CustomerWechat: "wx-paid-state",
+		BoardedAt:      "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	views, err := subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var initialView service.SubscriptionView
+	for _, view := range views {
+		if view.Subscription.ID == subscriptionID {
+			initialView = view
+			break
+		}
+	}
+	if initialView.Subscription.ID == 0 {
+		t.Fatal("Plus subscription view not found")
+	}
+	if !initialView.CurrentPeriodPaid || initialView.CurrentPeriodStartDate != "2026-07-01" || initialView.CurrentPeriodEndDate != "2026-07-31" {
+		t.Fatalf("initial current period = %#v", initialView)
+	}
+	if initialView.NextDueDate != "2026-07-31" || initialView.DaysRemaining != 20 {
+		t.Fatalf("initial next unpaid = %s / %d days, want 2026-07-31 / 20", initialView.NextDueDate, initialView.DaysRemaining)
+	}
+	if billCount, err := subscriptionService.Store.CountBillsForSubscription(subscriptionID); err != nil || billCount != 1 {
+		t.Fatalf("initial bill count = %d, err = %v, want 1", billCount, err)
+	}
+
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-31", true); err != nil {
+		t.Fatal(err)
+	}
+	views, err = subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, view := range views {
+		if view.Subscription.ID == subscriptionID {
+			if view.NextDueDate != "2026-08-30" || view.DaysRemaining != 50 {
+				t.Fatalf("renewed next unpaid = %s / %d days, want 2026-08-30 / 50", view.NextDueDate, view.DaysRemaining)
+			}
+			return
+		}
+	}
+	t.Fatal("renewed Plus subscription view not found")
+}
+
+func TestPlusRentalScheduleEditMovesOnlyInitialBill(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.July, 11, 12, 0, 0, 0, cycle.Location)
+	}
+	input := service.CreateInput{
+		Name:           "Plus schedule correction",
+		BusinessType:   model.SubscriptionBusinessPlus,
+		PriceYuan:      "68.00",
+		CostYuan:       "20.50",
+		CronExpr:       "interval:30d",
+		CustomerEmail:  "schedule-plus@example.com",
+		CustomerWechat: "wx-schedule",
+		BoardedAt:      "2026-07-01",
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	input.BoardedAt = "2026-07-02"
+	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-07-01"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("old initial bill lookup error = %v, want sql.ErrNoRows", err)
+	}
+	movedBill, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-07-02")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if movedBill.AmountCents != 6800 || movedBill.CostCents != 2050 {
+		t.Fatalf("moved bill financials = %d/%d, want 6800/2050", movedBill.AmountCents, movedBill.CostCents)
+	}
+	if billCount, err := subscriptionService.Store.CountBillsForSubscription(subscriptionID); err != nil || billCount != 1 {
+		t.Fatalf("bill count after schedule edit = %d, err = %v, want 1", billCount, err)
+	}
+	dashboard, err := subscriptionService.ComputeDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.TotalAmountYuan != "68.00" || dashboard.TotalCostYuan != "20.50" {
+		t.Fatalf("dashboard after schedule edit = amount %s / cost %s", dashboard.TotalAmountYuan, dashboard.TotalCostYuan)
+	}
+}
+
+func TestPlusRentalScheduleEditRejectsMultipleBillingPeriods(t *testing.T) {
+	subscriptionService := openTestService(t)
+	input := service.CreateInput{
+		Name:           "Plus historical periods",
+		BusinessType:   model.SubscriptionBusinessPlus,
+		PriceYuan:      "68.00",
+		CostYuan:       "20.50",
+		CronExpr:       "interval:30d",
+		CustomerEmail:  "history-plus@example.com",
+		CustomerWechat: "wx-history",
+		BoardedAt:      "2026-07-01",
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-31", true); err != nil {
+		t.Fatal(err)
+	}
+
+	input.BoardedAt = "2026-07-02"
+	err = subscriptionService.Update(subscriptionID, input)
+	if err == nil || !strings.Contains(err.Error(), "已有多期账单") {
+		t.Fatalf("schedule edit error = %v, want historical bill guard", err)
+	}
+	subscription, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subscription.BoardedAt != "2026-07-01" {
+		t.Fatalf("boarded_at changed despite rejected edit: %s", subscription.BoardedAt)
+	}
+	if billCount, err := subscriptionService.Store.CountBillsForSubscription(subscriptionID); err != nil || billCount != 2 {
+		t.Fatalf("bill count after rejected edit = %d, err = %v, want 2", billCount, err)
+	}
+}
+
 func TestPlusRentalAfterSalesRefundArchivesAndAdjustsFinance(t *testing.T) {
 	subscriptionService := openTestService(t)
 	now := time.Date(2026, time.July, 11, 12, 0, 0, 0, cycle.Location)

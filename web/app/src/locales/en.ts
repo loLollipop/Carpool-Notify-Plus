@@ -301,7 +301,7 @@ export default {
       rentShort: "Rent",
       costShort: "Cost",
       profitShort: "Profit",
-      nextDue: "Next due",
+      nextDue: "Next renewal due",
       rentalProgress: "Rental period",
       remainingDays: "{{count}} days left",
       expired: "Expired",

@@ -148,7 +148,11 @@ function RentalCard({
               {t("plusRentals.afterSalesPending")}
             </Badge>
           ) : (
-            <DueStatusBadge paid={false} daysRemaining={view.days_remaining} />
+            <DueStatusBadge
+              paid={view.current_period_paid}
+              daysRemaining={view.days_remaining}
+              showPaidLabel
+            />
           )}
         </div>
 

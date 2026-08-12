@@ -29,6 +29,8 @@ var (
 	ErrRedemptionAlreadyProcessed       = errors.New("redemption application already processed")
 	ErrActiveSeatOccupied               = errors.New("active seat already occupied")
 	ErrBillHasAfterSalesCase            = errors.New("bill is referenced by an after-sales case")
+	ErrBillOccurrenceConflict           = errors.New("bill occurrence already exists")
+	ErrInitialBillNotMovable            = errors.New("initial bill cannot be moved")
 	ErrSubscriptionHasPendingAfterSales = errors.New("subscription has a pending after-sales case")
 	ErrAfterSalesProcessed              = errors.New("after-sales case already processed")
 	ErrCancellationPending              = errors.New("subscription cancellation already pending")
@@ -308,6 +310,9 @@ func (store *Store) migrate() error {
 	if err := store.backfillAccountCostRecords(); err != nil {
 		return err
 	}
+	if err := store.repairMisdatedPlusInitialBills(); err != nil {
+		return err
+	}
 	// Legacy migrations (subscription_type → accounts/seats, paid_due → bills) are not
 	// re-run: production bills and accounts are the source of truth and must not grow
 	// from stale paid_due_occurrences rows on every process start.
@@ -369,6 +374,101 @@ func (store *Store) migrate() error {
 		}
 		if err := store.SetSetting(model.SettingEnabledChannels, string(channelsJSON)); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+// repairMisdatedPlusInitialBills fixes the legacy edit bug where a Plus
+// rental's boarded_at/cycle changed after creation but its automatically
+// created first bill kept the original date. The created_at equality limits
+// this repair to the bill inserted atomically with the subscription; later
+// renewal history and after-sales snapshots are never moved.
+func (store *Store) repairMisdatedPlusInitialBills() error {
+	type repairCandidate struct {
+		subscriptionID int64
+		billID         int64
+		boardedAt      string
+		cronExpr       string
+		oldDueDate     string
+	}
+
+	rows, err := store.database.Query(`
+		SELECT s.id, b.id, s.boarded_at, s.cron_expr, b.due_date
+		FROM subscriptions AS s
+		JOIN bills AS b ON b.subscription_id = s.id
+		WHERE s.business_type = ?
+		  AND s.deleted_at IS NULL
+		  AND s.archived_at IS NULL
+		  AND b.created_at = s.created_at
+		  AND (SELECT COUNT(1) FROM bills AS counted WHERE counted.subscription_id = s.id) = 1
+		  AND NOT EXISTS (SELECT 1 FROM after_sales_cases AS linked WHERE linked.bill_id = b.id)`,
+		model.SubscriptionBusinessPlus,
+	)
+	if err != nil {
+		return fmt.Errorf("find misdated Plus initial bills: %w", err)
+	}
+	candidates := make([]repairCandidate, 0)
+	for rows.Next() {
+		var candidate repairCandidate
+		if err := rows.Scan(
+			&candidate.subscriptionID,
+			&candidate.billID,
+			&candidate.boardedAt,
+			&candidate.cronExpr,
+			&candidate.oldDueDate,
+		); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan misdated Plus initial bill: %w", err)
+		}
+		candidates = append(candidates, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("list misdated Plus initial bills: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close misdated Plus initial bills: %w", err)
+	}
+
+	for _, candidate := range candidates {
+		schedule, err := cycle.ParseBillingSchedule(candidate.cronExpr, candidate.boardedAt)
+		if err != nil {
+			return fmt.Errorf("parse Plus subscription %d schedule for bill repair: %w", candidate.subscriptionID, err)
+		}
+		boardedAt, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(candidate.boardedAt), cycle.Location)
+		if err != nil {
+			return fmt.Errorf("parse Plus subscription %d boarded_at for bill repair: %w", candidate.subscriptionID, err)
+		}
+		expectedDueDate := cycle.FormatDate(
+			schedule.NextDue(cycle.StartOfDay(boardedAt).Add(-time.Nanosecond)),
+		)
+		if expectedDueDate == strings.TrimSpace(candidate.oldDueDate) {
+			continue
+		}
+		result, err := store.database.Exec(`
+			UPDATE bills
+			SET due_date = ?, updated_at = ?
+			WHERE id = ? AND subscription_id = ? AND due_date = ?
+			  AND created_at = (SELECT created_at FROM subscriptions WHERE id = ?)
+			  AND NOT EXISTS (SELECT 1 FROM after_sales_cases WHERE bill_id = ?)`,
+			expectedDueDate,
+			formatTime(time.Now().UTC()),
+			candidate.billID,
+			candidate.subscriptionID,
+			candidate.oldDueDate,
+			candidate.subscriptionID,
+			candidate.billID,
+		)
+		if err != nil {
+			return fmt.Errorf("repair Plus subscription %d initial bill date: %w", candidate.subscriptionID, err)
+		}
+		rowsAffected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("check Plus subscription %d initial bill repair: %w", candidate.subscriptionID, err)
+		}
+		if rowsAffected != 1 {
+			return fmt.Errorf("repair Plus subscription %d initial bill date: %w", candidate.subscriptionID, sql.ErrNoRows)
 		}
 	}
 	return nil
@@ -1378,6 +1478,105 @@ func isActiveSeatOccupancyError(err error) bool {
 // UpdateSubscription updates an existing active (non-deleted, non-archived) subscription.
 func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 	now := formatTime(time.Now().UTC())
+	err := updateSubscriptionWithExecutor(store.database, subscription, now)
+	if err != sql.ErrNoRows {
+		return err
+	}
+	pendingCount, pendingErr := store.CountPendingAfterSalesCasesBySubscription(subscription.ID)
+	if pendingErr != nil {
+		return pendingErr
+	}
+	if pendingCount > 0 {
+		return ErrSubscriptionHasPendingAfterSales
+	}
+	return sql.ErrNoRows
+}
+
+// UpdateSubscriptionAndMoveInitialBill atomically updates a Plus rental's
+// schedule and re-keys its single initial bill to the corrected first period.
+func (store *Store) UpdateSubscriptionAndMoveInitialBill(
+	subscription model.Subscription,
+	oldDueDate string,
+	newDueDate string,
+) error {
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	var (
+		billCount     int
+		billID        int64
+		storedDueDate string
+	)
+	err = transaction.QueryRow(`
+		SELECT COUNT(1), COALESCE(MIN(id), 0), COALESCE(MIN(due_date), '')
+		FROM bills
+		WHERE subscription_id = ?`,
+		subscription.ID,
+	).Scan(&billCount, &billID, &storedDueDate)
+	if err != nil {
+		return err
+	}
+	if billCount != 1 || storedDueDate != strings.TrimSpace(oldDueDate) {
+		return ErrInitialBillNotMovable
+	}
+	if strings.TrimSpace(oldDueDate) != strings.TrimSpace(newDueDate) {
+		if err := ensureBillUnreferenced(transaction, billID); err != nil {
+			return err
+		}
+		result, moveErr := transaction.Exec(`
+			UPDATE bills
+			SET due_date = ?, updated_at = ?
+			WHERE id = ?`,
+			strings.TrimSpace(newDueDate),
+			formatTime(time.Now().UTC()),
+			billID,
+		)
+		if moveErr != nil {
+			if strings.Contains(strings.ToLower(moveErr.Error()), "unique") {
+				return ErrBillOccurrenceConflict
+			}
+			return moveErr
+		}
+		rowsAffected, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return rowsErr
+		}
+		if rowsAffected != 1 {
+			return sql.ErrNoRows
+		}
+	}
+
+	now := formatTime(time.Now().UTC())
+	if err := updateSubscriptionWithExecutor(transaction, subscription, now); err != nil {
+		if err == sql.ErrNoRows {
+			var pendingCount int
+			if pendingErr := transaction.QueryRow(`
+				SELECT COUNT(1)
+				FROM after_sales_cases
+				WHERE subscription_id = ? AND status IN (?, ?)`,
+				subscription.ID,
+				model.AfterSalesStatusPending,
+				model.AfterSalesStatusReview,
+			).Scan(&pendingCount); pendingErr != nil {
+				return pendingErr
+			}
+			if pendingCount > 0 {
+				return ErrSubscriptionHasPendingAfterSales
+			}
+		}
+		return err
+	}
+	return transaction.Commit()
+}
+
+func updateSubscriptionWithExecutor(
+	executor sqlExecer,
+	subscription model.Subscription,
+	now string,
+) error {
 	offsetsJSON, err := json.Marshal(subscription.NotifyOffsets)
 	if err != nil {
 		return err
@@ -1403,7 +1602,7 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 	if subscription.IsResale {
 		isResale = 1
 	}
-	result, err := store.database.Exec(`
+	result, err := executor.Exec(`
                 UPDATE subscriptions
                 SET name = ?, business_type = ?, price_per_person_cents = ?, cost_cents = ?, is_resale = ?, agency_fee_cents = ?, cron_expr = ?, notify_offsets = ?,
                     channels = ?, remark = ?, trade_url = ?, customer_email = ?, customer_wechat = ?, subscription_type = ?, seat_id = ?, boarded_at = ?, updated_at = ?
@@ -1446,13 +1645,6 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 		return err
 	}
 	if rowsAffected == 0 {
-		pendingCount, pendingErr := store.CountPendingAfterSalesCasesBySubscription(subscription.ID)
-		if pendingErr != nil {
-			return pendingErr
-		}
-		if pendingCount > 0 {
-			return ErrSubscriptionHasPendingAfterSales
-		}
 		return sql.ErrNoRows
 	}
 	return nil

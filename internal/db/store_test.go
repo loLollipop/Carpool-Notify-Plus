@@ -528,6 +528,69 @@ func TestRedemptionCodeCanBeUsedOnceForApplication(t *testing.T) {
 	}
 }
 
+func TestOpenRepairsMisdatedPlusInitialBillAfterLegacyScheduleEdit(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "misdated-plus-initial-bill.db")
+	store := openStore(t, databasePath)
+	subscription := model.Subscription{
+		Name:                "Legacy Plus import",
+		BusinessType:        model.SubscriptionBusinessPlus,
+		PricePerPersonCents: 10300,
+		CronExpr:            "interval:30d",
+		NotifyOffsets:       []int{},
+		Channels:            append([]string(nil), model.DefaultEnabledChannels...),
+		CustomerEmail:       "legacy-plus@example.com",
+		CustomerWechat:      "wx-legacy-plus",
+		SubscriptionType:    model.SubscriptionTypeOther,
+		BoardedAt:           "2026-08-11",
+	}
+	subscriptionID, err := store.CreateSubscriptionWithInitialBill(
+		subscription,
+		"2026-08-11",
+		10300,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Reproduce the old edit path: boarded_at changed, but the only bill did not.
+	subscription.ID = subscriptionID
+	subscription.BoardedAt = "2026-08-08"
+	if err := store.UpdateSubscription(subscription); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store = openStore(t, databasePath)
+	if _, err := store.GetBillByOccurrence(subscriptionID, "2026-08-11"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("legacy bill lookup error = %v, want sql.ErrNoRows", err)
+	}
+	repaired, err := store.GetBillByOccurrence(subscriptionID, "2026-08-08")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repaired.AmountCents != 10300 || repaired.CostCents != 0 {
+		t.Fatalf("repaired bill financials = %d/%d, want 10300/0", repaired.AmountCents, repaired.CostCents)
+	}
+	if billCount, err := store.CountBillsForSubscription(subscriptionID); err != nil || billCount != 1 {
+		t.Fatalf("bill count after repair = %d, err = %v, want 1", billCount, err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// The repair runs on every open, so it must remain idempotent.
+	store = openStore(t, databasePath)
+	defer store.Close()
+	if _, err := store.GetBillByOccurrence(subscriptionID, "2026-08-08"); err != nil {
+		t.Fatal(err)
+	}
+	if billCount, err := store.CountBillsForSubscription(subscriptionID); err != nil || billCount != 1 {
+		t.Fatalf("bill count after second open = %d, err = %v, want 1", billCount, err)
+	}
+}
+
 func openStore(t *testing.T, databasePath string) *db.Store {
 	t.Helper()
 	store, err := db.Open(databasePath)

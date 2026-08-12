@@ -12,10 +12,12 @@ export function dueMetaLabel(t: (key: string, options?: Record<string, unknown>)
 export function DueStatusBadge({
   paid,
   daysRemaining,
+  showPaidLabel = false,
   className,
 }: {
   paid: boolean
   daysRemaining: number
+  showPaidLabel?: boolean
   className?: string
 }) {
   const { t } = useTranslation()
@@ -30,7 +32,9 @@ export function DueStatusBadge({
         )}
       >
         <CheckCircle2 className="size-3.5 shrink-0" />
-        <span className="sr-only">{t("dueStatus.paid")}</span>
+        <span className={showPaidLabel ? "whitespace-nowrap" : "sr-only"}>
+          {t(showPaidLabel ? "dueStatus.paidInline" : "dueStatus.paid")}
+        </span>
       </span>
     )
   }

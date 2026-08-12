@@ -44,6 +44,9 @@ export interface SubscriptionView {
   next_due_date: string
   days_remaining: number
   cycle_days: number
+  current_period_start_date: string
+  current_period_end_date: string
+  current_period_paid: boolean
   channel_labels: string[] | null
   offsets_text: string
   last_error: string

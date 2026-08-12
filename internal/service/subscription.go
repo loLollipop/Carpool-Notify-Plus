@@ -93,6 +93,9 @@ type SubscriptionView struct {
 	NextDueDate                string             `json:"next_due_date"`
 	DaysRemaining              int                `json:"days_remaining"`
 	CycleDays                  int                `json:"cycle_days"`
+	CurrentPeriodStartDate     string             `json:"current_period_start_date"`
+	CurrentPeriodEndDate       string             `json:"current_period_end_date"`
+	CurrentPeriodPaid          bool               `json:"current_period_paid"`
 	ChannelLabels              []string           `json:"channel_labels"`
 	OffsetsText                string             `json:"offsets_text"`
 	LastError                  string             `json:"last_error"`
@@ -215,9 +218,36 @@ func (service *SubscriptionService) buildView(
 		return SubscriptionView{}, err
 	}
 	nextDue := schedule.NextDue(now)
+	displayDue := nextDue
 	cycleDays := cycle.DaysRemaining(nextDue, now)
 	if periodStart, found := schedule.LastDue(now); found {
 		cycleDays = cycle.DaysRemaining(nextDue, periodStart)
+	}
+	currentPeriodStartDate := ""
+	currentPeriodEndDate := ""
+	currentPeriodPaid := false
+	if isPlusSubscription(subscription) {
+		periodStart, found := schedule.LastDue(now)
+		periodEnd := nextDue
+		if !found {
+			periodStart = nextDue
+			periodEnd = schedule.NextDue(periodStart)
+			cycleDays = cycle.DaysRemaining(periodEnd, periodStart)
+		}
+		currentPeriodStartDate = cycle.FormatDate(periodStart)
+		currentPeriodEndDate = cycle.FormatDate(periodEnd)
+		currentPeriodPaid, err = service.Store.IsDuePaid(subscription.ID, currentPeriodStartDate)
+		if err != nil {
+			return SubscriptionView{}, err
+		}
+		if currentPeriodPaid {
+			displayDue, err = service.firstUnpaidDue(subscription.ID, schedule, periodEnd)
+			if err != nil {
+				return SubscriptionView{}, err
+			}
+		} else {
+			displayDue = periodStart
+		}
 	}
 	if cycleDays < 1 {
 		cycleDays = 1
@@ -243,9 +273,12 @@ func (service *SubscriptionService) buildView(
 		ProfitYuan:                 cycle.FormatCents(profitCents),
 		AllocatedProfitYuan:        cycle.FormatCents(profitCents),
 		CycleDesc:                  cycle.DescribeCron(subscription.CronExpr),
-		NextDueDate:                cycle.FormatDate(nextDue),
-		DaysRemaining:              cycle.DaysRemaining(nextDue, now),
+		NextDueDate:                cycle.FormatDate(displayDue),
+		DaysRemaining:              cycle.DaysRemaining(displayDue, now),
 		CycleDays:                  cycleDays,
+		CurrentPeriodStartDate:     currentPeriodStartDate,
+		CurrentPeriodEndDate:       currentPeriodEndDate,
+		CurrentPeriodPaid:          currentPeriodPaid,
 		ChannelLabels:              scheduledNotificationLabels(subscription),
 		OffsetsText:                cycle.FormatOffsets(subscription.NotifyOffsets),
 		LastError:                  lastError,
@@ -259,6 +292,25 @@ func (service *SubscriptionService) buildView(
 		CancellationCaseID:         subscription.CancellationCaseID,
 		CancellationExpiresAtLabel: cancellationExpiresAtLabel,
 	}, nil
+}
+
+func (service *SubscriptionService) firstUnpaidDue(
+	subscriptionID int64,
+	schedule cycle.BillingSchedule,
+	start time.Time,
+) (time.Time, error) {
+	candidate := start
+	for range 1200 {
+		paid, err := service.Store.IsDuePaid(subscriptionID, cycle.FormatDate(candidate))
+		if err != nil {
+			return time.Time{}, err
+		}
+		if !paid {
+			return candidate, nil
+		}
+		candidate = schedule.NextDue(candidate)
+	}
+	return time.Time{}, fmt.Errorf("unable to find an unpaid billing period")
 }
 
 func channelDisplayLabels(channels []string) []string {
@@ -594,8 +646,36 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 		return err
 	}
 	subscription.ID = subscriptionID
-	if err := service.Store.UpdateSubscription(subscription); err != nil {
-		return publicSubscriptionMutationError(err)
+	var updateErr error
+	plusScheduleChanged := isPlusSubscription(previous) && isPlusSubscription(subscription) &&
+		(strings.TrimSpace(previous.BoardedAt) != strings.TrimSpace(subscription.BoardedAt) ||
+			strings.TrimSpace(previous.CronExpr) != strings.TrimSpace(subscription.CronExpr))
+	if plusScheduleChanged {
+		billCount, err := service.Store.CountBillsForSubscription(subscriptionID)
+		if err != nil {
+			return err
+		}
+		switch billCount {
+		case 0:
+			updateErr = service.Store.UpdateSubscription(subscription)
+		case 1:
+			oldDueDate, err := initialBillDueDate(previous)
+			if err != nil {
+				return err
+			}
+			newDueDate, err := initialBillDueDate(subscription)
+			if err != nil {
+				return err
+			}
+			updateErr = service.Store.UpdateSubscriptionAndMoveInitialBill(subscription, oldDueDate, newDueDate)
+		default:
+			return fmt.Errorf("Plus 出租已有多期账单，为保护历史收入，不能直接修改开始日期或计费周期")
+		}
+	} else {
+		updateErr = service.Store.UpdateSubscription(subscription)
+	}
+	if updateErr != nil {
+		return publicSubscriptionMutationError(updateErr)
 	}
 	previousBillAmount := billDefaultAmountCents(previous)
 	newBillAmount := billDefaultAmountCents(subscription)
@@ -770,6 +850,15 @@ func publicSubscriptionMutationError(err error) error {
 	}
 	if errors.Is(err, db.ErrSubscriptionHasPendingAfterSales) {
 		return fmt.Errorf("该订阅正在等待售后处理，暂时不能修改")
+	}
+	if errors.Is(err, db.ErrBillHasAfterSalesCase) {
+		return fmt.Errorf("当前首期账单已关联售后记录，不能修改开始日期或计费周期")
+	}
+	if errors.Is(err, db.ErrBillOccurrenceConflict) {
+		return fmt.Errorf("修改后的账期已有账单，不能合并或重复计费")
+	}
+	if errors.Is(err, db.ErrInitialBillNotMovable) {
+		return fmt.Errorf("首期账单与当前计费周期不一致，请先检查账单记录")
 	}
 	return err
 }
