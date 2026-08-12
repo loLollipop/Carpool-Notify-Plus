@@ -388,22 +388,42 @@ function buildHealthItems({
 }) {
   const items: HealthItem[] = []
   const currentMonth = calendar?.month_value ?? ""
+  const actionableTeamIds = new Set(
+    subscriptions
+      .filter(
+        (view) =>
+          view.subscription.business_type !== "plus" && !view.cancellation_pending,
+      )
+      .map((view) => view.subscription.id),
+  )
   const pendingOccurrences = (calendar?.occurrences ?? []).filter(
     (occurrence) =>
-      !occurrence.paid && (currentMonth === "" || occurrence.due_date.slice(0, 7) === currentMonth),
+      occurrence.business_type !== "plus" &&
+      actionableTeamIds.has(occurrence.subscription_id) &&
+      !occurrence.paid &&
+      (currentMonth === "" || occurrence.due_date.slice(0, 7) === currentMonth),
   )
   const overdue = pendingOccurrences.filter((occurrence) => occurrence.days_remaining < 0)
   const dueSoon = pendingOccurrences.filter(
     (occurrence) => occurrence.days_remaining >= 0 && occurrence.days_remaining <= 7,
   )
+  const plusDue = subscriptions.filter(
+    (view) =>
+      view.subscription.business_type === "plus" &&
+      !view.cancellation_pending &&
+      view.days_remaining <= 7,
+  )
+  const plusOverdue = plusDue.filter((view) => view.days_remaining < 0)
   const missingCustomerEmail = subscriptions.filter(
     (view) =>
       view.subscription.business_type !== "plus" &&
+      !view.cancellation_pending &&
       view.subscription.customer_email.trim() === "",
   )
   const missingReminderOffsets = subscriptions.filter(
     (view) =>
       view.subscription.business_type !== "plus" &&
+      !view.cancellation_pending &&
       (view.subscription.notify_offsets?.length ?? 0) === 0,
   )
   const activeSaleAccounts = accounts.filter((view) =>
@@ -431,8 +451,8 @@ function buildHealthItems({
       detail: t("dash.health.overdueDetail", {
         names: summarizeNames(overdue.map((item) => item.name)),
       }),
-      actionLabel: t("dash.health.goCalendar"),
-      to: "/calendar",
+      actionLabel: t("dash.health.goCards"),
+      to: "/users?filter=pending",
       count: overdue.length,
     })
   } else if (dueSoon.length > 0) {
@@ -443,8 +463,8 @@ function buildHealthItems({
       detail: t("dash.health.dueSoonDetail", {
         names: summarizeNames(dueSoon.map((item) => item.name)),
       }),
-      actionLabel: t("dash.health.goCalendar"),
-      to: "/calendar",
+      actionLabel: t("dash.health.goCards"),
+      to: "/users?filter=pending",
       count: dueSoon.length,
     })
   } else {
@@ -453,6 +473,32 @@ function buildHealthItems({
       tone: "success",
       title: t("dash.health.dueHealthyTitle"),
       detail: t("dash.health.dueHealthyDetail"),
+    })
+  }
+
+  if (plusDue.length > 0) {
+    items.push({
+      key: "plusDue",
+      tone: plusOverdue.length > 0 ? "critical" : "warning",
+      title: t(
+        plusOverdue.length > 0
+          ? "dash.health.plusOverdueTitle"
+          : "dash.health.plusDueSoonTitle",
+        { count: plusDue.length },
+      ),
+      detail: t("dash.health.plusDueDetail", {
+        names: summarizeNames(plusDue.map((view) => view.subscription.name)),
+      }),
+      actionLabel: t("dash.health.goPlusRentals"),
+      to: "/plus-rentals?filter=due",
+      count: plusDue.length,
+    })
+  } else {
+    items.push({
+      key: "plusDue",
+      tone: "success",
+      title: t("dash.health.plusDueHealthyTitle"),
+      detail: t("dash.health.plusDueHealthyDetail"),
     })
   }
 
@@ -644,8 +690,8 @@ function OperationsHealthCard({
         </div>
       ) : (
         <div
-          className="grid min-h-0 flex-1 gap-2"
-          style={{ gridTemplateRows: `repeat(${Math.max(items.length, 1)}, minmax(0, 1fr))` }}
+          className="grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1"
+          style={{ gridTemplateRows: `repeat(${Math.max(items.length, 1)}, minmax(54px, 1fr))` }}
         >
           {items.map((item) => (
             <div
@@ -735,10 +781,18 @@ export function DashboardPage() {
         }
         description={t("dash.desc")}
         actions={
-          <Button onClick={() => setDialogOpen(true)}>
-            <Plus data-slot="icon" />
-            {t("nav.newSubscription")}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" asChild>
+              <Link to="/plus-rentals?create=1">
+                <Plus data-slot="icon" />
+                {t("dash.newPlusRental")}
+              </Link>
+            </Button>
+            <Button onClick={() => setDialogOpen(true)}>
+              <Plus data-slot="icon" />
+              {t("dash.newTeamUser")}
+            </Button>
+          </div>
         }
       />
 

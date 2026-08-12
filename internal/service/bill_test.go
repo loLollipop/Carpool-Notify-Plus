@@ -42,6 +42,49 @@ func TestSetDuePaidCreatesAndDeletesBill(t *testing.T) {
 	}
 }
 
+func TestBillsSummaryCountsSubscriptionsInsteadOfRenewalBills(t *testing.T) {
+	subscriptionService := openTestService(t)
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "多期续费账号", "车位1")
+	subscriptionID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "多期续费客户",
+		PriceYuan:        "42.50",
+		CronExpr:         "0 0 * * 1",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seatIDs[0],
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, dueDate := range []string{"2026-07-13", "2026-07-20"} {
+		if err := subscriptionService.SetDuePaid(subscriptionID, dueDate, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	page, err := subscriptionService.ListBillsPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Summary.BillCount != 2 {
+		t.Fatalf("bill count = %d, want 2", page.Summary.BillCount)
+	}
+	if page.Summary.ActiveCount != 1 || page.Summary.ArchivedCount != 0 {
+		t.Fatalf("subscription counts = active %d archived %d, want 1 and 0", page.Summary.ActiveCount, page.Summary.ArchivedCount)
+	}
+
+	if err := subscriptionService.Archive(subscriptionID); err != nil {
+		t.Fatal(err)
+	}
+	page, err = subscriptionService.ListBillsPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Summary.ActiveCount != 0 || page.Summary.ArchivedCount != 1 {
+		t.Fatalf("archived subscription counts = active %d archived %d, want 0 and 1", page.Summary.ActiveCount, page.Summary.ArchivedCount)
+	}
+}
+
 func TestCreateWithInitialBillMarksIntervalBoardedAtPaid(t *testing.T) {
 	subscriptionService := openTestService(t)
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "initial bill account", "seat1")

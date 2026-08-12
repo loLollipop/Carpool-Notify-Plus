@@ -6,8 +6,10 @@ import {
   ChevronRight,
   CircleParking,
   CircleParkingOff,
+  KeyRound,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   ShieldAlert,
   Trash2,
@@ -45,11 +47,15 @@ import {
   prefillFromSeat,
   type SubscriptionPrefill,
 } from "@/features/subscriptions/subscription-prefill"
-import { getNextMonthlyRenewalDate } from "@/lib/account-renewal"
+import {
+  getMonthlyRenewalDate,
+  getNextMonthlyRenewalDate,
+} from "@/lib/account-renewal"
 import { AccountDialog, type AccountPrefill } from "./AccountDialog"
 import { AccountBanDialog, type AccountBanTarget } from "./AccountBanDialog"
 
 type AccountsFilter = "all" | "sale" | "resale"
+type AccountStatsFilter = "all" | "renewal" | "banned" | "full" | "available"
 
 const ACCOUNTS_PER_PAGE = 9
 
@@ -97,6 +103,7 @@ function AccountStatus({ view }: { view: AccountView }) {
 
 function AccountDateRows({ openedAt }: { openedAt: string }) {
   const { t } = useTranslation()
+  const monthlyRenewalDate = getMonthlyRenewalDate(openedAt)
   const nextRenewalDate = getNextMonthlyRenewalDate(openedAt)
   return (
     <div className="grid min-w-0 grid-cols-[max-content_6.25rem] items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
@@ -111,6 +118,135 @@ function AccountDateRows({ openedAt }: { openedAt: string }) {
       >
         {nextRenewalDate || "-"}
       </span>
+      {monthlyRenewalDate && monthlyRenewalDate !== nextRenewalDate ? (
+        <>
+          <span>{t("accounts.monthRenewalAt")}</span>
+          <span
+            className="truncate font-mono font-medium text-gold tabular-nums"
+            title={monthlyRenewalDate}
+          >
+            {monthlyRenewalDate}
+          </span>
+        </>
+      ) : null}
+    </div>
+  )
+}
+
+function AccountStatsSection({
+  accounts,
+  renewalDates,
+  activeFilter,
+  onSelect,
+}: {
+  accounts: AccountView[]
+  renewalDates: Map<number, string>
+  activeFilter: AccountStatsFilter
+  onSelect: (filter: AccountStatsFilter) => void
+}) {
+  const { t } = useTranslation()
+  const stats = [
+    {
+      key: "all" as const,
+      label: t("accounts.statsTotal"),
+      value: accounts.length,
+      hint: t("accounts.statsTotalHint"),
+      icon: KeyRound,
+      tone: "bg-brand/10 text-brand",
+    },
+    {
+      key: "renewal" as const,
+      label: t("accounts.statsRenewal"),
+      value: accounts.filter((view) => renewalDates.has(view.account.id)).length,
+      hint: t("accounts.statsRenewalHint"),
+      icon: RefreshCw,
+      tone: "bg-gold/12 text-gold",
+    },
+    {
+      key: "banned" as const,
+      label: t("accounts.statusBanned"),
+      value: accounts.filter((view) => Boolean(view.account.banned_at)).length,
+      hint: t("accounts.statsBannedHint"),
+      icon: ShieldAlert,
+      tone: "bg-destructive/10 text-destructive",
+    },
+    {
+      key: "full" as const,
+      label: t("accounts.statusFull"),
+      value: accounts.filter((view) => !view.account.banned_at && view.is_full).length,
+      hint: t("accounts.statsFullHint"),
+      icon: CircleParkingOff,
+      tone: "bg-muted text-muted-foreground",
+    },
+    {
+      key: "available" as const,
+      label: t("accounts.statusFree"),
+      value: accounts.filter(
+        (view) => !view.account.banned_at && view.seat_used < view.seat_total,
+      ).length,
+      hint: t("accounts.statsAvailableHint"),
+      icon: CircleParking,
+      tone: "bg-success/10 text-success",
+    },
+  ]
+
+  return (
+    <section
+      aria-label={t("accounts.statsLabel")}
+      className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5"
+    >
+      {stats.map((stat, index) => {
+        const Icon = stat.icon
+        const active = activeFilter === stat.key
+        return (
+          <Card
+            key={stat.key}
+            className={cn(
+              "group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] duration-200 animate-fade-up",
+              active
+                ? "border-brand/45 bg-brand/[0.035] shadow-[0_0_0_1px_var(--color-brand)]"
+                : "hover:border-brand/25 hover:bg-accent/25",
+            )}
+            style={{ animationDelay: `${index * 45}ms` }}
+          >
+            <button
+              type="button"
+              aria-pressed={active}
+              onClick={() => onSelect(stat.key)}
+              className="flex w-full flex-col items-start p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-inset"
+            >
+              <div className="flex w-full items-start justify-between gap-3">
+                <span className="text-xs font-medium text-muted-foreground">{stat.label}</span>
+                <span className={cn("grid size-8 shrink-0 place-items-center rounded-md", stat.tone)}>
+                  <Icon className="size-4" />
+                </span>
+              </div>
+              <strong className="display-numeral mt-3 text-[28px] leading-none tabular-nums">
+                {stat.value}
+              </strong>
+              <span className={cn("mt-2 text-[11px] text-muted-foreground", active && "text-brand")}>
+                {active ? t("accounts.statsViewing") : stat.hint}
+              </span>
+              <span
+                className={cn(
+                  "absolute inset-x-0 bottom-0 h-0.5 origin-left bg-brand transition-transform duration-300",
+                  active ? "scale-x-100" : "scale-x-0 group-hover:scale-x-100",
+                )}
+              />
+            </button>
+          </Card>
+        )
+      })}
+    </section>
+  )
+}
+
+function AccountStatsSkeleton() {
+  return (
+    <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
+      {Array.from({ length: 5 }).map((_, index) => (
+        <Skeleton key={index} className="h-[116px] rounded-xl" />
+      ))}
     </div>
   )
 }
@@ -307,6 +443,7 @@ export function AccountsPage() {
   const [subscriptionPrefill, setSubscriptionPrefill] = React.useState<SubscriptionPrefill | null>(null)
   const [search, setSearch] = React.useState("")
   const [filter, setFilter] = React.useState<AccountsFilter>("all")
+  const [statsFilter, setStatsFilter] = React.useState<AccountStatsFilter>("all")
   const [page, setPage] = React.useState(1)
 
   const deleteMutation = useAppMutation((id: number) => deleteAccount(id), {
@@ -347,6 +484,24 @@ export function AccountsPage() {
   }
 
   const accounts = React.useMemo(() => accountsQuery.data ?? [], [accountsQuery.data])
+  const renewalDates = React.useMemo(() => {
+    const dates = new Map<number, string>()
+    for (const view of accounts) {
+      if (view.account.banned_at) continue
+      const renewalDate = getMonthlyRenewalDate(view.account.opened_at)
+      if (renewalDate) dates.set(view.account.id, renewalDate)
+    }
+    return dates
+  }, [accounts])
+
+  const selectStatsFilter = (nextFilter: AccountStatsFilter) => {
+    setStatsFilter((current) =>
+      current === nextFilter && nextFilter !== "all" ? "all" : nextFilter,
+    )
+    setSearch("")
+    setFilter("all")
+    setPage(1)
+  }
 
   const filteredAccounts = React.useMemo(() => {
     const matchesFilter = (view: AccountView) => {
@@ -361,9 +516,18 @@ export function AccountsPage() {
       return true
     }
 
+    const matchesStatsFilter = (view: AccountView) => {
+      if (statsFilter === "all") return true
+      if (statsFilter === "renewal") return renewalDates.has(view.account.id)
+      if (statsFilter === "banned") return Boolean(view.account.banned_at)
+      if (statsFilter === "full") return !view.account.banned_at && view.is_full
+      return !view.account.banned_at && view.seat_used < view.seat_total
+    }
+
     const query = search.trim().toLowerCase()
     return accounts.filter((view) => {
       if (!matchesFilter(view)) return false
+      if (!matchesStatsFilter(view)) return false
       if (!query) return true
       const seatFields = (view.seats ?? []).flatMap((seat) => [
         seat.seat.name,
@@ -386,7 +550,7 @@ export function AccountsPage() {
         ...seatFields,
       ].some((field) => field?.toLowerCase().includes(query))
     })
-  }, [accounts, filter, search])
+  }, [accounts, filter, renewalDates, search, statsFilter])
 
   const pageCount = Math.max(1, Math.ceil(filteredAccounts.length / ACCOUNTS_PER_PAGE))
   const safePage = Math.min(page, pageCount)
@@ -465,6 +629,17 @@ export function AccountsPage() {
           </>
         }
       />
+
+      {accountsQuery.isPending ? (
+        <AccountStatsSkeleton />
+      ) : accountsQuery.isError || accounts.length === 0 ? null : (
+        <AccountStatsSection
+          accounts={accounts}
+          renewalDates={renewalDates}
+          activeFilter={statsFilter}
+          onSelect={selectStatsFilter}
+        />
+      )}
 
       {accountsQuery.isPending ? (
         <Skeleton className="h-96 rounded-xl" />

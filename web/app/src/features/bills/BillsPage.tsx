@@ -74,6 +74,18 @@ const CHART_COLORS = [
 
 const BILLS_PER_PAGE = 9
 const AMOUNT_ITEMS_PER_PAGE = 6
+type BillBusinessFilter = "all" | "team" | "resale" | "plus"
+
+function billIdentity(bill: BillView) {
+  const plusRental = bill.business_type === "plus"
+  return {
+    plusRental,
+    primaryName: plusRental ? bill.subscription_name : bill.account_name || bill.subscription_name,
+    customerLine: plusRental
+      ? [bill.customer_email, bill.customer_wechat].filter(Boolean).join(" · ") || bill.subscription_name
+      : bill.customer_email || bill.subscription_name,
+  }
+}
 
 function formatCents(cents: number) {
   return `¥${(cents / 100).toLocaleString("zh-CN", {
@@ -213,15 +225,20 @@ function BillMobileCard({
   onDelete: () => void
 }) {
   const { t } = useTranslation()
-  const primaryName = bill.account_name || bill.subscription_name
-  const customerLine = bill.customer_email || bill.subscription_name
+  const { plusRental, primaryName, customerLine } = billIdentity(bill)
 
   return (
     <Card className="relative gap-0 overflow-hidden p-0 animate-fade-up">
       <span
         className={cn(
           "absolute inset-y-0 left-0 w-1",
-          bill.archived ? "bg-muted-foreground/35" : bill.is_resale ? "bg-violet" : "bg-success",
+          bill.archived
+            ? "bg-muted-foreground/35"
+            : plusRental
+              ? "bg-brand"
+              : bill.is_resale
+                ? "bg-violet"
+                : "bg-success",
         )}
       />
       <div className="p-4">
@@ -239,7 +256,11 @@ function BillMobileCard({
             <Badge variant={bill.archived ? "secondary" : "success"} className="font-normal">
               {bill.status_label}
             </Badge>
-            {bill.is_resale ? (
+            {plusRental ? (
+              <Badge variant="secondary" className="font-normal text-brand">
+                {t("bills.businessPlus")}
+              </Badge>
+            ) : bill.is_resale ? (
               <Badge variant="outline" className="font-normal">
                 {t("cards.resale")}
               </Badge>
@@ -644,7 +665,7 @@ export function BillsPage() {
   const [viewingBill, setViewingBill] = React.useState<BillView | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<BillView | null>(null)
   const [search, setSearch] = React.useState("")
-  const [typeFilter, setTypeFilter] = React.useState<"all" | "sale" | "resale">("all")
+  const [typeFilter, setTypeFilter] = React.useState<BillBusinessFilter>("all")
   const [page, setPage] = React.useState(1)
 
   const deleteMutation = useAppMutation((id: number) => deleteBill(id), {
@@ -657,8 +678,9 @@ export function BillsPage() {
 
   const filteredBills = React.useMemo(() => {
     const byType = bills.filter((bill) => {
-      if (typeFilter === "sale") return !bill.is_resale
-      if (typeFilter === "resale") return bill.is_resale
+      if (typeFilter === "plus") return bill.business_type === "plus"
+      if (typeFilter === "resale") return bill.business_type !== "plus" && bill.is_resale
+      if (typeFilter === "team") return bill.business_type !== "plus" && !bill.is_resale
       return true
     })
     const query = search.trim().toLowerCase()
@@ -817,17 +839,18 @@ export function BillsPage() {
               <Select
                 value={typeFilter}
                 onValueChange={(value) => {
-                  setTypeFilter(value as "all" | "sale" | "resale")
+                  setTypeFilter(value as BillBusinessFilter)
                   setPage(1)
                 }}
               >
-                <SelectTrigger className="h-8 w-28" aria-label={t("bills.filterLabel")}>
+                <SelectTrigger className="h-8 w-32" aria-label={t("bills.filterLabel")}>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t("bills.filterAll")}</SelectItem>
-                  <SelectItem value="sale">{t("bills.filterSale")}</SelectItem>
+                  <SelectItem value="team">{t("bills.filterTeam")}</SelectItem>
                   <SelectItem value="resale">{t("bills.filterResale")}</SelectItem>
+                  <SelectItem value="plus">{t("bills.filterPlus")}</SelectItem>
                 </SelectContent>
               </Select>
               <p className="shrink-0 text-xs text-muted-foreground">
@@ -882,8 +905,7 @@ export function BillsPage() {
                     </TableRow>
                   ) : null}
                   {pagedBills.map((bill) => {
-                    const primaryName = bill.account_name || bill.subscription_name
-                    const customerLine = bill.customer_email || bill.subscription_name
+                    const { plusRental, primaryName, customerLine } = billIdentity(bill)
                     return (
                     <TableRow key={bill.id}>
                       <TableCell className="max-w-48">
@@ -891,7 +913,11 @@ export function BillsPage() {
                           <span className="truncate font-medium" title={primaryName}>
                             {primaryName}
                           </span>
-                          {bill.is_resale ? (
+                          {plusRental ? (
+                            <Badge variant="secondary" className="shrink-0 font-normal text-brand">
+                              {t("bills.businessPlus")}
+                            </Badge>
+                          ) : bill.is_resale ? (
                             <Badge variant="outline" className="shrink-0 font-normal">
                               {t("cards.resale")}
                             </Badge>

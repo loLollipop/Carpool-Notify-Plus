@@ -306,11 +306,11 @@ function SummaryCard({
 export function PlusRentalsPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const subscriptionsQuery = useSubscriptions()
   const { refetch: refetchSubscriptions } = subscriptionsQuery
   const { amountsHidden, toggleAmounts } = useAmountPrivacy()
-  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [dialogOpen, setDialogOpen] = React.useState(() => searchParams.get("create") === "1")
   const [editing, setEditing] = React.useState<SubscriptionPrefill | null>(null)
   const [filter, setFilter] = React.useState<RentalFilter>(() => {
     const initial = searchParams.get("filter")
@@ -339,7 +339,11 @@ export function PlusRentalsPage() {
     [subscriptionsQuery.data?.archived],
   )
 
-  const dueSoon = active.filter((view) => view.days_remaining <= 7)
+  const isActionableDue = React.useCallback(
+    (view: SubscriptionView) => !view.cancellation_pending && view.days_remaining <= 7,
+    [],
+  )
+  const dueSoon = active.filter(isActionableDue)
   const rentCents = active.reduce((sum, view) => sum + view.subscription.price_per_person_cents, 0)
   const costCents = active.reduce((sum, view) => sum + view.subscription.cost_cents, 0)
   const profitCents = rentCents - costCents
@@ -363,7 +367,7 @@ export function PlusRentalsPage() {
 
   const filtered = React.useMemo(() => {
     let pool = filter === "archived" ? archived : filter === "all" ? [...active, ...archived] : active
-    if (filter === "due") pool = active.filter((view) => view.days_remaining <= 7)
+    if (filter === "due") pool = active.filter(isActionableDue)
     const query = search.trim().toLowerCase()
     if (!query) return pool
     return pool.filter((view) =>
@@ -376,7 +380,16 @@ export function PlusRentalsPage() {
         view.next_due_date,
       ].some((value) => value?.toLowerCase().includes(query)),
     )
-  }, [active, archived, filter, search])
+  }, [active, archived, filter, isActionableDue, search])
+
+  const setDialogVisibility = (open: boolean) => {
+    setDialogOpen(open)
+    if (!open && searchParams.get("create") === "1") {
+      const nextParams = new URLSearchParams(searchParams)
+      nextParams.delete("create")
+      setSearchParams(nextParams, { replace: true })
+    }
+  }
 
   const archiveMutation = useAppMutation((id: number) => archiveSubscription(id), {
     successMessage: t("plusRentals.ended"),
@@ -525,7 +538,7 @@ export function PlusRentalsPage() {
         </div>
       )}
 
-      <PlusRentalDialog open={dialogOpen} onOpenChange={setDialogOpen} prefill={editing} />
+      <PlusRentalDialog open={dialogOpen} onOpenChange={setDialogVisibility} prefill={editing} />
       <DuePaidDialog
         open={renewTarget !== null}
         onOpenChange={(open) => {

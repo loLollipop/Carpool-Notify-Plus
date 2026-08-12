@@ -297,6 +297,7 @@ func buildBillsSummaryWithRefunds(
 	activeCount := 0
 	archivedCount := 0
 	resaleBillCount := 0
+	subscriptionArchived := map[int64]bool{}
 
 	subscriptionTotals := map[int64]*AmountBar{}
 	accountTotals := map[string]struct {
@@ -316,11 +317,9 @@ func buildBillsSummaryWithRefunds(
 		}
 		totalCents += view.AmountCents
 		totalCostCents += view.CostCents
-		if view.Archived {
-			archivedCount++
-		} else {
-			activeCount++
-		}
+		// One subscription can have many renewal bills. These two KPIs describe
+		// linked subscriptions, so each subscription must only be counted once.
+		subscriptionArchived[view.SubscriptionID] = view.Archived
 		if view.IsResale {
 			resaleBillCount++
 			totalAgencyFeeCents += view.AmountCents
@@ -356,6 +355,13 @@ func buildBillsSummaryWithRefunds(
 		accountBucket.count++
 		accountBucket.cents += netAmountCents
 		accountTotals[view.AccountName] = accountBucket
+	}
+	for _, archived := range subscriptionArchived {
+		if archived {
+			archivedCount++
+		} else {
+			activeCount++
+		}
 	}
 
 	for _, caseItem := range afterSalesCases {

@@ -61,6 +61,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 
 type AfterSalesFilter = "all" | AfterSalesStatus
+type AfterSalesBusinessFilter = "all" | "team" | "plus"
 
 const CASES_PER_PAGE = 5
 
@@ -421,6 +422,7 @@ export function AfterSalesPage() {
   const caseFilter = Number(searchParams.get("case") || 0)
   const [search, setSearch] = React.useState("")
   const [filter, setFilter] = React.useState<AfterSalesFilter>("all")
+  const [businessFilter, setBusinessFilter] = React.useState<AfterSalesBusinessFilter>("all")
   const [page, setPage] = React.useState(1)
   const [editTarget, setEditTarget] = React.useState<AfterSalesCaseView | null>(null)
   const [reassignTarget, setReassignTarget] = React.useState<AfterSalesCaseView | null>(null)
@@ -437,6 +439,7 @@ export function AfterSalesPage() {
     return allCases.filter((view) => {
       if (accountFilter > 0 && view.case.account_id !== accountFilter) return false
       if (caseFilter > 0 && view.case.id !== caseFilter) return false
+      if (businessFilter !== "all" && view.case.business_type !== businessFilter) return false
       if (filter !== "all" && view.case.status !== filter) return false
       if (!needle) return true
       return [
@@ -454,7 +457,7 @@ export function AfterSalesPage() {
         view.refund_amount_yuan,
       ].some((field) => field.toLowerCase().includes(needle))
     })
-  }, [accountFilter, allCases, caseFilter, filter, search])
+  }, [accountFilter, allCases, businessFilter, caseFilter, filter, search])
 
   const pageCount = Math.max(1, Math.ceil(filteredCases.length / CASES_PER_PAGE))
   const safePage = Math.min(page, pageCount)
@@ -561,6 +564,22 @@ export function AfterSalesPage() {
             <SelectItem value="review">{t("afterSales.statusReview")}</SelectItem>
             <SelectItem value="refunded">{t("afterSales.statusRefunded")}</SelectItem>
             <SelectItem value="reassigned">{t("afterSales.statusReassigned")}</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
+          value={businessFilter}
+          onValueChange={(value) => {
+            setPage(1)
+            setBusinessFilter(value as AfterSalesBusinessFilter)
+          }}
+        >
+          <SelectTrigger className="w-full sm:w-36" aria-label={t("afterSales.businessFilterLabel")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t("afterSales.businessFilterAll")}</SelectItem>
+            <SelectItem value="team">{t("afterSales.businessFilterTeam")}</SelectItem>
+            <SelectItem value="plus">{t("afterSales.businessFilterPlus")}</SelectItem>
           </SelectContent>
         </Select>
       </div>

@@ -72,3 +72,13 @@ export function getNextMonthlyRenewalDate(openedAt: string, fromDate = todayShan
 
   return formatDateParts(candidate)
 }
+
+export function getMonthlyRenewalDate(openedAt: string, monthDate = todayShanghai()) {
+  const opened = parseDateOnly(openedAt)
+  const month = parseDateOnly(monthDate)
+  if (!opened || !month) return ""
+
+  const candidate = monthlyAnniversary(month.year, month.month, opened.day)
+  if (compareDateParts(candidate, opened) <= 0) return ""
+  return formatDateParts(candidate)
+}
