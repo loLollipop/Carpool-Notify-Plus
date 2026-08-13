@@ -2,7 +2,7 @@ import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { useTranslation } from "react-i18next"
-import { CalendarClock, Mail, MessageCircle, WalletCards } from "lucide-react"
+import { Mail, MessageCircle, WalletCards } from "lucide-react"
 import { z } from "zod"
 
 import { createSubscription, updateSubscription } from "@/api/endpoints"
@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -20,7 +19,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -136,7 +134,7 @@ export function PlusRentalDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent aria-describedby={undefined} className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <div className="mb-1 flex size-10 items-center justify-center rounded-xl bg-brand/10 text-brand">
             <WalletCards className="size-5" />
@@ -144,7 +142,6 @@ export function PlusRentalDialog({
           <DialogTitle>
             {t(isEdit ? "plusRentals.editTitle" : "plusRentals.createTitle")}
           </DialogTitle>
-          <DialogDescription>{t("plusRentals.dialogDesc")}</DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
@@ -179,7 +176,6 @@ export function PlusRentalDialog({
                     <FormControl>
                       <Input autoComplete="off" placeholder={t("plusRentals.contactPlaceholder")} {...field} />
                     </FormControl>
-                    <FormDescription>{t("plusRentals.contactHint")}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -196,7 +192,6 @@ export function PlusRentalDialog({
                     <FormControl>
                       <Input type="email" autoComplete="off" placeholder="plus-account@example.com" {...field} />
                     </FormControl>
-                    <FormDescription>{t("plusRentals.accountEmailHint")}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -226,7 +221,6 @@ export function PlusRentalDialog({
                     <FormControl>
                       <Input inputMode="decimal" placeholder="20.00" {...field} />
                     </FormControl>
-                    <FormDescription>{t("plusRentals.costHint")}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -267,10 +261,6 @@ export function PlusRentalDialog({
                     <FormControl>
                       <Input className="font-mono" placeholder="interval:30d" {...field} />
                     </FormControl>
-                    <FormDescription className="flex items-start gap-1.5">
-                      <CalendarClock className="mt-0.5 size-3.5 shrink-0" />
-                      {t("plusRentals.cycleHint")}
-                    </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -305,10 +295,6 @@ export function PlusRentalDialog({
                 )}
               />
             </section>
-
-            <div className="rounded-lg border border-brand/15 bg-brand/[0.05] px-3.5 py-3 text-xs leading-5 text-muted-foreground">
-              {t("plusRentals.notice")}
-            </div>
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

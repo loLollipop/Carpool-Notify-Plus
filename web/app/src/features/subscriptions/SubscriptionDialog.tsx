@@ -15,7 +15,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -242,12 +241,11 @@ export function SubscriptionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent aria-describedby={undefined} className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
             {isEdit ? t("subscriptionDialog.editTitle") : t("subscriptionDialog.createTitle")}
           </DialogTitle>
-          <DialogDescription>{t("subscriptionDialog.desc")}</DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
@@ -319,7 +317,6 @@ export function SubscriptionDialog({
                     <FormControl>
                       <Input {...field} />
                     </FormControl>
-                    <FormDescription>{t("subscriptionDialog.nameHint")}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -383,7 +380,6 @@ export function SubscriptionDialog({
                   <FormControl>
                     <Input type="date" {...field} />
                   </FormControl>
-                  <FormDescription>{t("subscriptionDialog.boardedAtHint")}</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

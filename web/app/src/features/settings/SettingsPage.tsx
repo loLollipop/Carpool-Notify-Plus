@@ -542,7 +542,7 @@ function RedeemPageSettingsEditor({
                 })
               }
             />
-            <p className="text-xs text-muted-foreground">一行一条，最多 6 条；打开或刷新兑换页会自动弹窗。</p>
+            <p className="text-xs text-muted-foreground">每行一条，最多 6 条</p>
           </div>
         </Card>
 
@@ -810,7 +810,6 @@ function NotificationConfigEditor({
 
       <Card className="gap-3 p-5 sm:p-6">
         <Label>{t("settings.channels")}</Label>
-        <p className="text-xs leading-relaxed text-muted-foreground">{t("settings.channelsHint")}</p>
         <div className="flex flex-wrap gap-2">
           {settings.channels.map((channel) => {
             const fixedRoute = isFixedRouteChannel(channel)
@@ -838,9 +837,6 @@ function NotificationConfigEditor({
             )
           })}
         </div>
-        <p className="text-xs leading-relaxed text-muted-foreground">
-          {t("settings.channelsFootnote")}
-        </p>
       </Card>
     </div>
   )
@@ -998,9 +994,6 @@ function SandboxToolCard() {
                   <span>暂无可用兑换码</span>
                 )}
               </Button>
-              <p className="text-[11px] leading-5 text-muted-foreground">
-                测试页已预填沙盒邮箱、微信号和兑换码，可直接提交。
-              </p>
             </div>
           ) : (
             <p className="mt-3 text-xs leading-5 text-muted-foreground">
@@ -1041,9 +1034,6 @@ function SystemTools() {
           </span>
           <div>
             <h2 className="text-sm font-semibold">{t("settings.testTitle")}</h2>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              {t("settings.testHint")}
-            </p>
           </div>
         </div>
         <Button
@@ -1064,9 +1054,6 @@ function SystemTools() {
           </span>
           <div>
             <h2 className="text-sm font-semibold">{t("settings.exportTitle")}</h2>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              {t("settings.exportHint")}
-            </p>
           </div>
         </div>
         <Button variant="outline" className="w-full shrink-0 sm:w-auto" asChild>
@@ -1343,7 +1330,7 @@ export function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <PageHeader title={t("settings.title")} description={t("settings.desc")} />
+      <PageHeader title={t("settings.title")} />
 
       {settingsQuery.isPending ? (
         <div className="grid gap-4">

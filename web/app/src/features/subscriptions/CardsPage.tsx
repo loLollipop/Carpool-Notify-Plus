@@ -550,7 +550,6 @@ export function CardsPage() {
     <>
       <PageHeader
         title={t("cards.title")}
-        description={t("cards.desc")}
         actions={
           <>
             <div className="relative w-full sm:w-auto">

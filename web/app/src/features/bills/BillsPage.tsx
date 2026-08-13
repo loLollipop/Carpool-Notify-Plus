@@ -523,10 +523,7 @@ function AccountDonutCard({
 
   return (
     <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "180ms" }}>
-      <div>
-        <h2 className="panel-heading text-sm font-semibold">{t("bills.chartAccountTitle")}</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">{t("bills.chartAccountDesc")}</p>
-      </div>
+      <h2 className="panel-heading text-sm font-semibold">{t("bills.chartAccountTitle")}</h2>
 
       {data.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">
@@ -639,10 +636,7 @@ function MonthlyTrendCard({
 
   return (
     <Card className="h-[280px] gap-4 overflow-hidden p-5 animate-fade-up" style={{ animationDelay: "240ms" }}>
-      <div>
-        <h2 className="panel-heading text-sm font-semibold">{t("bills.chartTrendTitle")}</h2>
-        <p className="mt-0.5 text-xs text-muted-foreground">{t("bills.chartTrendDesc")}</p>
-      </div>
+      <h2 className="panel-heading text-sm font-semibold">{t("bills.chartTrendTitle")}</h2>
 
       {data.every((item) => item.grossCents === 0 && item.refundCents === 0) ? (
         <p className="py-10 text-center text-sm text-muted-foreground">
@@ -763,7 +757,6 @@ export function BillsPage() {
         titleAccessory={
           <AmountPrivacyToggle amountsHidden={amountsHidden} onToggle={toggleAmounts} />
         }
-        description={t("bills.desc")}
       />
 
       {billsQuery.isPending ? (

@@ -276,7 +276,6 @@ export function CalendarPage() {
     <>
       <PageHeader
         title={t("calendar.title")}
-        description={t("calendar.desc")}
       />
 
       {calendarQuery.isPending ? (

@@ -590,7 +590,6 @@ export function AccountsPage() {
     <>
       <PageHeader
         title={t("accounts.title")}
-        description={t("accounts.desc")}
         actions={
           <>
             <div className="relative w-full sm:w-auto">

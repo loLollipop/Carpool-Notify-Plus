@@ -219,16 +219,10 @@ function RedemptionCodeManager() {
     <div className="flex h-full min-h-0 flex-col">
     <Card className="min-h-0 flex-1 gap-0 overflow-y-auto p-0">
       <div className="flex flex-col gap-4 border-b bg-muted/35 p-5 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-            <KeyRound className="size-3.5" />
-            兑换码管理
-          </div>
-          <h2 className="mt-2 text-lg font-semibold">生成客户可用的一次性兑换码</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            客户提交的兑换码必须和这里的可用码一致，提交成功后该码会自动标记为已使用。
-          </p>
-        </div>
+        <h2 className="flex items-center gap-2 text-lg font-semibold">
+          <KeyRound className="size-4 text-muted-foreground" />
+          生成兑换码
+        </h2>
         <div className="grid gap-2 sm:grid-cols-[88px_minmax(220px,1fr)_auto] lg:w-[560px]">
           <Input
             type="number"
@@ -819,10 +813,7 @@ export function RedemptionsPage() {
 
   return (
     <div className="flex flex-col xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:overflow-hidden">
-      <PageHeader
-        title="兑换申请"
-        description="处理客户提交的兑换申请，也可以切到兑换码管理生成、停用或删除一次性兑换码。"
-      />
+      <PageHeader title="兑换申请" />
 
       <Tabs
         value={section}
@@ -846,22 +837,8 @@ export function RedemptionsPage() {
         </TabsList>
 
         <TabsContent value="applications" className="flex min-h-0 flex-1 flex-col gap-5">
-          <div className="flex flex-col gap-4 rounded-lg border bg-card p-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex items-start gap-3">
-              <span className="grid size-10 shrink-0 place-items-center rounded-md bg-gold/12 text-gold">
-                <Clock3 className="size-5" />
-              </span>
-              <div>
-                <div className="text-xs font-medium text-gold">处理申请</div>
-                <h2 className="mt-1 text-lg font-semibold">
-                  分配母号空间并确认邀请
-                </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  确认客户已加入空间后，系统会自动创建订阅和首期账单。
-                </p>
-              </div>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="flex justify-end rounded-lg border bg-card p-4">
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               <div className="relative">
                 <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input

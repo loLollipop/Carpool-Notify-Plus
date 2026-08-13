@@ -644,10 +644,7 @@ function OperationsHealthCard({
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="flex items-start justify-between gap-2">
-        <div>
-          <h2 className="panel-heading text-sm font-semibold">{t("dash.health.title")}</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t("dash.health.desc")}</p>
-        </div>
+        <h2 className="panel-heading text-sm font-semibold">{t("dash.health.title")}</h2>
         <span
           className={cn(
             "grid size-8 shrink-0 place-items-center rounded-lg",
@@ -764,7 +761,6 @@ export function DashboardPage() {
         titleAccessory={
           <AmountPrivacyToggle amountsHidden={amountsHidden} onToggle={toggleAmounts} />
         }
-        description={t("dash.desc")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={() => setPlusDialogOpen(true)}>

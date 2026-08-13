@@ -11,7 +11,6 @@ import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -151,12 +150,11 @@ export function AccountDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent aria-describedby={undefined} className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>
             {isEdit ? t("accounts.dialogEditTitle") : t("accounts.dialogCreateTitle")}
           </DialogTitle>
-          <DialogDescription>{t("accounts.dialogDesc")}</DialogDescription>
         </DialogHeader>
 
         <Form {...form}>
@@ -226,7 +224,6 @@ export function AccountDialog({
                     <FormControl>
                       <Input placeholder={t("accounts.paymentMethodPlaceholder")} {...field} />
                     </FormControl>
-                    <FormDescription>{t("accounts.paymentMethodHint")}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -242,7 +239,6 @@ export function AccountDialog({
                     <FormControl>
                       <Input inputMode="decimal" placeholder="20.00" {...field} />
                     </FormControl>
-                    <FormDescription>{t("accounts.costHint")}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -304,7 +300,6 @@ export function AccountDialog({
                   <FormControl>
                     <Input type="number" inputMode="numeric" min={1} max={1000} step={1} {...field} />
                   </FormControl>
-                  <FormDescription>{t("accounts.seatCountHint")}</FormDescription>
                   <FormMessage />
                 </FormItem>
               )}

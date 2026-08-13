@@ -413,7 +413,6 @@ export function PlusRentalsPage() {
     <>
       <PageHeader
         title={t("plusRentals.title")}
-        description={t("plusRentals.desc")}
         titleAccessory={<AmountPrivacyToggle amountsHidden={amountsHidden} onToggle={toggleAmounts} />}
       />
 
@@ -471,11 +470,6 @@ export function PlusRentalsPage() {
         </Select>
       </div>
 
-      <div className="mb-4 flex items-center gap-2 rounded-lg border border-brand/15 bg-brand/[0.045] px-3.5 py-2.5 text-xs leading-5 text-muted-foreground">
-        <MessageCircle className="size-4 shrink-0 text-brand" />
-        {t("plusRentals.manualReminder")}
-      </div>
-
       {subscriptionsQuery.isPending ? (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {Array.from({ length: 6 }).map((_, index) => (
@@ -495,7 +489,6 @@ export function PlusRentalsPage() {
             <Archive className="size-5" />
           </span>
           <p className="text-sm font-medium">{t("plusRentals.empty")}</p>
-          <p className="max-w-sm text-xs leading-5 text-muted-foreground">{t("plusRentals.emptyHint")}</p>
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

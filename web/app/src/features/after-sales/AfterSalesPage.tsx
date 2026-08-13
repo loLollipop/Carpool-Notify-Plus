@@ -469,7 +469,6 @@ export function AfterSalesPage() {
     <div className="flex flex-col xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:overflow-hidden">
       <PageHeader
         title={t("afterSales.title")}
-        description={t("afterSales.desc")}
         actions={
           accountFilter > 0 || caseFilter > 0 ? (
             <Button
