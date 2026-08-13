@@ -41,6 +41,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
 import { AMOUNT_MASK, VALUE_MASK, maskAmount, maskValue } from "@/lib/amount-privacy"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
+import { PlusRentalDialog } from "@/features/plus-rentals/PlusRentalDialog"
 import { SubscriptionDialog } from "@/features/subscriptions/SubscriptionDialog"
 
 const CHART_ANIMATION = { animationDuration: 900, animationEasing: "ease-out" } as const
@@ -753,7 +754,8 @@ export function DashboardPage() {
   const subscriptionsQuery = useSubscriptions()
   const accountsQuery = useAccounts()
 
-  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [plusDialogOpen, setPlusDialogOpen] = React.useState(false)
+  const [teamDialogOpen, setTeamDialogOpen] = React.useState(false)
 
   const isPending = dashboardQuery.isPending || billsQuery.isPending || calendarQuery.isPending
   const isError = dashboardQuery.isError || billsQuery.isError || calendarQuery.isError
@@ -782,13 +784,11 @@ export function DashboardPage() {
         description={t("dash.desc")}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Button asChild>
-              <Link to="/plus-rentals?create=1">
-                <Plus data-slot="icon" />
-                {t("dash.newPlusRental")}
-              </Link>
+            <Button onClick={() => setPlusDialogOpen(true)}>
+              <Plus data-slot="icon" />
+              {t("dash.newPlusRental")}
             </Button>
-            <Button onClick={() => setDialogOpen(true)}>
+            <Button onClick={() => setTeamDialogOpen(true)}>
               <Plus data-slot="icon" />
               {t("dash.newTeamUser")}
             </Button>
@@ -839,7 +839,8 @@ export function DashboardPage() {
         </div>
       ) : null}
 
-      <SubscriptionDialog open={dialogOpen} onOpenChange={setDialogOpen} prefill={null} />
+      <PlusRentalDialog open={plusDialogOpen} onOpenChange={setPlusDialogOpen} prefill={null} />
+      <SubscriptionDialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen} prefill={null} />
     </div>
   )
 }
