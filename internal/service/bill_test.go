@@ -1,6 +1,8 @@
 package service_test
 
 import (
+	"database/sql"
+	"errors"
 	"testing"
 	"time"
 
@@ -144,6 +146,43 @@ func TestCreateWithInitialBillUsesFirstCronDueAfterBoardedAt(t *testing.T) {
 	}
 	if bill.AmountCents != 4250 {
 		t.Fatalf("initial cron bill amount = %d, want 4250", bill.AmountCents)
+	}
+}
+
+func TestTeamScheduleCorrectionMovesAndUpdatesOnlyInitialBill(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.July, 11, 12, 0, 0, 0, cycle.Location)
+	}
+	accountID, seatIDs := createTestAccountWithSeats(t, subscriptionService, "schedule correction account", "seat1")
+	input := service.CreateInput{
+		Name:             "schedule correction customer",
+		PriceYuan:        "30.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3,1,0",
+		AccountID:        accountID,
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-07-01",
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	input.BoardedAt = "2026-07-02"
+	input.PriceYuan = "45.00"
+	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-07-01"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("old bill lookup error = %v, want sql.ErrNoRows", err)
+	}
+	movedBill, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-07-02")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if movedBill.AmountCents != 4500 {
+		t.Fatalf("moved initial bill amount = %d, want 4500", movedBill.AmountCents)
 	}
 }
 

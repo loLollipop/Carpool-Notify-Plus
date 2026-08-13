@@ -310,7 +310,7 @@ func (store *Store) migrate() error {
 	if err := store.backfillAccountCostRecords(); err != nil {
 		return err
 	}
-	if err := store.repairMisdatedPlusInitialBills(); err != nil {
+	if err := store.repairMisdatedInitialBills(); err != nil {
 		return err
 	}
 	// Legacy migrations (subscription_type → accounts/seats, paid_due → bills) are not
@@ -379,12 +379,12 @@ func (store *Store) migrate() error {
 	return nil
 }
 
-// repairMisdatedPlusInitialBills fixes the legacy edit bug where a Plus
-// rental's boarded_at/cycle changed after creation but its automatically
+// repairMisdatedInitialBills fixes the legacy edit bug where a subscription's
+// boarded_at/cycle changed after creation but its automatically
 // created first bill kept the original date. The created_at equality limits
 // this repair to the bill inserted atomically with the subscription; later
 // renewal history and after-sales snapshots are never moved.
-func (store *Store) repairMisdatedPlusInitialBills() error {
+func (store *Store) repairMisdatedInitialBills() error {
 	type repairCandidate struct {
 		subscriptionID int64
 		billID         int64
@@ -397,16 +397,13 @@ func (store *Store) repairMisdatedPlusInitialBills() error {
 		SELECT s.id, b.id, s.boarded_at, s.cron_expr, b.due_date
 		FROM subscriptions AS s
 		JOIN bills AS b ON b.subscription_id = s.id
-		WHERE s.business_type = ?
-		  AND s.deleted_at IS NULL
+		WHERE s.deleted_at IS NULL
 		  AND s.archived_at IS NULL
 		  AND b.created_at = s.created_at
 		  AND (SELECT COUNT(1) FROM bills AS counted WHERE counted.subscription_id = s.id) = 1
-		  AND NOT EXISTS (SELECT 1 FROM after_sales_cases AS linked WHERE linked.bill_id = b.id)`,
-		model.SubscriptionBusinessPlus,
-	)
+		  AND NOT EXISTS (SELECT 1 FROM after_sales_cases AS linked WHERE linked.bill_id = b.id)`)
 	if err != nil {
-		return fmt.Errorf("find misdated Plus initial bills: %w", err)
+		return fmt.Errorf("find misdated initial bills: %w", err)
 	}
 	candidates := make([]repairCandidate, 0)
 	for rows.Next() {
@@ -419,26 +416,26 @@ func (store *Store) repairMisdatedPlusInitialBills() error {
 			&candidate.oldDueDate,
 		); err != nil {
 			_ = rows.Close()
-			return fmt.Errorf("scan misdated Plus initial bill: %w", err)
+			return fmt.Errorf("scan misdated initial bill: %w", err)
 		}
 		candidates = append(candidates, candidate)
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
-		return fmt.Errorf("list misdated Plus initial bills: %w", err)
+		return fmt.Errorf("list misdated initial bills: %w", err)
 	}
 	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close misdated Plus initial bills: %w", err)
+		return fmt.Errorf("close misdated initial bills: %w", err)
 	}
 
 	for _, candidate := range candidates {
 		schedule, err := cycle.ParseBillingSchedule(candidate.cronExpr, candidate.boardedAt)
 		if err != nil {
-			return fmt.Errorf("parse Plus subscription %d schedule for bill repair: %w", candidate.subscriptionID, err)
+			return fmt.Errorf("parse subscription %d schedule for bill repair: %w", candidate.subscriptionID, err)
 		}
 		boardedAt, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(candidate.boardedAt), cycle.Location)
 		if err != nil {
-			return fmt.Errorf("parse Plus subscription %d boarded_at for bill repair: %w", candidate.subscriptionID, err)
+			return fmt.Errorf("parse subscription %d boarded_at for bill repair: %w", candidate.subscriptionID, err)
 		}
 		expectedDueDate := cycle.FormatDate(
 			schedule.NextDue(cycle.StartOfDay(boardedAt).Add(-time.Nanosecond)),
@@ -461,14 +458,14 @@ func (store *Store) repairMisdatedPlusInitialBills() error {
 			candidate.billID,
 		)
 		if err != nil {
-			return fmt.Errorf("repair Plus subscription %d initial bill date: %w", candidate.subscriptionID, err)
+			return fmt.Errorf("repair subscription %d initial bill date: %w", candidate.subscriptionID, err)
 		}
 		rowsAffected, err := result.RowsAffected()
 		if err != nil {
-			return fmt.Errorf("check Plus subscription %d initial bill repair: %w", candidate.subscriptionID, err)
+			return fmt.Errorf("check subscription %d initial bill repair: %w", candidate.subscriptionID, err)
 		}
 		if rowsAffected != 1 {
-			return fmt.Errorf("repair Plus subscription %d initial bill date: %w", candidate.subscriptionID, sql.ErrNoRows)
+			return fmt.Errorf("repair subscription %d initial bill date: %w", candidate.subscriptionID, sql.ErrNoRows)
 		}
 	}
 	return nil
@@ -1492,7 +1489,7 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 	return sql.ErrNoRows
 }
 
-// UpdateSubscriptionAndMoveInitialBill atomically updates a Plus rental's
+// UpdateSubscriptionAndMoveInitialBill atomically updates a subscription's
 // schedule and re-keys its single initial bill to the corrected first period.
 func (store *Store) UpdateSubscriptionAndMoveInitialBill(
 	subscription model.Subscription,
@@ -1796,6 +1793,31 @@ func (store *Store) IsDuePaid(subscriptionID int64, dueDate string) (bool, error
 		subscriptionID, dueDate,
 	).Scan(&paid)
 	return paid, err
+}
+
+// ListPaidDueDatesForSubscription returns every recorded paid period in
+// chronological order. Keeping the full set lets callers detect an unpaid gap
+// between two later payments instead of only looking at the latest period.
+func (store *Store) ListPaidDueDatesForSubscription(subscriptionID int64) ([]string, error) {
+	rows, err := store.database.Query(`
+		SELECT due_date
+		FROM bills
+		WHERE subscription_id = ?
+		ORDER BY due_date ASC, id ASC`, subscriptionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	dueDates := make([]string, 0)
+	for rows.Next() {
+		var dueDate string
+		if err := rows.Scan(&dueDate); err != nil {
+			return nil, err
+		}
+		dueDates = append(dueDates, strings.TrimSpace(dueDate))
+	}
+	return dueDates, rows.Err()
 }
 
 // ListPaidDueOccurrences returns paid due dates in the half-open date range (from bills).

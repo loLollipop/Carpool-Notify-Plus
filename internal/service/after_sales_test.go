@@ -612,8 +612,11 @@ func TestCompletedAfterSalesCaseLeavesPageAfter24HoursButKeepsRefundAccounting(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(page.Cases) != 0 || page.Summary.TotalCount != 0 {
+	if len(page.Cases) != 0 {
 		t.Fatalf("expired processed cases remain visible: %#v", page)
+	}
+	if page.Summary.TotalCount != 1 || page.Summary.RefundedCount != 1 || page.Summary.RefundedAmountCents != refundCents {
+		t.Fatalf("historical after-sales summary was lost: %#v", page.Summary)
 	}
 	stored, err := subscriptionService.Store.GetAfterSalesCase(caseID)
 	if err != nil {

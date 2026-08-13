@@ -152,6 +152,7 @@ export default {
       summaryPending: "待交费",
       summaryArchived: "已退订",
       filterAll: "全部",
+      filterDueSoon: "7 天内到期",
       filterPending: "待交费",
       filterPaid: "已交费",
       filterArchived: "已退订",

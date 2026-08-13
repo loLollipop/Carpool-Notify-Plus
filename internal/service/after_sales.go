@@ -134,6 +134,10 @@ func (service *SubscriptionService) ListAfterSalesPage() (AfterSalesPage, error)
 	if err != nil {
 		return AfterSalesPage{}, err
 	}
+	allCases, err := service.Store.ListAfterSalesCases()
+	if err != nil {
+		return AfterSalesPage{}, err
+	}
 	page := AfterSalesPage{Cases: make([]AfterSalesCaseView, 0, len(cases))}
 	for _, caseItem := range cases {
 		view := AfterSalesCaseView{
@@ -149,6 +153,10 @@ func (service *SubscriptionService) ListAfterSalesPage() (AfterSalesPage, error)
 			view.ExpiresAtLabel = caseItem.ExpiresAt.In(cycle.Location).Format("2006-01-02 15:04")
 		}
 		page.Cases = append(page.Cases, view)
+	}
+	// Completed rows leave the working list after 24 hours, but the KPI cards
+	// are historical operational/financial totals and must not silently reset.
+	for _, caseItem := range allCases {
 		page.Summary.TotalCount++
 		switch caseItem.Status {
 		case model.AfterSalesStatusRefunded:

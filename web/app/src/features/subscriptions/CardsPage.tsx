@@ -17,7 +17,7 @@ import {
 import { archiveSubscription } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
 import { useCalendar, useDashboard, useSubscriptions } from "@/api/queries"
-import type { CalendarOccurrence, SubscriptionView } from "@/api/types"
+import type { SubscriptionView } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DueStatusBadge } from "@/components/due-status-badge"
 import { KpiSection, KpiSectionSkeleton } from "@/components/kpi-section"
@@ -48,13 +48,14 @@ import { ReminderPreviewDialog } from "./ReminderPreviewDialog"
 import { SubscriptionDialog } from "./SubscriptionDialog"
 import { prefillFromView, type SubscriptionPrefill } from "./subscription-prefill"
 
-type CardsFilter = "all" | "pending" | "paid" | "archived" | "resale"
+type CardsFilter = "all" | "due" | "pending" | "paid" | "archived" | "resale"
 
 const EMPTY_SUBSCRIPTION_VIEWS: SubscriptionView[] = []
 const USERS_PER_PAGE = 9
 
 function normalizeCardsFilter(value: string | null): CardsFilter {
   if (
+    value === "due" ||
     value === "pending" ||
     value === "paid" ||
     value === "archived" ||
@@ -63,17 +64,6 @@ function normalizeCardsFilter(value: string | null): CardsFilter {
     return value
   }
   return "all"
-}
-
-function isPaymentDueOccurrence(occurrence: { paid: boolean; days_remaining: number }) {
-  return !occurrence.paid && occurrence.days_remaining <= 0
-}
-
-function shouldPreferRenewOccurrence(current: CalendarOccurrence, candidate: CalendarOccurrence) {
-  const currentActionable = isPaymentDueOccurrence(current)
-  const candidateActionable = isPaymentDueOccurrence(candidate)
-  if (currentActionable !== candidateActionable) return candidateActionable
-  return candidate.due_date < current.due_date
 }
 
 function MetaCell({ label, children }: { label: string; children: React.ReactNode }) {
@@ -436,42 +426,15 @@ export function CardsPage() {
     return () => window.clearTimeout(timer)
   }, [nextCancellationExpiry, refetchSubscriptions])
 
-  const renewOccurrenceBySubscription = React.useMemo(() => {
-    const map = new Map<number, CalendarOccurrence>()
-    const month = calendar?.month_value
-    for (const occurrence of calendar?.occurrences ?? []) {
-      if (month && occurrence.due_date.slice(0, 7) !== month) continue
-      if (occurrence.paid) continue
-      const current = map.get(occurrence.subscription_id)
-      if (!current || shouldPreferRenewOccurrence(current, occurrence)) {
-        map.set(occurrence.subscription_id, occurrence)
-      }
-    }
-    return map
-  }, [calendar])
-
   const openRenew = (view: SubscriptionView) => {
-    const occurrence = renewOccurrenceBySubscription.get(view.subscription.id)
     setDuePaidTarget({
       subscriptionId: view.subscription.id,
-      name: occurrence?.account_name || view.account_name || view.subscription.name,
-      priceYuan: occurrence?.price_yuan || view.price_yuan,
-      cycleDesc: occurrence?.cycle_desc || view.cycle_desc,
-      dueDate: occurrence?.due_date || view.next_due_date,
+      name: view.account_name || view.subscription.name,
+      priceYuan: view.price_yuan,
+      cycleDesc: view.cycle_desc,
+      dueDate: view.next_due_date,
     })
   }
-
-  const paymentDueBySubscription = React.useMemo(() => {
-    const map = new Map<number, boolean>()
-    const month = calendar?.month_value
-    for (const occurrence of calendar?.occurrences ?? []) {
-      if (month && occurrence.due_date.slice(0, 7) !== month) continue
-      if (isPaymentDueOccurrence(occurrence)) {
-        map.set(occurrence.subscription_id, true)
-      }
-    }
-    return map
-  }, [calendar])
 
   const paidBySubscription = React.useMemo(() => {
     const map = new Map<number, boolean>()
@@ -495,9 +458,16 @@ export function CardsPage() {
       pool = archivedViews
     } else if (filter === "resale") {
       pool = [...activeViews, ...archivedViews].filter((view) => view.subscription.is_resale)
+    } else if (filter === "due") {
+      pool = activeViews.filter(
+        (view) =>
+          !view.cancellation_pending &&
+          view.days_remaining >= 0 &&
+          view.days_remaining <= 7,
+      )
     } else if (filter === "pending") {
       pool = activeViews.filter(
-        (view) => paymentDueBySubscription.get(view.subscription.id) === true,
+        (view) => !view.cancellation_pending && view.days_remaining <= 0,
       )
     } else if (filter === "paid") {
       pool = activeViews.filter((view) => paidBySubscription.get(view.subscription.id) === true)
@@ -541,7 +511,6 @@ export function CardsPage() {
     filter,
     focusedSubscriptionId,
     paidBySubscription,
-    paymentDueBySubscription,
     search,
   ])
 
@@ -600,6 +569,7 @@ export function CardsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t("calendar.filterAll")}</SelectItem>
+                <SelectItem value="due">{t("calendar.filterDueSoon")}</SelectItem>
                 <SelectItem value="pending">{t("calendar.filterPending")}</SelectItem>
                 <SelectItem value="paid">{t("calendar.filterPaid")}</SelectItem>
                 <SelectItem value="archived">{t("calendar.filterArchived")}</SelectItem>

@@ -591,6 +591,51 @@ func TestOpenRepairsMisdatedPlusInitialBillAfterLegacyScheduleEdit(t *testing.T)
 	}
 }
 
+func TestOpenRepairsMisdatedTeamInitialBillAfterLegacyScheduleEdit(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "misdated-team-initial-bill.db")
+	store := openStore(t, databasePath)
+	accountID, err := store.CreateAccount(model.Account{Name: "Legacy Team"}, 0, "2026-08-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seatID, err := store.CreateSeat(model.Seat{AccountID: accountID, Name: "seat1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscription := model.Subscription{
+		Name:                "Legacy Team customer",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 3500,
+		CronExpr:            "interval:30d",
+		NotifyOffsets:       []int{3, 1, 0},
+		Channels:            append([]string(nil), model.DefaultEnabledChannels...),
+		SeatID:              seatID,
+		SubscriptionType:    "Legacy Team",
+		BoardedAt:           "2026-08-11",
+	}
+	subscriptionID, err := store.CreateSubscriptionWithInitialBill(subscription, "2026-08-11", 3500)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscription.ID = subscriptionID
+	subscription.BoardedAt = "2026-08-08"
+	if err := store.UpdateSubscription(subscription); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store = openStore(t, databasePath)
+	defer store.Close()
+	if _, err := store.GetBillByOccurrence(subscriptionID, "2026-08-11"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("legacy Team bill lookup error = %v, want sql.ErrNoRows", err)
+	}
+	if _, err := store.GetBillByOccurrence(subscriptionID, "2026-08-08"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func openStore(t *testing.T, databasePath string) *db.Store {
 	t.Helper()
 	store, err := db.Open(databasePath)

@@ -152,6 +152,7 @@ export default {
       summaryPending: "Unpaid",
       summaryArchived: "Cancelled",
       filterAll: "All",
+      filterDueSoon: "Due within 7 days",
       filterPending: "Unpaid",
       filterPaid: "Paid",
       filterArchived: "Cancelled",

@@ -218,36 +218,69 @@ func (service *SubscriptionService) buildView(
 		return SubscriptionView{}, err
 	}
 	nextDue := schedule.NextDue(now)
+	lastDue, hasLastDue := schedule.LastDue(now)
 	displayDue := nextDue
 	cycleDays := cycle.DaysRemaining(nextDue, now)
-	if periodStart, found := schedule.LastDue(now); found {
-		cycleDays = cycle.DaysRemaining(nextDue, periodStart)
+	if hasLastDue {
+		cycleDays = cycle.DaysRemaining(nextDue, lastDue)
+	}
+
+	// Drive every list/filter reminder from the first relevant unpaid period,
+	// instead of from the currently selected calendar month. This keeps overdue
+	// subscriptions visible after a month rollover and includes next-month dues
+	// that fall within the upcoming seven-day window.
+	periodStart := nextDue
+	if hasLastDue {
+		periodStart = lastDue
+	}
+	paidDueDates, err := service.Store.ListPaidDueDatesForSubscription(subscription.ID)
+	if err != nil {
+		return SubscriptionView{}, err
+	}
+	paidDueSet := make(map[string]struct{}, len(paidDueDates))
+	for _, dueDate := range paidDueDates {
+		paidDueSet[dueDate] = struct{}{}
+	}
+	_, periodStartPaid := paidDueSet[cycle.FormatDate(periodStart)]
+	if len(paidDueDates) > 0 {
+		// The earliest recorded bill is the beginning of trustworthy ledger
+		// history. This avoids treating every period before a legacy import as
+		// unpaid while still detecting gaps between recorded renewals.
+		unpaidSearchStart, parseErr := time.ParseInLocation("2006-01-02", paidDueDates[0], cycle.Location)
+		if parseErr != nil {
+			return SubscriptionView{}, fmt.Errorf("invalid stored bill due date %q: %w", paidDueDates[0], parseErr)
+		}
+		// A future period may have been paid out of order while the current period
+		// is still unpaid. Start no later than the current/next relevant period.
+		if periodStart.Before(unpaidSearchStart) {
+			unpaidSearchStart = periodStart
+		}
+		displayDue, err = firstUnpaidDue(schedule, unpaidSearchStart, paidDueSet)
+		if err != nil {
+			return SubscriptionView{}, err
+		}
+	} else {
+		// Legacy/imported Team rows may intentionally have no initial bill. Their
+		// established behavior is to start reminders at the next due occurrence;
+		// Plus still treats its current rental period as unpaid.
+		if isPlusSubscription(subscription) {
+			displayDue = periodStart
+		} else {
+			displayDue = nextDue
+		}
 	}
 	currentPeriodStartDate := ""
 	currentPeriodEndDate := ""
 	currentPeriodPaid := false
 	if isPlusSubscription(subscription) {
-		periodStart, found := schedule.LastDue(now)
 		periodEnd := nextDue
-		if !found {
-			periodStart = nextDue
+		if !hasLastDue {
 			periodEnd = schedule.NextDue(periodStart)
 			cycleDays = cycle.DaysRemaining(periodEnd, periodStart)
 		}
 		currentPeriodStartDate = cycle.FormatDate(periodStart)
 		currentPeriodEndDate = cycle.FormatDate(periodEnd)
-		currentPeriodPaid, err = service.Store.IsDuePaid(subscription.ID, currentPeriodStartDate)
-		if err != nil {
-			return SubscriptionView{}, err
-		}
-		if currentPeriodPaid {
-			displayDue, err = service.firstUnpaidDue(subscription.ID, schedule, periodEnd)
-			if err != nil {
-				return SubscriptionView{}, err
-			}
-		} else {
-			displayDue = periodStart
-		}
+		currentPeriodPaid = periodStartPaid
 	}
 	if cycleDays < 1 {
 		cycleDays = 1
@@ -294,21 +327,23 @@ func (service *SubscriptionService) buildView(
 	}, nil
 }
 
-func (service *SubscriptionService) firstUnpaidDue(
-	subscriptionID int64,
+func firstUnpaidDue(
 	schedule cycle.BillingSchedule,
 	start time.Time,
+	paidDueDates map[string]struct{},
 ) (time.Time, error) {
 	candidate := start
-	for range 1200 {
-		paid, err := service.Store.IsDuePaid(subscriptionID, cycle.FormatDate(candidate))
-		if err != nil {
-			return time.Time{}, err
-		}
-		if !paid {
+	// At most every stored bill can match one schedule occurrence; one extra
+	// iteration must therefore find the first gap or the next unpaid period.
+	for range len(paidDueDates) + 1 {
+		if _, paid := paidDueDates[cycle.FormatDate(candidate)]; !paid {
 			return candidate, nil
 		}
-		candidate = schedule.NextDue(candidate)
+		next := schedule.NextDue(candidate)
+		if !next.After(candidate) {
+			return time.Time{}, fmt.Errorf("billing schedule did not advance after %s", cycle.FormatDate(candidate))
+		}
+		candidate = next
 	}
 	return time.Time{}, fmt.Errorf("unable to find an unpaid billing period")
 }
@@ -647,10 +682,10 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 	}
 	subscription.ID = subscriptionID
 	var updateErr error
-	plusScheduleChanged := isPlusSubscription(previous) && isPlusSubscription(subscription) &&
+	scheduleChanged :=
 		(strings.TrimSpace(previous.BoardedAt) != strings.TrimSpace(subscription.BoardedAt) ||
 			strings.TrimSpace(previous.CronExpr) != strings.TrimSpace(subscription.CronExpr))
-	if plusScheduleChanged {
+	if scheduleChanged {
 		billCount, err := service.Store.CountBillsForSubscription(subscriptionID)
 		if err != nil {
 			return err
@@ -669,7 +704,7 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 			}
 			updateErr = service.Store.UpdateSubscriptionAndMoveInitialBill(subscription, oldDueDate, newDueDate)
 		default:
-			return fmt.Errorf("Plus 出租已有多期账单，为保护历史收入，不能直接修改开始日期或计费周期")
+			return fmt.Errorf("该订阅已有多期账单，为保护历史收入，不能直接修改开始日期或计费周期")
 		}
 	} else {
 		updateErr = service.Store.UpdateSubscription(subscription)
@@ -696,10 +731,18 @@ func (service *SubscriptionService) syncCurrentPeriodBillAmount(subscription mod
 		return nil
 	}
 	lastDue, found := schedule.LastDue(service.now())
-	if !found {
-		return nil
+	dueDate := ""
+	if found {
+		dueDate = cycle.FormatDate(lastDue)
+	} else {
+		// A newly created subscription can have a paid first period whose due
+		// date is still in the future. Price/cost corrections must update that
+		// bill as well, otherwise the form and finance ledger disagree.
+		dueDate, err = initialBillDueDate(subscription)
+		if err != nil {
+			return nil
+		}
 	}
-	dueDate := cycle.FormatDate(lastDue)
 	bill, err := service.Store.GetBillByOccurrence(subscription.ID, dueDate)
 	if err != nil {
 		if err == sql.ErrNoRows {

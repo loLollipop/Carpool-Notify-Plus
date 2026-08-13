@@ -376,37 +376,23 @@ function summarizeNames(names: string[]) {
 
 function buildHealthItems({
   dashboard,
-  calendar,
   subscriptions,
   accounts,
   t,
 }: {
   dashboard: Dashboard
-  calendar: CalendarMonth | undefined
   subscriptions: SubscriptionView[]
   accounts: AccountView[]
   t: ReturnType<typeof useTranslation>["t"]
 }) {
   const items: HealthItem[] = []
-  const currentMonth = calendar?.month_value ?? ""
-  const actionableTeamIds = new Set(
-    subscriptions
-      .filter(
-        (view) =>
-          view.subscription.business_type !== "plus" && !view.cancellation_pending,
-      )
-      .map((view) => view.subscription.id),
+  const actionableTeam = subscriptions.filter(
+    (view) =>
+      view.subscription.business_type !== "plus" && !view.cancellation_pending,
   )
-  const pendingOccurrences = (calendar?.occurrences ?? []).filter(
-    (occurrence) =>
-      occurrence.business_type !== "plus" &&
-      actionableTeamIds.has(occurrence.subscription_id) &&
-      !occurrence.paid &&
-      (currentMonth === "" || occurrence.due_date.slice(0, 7) === currentMonth),
-  )
-  const overdue = pendingOccurrences.filter((occurrence) => occurrence.days_remaining < 0)
-  const dueSoon = pendingOccurrences.filter(
-    (occurrence) => occurrence.days_remaining >= 0 && occurrence.days_remaining <= 7,
+  const overdue = actionableTeam.filter((view) => view.days_remaining < 0)
+  const dueSoon = actionableTeam.filter(
+    (view) => view.days_remaining >= 0 && view.days_remaining <= 7,
   )
   const plusDue = subscriptions.filter(
     (view) =>
@@ -450,7 +436,7 @@ function buildHealthItems({
       tone: "critical",
       title: t("dash.health.overdueTitle", { count: overdue.length }),
       detail: t("dash.health.overdueDetail", {
-        names: summarizeNames(overdue.map((item) => item.name)),
+        names: summarizeNames(overdue.map((view) => view.subscription.name)),
       }),
       actionLabel: t("dash.health.goCards"),
       to: "/users?filter=pending",
@@ -462,10 +448,10 @@ function buildHealthItems({
       tone: "warning",
       title: t("dash.health.dueSoonTitle", { count: dueSoon.length }),
       detail: t("dash.health.dueSoonDetail", {
-        names: summarizeNames(dueSoon.map((item) => item.name)),
+        names: summarizeNames(dueSoon.map((view) => view.subscription.name)),
       }),
       actionLabel: t("dash.health.goCards"),
-      to: "/users?filter=pending",
+      to: "/users?filter=due",
       count: dueSoon.length,
     })
   } else {
@@ -611,7 +597,6 @@ function buildHealthItems({
 
 function OperationsHealthCard({
   dashboard,
-  calendar,
   subscriptions,
   accounts,
   pending,
@@ -619,7 +604,6 @@ function OperationsHealthCard({
   delay = 0,
 }: {
   dashboard: Dashboard
-  calendar: CalendarMonth | undefined
   subscriptions: SubscriptionView[]
   accounts: AccountView[]
   pending: boolean
@@ -642,12 +626,11 @@ function OperationsHealthCard({
     () =>
       buildHealthItems({
         dashboard,
-        calendar,
         subscriptions,
         accounts,
         t,
       }),
-    [accounts, calendar, dashboard, subscriptions, t],
+    [accounts, dashboard, subscriptions, t],
   )
   const overallTone: HealthTone = items.some((item) => item.tone === "critical")
     ? "critical"
@@ -828,7 +811,6 @@ export function DashboardPage() {
             ) : null}
             <OperationsHealthCard
               dashboard={dashboard}
-              calendar={calendarQuery.data}
               subscriptions={subscriptionsQuery.data?.subscriptions ?? []}
               accounts={accountsQuery.data ?? []}
               pending={healthPending}

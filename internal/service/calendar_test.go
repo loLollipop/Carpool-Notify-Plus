@@ -265,6 +265,100 @@ func TestSubscriptionViewsIncludeCurrentCycleDays(t *testing.T) {
 	}
 }
 
+func TestTeamSubscriptionViewTracksUnpaidDueAcrossMonthBoundary(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.July, 28, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "cross-month account", "seat1")
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "cross-month customer",
+		PriceYuan:        "30.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3,1,0",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	findView := func() service.SubscriptionView {
+		views, listErr := subscriptionService.ListView()
+		if listErr != nil {
+			t.Fatal(listErr)
+		}
+		for _, view := range views {
+			if view.Subscription.ID == subscriptionID {
+				return view
+			}
+		}
+		t.Fatal("subscription view not found")
+		return service.SubscriptionView{}
+	}
+
+	view := findView()
+	if view.NextDueDate != "2026-07-31" || view.DaysRemaining != 3 {
+		t.Fatalf("upcoming unpaid due = %s / %d days, want 2026-07-31 / 3", view.NextDueDate, view.DaysRemaining)
+	}
+
+	now = time.Date(2026, time.August, 2, 12, 0, 0, 0, cycle.Location)
+	view = findView()
+	if view.NextDueDate != "2026-07-31" || view.DaysRemaining != -2 {
+		t.Fatalf("overdue after month rollover = %s / %d days, want 2026-07-31 / -2", view.NextDueDate, view.DaysRemaining)
+	}
+
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-31", true); err != nil {
+		t.Fatal(err)
+	}
+	view = findView()
+	if view.NextDueDate != "2026-08-30" || view.DaysRemaining != 28 {
+		t.Fatalf("next unpaid after renewal = %s / %d days, want 2026-08-30 / 28", view.NextDueDate, view.DaysRemaining)
+	}
+}
+
+func TestTeamSubscriptionViewKeepsOldestUnpaidGapAcrossMultiplePeriods(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.September, 10, 12, 0, 0, 0, cycle.Location)
+	}
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "multi-period overdue account", "seat1")
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "multi-period overdue customer",
+		PriceYuan:        "30.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3,1,0",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Paying a newer period out of order must not hide the older missed period.
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-08-30", true); err != nil {
+		t.Fatal(err)
+	}
+	views, err := subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := views[0]
+	if view.NextDueDate != "2026-07-31" || view.DaysRemaining != -41 {
+		t.Fatalf("oldest unpaid gap = %s / %d days, want 2026-07-31 / -41", view.NextDueDate, view.DaysRemaining)
+	}
+
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-31", true); err != nil {
+		t.Fatal(err)
+	}
+	views, err = subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if views[0].NextDueDate != "2026-09-29" || views[0].DaysRemaining != 19 {
+		t.Fatalf("next unpaid after closing gap = %s / %d days, want 2026-09-29 / 19", views[0].NextDueDate, views[0].DaysRemaining)
+	}
+}
+
 func TestSetDuePaidOnlyChangesSelectedOccurrence(t *testing.T) {
 	subscriptionService := openTestService(t)
 	subscriptionService.Clock = func() time.Time {
