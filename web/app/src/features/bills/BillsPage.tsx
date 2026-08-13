@@ -74,6 +74,7 @@ const CHART_COLORS = [
 
 const BILLS_PER_PAGE = 9
 const AMOUNT_ITEMS_PER_PAGE = 6
+const ACCOUNT_ITEMS_PER_PAGE = 10
 type BillBusinessFilter = "all" | "team" | "resale" | "plus"
 
 function billIdentity(bill: BillView) {
@@ -497,6 +498,7 @@ function AccountDonutCard({
   amountsHidden: boolean
 }) {
   const { t } = useTranslation()
+  const [page, setPage] = React.useState(1)
   const [reduceMotion, setReduceMotion] = React.useState(() =>
     window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   )
@@ -506,6 +508,11 @@ function AccountDonutCard({
     yuan: item.amount_yuan,
     count: item.count,
   }))
+  const pageCount = Math.max(1, Math.ceil(data.length / ACCOUNT_ITEMS_PER_PAGE))
+  const safePage = Math.min(page, pageCount)
+  const pageStartIndex = (safePage - 1) * ACCOUNT_ITEMS_PER_PAGE
+  const pagedData = data.slice(pageStartIndex, pageStartIndex + ACCOUNT_ITEMS_PER_PAGE)
+  const pageEndIndex = pageStartIndex + pagedData.length
 
   React.useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -526,47 +533,84 @@ function AccountDonutCard({
           {t("bills.chartEmptyAccounts")}
         </p>
       ) : (
-        <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:gap-5">
-          <div className="mx-auto h-[170px] w-[170px] shrink-0 sm:mx-0">
-            <PieChart width={170} height={170}>
-              <RechartsTooltip content={<ChartTooltip amountsHidden={amountsHidden} />} />
-              <Pie
-                data={data}
-                dataKey="cents"
-                nameKey="name"
-                innerRadius={52}
-                outerRadius={80}
-                startAngle={90}
-                endAngle={-270}
-                paddingAngle={3}
-                strokeWidth={0}
-                isAnimationActive={!reduceMotion}
-                animationBegin={120}
-                animationDuration={1000}
-                animationEasing="ease-out"
-              >
-                {data.map((_, index) => (
-                  <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                ))}
-              </Pie>
-            </PieChart>
+        <div className="grid gap-4">
+          <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:gap-5">
+            <div className="mx-auto h-[170px] w-[170px] shrink-0 sm:mx-0">
+              <PieChart width={170} height={170}>
+                <RechartsTooltip content={<ChartTooltip amountsHidden={amountsHidden} />} />
+                <Pie
+                  data={pagedData}
+                  dataKey="cents"
+                  nameKey="name"
+                  innerRadius={52}
+                  outerRadius={80}
+                  startAngle={90}
+                  endAngle={-270}
+                  paddingAngle={3}
+                  strokeWidth={0}
+                  isAnimationActive={!reduceMotion}
+                  animationBegin={120}
+                  animationDuration={1000}
+                  animationEasing="ease-out"
+                >
+                  {pagedData.map((_, index) => (
+                    <Cell
+                      key={index}
+                      fill={CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length]}
+                    />
+                  ))}
+                </Pie>
+              </PieChart>
+            </div>
+            <ul className="grid min-w-0 flex-1 gap-2">
+              {pagedData.map((item, index) => (
+                <li key={item.name} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-xs">
+                  <i
+                    className="size-2.5 shrink-0 rounded-[3px]"
+                    style={{ background: CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length] }}
+                  />
+                  <span className="truncate">{item.name}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {maskAmount(amountsHidden, `¥${item.yuan}`)} · {t("bills.countSuffix", {
+                      count: maskValue(amountsHidden, item.count),
+                    })}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
-          <ul className="grid min-w-0 flex-1 gap-2">
-            {data.map((item, index) => (
-              <li key={item.name} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-xs">
-                <i
-                  className="size-2.5 shrink-0 rounded-[3px]"
-                  style={{ background: CHART_COLORS[index % CHART_COLORS.length] }}
-                />
-                <span className="truncate">{item.name}</span>
-                <span className="shrink-0 tabular-nums text-muted-foreground">
-                  {maskAmount(amountsHidden, `¥${item.yuan}`)} · {t("bills.countSuffix", {
-                    count: maskValue(amountsHidden, item.count),
-                  })}
+          {pageCount > 1 ? (
+            <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
+              <span className="tabular-nums">
+                {pageStartIndex + 1}-{pageEndIndex} / {data.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t("cards.prevPage")}
+                  disabled={safePage <= 1}
+                  onClick={() => setPage(safePage - 1)}
+                >
+                  <ChevronLeft />
+                </Button>
+                <span className="min-w-12 text-center tabular-nums">
+                  {safePage} / {pageCount}
                 </span>
-              </li>
-            ))}
-          </ul>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t("cards.nextPage")}
+                  disabled={safePage >= pageCount}
+                  onClick={() => setPage(safePage + 1)}
+                >
+                  <ChevronRight />
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
     </Card>

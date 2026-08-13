@@ -25,6 +25,7 @@ import type { SubscriptionView } from "@/api/types"
 import { AmountPrivacyToggle } from "@/components/amount-privacy-toggle"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DueStatusBadge } from "@/components/due-status-badge"
+import { NumberTicker } from "@/components/number-ticker"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -296,7 +297,9 @@ function SummaryCard({
         {label}
         <span className={cn("grid size-8 place-items-center rounded-lg", toneClass)}>{icon}</span>
       </div>
-      <div className="mt-3 text-2xl font-semibold tabular-nums">{value}</div>
+      <div className="display-numeral mt-3 text-[30px] leading-none">
+        <NumberTicker value={value} />
+      </div>
       <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>
     </Card>
   )
