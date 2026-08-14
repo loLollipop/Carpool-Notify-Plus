@@ -494,3 +494,173 @@ func TestPlusRentalAfterSalesRefundArchivesAndAdjustsFinance(t *testing.T) {
 		)
 	}
 }
+
+func TestOneMonthPlusRentalHasOneChargeAndNoRenewalPeriod(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.July, 11, 12, 0, 0, 0, cycle.Location)
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:           "One-month Plus customer",
+		BusinessType:   model.SubscriptionBusinessPlus,
+		PriceYuan:      "68.00",
+		CostYuan:       "20.50",
+		CronExpr:       cycle.OneMonthRentalExpression,
+		CustomerEmail:  "one-month-plus@example.com",
+		CustomerWechat: "wx-one-month",
+		BoardedAt:      "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if billCount, countErr := subscriptionService.Store.CountBillsForSubscription(subscriptionID); countErr != nil || billCount != 1 {
+		t.Fatalf("initial bill count = %d, err = %v, want 1", billCount, countErr)
+	}
+	views, err := subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rentalView service.SubscriptionView
+	for _, view := range views {
+		if view.Subscription.ID == subscriptionID {
+			rentalView = view
+			break
+		}
+	}
+	if rentalView.Subscription.ID == 0 {
+		t.Fatal("one-month Plus rental view not found")
+	}
+	if rentalView.NextDueDate != "2026-07-31" || rentalView.DaysRemaining != 20 || rentalView.CycleDays != 30 {
+		t.Fatalf("one-month end = %s / remaining %d / cycle %d", rentalView.NextDueDate, rentalView.DaysRemaining, rentalView.CycleDays)
+	}
+	if !rentalView.CurrentPeriodPaid || rentalView.CurrentPeriodStartDate != "2026-07-01" || rentalView.CurrentPeriodEndDate != "2026-07-31" {
+		t.Fatalf("one-month current period = %#v", rentalView)
+	}
+
+	options, err := subscriptionService.ListDuePeriodOptions(subscriptionID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(options) != 1 || options[0].StartDate != "2026-07-01" || options[0].EndDate != "2026-07-31" || !options[0].Paid {
+		t.Fatalf("one-month due options = %#v", options)
+	}
+	nextUnpaid, err := subscriptionService.NextUnpaidDueDate(subscriptionID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if nextUnpaid != "" {
+		t.Fatalf("next unpaid due = %q, want none", nextUnpaid)
+	}
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-31", true); err == nil || !strings.Contains(err.Error(), "不能登记续费") {
+		t.Fatalf("renewal bill error = %v, want one-month guard", err)
+	}
+	if billCount, countErr := subscriptionService.Store.CountBillsForSubscription(subscriptionID); countErr != nil || billCount != 1 {
+		t.Fatalf("bill count after rejected renewal = %d, err = %v, want 1", billCount, countErr)
+	}
+
+	for _, testCase := range []struct {
+		month       time.Month
+		wantPresent bool
+	}{
+		{month: time.July, wantPresent: true},
+		{month: time.August, wantPresent: false},
+	} {
+		calendarView, calendarErr := subscriptionService.CalendarMonth(time.Date(2026, testCase.month, 1, 0, 0, 0, 0, cycle.Location))
+		if calendarErr != nil {
+			t.Fatal(calendarErr)
+		}
+		present := false
+		for _, occurrence := range calendarView.Occurrences {
+			if occurrence.SubscriptionID == subscriptionID {
+				present = true
+			}
+		}
+		if present != testCase.wantPresent {
+			t.Fatalf("month %s occurrence present = %v, want %v", testCase.month, present, testCase.wantPresent)
+		}
+	}
+}
+
+func TestOneMonthPlusRentalOnlyRemindsAtEndDate(t *testing.T) {
+	subscriptionService := openTestService(t)
+	clock := time.Date(2026, time.July, 30, 10, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return clock }
+	recorder := &recordingSender{}
+	subscriptionService.Notify = notify.Registry{IYUU: recorder}
+
+	_, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:           "One-month reminder customer",
+		BusinessType:   model.SubscriptionBusinessPlus,
+		PriceYuan:      "68.00",
+		CronExpr:       cycle.OneMonthRentalExpression,
+		CustomerEmail:  "one-month-reminder@example.com",
+		CustomerWechat: "wx-one-month-reminder",
+		BoardedAt:      "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("pre-expiry reminders = %d, want 0", recorder.calls)
+	}
+
+	clock = time.Date(2026, time.July, 31, 10, 0, 0, 0, cycle.Location)
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.calls != 1 {
+		t.Fatalf("end-date reminders = %d, want 1", recorder.calls)
+	}
+
+	clock = time.Date(2026, time.August, 30, 10, 0, 0, 0, cycle.Location)
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.calls != 1 {
+		t.Fatalf("reminders after another 30 days = %d, want still 1", recorder.calls)
+	}
+}
+
+func TestOneMonthPlusRentalCompletesWithoutAfterSales(t *testing.T) {
+	subscriptionService := openTestService(t)
+	clock := time.Date(2026, time.July, 30, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return clock }
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:           "One-month completion customer",
+		BusinessType:   model.SubscriptionBusinessPlus,
+		PriceYuan:      "68.00",
+		CronExpr:       cycle.OneMonthRentalExpression,
+		CustomerEmail:  "one-month-completion@example.com",
+		CustomerWechat: "wx-one-month-completion",
+		BoardedAt:      "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.CompleteOneMonthRental(subscriptionID); err == nil || !strings.Contains(err.Error(), "提前结束请走售后") {
+		t.Fatalf("early completion error = %v", err)
+	}
+
+	clock = time.Date(2026, time.July, 31, 12, 0, 0, 0, cycle.Location)
+	if err := subscriptionService.CompleteOneMonthRental(subscriptionID); err != nil {
+		t.Fatal(err)
+	}
+	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.ArchivedAt == nil {
+		t.Fatal("completed one-month rental was not archived")
+	}
+	afterSalesCount, err := subscriptionService.Store.CountAfterSalesCasesBySubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterSalesCount != 0 {
+		t.Fatalf("after-sales count = %d, want 0", afterSalesCount)
+	}
+}

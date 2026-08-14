@@ -101,6 +101,15 @@ func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate str
 	if _, err := time.ParseInLocation("2006-01-02", dueDate, cycle.Location); err != nil {
 		return fmt.Errorf("无效的到期日: %w", err)
 	}
+	if isOneMonthRental(subscription) {
+		periodStart, _, periodErr := oneMonthRentalPeriod(subscription)
+		if periodErr != nil {
+			return periodErr
+		}
+		if strings.TrimSpace(dueDate) != cycle.FormatDate(periodStart) {
+			return fmt.Errorf("单月短租只有首期租金，不能登记续费；到期后请确认结束出租")
+		}
+	}
 	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
 	if err != nil {
 		return err
@@ -154,6 +163,24 @@ func (service *SubscriptionService) ListDuePeriodOptions(subscriptionID int64, p
 		if _, parseErr := time.ParseInLocation("2006-01-02", preferredStart, cycle.Location); parseErr != nil {
 			return nil, fmt.Errorf("无效的默认周期起点: %w", parseErr)
 		}
+	}
+	if isOneMonthRental(subscription) {
+		periodStart, periodEnd, periodErr := oneMonthRentalPeriod(subscription)
+		if periodErr != nil {
+			return nil, periodErr
+		}
+		startDate := cycle.FormatDate(periodStart)
+		paid, paidErr := service.Store.IsDuePaid(subscriptionID, startDate)
+		if paidErr != nil {
+			return nil, paidErr
+		}
+		return []DuePeriodOption{{
+			StartDate: startDate,
+			EndDate:   cycle.FormatDate(periodEnd),
+			Label:     startDate + " 至 " + cycle.FormatDate(periodEnd),
+			Paid:      paid,
+			Preferred: preferredStart == "" || preferredStart == startDate,
+		}}, nil
 	}
 
 	now := service.now().In(cycle.Location)
@@ -289,6 +316,21 @@ func (service *SubscriptionService) NextUnpaidDueDate(subscriptionID int64, afte
 	if err != nil {
 		return "", err
 	}
+	if isOneMonthRental(subscription) {
+		periodStart, _, periodErr := oneMonthRentalPeriod(subscription)
+		if periodErr != nil {
+			return "", periodErr
+		}
+		startDate := cycle.FormatDate(periodStart)
+		paid, paidErr := service.Store.IsDuePaid(subscriptionID, startDate)
+		if paidErr != nil {
+			return "", paidErr
+		}
+		if paid || strings.TrimSpace(afterDueDate) >= startDate {
+			return "", nil
+		}
+		return startDate, nil
+	}
 	now := service.now()
 	cursor := cycle.StartOfDay(now).Add(-time.Minute)
 	if afterDueDate != "" {
@@ -337,6 +379,25 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 
 	gridOccurrences := make([]CalendarOccurrenceView, 0)
 	for _, subscription := range subscriptions {
+		if isOneMonthRental(subscription) {
+			periodStart, _, periodErr := oneMonthRentalPeriod(subscription)
+			if periodErr != nil {
+				return CalendarMonthView{}, periodErr
+			}
+			if !periodStart.Before(gridStart) && periodStart.Before(gridEnd) {
+				dueDate := cycle.FormatDate(periodStart)
+				_, paid := paidByOccurrence[dueOccurrenceKey{
+					subscriptionID: subscription.ID,
+					dueDate:        dueDate,
+				}]
+				gridOccurrences = append(gridOccurrences, service.buildOccurrenceView(
+					subscription,
+					periodStart,
+					paid,
+				))
+			}
+			continue
+		}
 		schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
 		if err != nil {
 			return CalendarMonthView{}, err

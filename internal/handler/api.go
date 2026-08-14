@@ -564,6 +564,18 @@ func (server *Server) postArchiveSubscription(context *gin.Context) {
 	})
 }
 
+func (server *Server) postCompleteOneMonthRental(context *gin.Context) {
+	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.CompleteOneMonthRental(subscriptionID); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "单月短租已到期结束"})
+}
+
 func (server *Server) postCopySubscription(context *gin.Context) {
 	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
 	if !ok {

@@ -28,6 +28,16 @@ var Parser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cr
 
 const intervalPrefix = "interval:"
 
+// OneMonthRentalExpression is the persisted billing expression for a Plus
+// rental that ends after one 30-day term and cannot be renewed as another bill.
+const OneMonthRentalExpression = "one-time:30d"
+
+// IsOneMonthRentalExpression reports whether expression selects the fixed
+// one-month Plus rental mode.
+func IsOneMonthRentalExpression(expression string) bool {
+        return strings.EqualFold(strings.TrimSpace(expression), OneMonthRentalExpression)
+}
+
 // BillingSchedule is a parsed billing cycle rule. It supports the legacy
 // 5-field cron syntax plus fixed day intervals such as interval:30d.
 type BillingSchedule struct {
@@ -62,6 +72,17 @@ func ParseBillingSchedule(expression string, boardedAt string) (BillingSchedule,
         anchor, hasAnchor, err := parseAnchorDate(boardedAt)
         if err != nil {
                 return BillingSchedule{}, err
+        }
+        if IsOneMonthRentalExpression(expression) {
+                if !hasAnchor {
+                        return BillingSchedule{}, fmt.Errorf("boarded_at is required for one-month rental")
+                }
+                return BillingSchedule{
+                        expression:   OneMonthRentalExpression,
+                        intervalDays: 30,
+                        anchor:       anchor,
+                        hasAnchor:    true,
+                }, nil
         }
 
         if days, ok, err := parseIntervalDays(expression); ok || err != nil {
@@ -304,6 +325,9 @@ func DaysRemaining(nextDue time.Time, now time.Time) int {
 // DescribeCron returns a short Chinese description for common patterns.
 func DescribeCron(expression string) string {
         expression = strings.TrimSpace(expression)
+        if IsOneMonthRentalExpression(expression) {
+                return "仅租一个月（30 天）"
+        }
         if days, ok, err := parseIntervalDays(expression); ok {
                 if err != nil {
                         return expression

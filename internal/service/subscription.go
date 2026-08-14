@@ -219,6 +219,18 @@ func (service *SubscriptionService) buildView(
 	}
 	nextDue := schedule.NextDue(now)
 	lastDue, hasLastDue := schedule.LastDue(now)
+	oneMonthRental := isOneMonthRental(subscription)
+	var oneMonthStart time.Time
+	var oneMonthEnd time.Time
+	if oneMonthRental {
+		oneMonthStart, oneMonthEnd, err = oneMonthRentalPeriod(subscription)
+		if err != nil {
+			return SubscriptionView{}, err
+		}
+		lastDue = oneMonthStart
+		hasLastDue = true
+		nextDue = oneMonthEnd
+	}
 	displayDue := nextDue
 	cycleDays := cycle.DaysRemaining(nextDue, now)
 	if hasLastDue {
@@ -242,7 +254,9 @@ func (service *SubscriptionService) buildView(
 		paidDueSet[dueDate] = struct{}{}
 	}
 	_, periodStartPaid := paidDueSet[cycle.FormatDate(periodStart)]
-	if len(paidDueDates) > 0 {
+	if oneMonthRental {
+		displayDue = oneMonthEnd
+	} else if len(paidDueDates) > 0 {
 		// The earliest recorded bill is the beginning of trustworthy ledger
 		// history. This avoids treating every period before a legacy import as
 		// unpaid while still detecting gaps between recorded renewals.
@@ -274,7 +288,12 @@ func (service *SubscriptionService) buildView(
 	currentPeriodPaid := false
 	if isPlusSubscription(subscription) {
 		periodEnd := nextDue
-		if !hasLastDue {
+		if oneMonthRental {
+			periodStart = oneMonthStart
+			periodEnd = oneMonthEnd
+			cycleDays = cycle.DaysRemaining(periodEnd, periodStart)
+			_, periodStartPaid = paidDueSet[cycle.FormatDate(periodStart)]
+		} else if !hasLastDue {
 			periodEnd = schedule.NextDue(periodStart)
 			cycleDays = cycle.DaysRemaining(periodEnd, periodStart)
 		}
@@ -366,6 +385,9 @@ func channelDisplayLabels(channels []string) []string {
 }
 
 func scheduledNotificationLabels(subscription model.Subscription) []string {
+	if isOneMonthRental(subscription) {
+		return []string{"IYUU 短租到期确认"}
+	}
 	if isPlusSubscription(subscription) {
 		return []string{"IYUU 到期当天（微信人工续费）"}
 	}
@@ -825,6 +847,29 @@ func (service *SubscriptionService) Archive(subscriptionID int64) error {
 	return nil
 }
 
+// CompleteOneMonthRental archives a naturally expired one-month Plus rental
+// without creating an after-sales refund case.
+func (service *SubscriptionService) CompleteOneMonthRental(subscriptionID int64) error {
+	subscription, err := service.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("出租记录不存在或已经结束")
+		}
+		return err
+	}
+	if !isOneMonthRental(subscription) {
+		return fmt.Errorf("只有单月短租可以直接确认到期结束")
+	}
+	_, periodEnd, err := oneMonthRentalPeriod(subscription)
+	if err != nil {
+		return err
+	}
+	if cycle.StartOfDay(service.now()).Before(periodEnd) {
+		return fmt.Errorf("该短租将在 %s 到期；提前结束请走售后处理", cycle.FormatDate(periodEnd))
+	}
+	return service.Archive(subscriptionID)
+}
+
 // Copy duplicates an active or archived subscription as a new active subscription.
 // targetSeatID must be a free seat; historical bills and notification logs are not copied.
 func (service *SubscriptionService) Copy(subscriptionID int64, targetSeatID int64) (int64, error) {
@@ -1072,7 +1117,14 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 			return model.Subscription{}, fmt.Errorf("上车日期无效，请使用 YYYY-MM-DD")
 		}
 	}
-	if _, err := cycle.ParseBillingSchedule(input.CronExpr, boardedAt); err != nil {
+	cronExpr := strings.TrimSpace(input.CronExpr)
+	if cycle.IsOneMonthRentalExpression(cronExpr) {
+		if !plusRental {
+			return model.Subscription{}, fmt.Errorf("仅 Plus 出租支持单月短租")
+		}
+		cronExpr = cycle.OneMonthRentalExpression
+	}
+	if _, err := cycle.ParseBillingSchedule(cronExpr, boardedAt); err != nil {
 		return model.Subscription{}, err
 	}
 	return model.Subscription{
@@ -1082,7 +1134,7 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 		CostCents:           costCents,
 		IsResale:            input.IsResale && !plusRental,
 		AgencyFeeCents:      agencyFeeCents,
-		CronExpr:            strings.TrimSpace(input.CronExpr),
+		CronExpr:            cronExpr,
 		NotifyOffsets:       offsets,
 		// Legacy column retained for schema compatibility; sends use global settings.
 		Channels:         append([]string(nil), model.DefaultEnabledChannels...),
@@ -1112,6 +1164,22 @@ func normalizeBusinessType(raw string) (string, error) {
 
 func isPlusSubscription(subscription model.Subscription) bool {
 	return strings.EqualFold(strings.TrimSpace(subscription.BusinessType), model.SubscriptionBusinessPlus)
+}
+
+func isOneMonthRental(subscription model.Subscription) bool {
+	return isPlusSubscription(subscription) && cycle.IsOneMonthRentalExpression(subscription.CronExpr)
+}
+
+func oneMonthRentalPeriod(subscription model.Subscription) (time.Time, time.Time, error) {
+	if !isOneMonthRental(subscription) {
+		return time.Time{}, time.Time{}, fmt.Errorf("该订阅不是单月短租")
+	}
+	startedAt, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(subscription.BoardedAt), cycle.Location)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid boarded_at: %w", err)
+	}
+	startedAt = cycle.StartOfDay(startedAt)
+	return startedAt, startedAt.AddDate(0, 0, 30), nil
 }
 
 // countedAmountCents is the amount that contributes to dashboard total amount.
@@ -1492,6 +1560,10 @@ func parseTemplateDueDate(value string) (time.Time, error) {
 }
 
 func (service *SubscriptionService) nextDueForTemplate(subscription model.Subscription) (time.Time, error) {
+	if isOneMonthRental(subscription) {
+		_, periodEnd, err := oneMonthRentalPeriod(subscription)
+		return periodEnd, err
+	}
 	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
 	if err != nil {
 		return time.Time{}, err
@@ -1904,11 +1976,19 @@ func (service *SubscriptionService) planSubscription(
 	}
 
 	candidates := make([]time.Time, 0, 2)
-	if lastDue, found := schedule.LastDue(now); found {
-		candidates = append(candidates, lastDue)
+	if isOneMonthRental(subscription) {
+		_, periodEnd, periodErr := oneMonthRentalPeriod(subscription)
+		if periodErr != nil {
+			return nil
+		}
+		candidates = append(candidates, periodEnd)
+	} else {
+		if lastDue, found := schedule.LastDue(now); found {
+			candidates = append(candidates, lastDue)
+		}
+		nextDue := schedule.NextDue(now)
+		candidates = append(candidates, nextDue)
 	}
-	nextDue := schedule.NextDue(now)
-	candidates = append(candidates, nextDue)
 
 	for _, dueAt := range candidates {
 		dueDate := cycle.FormatDate(dueAt)

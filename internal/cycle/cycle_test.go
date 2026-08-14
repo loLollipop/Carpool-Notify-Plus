@@ -109,3 +109,20 @@ func TestIntervalBillingScheduleAnchorsToBoardedAt(t *testing.T) {
 		t.Fatalf("2026-08-20 should not be due, ok=%v err=%v", ok, err)
 	}
 }
+
+func TestOneMonthRentalBillingExpression(t *testing.T) {
+        schedule, err := cycle.ParseBillingSchedule(cycle.OneMonthRentalExpression, "2026-07-01")
+        if err != nil {
+                t.Fatal(err)
+        }
+        firstDue := schedule.NextDue(time.Date(2026, time.June, 30, 23, 59, 59, 0, cycle.Location))
+        if got := cycle.FormatDate(firstDue); got != "2026-07-01" {
+                t.Fatalf("first due = %s, want 2026-07-01", got)
+        }
+        if got := cycle.DescribeCron(cycle.OneMonthRentalExpression); got != "仅租一个月（30 天）" {
+                t.Fatalf("description = %q", got)
+        }
+        if !cycle.IsOneMonthRentalExpression(" ONE-TIME:30D ") {
+                t.Fatal("one-month expression should be case-insensitive and trim whitespace")
+        }
+}

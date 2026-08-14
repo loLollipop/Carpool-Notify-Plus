@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom"
 import {
   Archive,
   CalendarClock,
+  CheckCircle2,
   CircleDollarSign,
   Clock3,
   ExternalLink,
@@ -18,7 +19,7 @@ import {
   XCircle,
 } from "lucide-react"
 
-import { archiveSubscription } from "@/api/endpoints"
+import { archiveSubscription, completeOneMonthRental } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
 import { useSubscriptions } from "@/api/queries"
 import type { SubscriptionView } from "@/api/types"
@@ -53,6 +54,7 @@ import { maskAmount, maskValue } from "@/lib/amount-privacy"
 import { cn } from "@/lib/utils"
 import { prefillFromView, type SubscriptionPrefill } from "@/features/subscriptions/subscription-prefill"
 import { PlusRentalDialog } from "./PlusRentalDialog"
+import { isOneMonthRentalCron } from "./rental-mode"
 
 type RentalFilter = "active" | "due" | "archived" | "all"
 
@@ -101,6 +103,7 @@ function RentalCard({
   onEdit,
   onRenew,
   onArchive,
+  onComplete,
   onGoAfterSales,
 }: {
   view: SubscriptionView
@@ -109,12 +112,15 @@ function RentalCard({
   onEdit: (view: SubscriptionView) => void
   onRenew: (view: SubscriptionView) => void
   onArchive: (view: SubscriptionView) => void
+  onComplete: (view: SubscriptionView) => void
   onGoAfterSales: (caseId: number) => void
 }) {
   const { t } = useTranslation()
   const subscription = view.subscription
   const profitCents = subscription.price_per_person_cents - subscription.cost_cents
   const cancellationPending = view.cancellation_pending
+  const oneMonthRental = isOneMonthRentalCron(subscription.cron_expr)
+  const oneMonthExpired = oneMonthRental && view.days_remaining <= 0
 
   return (
     <Card
@@ -129,6 +135,11 @@ function RentalCard({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h2 className="truncate text-base font-semibold">{subscription.name}</h2>
+              {oneMonthRental ? (
+                <Badge variant="outline" className="shrink-0 border-brand/20 bg-brand/[0.06] text-brand">
+                  {t("plusRentals.oneMonthBadge")}
+                </Badge>
+              ) : null}
               <span className="shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
                 #{subscription.id}
               </span>
@@ -149,7 +160,7 @@ function RentalCard({
             </Badge>
           ) : (
             <DueStatusBadge
-              paid={view.current_period_paid}
+              paid={oneMonthRental ? false : view.current_period_paid}
               daysRemaining={view.days_remaining}
               showPaidLabel
             />
@@ -205,7 +216,7 @@ function RentalCard({
             <div className="flex items-center justify-between gap-3">
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <CalendarClock className="size-3.5" />
-                {t("plusRentals.nextDue")}
+                {t(oneMonthRental ? "plusRentals.oneMonthEnd" : "plusRentals.nextDue")}
               </span>
               <span className="text-sm font-semibold tabular-nums">{view.next_due_date}</span>
             </div>
@@ -231,10 +242,12 @@ function RentalCard({
               <Pencil data-slot="icon" />
               {t("common.edit")}
             </Button>
-            <Button variant="outline" size="sm" onClick={() => onRenew(view)}>
-              <Receipt data-slot="icon" />
-              {t("plusRentals.recordRenewal")}
-            </Button>
+            {!oneMonthRental ? (
+              <Button variant="outline" size="sm" onClick={() => onRenew(view)}>
+                <Receipt data-slot="icon" />
+                {t("plusRentals.recordRenewal")}
+              </Button>
+            ) : null}
           </>
         ) : null}
         {subscription.trade_url ? (
@@ -245,7 +258,12 @@ function RentalCard({
             </a>
           </Button>
         ) : null}
-        {!archived && !cancellationPending ? (
+        {!archived && !cancellationPending && oneMonthExpired ? (
+          <Button size="sm" className="ml-auto" onClick={() => onComplete(view)}>
+            <CheckCircle2 data-slot="icon" />
+            {t("plusRentals.completeRental")}
+          </Button>
+        ) : !archived && !cancellationPending ? (
           <Button
             variant="ghost"
             size="sm"
@@ -321,6 +339,7 @@ export function PlusRentalsPage() {
   const [search, setSearch] = React.useState(() => searchParams.get("q") ?? "")
   const [renewTarget, setRenewTarget] = React.useState<DuePaidTarget | null>(null)
   const [archiveTarget, setArchiveTarget] = React.useState<SubscriptionView | null>(null)
+  const [completeTarget, setCompleteTarget] = React.useState<SubscriptionView | null>(null)
   const [cancellationResult, setCancellationResult] = React.useState<{
     caseId: number
     expiresAtLabel: string
@@ -402,6 +421,11 @@ export function PlusRentalsPage() {
         expiresAtLabel: data.expires_at_label ?? "",
       })
     },
+  })
+
+  const completeMutation = useAppMutation((id: number) => completeOneMonthRental(id), {
+    successMessage: t("plusRentals.completed"),
+    onSuccess: () => setCompleteTarget(null),
   })
 
   const openEdit = (view: SubscriptionView) => {
@@ -510,6 +534,7 @@ export function PlusRentalsPage() {
                 })
               }
               onArchive={setArchiveTarget}
+              onComplete={setCompleteTarget}
               onGoAfterSales={(caseId) => navigate(`/after-sales?case=${caseId}`)}
             />
           ))}
@@ -523,6 +548,21 @@ export function PlusRentalsPage() {
           if (!open) setRenewTarget(null)
         }}
         target={renewTarget}
+      />
+      <ConfirmDialog
+        open={completeTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setCompleteTarget(null)
+        }}
+        title={t("plusRentals.completeTitle")}
+        description={t("plusRentals.completeDesc", {
+          name: completeTarget?.subscription.name ?? "",
+        })}
+        actionLabel={t("plusRentals.completeAction")}
+        pending={completeMutation.isPending}
+        onConfirm={() => {
+          if (completeTarget) completeMutation.mutate(completeTarget.subscription.id)
+        }}
       />
       <ConfirmDialog
         open={archiveTarget !== null}

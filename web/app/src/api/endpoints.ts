@@ -188,6 +188,10 @@ export function archiveSubscription(id: number) {
   >(`/api/subscriptions/${id}/archive`, { method: "POST" })
 }
 
+export function completeOneMonthRental(id: number) {
+  return api<MessageResult>(`/api/subscriptions/${id}/complete-one-month`, { method: "POST" })
+}
+
 export function softDeleteSubscription(id: number) {
   return api<MessageResult>(`/api/subscriptions/${id}`, { method: "DELETE" })
 }

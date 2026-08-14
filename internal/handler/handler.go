@@ -113,6 +113,7 @@ func (server *Server) registerBusinessRoutes(routes *gin.RouterGroup) {
 	routes.PUT("/subscriptions/:id", server.putUpdateSubscription)
 	routes.DELETE("/subscriptions/:id", server.deleteSubscription)
 	routes.POST("/subscriptions/:id/archive", server.postArchiveSubscription)
+	routes.POST("/subscriptions/:id/complete-one-month", server.postCompleteOneMonthRental)
 	routes.POST("/subscriptions/:id/copy", server.postCopySubscription)
 	routes.POST("/subscriptions/:id/test-notify", server.postTestNotify)
 	routes.POST("/subscriptions/:id/send-customer-email", server.postSendCustomerEmail)

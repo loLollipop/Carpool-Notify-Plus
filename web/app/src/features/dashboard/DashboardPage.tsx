@@ -42,6 +42,7 @@ import { cn } from "@/lib/utils"
 import { AMOUNT_MASK, VALUE_MASK, maskAmount, maskValue } from "@/lib/amount-privacy"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { PlusRentalDialog } from "@/features/plus-rentals/PlusRentalDialog"
+import { isOneMonthRentalCron } from "@/features/plus-rentals/rental-mode"
 import { SubscriptionDialog } from "@/features/subscriptions/SubscriptionDialog"
 
 const CHART_ANIMATION = { animationDuration: 900, animationEasing: "ease-out" } as const
@@ -394,13 +395,19 @@ function buildHealthItems({
   const dueSoon = actionableTeam.filter(
     (view) => view.days_remaining >= 0 && view.days_remaining <= 7,
   )
-  const plusDue = subscriptions.filter(
+  const actionablePlus = subscriptions.filter(
     (view) =>
       view.subscription.business_type === "plus" &&
-      !view.cancellation_pending &&
-      view.days_remaining <= 7,
+      !view.cancellation_pending,
+  )
+  const plusDue = actionablePlus.filter(
+    (view) => !isOneMonthRentalCron(view.subscription.cron_expr) && view.days_remaining <= 7,
   )
   const plusOverdue = plusDue.filter((view) => view.days_remaining < 0)
+  const plusOneMonthDue = actionablePlus.filter(
+    (view) => isOneMonthRentalCron(view.subscription.cron_expr) && view.days_remaining <= 7,
+  )
+  const plusOneMonthOverdue = plusOneMonthDue.filter((view) => view.days_remaining < 0)
   const missingCustomerEmail = subscriptions.filter(
     (view) =>
       view.subscription.business_type !== "plus" &&
@@ -486,6 +493,25 @@ function buildHealthItems({
       tone: "success",
       title: t("dash.health.plusDueHealthyTitle"),
       detail: t("dash.health.plusDueHealthyDetail"),
+    })
+  }
+
+  if (plusOneMonthDue.length > 0) {
+    items.push({
+      key: "plusOneMonthDue",
+      tone: plusOneMonthOverdue.length > 0 ? "critical" : "warning",
+      title: t(
+        plusOneMonthOverdue.length > 0
+          ? "dash.health.plusOneMonthOverdueTitle"
+          : "dash.health.plusOneMonthDueSoonTitle",
+        { count: plusOneMonthDue.length },
+      ),
+      detail: t("dash.health.plusOneMonthDetail", {
+        names: summarizeNames(plusOneMonthDue.map((view) => view.subscription.name)),
+      }),
+      actionLabel: t("dash.health.goPlusRentals"),
+      to: "/plus-rentals?filter=due",
+      count: plusOneMonthDue.length,
     })
   }
 

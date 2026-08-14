@@ -1,6 +1,6 @@
 import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useForm } from "react-hook-form"
+import { useForm, useWatch } from "react-hook-form"
 import { useTranslation } from "react-i18next"
 import { Mail, MessageCircle, WalletCards } from "lucide-react"
 import { z } from "zod"
@@ -19,6 +19,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -28,14 +29,19 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { todayShanghai, type SubscriptionPrefill } from "@/features/subscriptions/subscription-prefill"
 import { cn } from "@/lib/utils"
+import {
+  isOneMonthRentalCron,
+  ONE_MONTH_RENTAL_CRON,
+  oneMonthRentalEndDate,
+} from "./rental-mode"
 
 const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const CYCLE_PRESETS = [
-  { key: "monthly", cron: "interval:30d", days: 30 },
-  { key: "quarterly", cron: "interval:90d", days: 90 },
-  { key: "halfYear", cron: "interval:180d", days: 180 },
-  { key: "yearly", cron: "interval:365d", days: 365 },
+  { key: "monthly", cron: "interval:30d" },
+  { key: "quarterly", cron: "interval:90d" },
+  { key: "halfYear", cron: "interval:180d" },
+  { key: "yearly", cron: "interval:365d" },
 ] as const
 
 export function PlusRentalDialog({
@@ -72,6 +78,7 @@ export function PlusRentalDialog({
             message: t("plusRentals.validation.amountInvalid"),
           }),
         boarded_at: z.string().min(1, t("plusRentals.validation.startRequired")),
+        rental_mode: z.enum(["recurring", "one_month"]),
         cron_expr: z.string().trim().min(1, t("plusRentals.validation.cycleRequired")),
         trade_url: z.string(),
         remark: z.string(),
@@ -89,6 +96,7 @@ export function PlusRentalDialog({
       price_yuan: prefill?.priceYuan ?? "",
       cost_yuan: prefill?.costYuan === "0.00" ? "" : (prefill?.costYuan ?? ""),
       boarded_at: prefill?.boardedAt || todayShanghai(),
+      rental_mode: isOneMonthRentalCron(prefill?.cronExpr ?? "") ? "one_month" : "recurring",
       cron_expr: prefill?.cronExpr || "interval:30d",
       trade_url: prefill?.tradeUrl ?? "",
       remark: prefill?.remark ?? "",
@@ -105,6 +113,10 @@ export function PlusRentalDialog({
     if (open) form.reset(defaultValues())
   }, [defaultValues, form, open])
 
+  const rentalMode = useWatch({ control: form.control, name: "rental_mode" })
+  const boardedAt = useWatch({ control: form.control, name: "boarded_at" })
+  const oneMonthEndDate = oneMonthRentalEndDate(boardedAt)
+
   const saveMutation = useAppMutation(
     (values: FormValues) => {
       const input: SubscriptionInput = {
@@ -112,7 +124,8 @@ export function PlusRentalDialog({
         business_type: "plus",
         price_yuan: values.price_yuan.trim(),
         cost_yuan: values.cost_yuan.trim(),
-        cron_expr: values.cron_expr.trim(),
+        cron_expr:
+          values.rental_mode === "one_month" ? ONE_MONTH_RENTAL_CRON : values.cron_expr.trim(),
         notify_offsets: [],
         remark: values.remark.trim(),
         trade_url: values.trade_url.trim(),
@@ -199,6 +212,65 @@ export function PlusRentalDialog({
             <section className="grid items-start gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
+                name="rental_mode"
+                render={({ field }) => (
+                  <FormItem className="sm:col-span-2">
+                    <FormLabel>{t("plusRentals.rentalMode")}</FormLabel>
+                    <FormControl>
+                      <div className="grid gap-2 sm:grid-cols-2" role="radiogroup">
+                        {(["recurring", "one_month"] as const).map((mode) => {
+                          const selected = field.value === mode
+                          const oneMonth = mode === "one_month"
+                          return (
+                            <button
+                              key={mode}
+                              type="button"
+                              role="radio"
+                              aria-checked={selected}
+                              className={cn(
+                                "rounded-xl border px-3.5 py-3 text-left transition-colors",
+                                selected
+                                  ? "border-brand/40 bg-brand/[0.07] ring-1 ring-brand/15"
+                                  : "border-border/70 bg-background hover:border-brand/25 hover:bg-muted/30",
+                              )}
+                              onClick={() => {
+                                field.onChange(mode)
+                                if (
+                                  mode === "recurring" &&
+                                  isOneMonthRentalCron(form.getValues("cron_expr"))
+                                ) {
+                                  form.setValue("cron_expr", "interval:30d", {
+                                    shouldDirty: true,
+                                    shouldValidate: true,
+                                  })
+                                }
+                              }}
+                            >
+                              <span className="block text-sm font-semibold">
+                                {t(
+                                  oneMonth
+                                    ? "plusRentals.oneMonthMode"
+                                    : "plusRentals.recurringMode",
+                                )}
+                              </span>
+                              <span className="mt-1 block text-xs leading-5 text-muted-foreground">
+                                {t(
+                                  oneMonth
+                                    ? "plusRentals.oneMonthModeHint"
+                                    : "plusRentals.recurringModeHint",
+                                )}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
                 name="price_yuan"
                 render={({ field }) => (
                   <FormItem>
@@ -240,27 +312,38 @@ export function PlusRentalDialog({
                 control={form.control}
                 name="cron_expr"
                 render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("plusRentals.cycle")}</FormLabel>
-                    <div className="grid grid-cols-4 gap-1.5">
-                      {CYCLE_PRESETS.map((preset) => (
-                        <Button
-                          key={preset.cron}
-                          type="button"
-                          size="sm"
-                          variant={field.value === preset.cron ? "secondary" : "outline"}
-                          className={cn("px-2 text-xs", field.value === preset.cron && "border-brand/25 bg-brand/10 text-brand")}
-                          onClick={() => field.onChange(preset.cron)}
-                        >
-                          {t(`plusRentals.cycles.${preset.key}`)}
-                        </Button>
-                      ))}
-                    </div>
-                    <FormControl>
-                      <Input className="font-mono" placeholder="interval:30d" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+                  rentalMode === "one_month" ? (
+                    <FormItem>
+                      <FormLabel>{t("plusRentals.oneMonthEnd")}</FormLabel>
+                      <div className="flex h-9 items-center rounded-md border border-brand/20 bg-brand/[0.045] px-3 text-sm font-semibold tabular-nums">
+                        {oneMonthEndDate || "--"}
+                      </div>
+                      <FormDescription>{t("plusRentals.oneMonthEndHint")}</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  ) : (
+                    <FormItem>
+                      <FormLabel>{t("plusRentals.cycle")}</FormLabel>
+                      <div className="grid grid-cols-4 gap-1.5">
+                        {CYCLE_PRESETS.map((preset) => (
+                          <Button
+                            key={preset.cron}
+                            type="button"
+                            size="sm"
+                            variant={field.value === preset.cron ? "secondary" : "outline"}
+                            className={cn("px-2 text-xs", field.value === preset.cron && "border-brand/25 bg-brand/10 text-brand")}
+                            onClick={() => field.onChange(preset.cron)}
+                          >
+                            {t(`plusRentals.cycles.${preset.key}`)}
+                          </Button>
+                        ))}
+                      </div>
+                      <FormControl>
+                        <Input className="font-mono" placeholder="interval:30d" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )
                 )}
               />
             </section>
