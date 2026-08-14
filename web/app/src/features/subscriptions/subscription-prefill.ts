@@ -12,8 +12,6 @@ export interface SubscriptionPrefill {
   name: string
   priceYuan: string
   costYuan: string
-  isResale: boolean
-  agencyFeeYuan: string
   cronExpr: string
   offsets: number[]
   remark: string
@@ -41,8 +39,6 @@ export function prefillFromView(view: SubscriptionView): SubscriptionPrefill {
     name: view.subscription.name,
     priceYuan: view.price_yuan,
     costYuan: view.cost_yuan,
-    isResale: view.subscription.is_resale,
-    agencyFeeYuan: view.agency_fee_yuan,
     cronExpr: view.subscription.cron_expr,
     offsets: view.subscription.notify_offsets ?? [],
     remark: view.subscription.remark,
@@ -62,8 +58,6 @@ export function prefillFromOccurrence(occurrence: CalendarOccurrence): Subscript
     name: occurrence.name,
     priceYuan: occurrence.price_yuan,
     costYuan: occurrence.cost_yuan,
-    isResale: occurrence.is_resale,
-    agencyFeeYuan: occurrence.agency_fee_yuan,
     cronExpr: occurrence.cron_expr,
     offsets: parseOffsetsText(occurrence.offsets_text),
     remark: occurrence.remark,
@@ -83,8 +77,6 @@ export function prefillFromSeat(seat: SeatView): SubscriptionPrefill {
     name: seat.active_subscription_name,
     priceYuan: seat.active_price_yuan,
     costYuan: seat.active_cost_yuan,
-    isResale: seat.active_is_resale,
-    agencyFeeYuan: seat.active_agency_fee_yuan,
     cronExpr: seat.active_cron_expr,
     offsets: parseOffsetsText(seat.active_offsets_text),
     remark: seat.active_remark,

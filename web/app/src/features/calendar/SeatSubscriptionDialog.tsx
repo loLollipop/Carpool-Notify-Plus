@@ -23,10 +23,8 @@ export interface SeatSubscriptionInfo {
   seatName: string
   statusLabel: string
   statusTone: "success" | "warning" | "secondary"
-  isResale: boolean
   priceYuan: string
   costYuan: string
-  agencyFeeYuan: string
   profitYuan: string
   cycleDesc: string
   cronExpr: string
@@ -56,10 +54,8 @@ export function seatInfoFromOccurrence(
     seatName: occurrence.seat_name,
     statusLabel: occurrence.paid ? t("dueStatus.paid") : t("calendar.legendPending"),
     statusTone: occurrence.paid ? "success" : "warning",
-    isResale: occurrence.is_resale,
     priceYuan: occurrence.price_yuan,
     costYuan: occurrence.cost_yuan,
-    agencyFeeYuan: occurrence.agency_fee_yuan,
     profitYuan: occurrence.profit_yuan,
     cycleDesc: occurrence.cycle_desc,
     cronExpr: occurrence.cron_expr,
@@ -85,10 +81,8 @@ export function seatInfoFromArchived(view: SubscriptionView, t: Translate): Seat
     seatName: view.seat_name,
     statusLabel: t("calendar.filterArchived"),
     statusTone: "secondary",
-    isResale: view.subscription.is_resale,
     priceYuan: view.price_yuan,
     costYuan: view.cost_yuan,
-    agencyFeeYuan: view.agency_fee_yuan,
     profitYuan: view.profit_yuan,
     cycleDesc: view.cycle_desc,
     cronExpr: view.subscription.cron_expr,
@@ -174,11 +168,6 @@ export function SeatSubscriptionDialog({
                     {t("cards.plusRental")}
                   </Badge>
                 ) : null}
-                {info.isResale ? (
-                  <Badge variant="outline" className="font-normal">
-                    {t("cards.resale")}
-                  </Badge>
-                ) : null}
                 <Badge variant={info.statusTone} className="font-normal">
                   {info.statusLabel}
                 </Badge>
@@ -192,15 +181,9 @@ export function SeatSubscriptionDialog({
               <ViewItem label={t("bills.viewCost")}>
                 <span className="tabular-nums">¥{info.costYuan}</span>
               </ViewItem>
-              {info.isResale ? (
-                <ViewItem label={t("cards.agencyFee")}>
-                  <span className="tabular-nums">¥{info.agencyFeeYuan}</span>
-                </ViewItem>
-              ) : (
-                <ViewItem label={t("bills.viewProfit")}>
-                  <span className="tabular-nums">¥{info.profitYuan}</span>
-                </ViewItem>
-              )}
+              <ViewItem label={t("bills.viewProfit")}>
+                <span className="tabular-nums">¥{info.profitYuan}</span>
+              </ViewItem>
               <ViewItem label={t("bills.viewCycle")}>{info.cycleDesc}</ViewItem>
               <ViewItem label={t("bills.viewCron")} mono>
                 {info.cronExpr}

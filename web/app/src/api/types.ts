@@ -8,8 +8,6 @@ export interface Subscription {
   business_type: SubscriptionBusinessType
   price_per_person_cents: number
   cost_cents: number
-  is_resale: boolean
-  agency_fee_cents: number
   cron_expr: string
   notify_offsets: number[] | null
   channels: string[] | null
@@ -37,7 +35,6 @@ export interface SubscriptionView {
   price_yuan: string
   cost_yuan: string
   allocated_cost_yuan?: string
-  agency_fee_yuan: string
   profit_yuan: string
   allocated_profit_yuan?: string
   cycle_desc: string
@@ -130,8 +127,6 @@ export interface CalendarOccurrence {
   weekday_label: string
   price_yuan: string
   cost_yuan: string
-  agency_fee_yuan: string
-  is_resale: boolean
   profit_yuan: string
   cycle_desc: string
   reminder_label: string
@@ -206,7 +201,6 @@ export interface Dashboard {
   net_revenue_yuan: string
   total_cost_yuan: string
   total_profit_yuan: string
-  total_agency_fee_yuan: string
   profit_margin_percent: string
   notify_success_30d: number
   notify_failed_30d: number
@@ -247,8 +241,6 @@ export interface SeatView {
   active_business_type: SubscriptionBusinessType
   active_price_yuan: string
   active_cost_yuan: string
-  active_agency_fee_yuan: string
-  active_is_resale: boolean
   active_cron_expr: string
   active_offsets_text: string
   active_remark: string
@@ -400,8 +392,6 @@ export interface BillView {
   trade_url: string
   price_yuan: string
   cost_yuan: string
-  agency_fee_yuan: string
-  is_resale: boolean
   profit_yuan: string
   cycle_desc: string
   cron_expr: string
@@ -431,7 +421,6 @@ export interface BillsSummary {
   bill_count: number
   active_count: number
   archived_count: number
-  resale_bill_count: number
   total_amount_yuan: string
   total_refund_yuan: string
   net_amount_yuan: string
@@ -439,12 +428,10 @@ export interface BillsSummary {
   total_cost_yuan: string
   total_profit_cents: number
   total_profit_yuan: string
-  total_agency_fee_yuan: string
   this_month_count: number
   this_month_amount_yuan: string
   this_month_refund_yuan: string
   this_month_net_amount_yuan: string
-  this_month_agency_fee_yuan: string
   average_amount_yuan: string
   amount_by_subscription: AmountBar[] | null
   accounts: AccountBreakdown[] | null
@@ -523,8 +510,6 @@ export interface SubscriptionInput {
   business_type: SubscriptionBusinessType
   price_yuan: string
   cost_yuan: string
-  is_resale: boolean
-  agency_fee_yuan: string
   cron_expr: string
   notify_offsets: number[]
   remark: string
@@ -551,8 +536,6 @@ export interface RedemptionCodeGenerateInput {
 export interface RedemptionInviteInput {
   seat_id: number
   price_yuan: string
-  is_resale: boolean
-  agency_fee_yuan: string
   cron_expr: string
   notify_offsets: number[]
   boarded_at: string

@@ -86,8 +86,6 @@ type RedemptionApplicationView struct {
 type RedemptionInviteInput struct {
 	SeatID           int64
 	PriceYuan        string
-	IsResale         bool
-	AgencyFeeYuan    string
 	CronExpr         string
 	NotifyOffsetsRaw string
 	BoardedAt        string
@@ -352,8 +350,6 @@ func (service *SubscriptionService) InviteRedemptionApplication(applicationID in
 	subscription, err := service.parseInput(CreateInput{
 		Name:             application.CustomerEmail,
 		PriceYuan:        strings.TrimSpace(input.PriceYuan),
-		IsResale:         input.IsResale,
-		AgencyFeeYuan:    strings.TrimSpace(input.AgencyFeeYuan),
 		CronExpr:         cronExpr,
 		NotifyOffsetsRaw: notifyOffsets,
 		Remark:           redemptionSubscriptionRemark(application, operatorRemark),

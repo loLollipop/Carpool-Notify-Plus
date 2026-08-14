@@ -413,10 +413,10 @@ function buildHealthItems({
       !view.cancellation_pending &&
       (view.subscription.notify_offsets?.length ?? 0) === 0,
   )
-  const activeSaleAccounts = accounts.filter((view) =>
-    (view.seats ?? []).some((seat) => seat.occupied && !seat.active_is_resale),
+  const activeTeamAccounts = accounts.filter((view) =>
+    (view.seats ?? []).some((seat) => seat.occupied),
   )
-  const missingAccountCost = activeSaleAccounts.filter((view) => view.account.cost_cents <= 0)
+  const missingAccountCost = activeTeamAccounts.filter((view) => view.account.cost_cents <= 0)
   const missingOpenedAt = accounts.filter(
     (view) => view.seat_used > 0 && view.account.opened_at.trim() === "",
   )

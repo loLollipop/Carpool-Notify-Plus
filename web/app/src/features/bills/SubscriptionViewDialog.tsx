@@ -61,11 +61,6 @@ export function SubscriptionViewDialog({
                   {customerLine}
                   {bill.seat_name ? ` · ${bill.seat_name}` : ""}
                 </Badge>
-                {bill.is_resale ? (
-                  <Badge variant="outline" className="font-normal">
-                    {t("cards.resale")}
-                  </Badge>
-                ) : null}
                 {plusRental ? (
                   <Badge className="border-brand/25 bg-brand/10 font-normal text-brand">
                     {t("cards.plusRental")}
@@ -108,19 +103,11 @@ export function SubscriptionViewDialog({
                   {maskAmount(amountsHidden, `¥${bill.cost_yuan}`)}
                 </span>
               </ViewItem>
-              {bill.is_resale ? (
-                <ViewItem label={t("cards.agencyFee")}>
-                  <span className="tabular-nums">
-                    {maskAmount(amountsHidden, `¥${bill.agency_fee_yuan}`)}
-                  </span>
-                </ViewItem>
-              ) : (
-                <ViewItem label={t("bills.viewProfit")}>
-                  <span className="tabular-nums">
-                    {maskAmount(amountsHidden, `¥${bill.profit_yuan}`)}
-                  </span>
-                </ViewItem>
-              )}
+              <ViewItem label={t("bills.viewProfit")}>
+                <span className="tabular-nums">
+                  {maskAmount(amountsHidden, `¥${bill.profit_yuan}`)}
+                </span>
+              </ViewItem>
               <ViewItem label={t("bills.viewCycle")}>{bill.cycle_desc}</ViewItem>
               <ViewItem label={t("bills.viewCron")} mono>
                 {bill.cron_expr}

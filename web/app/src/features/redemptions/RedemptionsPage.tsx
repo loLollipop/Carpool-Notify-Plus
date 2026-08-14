@@ -53,7 +53,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
@@ -436,8 +435,6 @@ function InvitePanel({
 }) {
   const [seatId, setSeatId] = React.useState("")
   const [priceYuan, setPriceYuan] = React.useState("")
-  const [isResale, setIsResale] = React.useState(false)
-  const [agencyFeeYuan, setAgencyFeeYuan] = React.useState("")
   const [cronExpr, setCronExpr] = React.useState("interval:30d")
   const [boardedAt, setBoardedAt] = React.useState(todayShanghai)
   const [notifyOffsets, setNotifyOffsets] = React.useState<number[]>([3])
@@ -448,16 +445,13 @@ function InvitePanel({
 
   const selectedSeat = seats.find((option) => String(option.seat.id) === seatId) ?? null
   const priceValid = MONEY_PATTERN.test(priceYuan.trim())
-  const agencyFeeValid = !isResale || agencyFeeYuan.trim() === "" || MONEY_PATTERN.test(agencyFeeYuan.trim())
-  const canSubmit = selectedSeat !== null && priceValid && agencyFeeValid && cronExpr.trim() !== ""
+  const canSubmit = selectedSeat !== null && priceValid && cronExpr.trim() !== ""
 
   const inviteMutation = useAppMutation(
     () =>
       inviteRedemption(view.application.id, {
         seat_id: Number(seatId),
         price_yuan: priceYuan.trim(),
-        is_resale: isResale,
-        agency_fee_yuan: isResale ? agencyFeeYuan.trim() : "0",
         cron_expr: cronExpr.trim(),
         notify_offsets: notifyOffsets,
         boarded_at: boardedAt,
@@ -582,27 +576,6 @@ function InvitePanel({
           </div>
         </div>
       </div>
-
-      <div className="flex items-center justify-between rounded-lg border px-3 py-2.5">
-        <div className="space-y-0.5 pr-4">
-          <Label>串货</Label>
-          <p className="text-xs text-muted-foreground">只统计中介费时打开。</p>
-        </div>
-        <Switch checked={isResale} onCheckedChange={setIsResale} />
-      </div>
-
-      {isResale ? (
-        <div className="grid gap-2">
-          <Label>中介费</Label>
-          <Input
-            inputMode="decimal"
-            placeholder="0.00"
-            value={agencyFeeYuan}
-            onChange={(event) => setAgencyFeeYuan(event.target.value)}
-            aria-invalid={!agencyFeeValid}
-          />
-        </div>
-      ) : null}
 
       <div className="grid gap-3 md:grid-cols-2">
         <div className="grid gap-2">

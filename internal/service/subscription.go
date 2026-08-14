@@ -680,6 +680,12 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 	if err != nil {
 		return err
 	}
+	// Resale fields are no longer editable, but legacy rows keep their original
+	// accounting semantics so editing an unrelated field cannot rewrite history.
+	if previous.IsResale {
+		subscription.IsResale = true
+		subscription.AgencyFeeCents = previous.AgencyFeeCents
+	}
 	subscription.ID = subscriptionID
 	var updateErr error
 	scheduleChanged :=
@@ -2143,22 +2149,17 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 	}
 
 	seenSubscription := map[int64]struct{}{}
-	saleParts := make([]string, 0)
-	resaleParts := make([]string, 0)
+	parts := make([]string, 0)
 	for _, item := range items {
 		if _, exists := seenSubscription[item.subscription.ID]; exists {
 			continue
 		}
 		seenSubscription[item.subscription.ID] = struct{}{}
-		if item.subscription.IsResale {
-			resaleParts = append(resaleParts, item.message)
-		} else {
-			saleParts = append(saleParts, item.message)
-		}
+		parts = append(parts, item.message)
 	}
 
-	body := buildDigestBody(saleParts, resaleParts)
-	title := digestTitle(len(saleParts), len(resaleParts))
+	body := buildDigestBody(parts)
+	title := digestTitle(len(parts))
 
 	if err := sender.Send(ctx, title, body); err != nil {
 		for _, item := range items {
@@ -2174,31 +2175,16 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 	return nil
 }
 
-// buildDigestBody joins rendered subscription messages into one digest,
-// with 出售 and 串货 in separate labeled sections.
-func buildDigestBody(saleParts []string, resaleParts []string) string {
-	sections := make([]string, 0, 2)
-	if len(saleParts) > 0 {
-		sections = append(sections, "【出售】\n"+strings.Join(saleParts, "\n\n----------\n\n"))
-	}
-	if len(resaleParts) > 0 {
-		sections = append(sections, "【串货】\n"+strings.Join(resaleParts, "\n\n----------\n\n"))
-	}
-	return strings.Join(sections, "\n\n==========\n\n")
+// buildDigestBody joins rendered Team subscription messages into one digest.
+func buildDigestBody(parts []string) string {
+	return strings.Join(parts, "\n\n----------\n\n")
 }
 
-func digestTitle(saleCount int, resaleCount int) string {
-	total := saleCount + resaleCount
-	if total <= 1 {
+func digestTitle(count int) string {
+	if count <= 1 {
 		return "拼车收钱"
 	}
-	if saleCount > 0 && resaleCount > 0 {
-		return fmt.Sprintf("拼车收钱（出售 %d · 串货 %d）", saleCount, resaleCount)
-	}
-	if resaleCount > 0 {
-		return fmt.Sprintf("拼车收钱（串货 %d 条）", resaleCount)
-	}
-	return fmt.Sprintf("拼车收钱（出售 %d 条）", saleCount)
+	return fmt.Sprintf("拼车收钱（%d 条）", count)
 }
 
 func (service *SubscriptionService) failWithRetry(logEntry model.NotificationLog, lastError string) error {

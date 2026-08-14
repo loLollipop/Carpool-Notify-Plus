@@ -25,13 +25,6 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   Table,
@@ -54,7 +47,6 @@ import {
 import { AccountDialog, type AccountPrefill } from "./AccountDialog"
 import { AccountBanDialog, type AccountBanTarget } from "./AccountBanDialog"
 
-type AccountsFilter = "all" | "sale" | "resale"
 type AccountStatsFilter = "all" | "renewal" | "banned" | "full" | "available"
 
 const ACCOUNTS_PER_PAGE = 9
@@ -442,7 +434,6 @@ export function AccountsPage() {
   const [subscriptionDialogOpen, setSubscriptionDialogOpen] = React.useState(false)
   const [subscriptionPrefill, setSubscriptionPrefill] = React.useState<SubscriptionPrefill | null>(null)
   const [search, setSearch] = React.useState("")
-  const [filter, setFilter] = React.useState<AccountsFilter>("all")
   const [statsFilter, setStatsFilter] = React.useState<AccountStatsFilter>("all")
   const [page, setPage] = React.useState(1)
 
@@ -499,23 +490,10 @@ export function AccountsPage() {
       current === nextFilter && nextFilter !== "all" ? "all" : nextFilter,
     )
     setSearch("")
-    setFilter("all")
     setPage(1)
   }
 
   const filteredAccounts = React.useMemo(() => {
-    const matchesFilter = (view: AccountView) => {
-      const seats = view.seats ?? []
-      if (filter === "all") return true
-      if (filter === "sale") {
-        return seats.some((seat) => seat.occupied && !seat.active_is_resale)
-      }
-      if (filter === "resale") {
-        return seats.some((seat) => seat.occupied && seat.active_is_resale)
-      }
-      return true
-    }
-
     const matchesStatsFilter = (view: AccountView) => {
       if (statsFilter === "all") return true
       if (statsFilter === "renewal") return renewalDates.has(view.account.id)
@@ -526,7 +504,6 @@ export function AccountsPage() {
 
     const query = search.trim().toLowerCase()
     return accounts.filter((view) => {
-      if (!matchesFilter(view)) return false
       if (!matchesStatsFilter(view)) return false
       if (!query) return true
       const seatFields = (view.seats ?? []).flatMap((seat) => [
@@ -550,7 +527,7 @@ export function AccountsPage() {
         ...seatFields,
       ].some((field) => field?.toLowerCase().includes(query))
     })
-  }, [accounts, filter, renewalDates, search, statsFilter])
+  }, [accounts, renewalDates, search, statsFilter])
 
   const pageCount = Math.max(1, Math.ceil(filteredAccounts.length / ACCOUNTS_PER_PAGE))
   const safePage = Math.min(page, pageCount)
@@ -560,15 +537,12 @@ export function AccountsPage() {
 
   React.useEffect(() => {
     const query = search.trim().toLowerCase()
-    if (!query && filter === "all") return
+    if (!query) return
     const timer = window.setTimeout(() => {
       setExpanded((previous) => {
         const next = new Set(previous)
         for (const view of filteredAccounts) {
           const seatHit = (view.seats ?? []).some((seat) => {
-            if (filter === "sale" && seat.occupied && !seat.active_is_resale) return true
-            if (filter === "resale" && seat.occupied && seat.active_is_resale) return true
-            if (!query) return false
             return [
               seat.seat.name,
               seat.active_subscription_name,
@@ -584,7 +558,7 @@ export function AccountsPage() {
       })
     }, 0)
     return () => window.clearTimeout(timer)
-  }, [filteredAccounts, filter, search])
+  }, [filteredAccounts, search])
 
   return (
     <>
@@ -605,22 +579,6 @@ export function AccountsPage() {
                 className="h-9 w-full pl-8 text-[13px] sm:w-72"
               />
             </div>
-            <Select
-              value={filter}
-              onValueChange={(value) => {
-                setFilter(value as AccountsFilter)
-                setPage(1)
-              }}
-            >
-              <SelectTrigger className="h-9 flex-1 sm:w-28 sm:flex-none" aria-label={t("accounts.filterLabel")}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t("calendar.filterAll")}</SelectItem>
-                <SelectItem value="sale">{t("accounts.filterSale")}</SelectItem>
-                <SelectItem value="resale">{t("calendar.filterResale")}</SelectItem>
-              </SelectContent>
-            </Select>
             <Button className="flex-1 sm:flex-none" onClick={openCreate}>
               <Plus data-slot="icon" />
               {t("accounts.newAccount")}

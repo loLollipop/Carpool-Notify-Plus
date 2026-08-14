@@ -348,8 +348,6 @@ type subscriptionRequest struct {
 	BusinessType   string `json:"business_type"`
 	PriceYuan      string `json:"price_yuan"`
 	CostYuan       string `json:"cost_yuan"`
-	IsResale       bool   `json:"is_resale"`
-	AgencyFeeYuan  string `json:"agency_fee_yuan"`
 	CronExpr       string `json:"cron_expr"`
 	NotifyOffsets  []int  `json:"notify_offsets"`
 	Remark         string `json:"remark"`
@@ -375,8 +373,6 @@ func (request subscriptionRequest) toCreateInput() service.CreateInput {
 		BusinessType:     request.BusinessType,
 		PriceYuan:        request.PriceYuan,
 		CostYuan:         request.CostYuan,
-		IsResale:         request.IsResale,
-		AgencyFeeYuan:    request.AgencyFeeYuan,
 		CronExpr:         request.CronExpr,
 		NotifyOffsetsRaw: offsetsToRaw(request.NotifyOffsets),
 		Remark:           request.Remark,
@@ -392,8 +388,6 @@ func (request subscriptionRequest) toCreateInput() service.CreateInput {
 type redemptionInviteRequest struct {
 	SeatID        int64  `json:"seat_id"`
 	PriceYuan     string `json:"price_yuan"`
-	IsResale      bool   `json:"is_resale"`
-	AgencyFeeYuan string `json:"agency_fee_yuan"`
 	CronExpr      string `json:"cron_expr"`
 	NotifyOffsets []int  `json:"notify_offsets"`
 	BoardedAt     string `json:"boarded_at"`
@@ -411,8 +405,6 @@ func (request redemptionInviteRequest) toInviteInput() service.RedemptionInviteI
 	return service.RedemptionInviteInput{
 		SeatID:           request.SeatID,
 		PriceYuan:        request.PriceYuan,
-		IsResale:         request.IsResale,
-		AgencyFeeYuan:    request.AgencyFeeYuan,
 		CronExpr:         request.CronExpr,
 		NotifyOffsetsRaw: offsetsToRaw(request.NotifyOffsets),
 		BoardedAt:        request.BoardedAt,

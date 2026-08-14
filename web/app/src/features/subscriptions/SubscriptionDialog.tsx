@@ -36,7 +36,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { todayShanghai, type SubscriptionPrefill } from "./subscription-prefill"
@@ -139,13 +138,6 @@ export function SubscriptionDialog({
           .refine((value) => value === "" || MONEY_PATTERN.test(value), {
             message: t("subscriptionDialog.validation.priceInvalid"),
           }),
-        is_resale: z.boolean(),
-        agency_fee_yuan: z
-          .string()
-          .trim()
-          .refine((value) => value === "" || MONEY_PATTERN.test(value), {
-            message: t("subscriptionDialog.validation.priceInvalid"),
-          }),
         cron_expr: z.string().trim().min(1, t("subscriptionDialog.validation.cronRequired")),
         notify_offsets: z.array(z.number()),
         boarded_at: z.string().min(1, t("subscriptionDialog.validation.boardedAtRequired")),
@@ -170,8 +162,6 @@ export function SubscriptionDialog({
       name: prefill?.name ?? "",
       price_yuan: prefill?.priceYuan ?? "",
       cost_yuan: prefill?.costYuan ?? "",
-      is_resale: prefill?.isResale ?? false,
-      agency_fee_yuan: prefill?.agencyFeeYuan ?? "",
       cron_expr: prefill?.cronExpr ?? "",
       notify_offsets: prefill?.offsets ?? [],
       boarded_at: prefill?.boardedAt || todayShanghai(),
@@ -197,7 +187,6 @@ export function SubscriptionDialog({
 
   const cronExpr = useWatch({ control: form.control, name: "cron_expr" })
   const boardedAt = useWatch({ control: form.control, name: "boarded_at" })
-  const isResale = useWatch({ control: form.control, name: "is_resale" })
   const accountId = useWatch({ control: form.control, name: "account_id" })
   const cronPreview = useCronPreview(cronExpr, boardedAt, open)
   const cronInputRef = React.useRef<HTMLInputElement | null>(null)
@@ -209,8 +198,6 @@ export function SubscriptionDialog({
         business_type: "team",
         price_yuan: values.price_yuan.trim(),
         cost_yuan: isEdit ? values.cost_yuan.trim() : "",
-        is_resale: values.is_resale,
-        agency_fee_yuan: values.is_resale ? values.agency_fee_yuan.trim() : "0",
         cron_expr: values.cron_expr.trim(),
         notify_offsets: values.notify_offsets,
         remark: values.remark.trim(),
@@ -324,66 +311,34 @@ export function SubscriptionDialog({
             ) : null}
 
             <input type="hidden" {...form.register("cost_yuan")} />
-            <FormField
-              control={form.control}
-              name="price_yuan"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t("subscriptionDialog.price")}</FormLabel>
-                  <FormControl>
-                    <Input inputMode="decimal" placeholder="20.00" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-                control={form.control}
-                name="is_resale"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border border-border/60 px-3 py-2.5">
-                    <div className="space-y-0.5 pr-4">
-                      <FormLabel>{t("subscriptionDialog.resale")}</FormLabel>
-                      <FormDescription>{t("subscriptionDialog.resaleHint")}</FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch checked={field.value} onCheckedChange={field.onChange} />
-                    </FormControl>
-                  </FormItem>
-                )}
-            />
-
-            {isResale ? (
+            <div className="grid items-start gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
-                name="agency_fee_yuan"
+                name="price_yuan"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t("subscriptionDialog.agencyFee")}</FormLabel>
+                    <FormLabel>{t("subscriptionDialog.price")}</FormLabel>
                     <FormControl>
-                      <Input inputMode="decimal" placeholder="0.00" {...field} />
+                      <Input inputMode="decimal" placeholder="20.00" {...field} />
                     </FormControl>
-                    <FormDescription>{t("subscriptionDialog.agencyFeeHint")}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-            ) : null}
-
-            <FormField
-              control={form.control}
-              name="boarded_at"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t("subscriptionDialog.boardedAt")}</FormLabel>
-                  <FormControl>
-                    <Input type="date" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+              <FormField
+                control={form.control}
+                name="boarded_at"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t("subscriptionDialog.boardedAt")}</FormLabel>
+                    <FormControl>
+                      <Input type="date" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
 
             <FormField
               control={form.control}

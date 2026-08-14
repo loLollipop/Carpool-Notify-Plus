@@ -1055,18 +1055,15 @@ func TestProcessDueNotificationsMergesSameDaySends(t *testing.T) {
 	if recorder.calls != 1 {
 		t.Fatalf("notification sends = %d, want 1 merged send", recorder.calls)
 	}
-	if !strings.Contains(recorder.lastTitle, "出售 2") {
-		t.Fatalf("title = %q, want sale digest count", recorder.lastTitle)
+	if !strings.Contains(recorder.lastTitle, "2 条") {
+		t.Fatalf("title = %q, want digest count", recorder.lastTitle)
 	}
-	if !strings.Contains(recorder.lastBody, "【出售】") {
-		t.Fatalf("body missing 出售 section: %q", recorder.lastBody)
-	}
-	if strings.Contains(recorder.lastBody, "【串货】") {
-		t.Fatalf("body unexpectedly has 串货 section: %q", recorder.lastBody)
+	if strings.Contains(recorder.lastBody, "【出售】") || strings.Contains(recorder.lastBody, "【串货】") {
+		t.Fatalf("body unexpectedly contains legacy business sections: %q", recorder.lastBody)
 	}
 }
 
-func TestProcessDueNotificationsGroupsSaleAndResale(t *testing.T) {
+func TestProcessDueNotificationsMergesLegacyResaleWithoutSpecialLabel(t *testing.T) {
 	subscriptionService := openTestService(t)
 	fixedNow := time.Date(2026, time.July, 15, 10, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return fixedNow }
@@ -1106,21 +1103,16 @@ func TestProcessDueNotificationsGroupsSaleAndResale(t *testing.T) {
 	if recorder.calls != 1 {
 		t.Fatalf("notification sends = %d, want 1 merged send", recorder.calls)
 	}
-	if !strings.Contains(recorder.lastTitle, "出售 1") || !strings.Contains(recorder.lastTitle, "串货 1") {
-		t.Fatalf("title = %q, want both sale and resale counts", recorder.lastTitle)
+	if !strings.Contains(recorder.lastTitle, "2 条") {
+		t.Fatalf("title = %q, want merged count", recorder.lastTitle)
 	}
-	saleIdx := strings.Index(recorder.lastBody, "【出售】")
-	resaleIdx := strings.Index(recorder.lastBody, "【串货】")
-	if saleIdx < 0 || resaleIdx < 0 {
-		t.Fatalf("body missing sections: %q", recorder.lastBody)
+	if strings.Contains(recorder.lastBody, "【出售】") || strings.Contains(recorder.lastBody, "【串货】") {
+		t.Fatalf("body unexpectedly contains legacy business sections: %q", recorder.lastBody)
 	}
-	if saleIdx > resaleIdx {
-		t.Fatalf("出售 section should appear before 串货: %q", recorder.lastBody)
+	if !strings.Contains(recorder.lastBody, "sale@example.com") {
+		t.Fatalf("body should contain first customer email: %q", recorder.lastBody)
 	}
-	if !strings.Contains(recorder.lastBody[saleIdx:resaleIdx], "sale@example.com") {
-		t.Fatalf("sale section should contain customer email: %q", recorder.lastBody)
-	}
-	if !strings.Contains(recorder.lastBody[resaleIdx:], "resale@example.com") {
-		t.Fatalf("resale section should contain customer email: %q", recorder.lastBody)
+	if !strings.Contains(recorder.lastBody, "resale@example.com") {
+		t.Fatalf("body should contain legacy customer email: %q", recorder.lastBody)
 	}
 }

@@ -709,6 +709,48 @@ func TestUpdateSubscriptionPriceSyncsCurrentPeriodBill(t *testing.T) {
 	}
 }
 
+func TestUpdateLegacyResaleSubscriptionPreservesAccountingFields(t *testing.T) {
+	subscriptionService := openTestService(t)
+	accountID, seatIDs := createTestAccountWithSeats(t, subscriptionService, "legacy-account", "seat-1")
+	subscriptionID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "legacy-resale",
+		PriceYuan:        "30.00",
+		CronExpr:         "0 0 1 * *",
+		NotifyOffsetsRaw: "",
+		AccountID:        accountID,
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-01-01",
+		IsResale:         true,
+		AgencyFeeYuan:    "5.00",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := subscriptionService.Update(subscriptionID, service.CreateInput{
+		Name:             "updated-name",
+		PriceYuan:        "30.00",
+		CronExpr:         "0 0 1 * *",
+		NotifyOffsetsRaw: "",
+		AccountID:        accountID,
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-01-01",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.IsResale {
+		t.Fatal("legacy resale marker was cleared during an unrelated edit")
+	}
+	if updated.AgencyFeeCents != 500 {
+		t.Fatalf("agency fee = %d, want 500", updated.AgencyFeeCents)
+	}
+}
+
 func TestCreateAllowsEmptyNotifyOffsets(t *testing.T) {
 	subscriptionService := openTestService(t)
 	accountID, seatIDs := createTestAccountWithSeats(t, subscriptionService, "无提醒账号", "车位1")

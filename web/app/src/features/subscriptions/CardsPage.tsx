@@ -48,7 +48,7 @@ import { ReminderPreviewDialog } from "./ReminderPreviewDialog"
 import { SubscriptionDialog } from "./SubscriptionDialog"
 import { prefillFromView, type SubscriptionPrefill } from "./subscription-prefill"
 
-type CardsFilter = "all" | "due" | "pending" | "paid" | "archived" | "resale"
+type CardsFilter = "all" | "due" | "pending" | "paid" | "archived"
 
 const EMPTY_SUBSCRIPTION_VIEWS: SubscriptionView[] = []
 const USERS_PER_PAGE = 9
@@ -58,8 +58,7 @@ function normalizeCardsFilter(value: string | null): CardsFilter {
     value === "due" ||
     value === "pending" ||
     value === "paid" ||
-    value === "archived" ||
-    value === "resale"
+    value === "archived"
   ) {
     return value
   }
@@ -193,18 +192,11 @@ function SubscriptionCard({
           <h3 className="truncate text-[15px] font-semibold">
             {view.account_name || subscription.name}
           </h3>
-          {plusRental || subscription.is_resale ? (
+          {plusRental ? (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {plusRental ? (
-                <Badge className="border-brand/25 bg-brand/10 font-normal text-brand">
-                  {t("cards.plusRental")}
-                </Badge>
-              ) : null}
-              {subscription.is_resale ? (
-                <Badge variant="outline" className="font-normal">
-                  {t("cards.resale")}
-                </Badge>
-              ) : null}
+              <Badge className="border-brand/25 bg-brand/10 font-normal text-brand">
+                {t("cards.plusRental")}
+              </Badge>
             </div>
           ) : null}
           {subscription.remark ? (
@@ -246,9 +238,9 @@ function SubscriptionCard({
         <MetaCell label={t("cards.cost")}>
           <span className="font-medium text-gold tabular-nums">¥{displayedCostYuan}</span>
         </MetaCell>
-        <MetaCell label={subscription.is_resale ? t("cards.agencyFee") : t("cards.profit")}>
+        <MetaCell label={t("cards.profit")}>
           <span className="font-medium text-success tabular-nums">
-            ¥{subscription.is_resale ? view.agency_fee_yuan : displayedProfitYuan}
+            ¥{displayedProfitYuan}
           </span>
         </MetaCell>
         <MetaCell label={t("cards.cycle")}>{view.cycle_desc}</MetaCell>
@@ -456,8 +448,6 @@ export function CardsPage() {
     let pool: SubscriptionView[]
     if (filter === "archived") {
       pool = archivedViews
-    } else if (filter === "resale") {
-      pool = [...activeViews, ...archivedViews].filter((view) => view.subscription.is_resale)
     } else if (filter === "due") {
       pool = activeViews.filter(
         (view) =>
@@ -501,7 +491,6 @@ export function CardsPage() {
         view.cost_yuan,
         view.allocated_cost_yuan,
         view.allocated_profit_yuan,
-        view.agency_fee_yuan,
         ...(view.channel_labels ?? []),
       ].some((field) => field?.toLowerCase().includes(query)),
     )
@@ -572,7 +561,6 @@ export function CardsPage() {
                 <SelectItem value="pending">{t("calendar.filterPending")}</SelectItem>
                 <SelectItem value="paid">{t("calendar.filterPaid")}</SelectItem>
                 <SelectItem value="archived">{t("calendar.filterArchived")}</SelectItem>
-                <SelectItem value="resale">{t("calendar.filterResale")}</SelectItem>
               </SelectContent>
             </Select>
           </>

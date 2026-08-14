@@ -112,8 +112,6 @@ export function PlusRentalDialog({
         business_type: "plus",
         price_yuan: values.price_yuan.trim(),
         cost_yuan: values.cost_yuan.trim(),
-        is_resale: false,
-        agency_fee_yuan: "0",
         cron_expr: values.cron_expr.trim(),
         notify_offsets: [],
         remark: values.remark.trim(),

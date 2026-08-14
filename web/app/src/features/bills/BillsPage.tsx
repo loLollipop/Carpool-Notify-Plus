@@ -20,6 +20,7 @@ import {
   CircleDot,
   Eye,
   HandCoins,
+  Hash,
   Pencil,
   ReceiptText,
   Search,
@@ -75,7 +76,7 @@ const CHART_COLORS = [
 const BILLS_PER_PAGE = 9
 const AMOUNT_ITEMS_PER_PAGE = 6
 const ACCOUNT_ITEMS_PER_PAGE = 10
-type BillBusinessFilter = "all" | "team" | "resale" | "plus"
+type BillBusinessFilter = "all" | "team" | "plus"
 
 function billIdentity(bill: BillView) {
   const plusRental = bill.business_type === "plus"
@@ -237,9 +238,7 @@ function BillMobileCard({
             ? "bg-muted-foreground/35"
             : plusRental
               ? "bg-brand"
-              : bill.is_resale
-                ? "bg-violet"
-                : "bg-success",
+              : "bg-success",
         )}
       />
       <div className="p-4">
@@ -260,10 +259,6 @@ function BillMobileCard({
             {plusRental ? (
               <Badge variant="secondary" className="font-normal text-brand">
                 {t("bills.businessPlus")}
-              </Badge>
-            ) : bill.is_resale ? (
-              <Badge variant="outline" className="font-normal">
-                {t("cards.resale")}
               </Badge>
             ) : null}
           </div>
@@ -717,8 +712,7 @@ export function BillsPage() {
   const filteredBills = React.useMemo(() => {
     const byType = bills.filter((bill) => {
       if (typeFilter === "plus") return bill.business_type === "plus"
-      if (typeFilter === "resale") return bill.business_type !== "plus" && bill.is_resale
-      if (typeFilter === "team") return bill.business_type !== "plus" && !bill.is_resale
+      if (typeFilter === "team") return bill.business_type !== "plus"
       return true
     })
     const query = search.trim().toLowerCase()
@@ -738,7 +732,6 @@ export function BillsPage() {
         bill.refund_yuan,
         bill.net_amount_yuan,
         bill.profit_yuan,
-        bill.agency_fee_yuan,
         bill.status_label,
       ].some((field) => field?.toLowerCase().includes(query)),
     )
@@ -831,15 +824,14 @@ export function BillsPage() {
               tone="brand"
             />
             <KpiCard
-              label={t("bills.kpiAgencyFee")}
-              value={maskAmount(amountsHidden, `¥${summary.total_agency_fee_yuan}`)}
-              hint={t("bills.kpiAgencyFeeHint", {
-                count: maskValue(amountsHidden, summary.resale_bill_count),
-                month: amountsHidden ? VALUE_MASK : summary.this_month_agency_fee_yuan,
+              label={t("bills.kpiCount")}
+              value={maskValue(amountsHidden, summary.bill_count)}
+              hint={t("bills.kpiCountHint", {
+                avg: amountsHidden ? VALUE_MASK : summary.average_amount_yuan,
               })}
-              icon={<HandCoins className="size-4" />}
+              icon={<Hash className="size-4" />}
               delay={240}
-              tone="gold"
+              tone="brand"
             />
             <KpiCard
               label={t("bills.kpiActive")}
@@ -886,7 +878,6 @@ export function BillsPage() {
                 <SelectContent>
                   <SelectItem value="all">{t("bills.filterAll")}</SelectItem>
                   <SelectItem value="team">{t("bills.filterTeam")}</SelectItem>
-                  <SelectItem value="resale">{t("bills.filterResale")}</SelectItem>
                   <SelectItem value="plus">{t("bills.filterPlus")}</SelectItem>
                 </SelectContent>
               </Select>
@@ -926,7 +917,6 @@ export function BillsPage() {
                     <TableHead>{t("bills.colGross")}</TableHead>
                     <TableHead className="hidden lg:table-cell">{t("bills.colRefund")}</TableHead>
                     <TableHead className="hidden lg:table-cell">{t("bills.colNet")}</TableHead>
-                    <TableHead className="hidden lg:table-cell">{t("bills.colAgencyFee")}</TableHead>
                     <TableHead className="hidden md:table-cell">{t("bills.colNote")}</TableHead>
                     <TableHead className="hidden sm:table-cell">{t("bills.colPaidAt")}</TableHead>
                     <TableHead>{t("bills.colStatus")}</TableHead>
@@ -936,7 +926,7 @@ export function BillsPage() {
                 <TableBody>
                   {filteredBills.length === 0 ? (
                     <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={10} className="py-12 text-center text-muted-foreground">
+                      <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
                         {t("bills.searchEmpty")}
                       </TableCell>
                     </TableRow>
@@ -953,10 +943,6 @@ export function BillsPage() {
                           {plusRental ? (
                             <Badge variant="secondary" className="shrink-0 font-normal text-brand">
                               {t("bills.businessPlus")}
-                            </Badge>
-                          ) : bill.is_resale ? (
-                            <Badge variant="outline" className="shrink-0 font-normal">
-                              {t("cards.resale")}
                             </Badge>
                           ) : null}
                         </div>
@@ -976,11 +962,6 @@ export function BillsPage() {
                       </TableCell>
                       <TableCell className="hidden font-medium text-success tabular-nums lg:table-cell">
                         {maskAmount(amountsHidden, `¥${bill.net_amount_yuan}`)}
-                      </TableCell>
-                      <TableCell className="hidden tabular-nums lg:table-cell">
-                        {bill.is_resale
-                          ? maskAmount(amountsHidden, `¥${bill.agency_fee_yuan}`)
-                          : "—"}
                       </TableCell>
                       <TableCell className="hidden max-w-52 md:table-cell">
                         {bill.note ? (
