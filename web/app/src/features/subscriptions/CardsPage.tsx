@@ -5,7 +5,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
-  ExternalLink,
   Mail,
   MessageCircle,
   Pencil,
@@ -280,14 +279,6 @@ function SubscriptionCard({
             {t("cards.sendReminder")}
           </Button>
         ) : null}
-        {!cancellationPending && subscription.trade_url ? (
-          <Button variant="ghost" size="sm" asChild>
-            <a href={subscription.trade_url} target="_blank" rel="noopener noreferrer">
-              <ExternalLink data-slot="icon" />
-              {t("common.openLink")}
-            </a>
-          </Button>
-        ) : null}
         {!archived && !cancellationPending ? (
           <Button
             variant="ghost"
@@ -484,7 +475,6 @@ export function CardsPage() {
         view.subscription.remark,
         view.subscription.customer_email,
         view.subscription.customer_wechat,
-        view.subscription.trade_url,
         view.cycle_desc,
         view.next_due_date,
         view.price_yuan,

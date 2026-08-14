@@ -7,7 +7,6 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Clock3,
-  ExternalLink,
   Mail,
   MessageCircle,
   Pencil,
@@ -250,14 +249,6 @@ function RentalCard({
             ) : null}
           </>
         ) : null}
-        {subscription.trade_url ? (
-          <Button variant="ghost" size="sm" asChild>
-            <a href={subscription.trade_url} target="_blank" rel="noopener noreferrer">
-              <ExternalLink data-slot="icon" />
-              {t("common.openLink")}
-            </a>
-          </Button>
-        ) : null}
         {!archived && !cancellationPending && oneMonthExpired ? (
           <Button size="sm" className="ml-auto" onClick={() => onComplete(view)}>
             <CheckCircle2 data-slot="icon" />
@@ -397,7 +388,6 @@ export function PlusRentalsPage() {
         view.subscription.customer_email,
         view.subscription.customer_wechat,
         view.subscription.remark,
-        view.subscription.trade_url,
         view.next_due_date,
       ].some((value) => value?.toLowerCase().includes(query)),
     )

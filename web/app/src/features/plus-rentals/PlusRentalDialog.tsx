@@ -80,7 +80,6 @@ export function PlusRentalDialog({
         boarded_at: z.string().min(1, t("plusRentals.validation.startRequired")),
         rental_mode: z.enum(["recurring", "one_month"]),
         cron_expr: z.string().trim().min(1, t("plusRentals.validation.cycleRequired")),
-        trade_url: z.string(),
         remark: z.string(),
       }),
     [t],
@@ -98,7 +97,6 @@ export function PlusRentalDialog({
       boarded_at: prefill?.boardedAt || todayShanghai(),
       rental_mode: isOneMonthRentalCron(prefill?.cronExpr ?? "") ? "one_month" : "recurring",
       cron_expr: prefill?.cronExpr || "interval:30d",
-      trade_url: prefill?.tradeUrl ?? "",
       remark: prefill?.remark ?? "",
     }),
     [prefill],
@@ -128,7 +126,7 @@ export function PlusRentalDialog({
           values.rental_mode === "one_month" ? ONE_MONTH_RENTAL_CRON : values.cron_expr.trim(),
         notify_offsets: [],
         remark: values.remark.trim(),
-        trade_url: values.trade_url.trim(),
+        trade_url: "",
         customer_email: values.account_email.trim(),
         customer_wechat: values.contact.trim(),
         account_id: 0,
@@ -324,22 +322,23 @@ export function PlusRentalDialog({
                   ) : (
                     <FormItem>
                       <FormLabel>{t("plusRentals.cycle")}</FormLabel>
-                      <div className="grid grid-cols-4 gap-1.5">
-                        {CYCLE_PRESETS.map((preset) => (
-                          <Button
-                            key={preset.cron}
-                            type="button"
-                            size="sm"
-                            variant={field.value === preset.cron ? "secondary" : "outline"}
-                            className={cn("px-2 text-xs", field.value === preset.cron && "border-brand/25 bg-brand/10 text-brand")}
-                            onClick={() => field.onChange(preset.cron)}
-                          >
-                            {t(`plusRentals.cycles.${preset.key}`)}
-                          </Button>
-                        ))}
-                      </div>
                       <FormControl>
-                        <Input className="font-mono" placeholder="interval:30d" {...field} />
+                        <div className="grid grid-cols-4 gap-1.5" role="radiogroup">
+                          {CYCLE_PRESETS.map((preset) => (
+                            <Button
+                              key={preset.cron}
+                              type="button"
+                              role="radio"
+                              aria-checked={field.value === preset.cron}
+                              size="sm"
+                              variant={field.value === preset.cron ? "secondary" : "outline"}
+                              className={cn("px-2 text-xs", field.value === preset.cron && "border-brand/25 bg-brand/10 text-brand")}
+                              onClick={() => field.onChange(preset.cron)}
+                            >
+                              {t(`plusRentals.cycles.${preset.key}`)}
+                            </Button>
+                          ))}
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -348,20 +347,7 @@ export function PlusRentalDialog({
               />
             </section>
 
-            <section className="grid items-start gap-4 sm:grid-cols-2">
-              <FormField
-                control={form.control}
-                name="trade_url"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("plusRentals.tradeUrl")}</FormLabel>
-                    <FormControl>
-                      <Input placeholder="https://" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+            <section>
               <FormField
                 control={form.control}
                 name="remark"

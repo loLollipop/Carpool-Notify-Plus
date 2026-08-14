@@ -148,7 +148,6 @@ export function SubscriptionDialog({
             message: t("subscriptionDialog.validation.emailInvalid"),
           }),
         customer_wechat: z.string().trim(),
-        trade_url: z.string(),
         remark: z.string(),
       }),
     [t],
@@ -162,12 +161,11 @@ export function SubscriptionDialog({
       name: prefill?.name ?? "",
       price_yuan: prefill?.priceYuan ?? "",
       cost_yuan: prefill?.costYuan ?? "",
-      cron_expr: prefill?.cronExpr ?? "",
+      cron_expr: prefill?.cronExpr || "interval:30d",
       notify_offsets: prefill?.offsets ?? [],
       boarded_at: prefill?.boardedAt || todayShanghai(),
       customer_email: prefill?.customerEmail ?? "",
       customer_wechat: prefill?.customerWechat ?? "",
-      trade_url: prefill?.tradeUrl ?? "",
       remark: prefill?.remark ?? "",
     }),
     [prefill],
@@ -189,7 +187,6 @@ export function SubscriptionDialog({
   const boardedAt = useWatch({ control: form.control, name: "boarded_at" })
   const accountId = useWatch({ control: form.control, name: "account_id" })
   const cronPreview = useCronPreview(cronExpr, boardedAt, open)
-  const cronInputRef = React.useRef<HTMLInputElement | null>(null)
 
   const saveMutation = useAppMutation(
     (values: FormValues) => {
@@ -201,7 +198,7 @@ export function SubscriptionDialog({
         cron_expr: values.cron_expr.trim(),
         notify_offsets: values.notify_offsets,
         remark: values.remark.trim(),
-        trade_url: values.trade_url.trim(),
+        trade_url: "",
         customer_email: values.customer_email.trim(),
         customer_wechat: values.customer_wechat.trim(),
         account_id: Number(values.account_id),
@@ -346,39 +343,28 @@ export function SubscriptionDialog({
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t("subscriptionDialog.cycle")}</FormLabel>
-                  <div className="flex flex-wrap gap-2">
-                    {CYCLE_PRESETS.map((preset) => (
-                      <Button
-                        key={preset.cron}
-                        type="button"
-                        variant={field.value.trim() === preset.cron ? "secondary" : "outline"}
-                        size="sm"
-                        onClick={() => field.onChange(preset.cron)}
-                      >
-                        {t(`subscriptionDialog.${preset.key}`)}
-                      </Button>
-                    ))}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => cronInputRef.current?.focus()}
-                    >
-                      {t("subscriptionDialog.presetCustom")}
-                    </Button>
-                  </div>
                   <FormControl>
-                    <Input
-                      placeholder="interval:30d"
-                      className="font-mono"
-                      {...field}
-                      ref={(element) => {
-                        field.ref(element)
-                        cronInputRef.current = element
-                      }}
-                    />
+                    <div className="grid grid-cols-4 gap-1.5" role="radiogroup">
+                      {CYCLE_PRESETS.map((preset) => (
+                        <Button
+                          key={preset.cron}
+                          type="button"
+                          role="radio"
+                          aria-checked={field.value.trim() === preset.cron}
+                          variant={field.value.trim() === preset.cron ? "secondary" : "outline"}
+                          size="sm"
+                          className={cn(
+                            "px-2 text-xs",
+                            field.value.trim() === preset.cron &&
+                              "border-brand/25 bg-brand/10 text-brand",
+                          )}
+                          onClick={() => field.onChange(preset.cron)}
+                        >
+                          {t(`subscriptionDialog.${preset.key}`)}
+                        </Button>
+                      ))}
+                    </div>
                   </FormControl>
-                  <FormDescription>{t("subscriptionDialog.cronHint")}</FormDescription>
                   <FormMessage />
 
                   <div className="rounded-lg border bg-muted/40 px-3.5 py-3">
@@ -488,20 +474,6 @@ export function SubscriptionDialog({
                       placeholder={t("subscriptionDialog.customerWechatPlaceholder")}
                       {...field}
                     />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-
-            <FormField
-              control={form.control}
-              name="trade_url"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>{t("subscriptionDialog.tradeUrl")}</FormLabel>
-                  <FormControl>
-                    <Input placeholder="https://" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
