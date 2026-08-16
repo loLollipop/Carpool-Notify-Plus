@@ -141,7 +141,8 @@ type AccountCostRecord struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// BusinessGoal tracks an incremental profit target from a fixed profit baseline.
+// BusinessGoal tracks a cumulative profit target. BaselineProfitCents is kept
+// for database compatibility and normalized to zero during migration.
 type BusinessGoal struct {
 	ID                  int64      `json:"id"`
 	Name                string     `json:"name"`

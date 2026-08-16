@@ -146,14 +146,9 @@ func (service *SubscriptionService) CreateBusinessGoal(input BusinessGoalInput) 
 	} else if err != sql.ErrNoRows {
 		return 0, err
 	}
-	dashboard, err := service.ComputeDashboard()
-	if err != nil {
-		return 0, err
-	}
 	return service.Store.CreateBusinessGoal(model.BusinessGoal{
-		Name:                name,
-		TargetProfitCents:   targetProfitCents,
-		BaselineProfitCents: dashboard.TotalProfitCents,
+		Name:              name,
+		TargetProfitCents: targetProfitCents,
 	})
 }
 
@@ -186,7 +181,7 @@ func (service *SubscriptionService) CompleteBusinessGoal(goalID int64) error {
 	if err != nil {
 		return err
 	}
-	return service.Store.CompleteBusinessGoal(goalID, dashboard.TotalProfitCents-goal.BaselineProfitCents)
+	return service.Store.CompleteBusinessGoal(goalID, dashboard.TotalProfitCents)
 }
 
 func (service *SubscriptionService) normalizeBusinessGoalInput(input BusinessGoalInput) (string, int64, error) {
@@ -267,7 +262,7 @@ func (service *SubscriptionService) RefreshMarketPrice() (MarketPriceView, error
 }
 
 func (service *SubscriptionService) buildGoalProgress(goal model.BusinessGoal, currentProfitCents int64) BusinessGoalProgress {
-	earnedProfitCents := currentProfitCents - goal.BaselineProfitCents
+	earnedProfitCents := currentProfitCents
 	remainingProfitCents := goal.TargetProfitCents - earnedProfitCents
 	if remainingProfitCents < 0 {
 		remainingProfitCents = 0

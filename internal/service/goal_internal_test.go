@@ -34,16 +34,8 @@ func openGoalTestService(t *testing.T) *SubscriptionService {
 	}
 }
 
-func TestBusinessGoalProgressUsesProfitBaselineAcrossTeamPlusAndRefunds(t *testing.T) {
+func TestBusinessGoalProgressIncludesExistingProfitAcrossTeamPlusAndRefunds(t *testing.T) {
 	service := openGoalTestService(t)
-	goalID, err := service.CreateBusinessGoal(BusinessGoalInput{
-		Name:             "August profit",
-		TargetProfitYuan: "1000.00",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	accountID, err := service.CreateAccount(CreateAccountInput{
 		Name:      "team-owner@example.com",
 		CostYuan:  "30.00",
@@ -100,6 +92,13 @@ func TestBusinessGoalProgressUsesProfitBaselineAcrossTeamPlusAndRefunds(t *testi
 	if err := service.SetAfterSalesCaseRefunded(cancellation.CaseID, true); err != nil {
 		t.Fatal(err)
 	}
+	goalID, err := service.CreateBusinessGoal(BusinessGoalInput{
+		Name:             "August cumulative profit",
+		TargetProfitYuan: "1000.00",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	center, err := service.GetGoalCenter()
 	if err != nil {
@@ -114,6 +113,19 @@ func TestBusinessGoalProgressUsesProfitBaselineAcrossTeamPlusAndRefunds(t *testi
 	}
 	if center.ActiveGoal.RemainingProfitCents != 84000 || center.ActiveGoal.ProgressPercent != 16 {
 		t.Fatalf("goal progress = %#v", center.ActiveGoal)
+	}
+	if center.ActiveGoal.Goal.BaselineProfitCents != 0 {
+		t.Fatalf("goal baseline = %d, want 0", center.ActiveGoal.Goal.BaselineProfitCents)
+	}
+	if err := service.CompleteBusinessGoal(goalID); err != nil {
+		t.Fatal(err)
+	}
+	goals, err := service.Store.ListBusinessGoals(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(goals) != 1 || goals[0].ResultProfitCents != 16000 {
+		t.Fatalf("completed goals = %#v, want cumulative result 16000", goals)
 	}
 }
 

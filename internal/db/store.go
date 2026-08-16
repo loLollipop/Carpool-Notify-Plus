@@ -345,6 +345,9 @@ func (store *Store) migrate() error {
 	if err := store.repairMisdatedInitialBills(); err != nil {
 		return err
 	}
+	if err := store.normalizeBusinessGoalProfitBaselines(); err != nil {
+		return err
+	}
 	// Legacy migrations (subscription_type → accounts/seats, paid_due → bills) are not
 	// re-run: production bills and accounts are the source of truth and must not grow
 	// from stale paid_due_occurrences rows on every process start.
@@ -407,6 +410,28 @@ func (store *Store) migrate() error {
 		if err := store.SetSetting(model.SettingEnabledChannels, string(channelsJSON)); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// normalizeBusinessGoalProfitBaselines converts the original incremental-goal
+// representation to cumulative-profit goals. Completed rows stored the profit
+// earned after the goal was created, so their locked baseline is added once;
+// active rows only need the now-unused baseline cleared. The baseline predicate
+// makes this migration safe to run on every startup.
+func (store *Store) normalizeBusinessGoalProfitBaselines() error {
+	_, err := store.database.Exec(`
+		UPDATE business_goals
+		SET result_profit_cents = CASE
+				WHEN status = ? THEN result_profit_cents + baseline_profit_cents
+				ELSE result_profit_cents
+			END,
+			baseline_profit_cents = 0
+		WHERE baseline_profit_cents <> 0`,
+		model.BusinessGoalStatusCompleted,
+	)
+	if err != nil {
+		return fmt.Errorf("normalize business goal profit baselines: %w", err)
 	}
 	return nil
 }
