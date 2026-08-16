@@ -1,16 +1,19 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
-  Area,
-  AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
+  Cell,
+  ComposedChart,
+  Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip as ChartTooltip,
   XAxis,
   YAxis,
 } from "recharts"
 import {
-  ArrowUpRight,
   CalendarClock,
   CheckCircle2,
   CircleGauge,
@@ -74,6 +77,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { maskAmount } from "@/lib/amount-privacy"
 import { cn } from "@/lib/utils"
@@ -186,13 +190,13 @@ function Metric({
   icon: React.ComponentType<{ className?: string }>
 }) {
   return (
-    <div className="min-w-0 border-t border-border/70 px-4 py-4 first:border-t-0 sm:border-l sm:border-t-0 sm:first:border-l-0 sm:px-5">
+    <div className="min-w-0 border-l border-border/70 px-3 py-3.5 first:border-l-0 sm:px-4">
       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <Icon className="size-3.5 text-brand" />
-        {label}
+        <span className="truncate">{label}</span>
       </div>
-      <div className="mt-2 truncate text-xl font-semibold tabular-nums">{value}</div>
-      <p className="mt-1 truncate text-[11px] text-muted-foreground">{detail}</p>
+      <div className="mt-1.5 truncate text-base font-semibold tabular-nums sm:text-lg">{value}</div>
+      <p className="mt-0.5 hidden truncate text-[11px] text-muted-foreground sm:block">{detail}</p>
     </div>
   )
 }
@@ -215,47 +219,45 @@ function ActiveGoalPanel({
 
   return (
     <section className="overflow-hidden rounded-lg border bg-card shadow-card animate-fade-up">
-      <div className="grid lg:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.6fr)]">
-        <div className="p-5 sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant={data.reached ? "success" : "brand"}>
-                  {data.reached ? <CheckCircle2 /> : <Target />}
-                  {data.reached ? t("goals.reached") : t("goals.inProgress")}
-                </Badge>
-              </div>
-              <h2 className="mt-3 truncate text-xl font-semibold sm:text-2xl">{data.goal.name}</h2>
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <Button variant="outline" size="sm" onClick={onEdit}>
-                <Pencil />
-                {t("common.edit")}
-              </Button>
-              <Button variant={data.reached ? "default" : "outline"} size="sm" onClick={onComplete}>
-                <CheckCircle2 />
-                {t("goals.complete")}
-              </Button>
-            </div>
-          </div>
+      <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <Badge className="shrink-0" variant={data.reached ? "success" : "brand"}>
+            {data.reached ? <CheckCircle2 /> : <Target />}
+            {data.reached ? t("goals.reached") : t("goals.inProgress")}
+          </Badge>
+          <h2 className="truncate text-base font-semibold sm:text-lg">{data.goal.name}</h2>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onEdit}>
+            <Pencil />
+            {t("common.edit")}
+          </Button>
+          <Button variant={data.reached ? "default" : "outline"} size="sm" onClick={onComplete}>
+            <CheckCircle2 />
+            {t("goals.complete")}
+          </Button>
+        </div>
+      </div>
 
-          <div className="mt-8 flex items-end justify-between gap-4">
-            <div>
+      <div className="grid xl:grid-cols-[minmax(0,1.1fr)_minmax(520px,0.9fr)]">
+        <div className="p-4 sm:p-5">
+          <div className="flex items-end justify-between gap-4">
+            <div className="min-w-0">
               <p className="text-xs font-medium text-muted-foreground">{t("goals.earned")}</p>
-              <p className="mt-1 text-3xl font-semibold tabular-nums sm:text-4xl">
+              <p className="mt-1 truncate text-2xl font-semibold tabular-nums sm:text-3xl">
                 {visibleYuan(data.earned_profit_cents, amountsHidden)}
               </p>
             </div>
             <p className="shrink-0 text-sm font-semibold text-brand tabular-nums">{progress}%</p>
           </div>
-          <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted">
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
             <div
               className="h-full rounded-full bg-brand transition-[width] duration-700"
               style={{ width: `${Math.max(progress, progress > 0 ? 2 : 0)}%` }}
             />
           </div>
-          <div className="mt-3 flex flex-col gap-1.5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-            <span>{t("goals.baselineLocked")}</span>
+          <div className="mt-2.5 flex flex-col gap-1 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <span>{t("goals.currentProfitIncluded")}</span>
             <span className="tabular-nums sm:text-right">
               {t("goals.targetValue", {
                 value: visibleYuan(data.goal.target_profit_cents, amountsHidden),
@@ -264,7 +266,7 @@ function ActiveGoalPanel({
           </div>
         </div>
 
-        <div className="grid border-t border-border/70 sm:grid-cols-3 lg:grid-cols-1 lg:border-l lg:border-t-0">
+        <div className="grid grid-cols-3 border-t border-border/70 xl:border-l xl:border-t-0">
           <Metric
             label={t("goals.remaining")}
             value={visibleYuan(data.remaining_profit_cents, amountsHidden)}
@@ -305,26 +307,22 @@ function ForecastRow({
   return (
     <div
       className={cn(
-        "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-t px-4 py-3 first:border-t-0",
+        "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 border-t px-4 py-2.5 first:border-t-0",
         emphasis && "bg-brand/[0.055]",
       )}
     >
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold">{label}</span>
-        </div>
-        <p className="mt-1 text-xs text-muted-foreground tabular-nums">
-          {available
-            ? t("goals.monthlyPace", {
-                amount: visibleYuan(scenario.monthly_profit_cents, amountsHidden),
-                months: scenario.months_needed,
-              })
-            : t("goals.forecastUnavailable")}
-        </p>
-      </div>
+      <span className="min-w-0 truncate text-sm font-semibold">{label}</span>
       <span className="text-sm font-semibold tabular-nums">
         {scenario.projected_date || "-"}
       </span>
+      <p className="col-span-2 text-[11px] text-muted-foreground tabular-nums">
+        {available
+          ? t("goals.monthlyPace", {
+              amount: visibleYuan(scenario.monthly_profit_cents, amountsHidden),
+              months: scenario.months_needed,
+            })
+          : t("goals.forecastUnavailable")}
+      </p>
     </div>
   )
 }
@@ -338,8 +336,8 @@ function ForecastPanel({
 }) {
   const { t } = useTranslation()
   return (
-    <section className="overflow-hidden rounded-lg border bg-card shadow-card">
-      <div className="flex items-center justify-between gap-3 border-b px-5 py-4">
+    <section className="h-full overflow-hidden rounded-lg border bg-card shadow-card">
+      <div className="flex items-center justify-between gap-3 border-b px-4 py-3.5">
         <div>
           <h2 className="text-sm font-semibold">{t("goals.forecastTitle")}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -372,23 +370,26 @@ function ProfitTrend({ data, amountsHidden }: { data: GoalCenter; amountsHidden:
   const { t } = useTranslation()
   const trend = data.trend ?? []
   return (
-    <section className="min-h-[310px] rounded-lg border bg-card p-5 shadow-card">
-      <div className="flex items-center justify-between gap-3">
+    <section className="min-h-[260px] rounded-lg border bg-card p-4 shadow-card">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">{t("goals.trendTitle")}</h2>
           <p className="mt-1 text-xs text-muted-foreground">{t("goals.trendRange")}</p>
         </div>
-        <TrendingUp className="size-5 text-success" />
+        <div className="flex items-center gap-3 text-[10px] font-medium text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="size-2.5 rounded-sm bg-success" />
+            {t("goals.monthProfit")}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-0.5 w-4 rounded-full bg-brand" />
+            {t("goals.monthRevenue")}
+          </span>
+        </div>
       </div>
-      <div className="mt-5 h-[225px] w-full">
+      <div className="mt-3 h-[182px] w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={trend} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-            <defs>
-              <linearGradient id="goal-profit-fill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="var(--success)" stopOpacity={0.28} />
-                <stop offset="100%" stopColor="var(--success)" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
+          <ComposedChart data={trend} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
             <CartesianGrid stroke="var(--border)" strokeDasharray="3 5" vertical={false} />
             <XAxis
               dataKey="month"
@@ -403,11 +404,12 @@ function ProfitTrend({ data, amountsHidden }: { data: GoalCenter; amountsHidden:
               tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
               tickFormatter={(value: number) => (amountsHidden ? "*" : `${Math.round(value / 100)}`)}
             />
+            <ReferenceLine y={0} stroke="var(--muted-foreground)" strokeOpacity={0.45} />
             <ChartTooltip
-              cursor={{ stroke: "var(--border)" }}
-              formatter={(value) => [
+              cursor={{ fill: "color-mix(in oklab, var(--brand) 7%, transparent)" }}
+              formatter={(value, name) => [
                 visibleYuan(Number(value ?? 0), amountsHidden),
-                t("goals.monthProfit"),
+                name === "revenue_cents" ? t("goals.monthRevenue") : t("goals.monthProfit"),
               ]}
               labelFormatter={(label) => String(label)}
               contentStyle={{
@@ -418,14 +420,23 @@ function ProfitTrend({ data, amountsHidden }: { data: GoalCenter; amountsHidden:
                 fontSize: 12,
               }}
             />
-            <Area
-              type="monotone"
-              dataKey="profit_cents"
-              stroke="var(--success)"
-              strokeWidth={2}
-              fill="url(#goal-profit-fill)"
+            <Bar dataKey="profit_cents" maxBarSize={24} radius={[4, 4, 4, 4]}>
+              {trend.map((month) => (
+                <Cell
+                  key={month.month}
+                  fill={month.profit_cents < 0 ? "var(--destructive)" : "var(--success)"}
+                />
+              ))}
+            </Bar>
+            <Line
+              type="linear"
+              dataKey="revenue_cents"
+              stroke="var(--brand)"
+              strokeWidth={2.25}
+              dot={{ r: 2.5, fill: "var(--card)", strokeWidth: 2 }}
+              activeDot={{ r: 4, strokeWidth: 2, fill: "var(--card)" }}
             />
-          </AreaChart>
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
     </section>
@@ -455,137 +466,164 @@ function MarketPanel({
   const pricing = data.pricing
   const market = data.market
   const snapshot = market.snapshot
+  const utilization = Math.min(100, Math.max(0, pricing.utilization_percent || 0))
+  const benchmarkData = snapshot
+    ? [
+        {
+          label: t("goals.seatCostFloorShort"),
+          value: pricing.seat_cost_floor_cents,
+          color: "var(--muted-foreground)",
+        },
+        {
+          label: t("goals.internalMedianShort"),
+          value: pricing.internal_median_price_cents,
+          color: "var(--brand)",
+        },
+        {
+          label: t("goals.marketLow"),
+          value: snapshot.low_price_cents,
+          color: "color-mix(in oklab, var(--success) 48%, var(--muted))",
+        },
+        {
+          label: t("goals.marketMedianShort"),
+          value: snapshot.median_price_cents,
+          color: "var(--success)",
+        },
+        {
+          label: t("goals.marketHigh"),
+          value: snapshot.high_price_cents,
+          color: "color-mix(in oklab, var(--success) 68%, var(--muted))",
+        },
+      ]
+    : []
 
   return (
-    <section className="overflow-hidden rounded-lg border bg-card shadow-card">
-      <div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
-          <span className="grid size-9 place-items-center rounded-md bg-brand/10 text-brand">
-            <ArrowUpRight className="size-4" />
-          </span>
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-semibold">{t("goals.pricingTitle")}</h2>
-              <Badge variant={recommendationBadge[pricing.action]}>
-                {t(`goals.action.${pricing.action}`)}
-              </Badge>
-              {market.stale ? <Badge variant="warning">{t("goals.cached")}</Badge> : null}
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {snapshot
-                ? t("goals.marketUpdated", { count: snapshot.sample_count })
-                : t("goals.marketUnavailable")}
-            </p>
-          </div>
+    <section className="h-full min-h-[260px] overflow-hidden rounded-lg border bg-card shadow-card">
+      <div className="flex items-center justify-between gap-2 border-b px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <h2 className="truncate text-sm font-semibold">{t("goals.pricingTitle")}</h2>
+          <Badge className="shrink-0" variant={recommendationBadge[pricing.action]}>
+            {t(`goals.action.${pricing.action}`)}
+          </Badge>
+          {market.stale ? <Badge variant="warning">{t("goals.cached")}</Badge> : null}
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <a href={market.source_url} target="_blank" rel="noreferrer">
-              PriceAI
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Button variant="ghost" size="icon-sm" asChild>
+            <a href={market.source_url} target="_blank" rel="noreferrer" title="PriceAI">
               <ExternalLink />
+              <span className="sr-only">PriceAI</span>
             </a>
           </Button>
-          <Button variant="outline" size="sm" onClick={onRefresh} disabled={refreshing}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onRefresh}
+            disabled={refreshing}
+            title={t("goals.refreshMarket")}
+          >
             <RefreshCw className={cn(refreshing && "animate-spin")} />
-            {t("goals.refreshMarket")}
+            <span className="sr-only">{t("goals.refreshMarket")}</span>
           </Button>
         </div>
       </div>
 
-      <div className="grid lg:grid-cols-[minmax(300px,0.75fr)_minmax(0,1.25fr)]">
-        <div className="border-b p-5 lg:border-b-0 lg:border-r">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">{t("goals.seatUtilization")}</p>
-              <p className="mt-1 text-3xl font-semibold tabular-nums">{pricing.utilization_percent}%</p>
+      <div className="p-4">
+        <div className="grid grid-cols-[92px_minmax(0,1fr)] items-center gap-3">
+          <div
+            className="relative grid size-[88px] place-items-center rounded-full"
+            style={{
+              background: `conic-gradient(var(--brand) ${utilization * 3.6}deg, var(--muted) 0deg)`,
+            }}
+            role="img"
+            aria-label={t("goals.seatUtilizationValue", { value: utilization })}
+          >
+            <span className="absolute inset-[9px] rounded-full bg-card" />
+            <div className="relative text-center">
+              <p className="text-lg font-semibold tabular-nums">{utilization}%</p>
+              <p className="text-[9px] text-muted-foreground">{t("goals.utilizationShort")}</p>
             </div>
-            <p className="text-xs text-muted-foreground tabular-nums">
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-semibold">{t(`goals.actionTitle.${pricing.action}`)}</p>
+            <p className="mt-1 text-[10px] text-muted-foreground tabular-nums">
               {t("goals.seatUsage", {
                 used: pricing.seat_used,
                 total: pricing.seat_total,
                 available: pricing.seat_available,
               })}
             </p>
-          </div>
-          <div className="mt-4 grid grid-cols-10 gap-1.5" aria-hidden="true">
-            {Array.from({ length: 10 }).map((_, index) => (
-              <span
-                key={index}
-                className={cn(
-                  "h-2 rounded-sm bg-muted",
-                  index < Math.round(pricing.utilization_percent / 10) && "bg-brand",
-                )}
-              />
-            ))}
-          </div>
-          <div className="mt-5 grid grid-cols-2 gap-4 border-t pt-4">
-            <div>
-              <p className="text-[11px] text-muted-foreground">{t("goals.internalMedian")}</p>
-              <p className="mt-1 text-base font-semibold tabular-nums">
-                {visibleYuan(pricing.internal_median_price_cents, amountsHidden)}
-              </p>
-            </div>
-            <div>
-              <p className="text-[11px] text-muted-foreground">{t("goals.seatCostFloor")}</p>
-              <p className="mt-1 text-base font-semibold tabular-nums">
-                {visibleYuan(pricing.seat_cost_floor_cents, amountsHidden)}
-              </p>
-            </div>
+            {pricing.suggested_low_price_cents > 0 ? (
+              <div className="mt-2 rounded-md bg-brand/[0.06] px-2.5 py-2">
+                <p className="text-[9px] font-medium text-muted-foreground">{t("goals.suggestedRange")}</p>
+                <p className="mt-0.5 truncate text-sm font-semibold tabular-nums text-brand">
+                  {visibleYuan(pricing.suggested_low_price_cents, amountsHidden)}
+                  <span className="mx-1 text-muted-foreground">-</span>
+                  {visibleYuan(pricing.suggested_high_price_cents, amountsHidden)}
+                </p>
+              </div>
+            ) : null}
           </div>
         </div>
 
-        <div className="p-5">
-          {snapshot ? (
-            <>
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  [t("goals.marketLow"), snapshot.low_price_cents],
-                  [t("goals.marketMedian"), snapshot.median_price_cents],
-                  [t("goals.marketHigh"), snapshot.high_price_cents],
-                ].map(([label, value], index) => (
-                  <div key={String(label)} className="min-w-0 border-l pl-3 first:border-l-0 first:pl-0">
-                    <p className="truncate text-[11px] text-muted-foreground">{label}</p>
-                    <p className={cn("mt-1 truncate text-lg font-semibold tabular-nums", index === 1 && "text-brand")}>
-                      {visibleYuan(Number(value), amountsHidden)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-5 rounded-md border border-brand/15 bg-brand/[0.045] p-4">
-                <p className="text-sm font-semibold">{t(`goals.actionTitle.${pricing.action}`)}</p>
-                <p className="mt-1.5 text-xs leading-6 text-muted-foreground">
-                  {(pricing.reason_codes ?? []).map((reason) => t(`goals.reason.${reason}`)).join(" ")}
-                </p>
-                {pricing.suggested_low_price_cents > 0 ? (
-                  <div className="mt-3 flex items-center justify-between gap-3 border-t border-brand/10 pt-3">
-                    <span className="text-xs font-medium text-muted-foreground">{t("goals.suggestedRange")}</span>
-                    <span className="text-sm font-semibold tabular-nums text-brand">
-                      {visibleYuan(pricing.suggested_low_price_cents, amountsHidden)}
-                      <span className="mx-1.5 text-muted-foreground">-</span>
-                      {visibleYuan(pricing.suggested_high_price_cents, amountsHidden)}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-            </>
-          ) : (
-            <div className="grid min-h-40 place-items-center text-center">
-              <div>
-                <RefreshCw className="mx-auto size-5 text-muted-foreground" />
-                <p className="mt-3 text-sm font-medium">{t("goals.marketUnavailable")}</p>
-                {market.warning ? (
-                  <p className="mt-1 max-w-md text-xs text-muted-foreground">{market.warning}</p>
-                ) : null}
-              </div>
+        {snapshot ? (
+          <div className="mt-3 border-t pt-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[10px] font-medium text-muted-foreground">{t("goals.priceBenchmark")}</p>
+              <p className="text-[9px] text-muted-foreground">
+                {t("goals.marketSamples", { count: snapshot.sample_count })}
+              </p>
             </div>
-          )}
-        </div>
+            <div className="mt-1 h-[118px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={benchmarkData}
+                  layout="vertical"
+                  margin={{ top: 0, right: 4, left: 0, bottom: 0 }}
+                >
+                  <XAxis type="number" hide domain={[0, "dataMax"]} />
+                  <YAxis
+                    type="category"
+                    dataKey="label"
+                    axisLine={false}
+                    tickLine={false}
+                    width={58}
+                    tick={{ fill: "var(--muted-foreground)", fontSize: 9 }}
+                  />
+                  <ChartTooltip
+                    cursor={{ fill: "color-mix(in oklab, var(--brand) 6%, transparent)" }}
+                    formatter={(value) => [visibleYuan(Number(value ?? 0), amountsHidden), t("goals.price")]}
+                    contentStyle={{
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      background: "var(--popover)",
+                      color: "var(--popover-foreground)",
+                      fontSize: 11,
+                    }}
+                  />
+                  <Bar dataKey="value" maxBarSize={11} radius={[0, 4, 4, 0]}>
+                    {benchmarkData.map((item) => (
+                      <Cell key={item.label} fill={item.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-3 grid min-h-[120px] place-items-center border-t pt-3 text-center">
+            <div>
+              <RefreshCw className="mx-auto size-5 text-muted-foreground" />
+              <p className="mt-2 text-xs font-medium">{t("goals.marketUnavailable")}</p>
+            </div>
+          </div>
+        )}
       </div>
     </section>
   )
 }
 
 type PricingFilter = "recommended" | "below_market" | "scheduled" | "all"
+const pricingPageSize = 8
 
 const marketPositionBadge = {
   below_low: "destructive",
@@ -621,6 +659,7 @@ function BulkPricingPanel({
   const [selected, setSelected] = React.useState<Set<number>>(() => new Set())
   const [nextPrice, setNextPrice] = React.useState("")
   const [confirmOpen, setConfirmOpen] = React.useState(false)
+  const [page, setPage] = React.useState(1)
 
   const filtered = React.useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase()
@@ -635,7 +674,12 @@ function BulkPricingPanel({
     })
   }, [candidates, filter, search])
 
-  const visibleEligibleIDs = filtered
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pricingPageSize))
+  const currentPage = Math.min(page, pageCount)
+  const pageStart = (currentPage - 1) * pricingPageSize
+  const pageCandidates = filtered.slice(pageStart, pageStart + pricingPageSize)
+
+  const visibleEligibleIDs = pageCandidates
     .filter((candidate) => candidate.eligible)
     .map((candidate) => candidate.subscription_id)
   const allVisibleSelected =
@@ -690,6 +734,7 @@ function BulkPricingPanel({
   function selectRecommendations() {
     const recommended = candidates.filter((candidate) => candidate.recommended && candidate.eligible)
     setFilter("recommended")
+    setPage(1)
     setSelected(new Set(recommended.map((candidate) => candidate.subscription_id)))
     if (!nextPrice && data.market.snapshot?.median_price_cents) {
       setNextPrice(inputYuan(data.market.snapshot.median_price_cents))
@@ -732,12 +777,21 @@ function BulkPricingPanel({
           <Input
             className="pl-9"
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setSearch(event.target.value)
+              setPage(1)
+            }}
             placeholder={t("goals.searchCustomer")}
             aria-label={t("goals.searchCustomer")}
           />
         </div>
-        <Select value={filter} onValueChange={(value) => setFilter(value as PricingFilter)}>
+        <Select
+          value={filter}
+          onValueChange={(value) => {
+            setFilter(value as PricingFilter)
+            setPage(1)
+          }}
+        >
           <SelectTrigger aria-label={t("goals.priceFilter")}>
             <SelectValue />
           </SelectTrigger>
@@ -774,7 +828,7 @@ function BulkPricingPanel({
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((candidate) => {
+            {pageCandidates.map((candidate) => {
               const contact = candidate.customer_wechat || candidate.customer_email || "-"
               return (
                 <TableRow
@@ -845,6 +899,40 @@ function BulkPricingPanel({
         </div>
       )}
 
+      {filtered.length > pricingPageSize ? (
+        <div className="flex flex-col gap-2 border-t bg-muted/10 px-4 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs tabular-nums text-muted-foreground">
+            {t("goals.pageStatus", {
+              page: currentPage,
+              pageCount,
+              start: pageStart + 1,
+              end: Math.min(pageStart + pricingPageSize, filtered.length),
+              total: filtered.length,
+            })}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-10 flex-1 sm:min-h-8 sm:flex-none"
+              disabled={currentPage <= 1}
+              onClick={() => setPage(Math.max(1, currentPage - 1))}
+            >
+              {t("goals.prevPage")}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-10 flex-1 sm:min-h-8 sm:flex-none"
+              disabled={currentPage >= pageCount}
+              onClick={() => setPage(Math.min(pageCount, currentPage + 1))}
+            >
+              {t("goals.nextPage")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 border-t bg-muted/25 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)_auto] lg:items-end">
         <div>
           <p className="text-sm font-semibold">
@@ -910,14 +998,14 @@ function GoalHistory({ data, amountsHidden }: { data: GoalCenter; amountsHidden:
   const history = data.history ?? []
   if (history.length === 0) return null
   return (
-    <section className="overflow-hidden rounded-lg border bg-card shadow-card">
-      <div className="border-b px-5 py-4">
+    <section className="h-full overflow-hidden rounded-lg border bg-card shadow-card">
+      <div className="border-b px-4 py-3.5">
         <h2 className="text-sm font-semibold">{t("goals.historyTitle")}</h2>
       </div>
-      <div className="divide-y">
+      <div className="max-h-[240px] divide-y overflow-y-auto">
         {history.map((item) => (
-          <div key={item.goal.id} className="grid gap-3 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
-            <div className="min-w-0">
+          <div key={item.goal.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-4 py-2.5">
+            <div className="col-span-2 min-w-0">
               <p className="truncate text-sm font-medium">{item.goal.name}</p>
               <p className="mt-0.5 text-[11px] text-muted-foreground">
                 {t("goals.completedAt", {
@@ -965,6 +1053,9 @@ export function GoalsPage() {
     (goalId: number) => completeBusinessGoal(goalId),
     { onSuccess: () => setCompleteOpen(false) },
   )
+  const recommendedPricingCount =
+    query.data?.pricing_candidates?.filter((candidate) => candidate.recommended).length ?? 0
+  const hasGoalHistory = (query.data?.history?.length ?? 0) > 0
 
   return (
     <div className="space-y-4 pb-4">
@@ -985,11 +1076,9 @@ export function GoalsPage() {
 
       {query.isPending ? (
         <div className="grid gap-4">
-          <Skeleton className="h-[340px] rounded-lg" />
-          <div className="grid gap-4 xl:grid-cols-2">
-            <Skeleton className="h-[310px] rounded-lg" />
-            <Skeleton className="h-[310px] rounded-lg" />
-          </div>
+          <Skeleton className="h-[220px] rounded-lg" />
+          <Skeleton className="h-11 w-full rounded-lg sm:w-[520px]" />
+          <Skeleton className="h-[280px] rounded-lg" />
         </div>
       ) : query.isError ? (
         <Card className="items-center justify-center gap-3 py-16 text-center">
@@ -1012,28 +1101,73 @@ export function GoalsPage() {
             <EmptyGoal onCreate={() => setDialogOpen(true)} />
           )}
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(360px,0.8fr)_minmax(0,1.2fr)]">
-            {query.data.forecast ? (
-              <ForecastPanel data={query.data.forecast} amountsHidden={amountsHidden} />
-            ) : (
-              <section className="grid min-h-[310px] place-items-center rounded-lg border bg-card p-8 text-center shadow-card">
-                <div>
-                  <CircleGauge className="mx-auto size-6 text-muted-foreground" />
-                  <p className="mt-3 text-sm font-medium">{t("goals.noForecast")}</p>
-                </div>
-              </section>
-            )}
-            <ProfitTrend data={query.data} amountsHidden={amountsHidden} />
-          </div>
+          <Tabs defaultValue="overview" className="gap-3">
+            <TabsList
+              className="grid h-11 w-full grid-cols-2 bg-muted/70 p-1 sm:w-fit sm:min-w-[360px]"
+              aria-label={t("goals.workspaceNav")}
+            >
+              <TabsTrigger value="overview" className="h-9 px-3 text-xs sm:px-4 sm:text-sm">
+                <CircleGauge />
+                {t("goals.overviewTab")}
+              </TabsTrigger>
+              <TabsTrigger value="repricing" className="h-9 px-3 text-xs sm:px-4 sm:text-sm">
+                <SlidersHorizontal />
+                {t("goals.repricingTab")}
+                {recommendedPricingCount > 0 ? (
+                  <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-warning-foreground">
+                    {recommendedPricingCount}
+                  </span>
+                ) : null}
+              </TabsTrigger>
+            </TabsList>
 
-          <MarketPanel
-            data={query.data}
-            amountsHidden={amountsHidden}
-            refreshing={refreshMutation.isPending}
-            onRefresh={() => refreshMutation.mutate()}
-          />
-          <BulkPricingPanel data={query.data} amountsHidden={amountsHidden} />
-          <GoalHistory data={query.data} amountsHidden={amountsHidden} />
+            <TabsContent
+              value="overview"
+              forceMount
+              className="mt-0 data-[state=inactive]:hidden animate-fade-in"
+            >
+              <div
+                className={cn(
+                  "grid items-stretch gap-4 lg:grid-cols-2 xl:grid-cols-[minmax(220px,0.72fr)_minmax(330px,1.15fr)_minmax(290px,0.94fr)]",
+                  hasGoalHistory &&
+                    "xl:grid-cols-[minmax(220px,0.72fr)_minmax(330px,1.15fr)_minmax(290px,0.94fr)_minmax(210px,0.65fr)]",
+                )}
+              >
+                {query.data.forecast ? (
+                  <ForecastPanel data={query.data.forecast} amountsHidden={amountsHidden} />
+                ) : (
+                  <section className="grid min-h-[260px] place-items-center rounded-lg border bg-card p-6 text-center shadow-card">
+                    <div>
+                      <CircleGauge className="mx-auto size-6 text-muted-foreground" />
+                      <p className="mt-3 text-sm font-medium">{t("goals.noForecast")}</p>
+                    </div>
+                  </section>
+                )}
+                <ProfitTrend data={query.data} amountsHidden={amountsHidden} />
+                <div className="lg:col-span-2 xl:col-span-1">
+                  <MarketPanel
+                    data={query.data}
+                    amountsHidden={amountsHidden}
+                    refreshing={refreshMutation.isPending}
+                    onRefresh={() => refreshMutation.mutate()}
+                  />
+                </div>
+                {hasGoalHistory ? (
+                  <div className="lg:col-span-2 xl:col-span-1">
+                    <GoalHistory data={query.data} amountsHidden={amountsHidden} />
+                  </div>
+                ) : null}
+              </div>
+            </TabsContent>
+
+            <TabsContent
+              value="repricing"
+              forceMount
+              className="mt-0 data-[state=inactive]:hidden animate-fade-in"
+            >
+              <BulkPricingPanel data={query.data} amountsHidden={amountsHidden} />
+            </TabsContent>
+          </Tabs>
         </>
       ) : null}
 
