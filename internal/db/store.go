@@ -22,25 +22,26 @@ type Store struct {
 }
 
 var (
-	ErrRedemptionCodeNotFound           = errors.New("redemption code not found")
-	ErrRedemptionCodeUsed               = errors.New("redemption code used")
-	ErrRedemptionCodeDisabled           = errors.New("redemption code disabled")
-	ErrRedemptionCodeNotUnused          = errors.New("redemption code not unused")
-	ErrRedemptionAlreadyProcessed       = errors.New("redemption application already processed")
-	ErrActiveSeatOccupied               = errors.New("active seat already occupied")
-	ErrBillHasAfterSalesCase            = errors.New("bill is referenced by an after-sales case")
-	ErrBillOccurrenceConflict           = errors.New("bill occurrence already exists")
-	ErrInitialBillNotMovable            = errors.New("initial bill cannot be moved")
-	ErrSubscriptionHasPendingAfterSales = errors.New("subscription has a pending after-sales case")
-	ErrAfterSalesProcessed              = errors.New("after-sales case already processed")
-	ErrCancellationPending              = errors.New("subscription cancellation already pending")
-	ErrCancellationCaseConflict         = errors.New("subscription already has an after-sales case for this date")
-	ErrCancellationNotReassignable      = errors.New("cancellation case cannot be reassigned")
-	ErrAfterSalesOriginalSeatBusy       = errors.New("original after-sales seat is occupied")
-	ErrReplacementAccountBanned         = errors.New("replacement account is banned")
-	ErrReplacementSeatUnavailable       = errors.New("replacement seat unavailable")
-	ErrReplacementSeatOccupied          = errors.New("replacement seat is occupied")
-	ErrReplacementSeatUnchanged         = errors.New("replacement seat is unchanged")
+	ErrRedemptionCodeNotFound            = errors.New("redemption code not found")
+	ErrRedemptionCodeUsed                = errors.New("redemption code used")
+	ErrRedemptionCodeDisabled            = errors.New("redemption code disabled")
+	ErrRedemptionCodeNotUnused           = errors.New("redemption code not unused")
+	ErrRedemptionAlreadyProcessed        = errors.New("redemption application already processed")
+	ErrActiveSeatOccupied                = errors.New("active seat already occupied")
+	ErrBillHasAfterSalesCase             = errors.New("bill is referenced by an after-sales case")
+	ErrBillOccurrenceConflict            = errors.New("bill occurrence already exists")
+	ErrInitialBillNotMovable             = errors.New("initial bill cannot be moved")
+	ErrSubscriptionFinancialStateChanged = errors.New("subscription financial state changed")
+	ErrSubscriptionHasPendingAfterSales  = errors.New("subscription has a pending after-sales case")
+	ErrAfterSalesProcessed               = errors.New("after-sales case already processed")
+	ErrCancellationPending               = errors.New("subscription cancellation already pending")
+	ErrCancellationCaseConflict          = errors.New("subscription already has an after-sales case for this date")
+	ErrCancellationNotReassignable       = errors.New("cancellation case cannot be reassigned")
+	ErrAfterSalesOriginalSeatBusy        = errors.New("original after-sales seat is occupied")
+	ErrReplacementAccountBanned          = errors.New("replacement account is banned")
+	ErrReplacementSeatUnavailable        = errors.New("replacement seat unavailable")
+	ErrReplacementSeatOccupied           = errors.New("replacement seat is occupied")
+	ErrReplacementSeatUnchanged          = errors.New("replacement seat is unchanged")
 )
 
 // Open creates the database file if needed, opens a connection, and migrates.
@@ -1599,7 +1600,11 @@ func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscript
 			  AND archived_at IS NULL
 			  AND LOWER(TRIM(COALESCE(business_type, 'team'))) = ?
 			  AND COALESCE(is_resale, 0) = 0
-			  AND seat_id IS NOT NULL
+			  AND price_per_person_cents = ?
+			  AND cron_expr = ?
+			  AND boarded_at = ?
+			  AND seat_id = ?
+			  AND next_price_cents IS NULL
 			  AND NOT EXISTS (
 				SELECT 1
 				FROM after_sales_cases
@@ -1611,6 +1616,10 @@ func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscript
 			now,
 			subscription.ID,
 			model.SubscriptionBusinessTeam,
+			subscription.PricePerPersonCents,
+			subscription.CronExpr,
+			strings.TrimSpace(subscription.BoardedAt),
+			subscription.SeatID,
 			model.AfterSalesStatusPending,
 			model.AfterSalesStatusReview,
 		)
@@ -1890,6 +1899,38 @@ func (store *Store) SetDuePaid(
 	amountCents int64,
 	costSnapshotCents ...int64,
 ) error {
+	return store.setDuePaid(subscriptionID, dueDate, paid, amountCents, nil, costSnapshotCents...)
+}
+
+// SetDuePaidForSubscription records a bill only if the active subscription is
+// still the same snapshot used to calculate its amount. This prevents a stale
+// browser request from posting an old price after a concurrent edit.
+func (store *Store) SetDuePaidForSubscription(
+	subscription model.Subscription,
+	dueDate string,
+	paid bool,
+	amountCents int64,
+	costSnapshotCents ...int64,
+) error {
+	expectedUpdatedAt := subscription.UpdatedAt
+	return store.setDuePaid(
+		subscription.ID,
+		dueDate,
+		paid,
+		amountCents,
+		&expectedUpdatedAt,
+		costSnapshotCents...,
+	)
+}
+
+func (store *Store) setDuePaid(
+	subscriptionID int64,
+	dueDate string,
+	paid bool,
+	amountCents int64,
+	expectedUpdatedAt *time.Time,
+	costSnapshotCents ...int64,
+) error {
 	if !paid {
 		bill, err := store.GetBillByOccurrence(subscriptionID, dueDate)
 		if err == sql.ErrNoRows {
@@ -1919,6 +1960,34 @@ func (store *Store) SetDuePaid(
 		return err
 	}
 	defer func() { _ = transaction.Rollback() }()
+	if expectedUpdatedAt != nil {
+		var storedUpdatedAt string
+		err := transaction.QueryRow(`
+			SELECT updated_at
+			FROM subscriptions AS subscription
+			WHERE subscription.id = ?
+			  AND subscription.deleted_at IS NULL
+			  AND subscription.archived_at IS NULL
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM after_sales_cases AS after_sales
+				WHERE after_sales.subscription_id = subscription.id
+				  AND after_sales.status IN (?, ?)
+			  )`,
+			subscriptionID,
+			model.AfterSalesStatusPending,
+			model.AfterSalesStatusReview,
+		).Scan(&storedUpdatedAt)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return ErrSubscriptionFinancialStateChanged
+			}
+			return err
+		}
+		if storedUpdatedAt != formatTime(expectedUpdatedAt.UTC()) {
+			return ErrSubscriptionFinancialStateChanged
+		}
+	}
 	result, err := transaction.Exec(`
 		INSERT INTO bills (
 			subscription_id, due_date, amount_cents, cost_cents, note, paid_at, created_at, updated_at
@@ -3224,6 +3293,22 @@ func (store *Store) MarkNotificationSuccess(logID int64, attemptCount int) error
 	return err
 }
 
+// MarkNotificationCanceled closes a pending notification without counting it
+// as either a successful delivery or a failure.
+func (store *Store) MarkNotificationCanceled(logID int64) error {
+	now := formatTime(time.Now().UTC())
+	_, err := store.database.Exec(`
+		UPDATE notification_log
+		SET status = ?, next_retry_at = NULL, last_error = '', updated_at = ?
+		WHERE id = ? AND status = ?`,
+		model.NotificationStatusCanceled,
+		now,
+		logID,
+		model.NotificationStatusPending,
+	)
+	return err
+}
+
 // MarkNotificationFailure records a failed attempt and optional retry time.
 func (store *Store) MarkNotificationFailure(logID int64, attemptCount int, lastError string, nextRetryAt *time.Time, finalFailed bool) error {
 	now := formatTime(time.Now().UTC())
@@ -3253,7 +3338,7 @@ func (store *Store) ListRetryableNotifications(now time.Time) ([]model.Notificat
 				       log.kind, log.created_at, log.updated_at
 				FROM notification_log AS log
 				INNER JOIN subscriptions AS subscription ON subscription.id = log.subscription_id
-				WHERE log.kind = ?
+				WHERE log.kind IN (?, ?)
 				  AND log.status = ?
 				  AND subscription.deleted_at IS NULL
 				  AND subscription.archived_at IS NULL
@@ -3265,6 +3350,7 @@ func (store *Store) ListRetryableNotifications(now time.Time) ([]model.Notificat
 				  )
 				  AND (log.next_retry_at IS NULL OR log.next_retry_at <= ?)`,
 		model.NotificationKindScheduled,
+		model.NotificationKindPriceIncreaseNotice,
 		model.NotificationStatusPending,
 		model.AfterSalesStatusPending,
 		model.AfterSalesStatusReview,
@@ -3295,9 +3381,9 @@ func (store *Store) CountFailedNotifications() (int, error) {
                 INNER JOIN subscriptions AS subscription ON subscription.id = log.subscription_id
                 WHERE subscription.deleted_at IS NULL
                   AND subscription.archived_at IS NULL
-                  AND log.kind = ?
+                  AND log.kind IN (?, ?)
                   AND log.status = ?`,
-		model.NotificationKindScheduled, model.NotificationStatusFailed,
+		model.NotificationKindScheduled, model.NotificationKindPriceIncreaseNotice, model.NotificationStatusFailed,
 	).Scan(&count)
 	return count, err
 }
@@ -3312,10 +3398,10 @@ func (store *Store) CountNotificationsByStatusSince(status string, since time.Ti
                 INNER JOIN subscriptions AS subscription ON subscription.id = log.subscription_id
                 WHERE subscription.deleted_at IS NULL
                   AND subscription.archived_at IS NULL
-                  AND log.kind = ?
+                  AND log.kind IN (?, ?)
                   AND log.status = ?
                   AND log.updated_at >= ?`,
-		model.NotificationKindScheduled, status, formatTime(since.UTC()),
+		model.NotificationKindScheduled, model.NotificationKindPriceIncreaseNotice, status, formatTime(since.UTC()),
 	).Scan(&count)
 	return count, err
 }
@@ -3328,10 +3414,11 @@ func (store *Store) LatestErrorsBySubscription() (map[int64]string, error) {
                 INNER JOIN (
                         SELECT subscription_id, MAX(id) AS max_id
                         FROM notification_log
-                        WHERE kind = ? AND last_error != ''
+						WHERE kind IN (?, ?) AND last_error != ''
                         GROUP BY subscription_id
                 ) AS latest ON latest.max_id = log.id`,
 		model.NotificationKindScheduled,
+		model.NotificationKindPriceIncreaseNotice,
 	)
 	if err != nil {
 		return nil, err

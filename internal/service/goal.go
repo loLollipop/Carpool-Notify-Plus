@@ -27,6 +27,18 @@ const (
 	marketHistoryLimit     = 24
 	defaultMarketTimeout   = 8 * time.Second
 	maxMarketResponseBytes = 2 << 20
+
+	// Repricing safeguards favor retention over extracting the full market gap
+	// immediately. The thresholds are intentionally conservative for monthly,
+	// relationship-based Team subscriptions.
+	minimumRepricingPaidPeriods      = 3
+	minimumRepricingRelationshipDays = 60
+	repricingCooldownDays            = 180
+	repricingAfterSalesRecoveryDays  = 30
+	maximumRepricingIncreasePercent  = 8
+	maximumRepricingIncreaseCents    = int64(1000)
+	marketRenewalDiscountPercent     = 5
+	minimumPriceIncreaseNoticeDays   = 30
 )
 
 // MarketHTTPDoer makes the external market client replaceable in tests.
@@ -116,6 +128,10 @@ type PricingCandidate struct {
 	MarketPosition         string `json:"market_position"`
 	GapToMarketMedianCents int64  `json:"gap_to_market_median_cents"`
 	SuggestedPriceCents    int64  `json:"suggested_price_cents"`
+	MaxIncreasePriceCents  int64  `json:"max_increase_price_cents"`
+	PaidPeriodCount        int    `json:"paid_period_count"`
+	RelationshipDays       int    `json:"relationship_days"`
+	LastPriceIncreaseDate  string `json:"last_price_increase_date"`
 	Recommended            bool   `json:"recommended"`
 	Eligible               bool   `json:"eligible"`
 	BlockedReason          string `json:"blocked_reason"`
@@ -250,7 +266,8 @@ func (service *SubscriptionService) GetGoalCenter() (GoalCenter, error) {
 	if err != nil {
 		return GoalCenter{}, err
 	}
-	center.Candidates, err = service.buildPricingCandidates(market.Snapshot)
+	minimumHealthyPrice := center.Pricing.SeatCostFloorCents * 120 / 100
+	center.Candidates, err = service.buildPricingCandidates(market.Snapshot, minimumHealthyPrice)
 	if err != nil {
 		return GoalCenter{}, err
 	}
@@ -695,23 +712,24 @@ func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.M
 	marketLow := snapshot.LowPriceCents
 	marketMedian := snapshot.MedianPriceCents
 	marketHigh := snapshot.HighPriceCents
+	attractiveMarketPrice := attractiveRenewalPriceCents(marketMedian)
 	minimumHealthyPrice := seatCostFloorCents * 120 / 100
 	switch {
 	case utilizationPercent < 70:
 		recommendation.Action = "fill"
 		recommendation.ReasonCodes = []string{"low_utilization", "protect_occupancy"}
 		recommendation.SuggestedLowPriceCents = maxInt64(minimumHealthyPrice, minInt64(internalMedian, marketLow))
-		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, minInt64(internalMedian, marketMedian))
+		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, minInt64(internalMedian, attractiveMarketPrice))
 	case utilizationPercent >= 85 && internalMedian < marketLow*95/100:
 		recommendation.Action = "raise"
 		recommendation.ReasonCodes = []string{"high_utilization", "below_market"}
 		recommendation.SuggestedLowPriceCents = maxInt64(minimumHealthyPrice, marketLow)
-		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, marketMedian)
+		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, attractiveMarketPrice)
 	case utilizationPercent < 85 && internalMedian > marketHigh*110/100:
 		recommendation.Action = "lower_test"
 		recommendation.ReasonCodes = []string{"above_market", "available_seats"}
-		recommendation.SuggestedLowPriceCents = maxInt64(minimumHealthyPrice, marketMedian)
-		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, marketHigh)
+		recommendation.SuggestedLowPriceCents = maxInt64(minimumHealthyPrice, attractiveMarketPrice)
+		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, attractiveMarketPrice)
 	default:
 		recommendation.Action = "hold"
 		recommendation.ReasonCodes = []string{"price_in_range", "stable_utilization"}
@@ -721,7 +739,10 @@ func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.M
 	return recommendation, nil
 }
 
-func (service *SubscriptionService) buildPricingCandidates(snapshot *model.MarketPriceSnapshot) ([]PricingCandidate, error) {
+func (service *SubscriptionService) buildPricingCandidates(
+	snapshot *model.MarketPriceSnapshot,
+	minimumHealthyPriceCents int64,
+) ([]PricingCandidate, error) {
 	accounts, err := service.Store.ListAccounts()
 	if err != nil {
 		return nil, err
@@ -738,11 +759,25 @@ func (service *SubscriptionService) buildPricingCandidates(snapshot *model.Marke
 		return nil, err
 	}
 	frozenSubscriptions := make(map[int64]struct{})
+	recentAfterSalesSubscriptions := make(map[int64]struct{})
 	for _, caseItem := range afterSalesCases {
 		if caseItem.Status == model.AfterSalesStatusPending || caseItem.Status == model.AfterSalesStatusReview {
 			frozenSubscriptions[caseItem.SubscriptionID] = struct{}{}
+			continue
+		}
+		resolvedAt := caseItem.UpdatedAt
+		if caseItem.ProcessedAt != nil {
+			resolvedAt = *caseItem.ProcessedAt
+		}
+		if !resolvedAt.IsZero() && service.now().Sub(resolvedAt.In(cycle.Location)) < repricingAfterSalesRecoveryDays*24*time.Hour {
+			recentAfterSalesSubscriptions[caseItem.SubscriptionID] = struct{}{}
 		}
 	}
+	bills, err := service.Store.ListBills()
+	if err != nil {
+		return nil, err
+	}
+	billHistories := summarizePricingBillHistories(bills)
 
 	subscriptions, err := service.Store.ListSubscriptions()
 	if err != nil {
@@ -765,25 +800,63 @@ func (service *SubscriptionService) buildPricingCandidates(snapshot *model.Marke
 			NextPriceEffectiveDate: subscription.NextPriceEffectiveDueDate,
 			Eligible:               true,
 			MarketPosition:         "unavailable",
+			MaxIncreasePriceCents:  maximumGradualPriceCents(subscription.PricePerPersonCents),
+		}
+		history := billHistories[subscription.ID]
+		candidate.PaidPeriodCount = history.PaidPeriodCount
+		candidate.LastPriceIncreaseDate = history.LastIncreaseDate
+		candidate.RelationshipDays = subscriptionRelationshipDays(subscription, service.now())
+		block := func(reason string) {
+			if candidate.Eligible {
+				candidate.Eligible = false
+				candidate.BlockedReason = reason
+			}
 		}
 		if _, active := activeAccountIDs[subscription.AccountID]; !active {
-			candidate.Eligible = false
-			candidate.BlockedReason = "所属 Team 账号已封禁"
+			block("所属 Team 账号已封禁")
 		}
 		if _, frozen := frozenSubscriptions[subscription.ID]; frozen {
-			candidate.Eligible = false
-			candidate.BlockedReason = "正在等待售后处理"
+			block("正在等待售后处理")
+		}
+		if _, recovering := recentAfterSalesSubscriptions[subscription.ID]; recovering {
+			block("售后恢复期：处理完成后至少保持 30 天再评估调价")
 		}
 		view, viewErr := service.buildView(subscription, service.now(), "")
 		if viewErr != nil {
-			candidate.Eligible = false
-			candidate.BlockedReason = "计费周期无效，无法确定下次续费日"
+			block("计费周期无效，无法确定下次续费日")
 		} else {
 			candidate.NextDueDate = view.NextDueDate
 		}
+		if subscription.NextPriceCents != nil {
+			block("已有调价安排，请先取消原安排后再重新评估")
+		}
+		if history.PaidPeriodCount < minimumRepricingPaidPeriods ||
+			candidate.RelationshipDays < minimumRepricingRelationshipDays {
+			block(fmt.Sprintf(
+				"新用户保护期：至少保持 %d 天并完成 %d 个付费周期（当前 %d 天 / %d 期）",
+				minimumRepricingRelationshipDays,
+				minimumRepricingPaidPeriods,
+				candidate.RelationshipDays,
+				history.PaidPeriodCount,
+			))
+		}
+		if history.LastIncreaseDate != "" {
+			lastIncreaseAt, parseErr := time.ParseInLocation("2006-01-02", history.LastIncreaseDate, cycle.Location)
+			if parseErr == nil {
+				cooldownEndsAt := lastIncreaseAt.AddDate(0, 0, repricingCooldownDays)
+				if cycle.StartOfDay(service.now()).Before(cooldownEndsAt) {
+					block("调价冷静期：上次涨价后至少保持 6 个月再评估")
+				}
+			}
+		}
 		if snapshot != nil && snapshot.SampleCount >= 3 {
 			candidate.GapToMarketMedianCents = snapshot.MedianPriceCents - subscription.PricePerPersonCents
-			candidate.SuggestedPriceCents = snapshot.MedianPriceCents
+			marketTarget := attractiveRenewalPriceCents(snapshot.MedianPriceCents)
+			financiallyHealthyTarget := maxInt64(marketTarget, minimumHealthyPriceCents)
+			candidate.SuggestedPriceCents = minInt64(financiallyHealthyTarget, candidate.MaxIncreasePriceCents)
+			if candidate.SuggestedPriceCents < subscription.PricePerPersonCents {
+				candidate.SuggestedPriceCents = subscription.PricePerPersonCents
+			}
 			switch {
 			case subscription.PricePerPersonCents < snapshot.LowPriceCents:
 				candidate.MarketPosition = "below_low"
@@ -796,7 +869,8 @@ func (service *SubscriptionService) buildPricingCandidates(snapshot *model.Marke
 			}
 			candidate.Recommended = candidate.Eligible &&
 				subscription.NextPriceCents == nil &&
-				subscription.PricePerPersonCents < snapshot.LowPriceCents
+				subscription.PricePerPersonCents < snapshot.LowPriceCents &&
+				candidate.SuggestedPriceCents > subscription.PricePerPersonCents
 		}
 		candidates = append(candidates, candidate)
 	}
@@ -812,9 +886,65 @@ func (service *SubscriptionService) buildPricingCandidates(snapshot *model.Marke
 	return candidates, nil
 }
 
-// ScheduleBulkNextPrice atomically arranges the same next-cycle Team price for
-// selected customers. Each subscription keeps its own calculated effective due
-// date, and neither the current price nor historical bills are changed.
+type pricingBillHistory struct {
+	PaidPeriodCount  int
+	LastIncreaseDate string
+}
+
+func summarizePricingBillHistories(bills []model.Bill) map[int64]pricingBillHistory {
+	grouped := make(map[int64][]model.Bill)
+	for _, bill := range bills {
+		grouped[bill.SubscriptionID] = append(grouped[bill.SubscriptionID], bill)
+	}
+	histories := make(map[int64]pricingBillHistory, len(grouped))
+	for subscriptionID, subscriptionBills := range grouped {
+		sort.SliceStable(subscriptionBills, func(left int, right int) bool {
+			if subscriptionBills[left].DueDate != subscriptionBills[right].DueDate {
+				return subscriptionBills[left].DueDate < subscriptionBills[right].DueDate
+			}
+			return subscriptionBills[left].PaidAt.Before(subscriptionBills[right].PaidAt)
+		})
+		history := pricingBillHistory{PaidPeriodCount: len(subscriptionBills)}
+		for index := 1; index < len(subscriptionBills); index++ {
+			if subscriptionBills[index].AmountCents > subscriptionBills[index-1].AmountCents {
+				history.LastIncreaseDate = subscriptionBills[index].DueDate
+			}
+		}
+		histories[subscriptionID] = history
+	}
+	return histories
+}
+
+func subscriptionRelationshipDays(subscription model.Subscription, now time.Time) int {
+	startedAt, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(subscription.BoardedAt), cycle.Location)
+	if err != nil {
+		if subscription.CreatedAt.IsZero() {
+			return 0
+		}
+		startedAt = subscription.CreatedAt.In(cycle.Location)
+	}
+	days := int(cycle.StartOfDay(now).Sub(cycle.StartOfDay(startedAt)).Hours() / 24)
+	return maxInt(days, 0)
+}
+
+func attractiveRenewalPriceCents(marketMedianCents int64) int64 {
+	if marketMedianCents <= 0 {
+		return 0
+	}
+	return marketMedianCents * (100 - marketRenewalDiscountPercent) / 100
+}
+
+func maximumGradualPriceCents(currentPriceCents int64) int64 {
+	if currentPriceCents <= 0 {
+		return 0
+	}
+	percentageIncrease := currentPriceCents * maximumRepricingIncreasePercent / 100
+	return currentPriceCents + minInt64(percentageIncrease, maximumRepricingIncreaseCents)
+}
+
+// ScheduleBulkNextPrice atomically arranges the same future Team renewal price
+// for selected established customers. Retention safeguards are rechecked here
+// so stale UI state cannot bypass the protection period or gradual-increase cap.
 func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInput) (int, error) {
 	if len(input.SubscriptionIDs) == 0 {
 		return 0, fmt.Errorf("请至少选择一位 Team 用户")
@@ -825,6 +955,14 @@ func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInp
 	nextPriceCents, err := cycle.ParseYuanToCents(strings.TrimSpace(input.NextPriceYuan))
 	if err != nil || nextPriceCents <= 0 {
 		return 0, fmt.Errorf("请填写有效的下周期价格")
+	}
+	candidates, err := service.buildPricingCandidates(nil, 0)
+	if err != nil {
+		return 0, err
+	}
+	candidateByID := make(map[int64]PricingCandidate, len(candidates))
+	for _, candidate := range candidates {
+		candidateByID[candidate.SubscriptionID] = candidate
 	}
 
 	seen := make(map[int64]struct{}, len(input.SubscriptionIDs))
@@ -845,15 +983,32 @@ func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInp
 			}
 			return 0, getErr
 		}
-		if previous.BusinessType != model.SubscriptionBusinessTeam || previous.SeatID <= 0 || previous.IsResale {
+		candidate, candidateExists := candidateByID[subscriptionID]
+		if previous.BusinessType != model.SubscriptionBusinessTeam || previous.SeatID <= 0 || previous.IsResale || !candidateExists {
 			return 0, fmt.Errorf("%s 不是可批量调价的 Team 席位", previous.Name)
+		}
+		if !candidate.Eligible {
+			return 0, fmt.Errorf("%s 暂不适合涨价：%s", previous.Name, candidate.BlockedReason)
 		}
 		if err := service.ensureNoPendingAfterSales(subscriptionID, "安排调价"); err != nil {
 			return 0, fmt.Errorf("%s：%w", previous.Name, err)
 		}
+		if nextPriceCents <= previous.PricePerPersonCents {
+			return 0, fmt.Errorf("%s 的新价格须高于当前价格 ¥%s", previous.Name, cycle.FormatCents(previous.PricePerPersonCents))
+		}
+		if nextPriceCents > candidate.MaxIncreasePriceCents {
+			return 0, fmt.Errorf(
+				"%s 单次涨幅过大，建议本次不超过 ¥%s",
+				previous.Name,
+				cycle.FormatCents(candidate.MaxIncreasePriceCents),
+			)
+		}
 		updated := previous
 		updated.NextPriceCents = &nextPriceCents
 		if err := service.configureNextPrice(previous, &updated, false); err != nil {
+			return 0, fmt.Errorf("%s：%w", previous.Name, err)
+		}
+		if err := service.ensureMinimumPriceIncreaseNotice(&updated); err != nil {
 			return 0, fmt.Errorf("%s：%w", previous.Name, err)
 		}
 		updates = append(updates, updated)
@@ -868,6 +1023,27 @@ func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInp
 		return 0, err
 	}
 	return len(updates), nil
+}
+
+func (service *SubscriptionService) ensureMinimumPriceIncreaseNotice(subscription *model.Subscription) error {
+	effectiveAt, err := time.ParseInLocation(
+		"2006-01-02",
+		strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
+		cycle.Location,
+	)
+	if err != nil {
+		return fmt.Errorf("无法确定调价生效日")
+	}
+	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	if err != nil {
+		return err
+	}
+	minimumEffectiveAt := cycle.StartOfDay(service.now()).AddDate(0, 0, minimumPriceIncreaseNoticeDays)
+	for effectiveAt.Before(minimumEffectiveAt) {
+		effectiveAt = schedule.NextDue(effectiveAt)
+	}
+	subscription.NextPriceEffectiveDueDate = cycle.FormatDate(effectiveAt)
+	return nil
 }
 
 func monthFromDate(raw string) string {

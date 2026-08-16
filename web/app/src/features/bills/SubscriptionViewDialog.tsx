@@ -93,21 +93,25 @@ export function SubscriptionViewDialog({
                   {maskAmount(amountsHidden, `¥${bill.net_amount_yuan}`)}
                 </span>
               </ViewItem>
-              <ViewItem label={t("bills.viewPrice")}>
-                <span className="tabular-nums">
-                  {maskAmount(amountsHidden, `¥${bill.price_yuan}`)}
-                </span>
-              </ViewItem>
-              <ViewItem label={t("bills.viewCost")}>
-                <span className="tabular-nums">
-                  {maskAmount(amountsHidden, `¥${bill.cost_yuan}`)}
-                </span>
-              </ViewItem>
-              <ViewItem label={t("bills.viewProfit")}>
-                <span className="tabular-nums">
-                  {maskAmount(amountsHidden, `¥${bill.profit_yuan}`)}
-                </span>
-              </ViewItem>
+              {plusRental ? (
+                <>
+                  <ViewItem label={t("bills.viewPrice")}>
+                    <span className="tabular-nums">
+                      {maskAmount(amountsHidden, `¥${bill.price_yuan}`)}
+                    </span>
+                  </ViewItem>
+                  <ViewItem label={t("bills.viewCost")}>
+                    <span className="tabular-nums">
+                      {maskAmount(amountsHidden, `¥${bill.cost_yuan}`)}
+                    </span>
+                  </ViewItem>
+                  <ViewItem label={t("bills.viewProfit")}>
+                    <span className="tabular-nums">
+                      {maskAmount(amountsHidden, `¥${bill.profit_yuan}`)}
+                    </span>
+                  </ViewItem>
+                </>
+              ) : null}
               <ViewItem label={t("bills.viewCycle")}>{bill.cycle_desc}</ViewItem>
               <ViewItem label={t("bills.viewCron")} mono>
                 {bill.cron_expr}

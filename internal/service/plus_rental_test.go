@@ -254,6 +254,20 @@ func TestPlusRentalBillsContributeRevenueCostAndProfit(t *testing.T) {
 			dashboard.TotalProfitYuan,
 		)
 	}
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-01", true); err != nil {
+		t.Fatal(err)
+	}
+	idempotentDashboard, err := subscriptionService.ComputeDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idempotentDashboard.TotalAmountYuan != "68.00" || idempotentDashboard.TotalCostYuan != "20.50" {
+		t.Fatalf(
+			"re-marking initial Plus payment duplicated finance totals: amount/cost = %s/%s",
+			idempotentDashboard.TotalAmountYuan,
+			idempotentDashboard.TotalCostYuan,
+		)
+	}
 
 	page, err := subscriptionService.ListBillsPage()
 	if err != nil {
@@ -269,6 +283,9 @@ func TestPlusRentalBillsContributeRevenueCostAndProfit(t *testing.T) {
 		t.Fatalf("bill summary cost/profit = %s/%s", page.Summary.TotalCostYuan, page.Summary.TotalProfitYuan)
 	}
 
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-31", true); err != nil {
+		t.Fatal(err)
+	}
 	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-31", true); err != nil {
 		t.Fatal(err)
 	}

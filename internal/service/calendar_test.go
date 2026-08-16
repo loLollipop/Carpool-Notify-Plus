@@ -1116,3 +1116,71 @@ func TestProcessDueNotificationsMergesLegacyResaleWithoutSpecialLabel(t *testing
 		t.Fatalf("body should contain legacy customer email: %q", recorder.lastBody)
 	}
 }
+
+func TestCalendarUsesPaidBillSnapshotAndAllocatesTeamAccountCostOnce(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.July, 20, 12, 0, 0, 0, cycle.Location)
+	}
+	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "日历成本母号",
+		CostYuan:  "85.01",
+		SeatNames: []string{"车位1", "车位2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := subscriptionService.Store.ListSeatsByAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "日历客户甲",
+		PriceYuan:        "90.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seats[0].ID,
+		BoardedAt:        "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "日历客户乙",
+		PriceYuan:        "95.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seats[1].ID,
+		BoardedAt:        "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstBill, err := subscriptionService.Store.GetBillByOccurrence(firstID, "2026-07-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.UpdateBill(firstBill.ID, service.BillEditInput{
+		AmountYuan: "88.00",
+		Note:       "实际收款修正",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	month, err := subscriptionService.CalendarMonth(time.Date(2026, time.July, 1, 0, 0, 0, 0, cycle.Location))
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := make(map[int64]service.CalendarOccurrenceView)
+	for _, occurrence := range month.PaidInMonthOccurrences {
+		if occurrence.DueDate == "2026-07-01" {
+			byID[occurrence.SubscriptionID] = occurrence
+		}
+	}
+	if first := byID[firstID]; first.PriceYuan != "88.00" || first.CostYuan != "41.93" || first.ProfitYuan != "46.07" {
+		t.Fatalf("first calendar finance = price %s cost %s profit %s", first.PriceYuan, first.CostYuan, first.ProfitYuan)
+	}
+	if second := byID[secondID]; second.PriceYuan != "95.00" || second.CostYuan != "41.92" || second.ProfitYuan != "53.08" {
+		t.Fatalf("second calendar finance = price %s cost %s profit %s", second.PriceYuan, second.CostYuan, second.ProfitYuan)
+	}
+}

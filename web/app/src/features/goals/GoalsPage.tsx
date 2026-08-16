@@ -307,7 +307,7 @@ function ForecastRow({
   return (
     <div
       className={cn(
-        "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 border-t px-4 py-2.5 first:border-t-0",
+        "grid flex-1 grid-cols-[minmax(0,1fr)_auto] content-center items-center gap-x-3 gap-y-1 border-t px-4 py-3 first:border-t-0",
         emphasis && "bg-brand/[0.055]",
       )}
     >
@@ -336,7 +336,7 @@ function ForecastPanel({
 }) {
   const { t } = useTranslation()
   return (
-    <section className="h-full overflow-hidden rounded-lg border bg-card shadow-card">
+    <section className="flex h-full min-h-[260px] flex-col overflow-hidden rounded-lg border bg-card shadow-card">
       <div className="flex items-center justify-between gap-3 border-b px-4 py-3.5">
         <div>
           <h2 className="text-sm font-semibold">{t("goals.forecastTitle")}</h2>
@@ -370,7 +370,7 @@ function ProfitTrend({ data, amountsHidden }: { data: GoalCenter; amountsHidden:
   const { t } = useTranslation()
   const trend = data.trend ?? []
   return (
-    <section className="min-h-[260px] rounded-lg border bg-card p-4 shadow-card">
+    <section className="flex h-full min-h-[260px] flex-col rounded-lg border bg-card p-4 shadow-card">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">{t("goals.trendTitle")}</h2>
@@ -387,7 +387,7 @@ function ProfitTrend({ data, amountsHidden }: { data: GoalCenter; amountsHidden:
           </span>
         </div>
       </div>
-      <div className="mt-3 h-[182px] w-full">
+      <div className="mt-3 min-h-[182px] w-full flex-1">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={trend} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
             <CartesianGrid stroke="var(--border)" strokeDasharray="3 5" vertical={false} />
@@ -689,10 +689,27 @@ function BulkPricingPanel({
   const parsedNextPriceCents = /^\d+(\.\d{1,2})?$/.test(nextPrice.trim())
     ? Math.round(Number(nextPrice) * 100)
     : 0
-  const hasUnchangedPrice = selectedCandidates.some(
-    (candidate) => candidate.current_price_cents === parsedNextPriceCents,
+  const hasNonIncrease = selectedCandidates.some(
+    (candidate) => candidate.current_price_cents >= parsedNextPriceCents,
   )
-  const canSubmit = selectedCandidates.length > 0 && parsedNextPriceCents > 0 && !hasUnchangedPrice
+  const hasAboveSafeCap = selectedCandidates.some(
+    (candidate) => parsedNextPriceCents > candidate.max_increase_price_cents,
+  )
+  const sharedSuggestedPrice = selectedCandidates.length
+    ? Math.min(...selectedCandidates.map((candidate) => candidate.suggested_price_cents))
+    : data.pricing.suggested_high_price_cents
+  const highestSelectedCurrentPrice = selectedCandidates.length
+    ? Math.max(...selectedCandidates.map((candidate) => candidate.current_price_cents))
+    : 0
+  const selectedSafeCeiling = selectedCandidates.length
+    ? Math.min(...selectedCandidates.map((candidate) => candidate.max_increase_price_cents))
+    : 0
+  const canUseSharedSuggestion = sharedSuggestedPrice > highestSelectedCurrentPrice
+  const canSubmit =
+    selectedCandidates.length > 0 &&
+    parsedNextPriceCents > 0 &&
+    !hasNonIncrease &&
+    !hasAboveSafeCap
   const recommendedCount = candidates.filter((candidate) => candidate.recommended).length
 
   const mutation = useAppMutation(
@@ -736,8 +753,14 @@ function BulkPricingPanel({
     setFilter("recommended")
     setPage(1)
     setSelected(new Set(recommended.map((candidate) => candidate.subscription_id)))
-    if (!nextPrice && data.market.snapshot?.median_price_cents) {
-      setNextPrice(inputYuan(data.market.snapshot.median_price_cents))
+    const sharedSuggestion = recommended.length
+      ? Math.min(...recommended.map((candidate) => candidate.suggested_price_cents))
+      : 0
+    const highestCurrent = recommended.length
+      ? Math.max(...recommended.map((candidate) => candidate.current_price_cents))
+      : 0
+    if (!nextPrice && sharedSuggestion > highestCurrent) {
+      setNextPrice(inputYuan(sharedSuggestion))
     }
   }
 
@@ -847,6 +870,12 @@ function BulkPricingPanel({
                   <TableCell className="min-w-48 whitespace-normal">
                     <div className="font-medium">{candidate.name}</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">{contact}</div>
+                    <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+                      {t("goals.relationshipStatus", {
+                        days: candidate.relationship_days,
+                        periods: candidate.paid_period_count,
+                      })}
+                    </div>
                     {!candidate.eligible ? (
                       <div className="mt-1 text-[11px] text-destructive">{candidate.blocked_reason}</div>
                     ) : null}
@@ -866,6 +895,14 @@ function BulkPricingPanel({
                       <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
                         {t("goals.belowMedianBy", {
                           amount: visibleYuan(candidate.gap_to_market_median_cents, amountsHidden),
+                        })}
+                      </div>
+                    ) : null}
+                    {candidate.suggested_price_cents > candidate.current_price_cents ? (
+                      <div className="mt-1 text-[11px] text-brand tabular-nums">
+                        {t("goals.suggestedCustomerPrice", {
+                          price: visibleYuan(candidate.suggested_price_cents, amountsHidden),
+                          cap: visibleYuan(candidate.max_increase_price_cents, amountsHidden),
                         })}
                       </div>
                     ) : null}
@@ -941,6 +978,13 @@ function BulkPricingPanel({
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
             {t("goals.currentPeriodProtected")}
           </p>
+          {selectedCandidates.length > 0 ? (
+            <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+              {t("goals.selectedSafeCeiling", {
+                price: visibleYuan(selectedSafeCeiling, amountsHidden),
+              })}
+            </p>
+          ) : null}
         </div>
         <div className="grid gap-2">
           <Label htmlFor="bulk-next-price">{t("goals.bulkNextPrice")}</Label>
@@ -953,22 +997,28 @@ function BulkPricingPanel({
                 value={nextPrice}
                 onChange={(event) => setNextPrice(event.target.value)}
                 inputMode="decimal"
-                placeholder={data.market.snapshot ? inputYuan(data.market.snapshot.median_price_cents) : "0.00"}
+                placeholder={sharedSuggestedPrice > 0 ? inputYuan(sharedSuggestedPrice) : "0.00"}
               />
             </div>
             <Button
               type="button"
               variant="outline"
               onClick={() => {
-                if (data.market.snapshot) setNextPrice(inputYuan(data.market.snapshot.median_price_cents))
+                if (canUseSharedSuggestion) setNextPrice(inputYuan(sharedSuggestedPrice))
               }}
-              disabled={!data.market.snapshot}
+              disabled={!canUseSharedSuggestion}
             >
               {t("goals.useMedian")}
             </Button>
           </div>
-          {hasUnchangedPrice ? (
-            <p className="text-xs text-destructive">{t("goals.samePriceWarning")}</p>
+          {hasNonIncrease ? (
+            <p className="text-xs text-destructive">{t("goals.nonIncreaseWarning")}</p>
+          ) : null}
+          {hasAboveSafeCap ? (
+            <p className="text-xs text-destructive">{t("goals.aboveSafeCapWarning")}</p>
+          ) : null}
+          {selectedCandidates.length > 1 && !canUseSharedSuggestion ? (
+            <p className="text-xs text-warning">{t("goals.splitBatchWarning")}</p>
           ) : null}
         </div>
         <Button disabled={!canSubmit || mutation.isPending} onClick={() => setConfirmOpen(true)}>
@@ -1136,7 +1186,7 @@ export function GoalsPage() {
                 {query.data.forecast ? (
                   <ForecastPanel data={query.data.forecast} amountsHidden={amountsHidden} />
                 ) : (
-                  <section className="grid min-h-[260px] place-items-center rounded-lg border bg-card p-6 text-center shadow-card">
+                  <section className="grid h-full min-h-[260px] place-items-center rounded-lg border bg-card p-6 text-center shadow-card">
                     <div>
                       <CircleGauge className="mx-auto size-6 text-muted-foreground" />
                       <p className="mt-3 text-sm font-medium">{t("goals.noForecast")}</p>
@@ -1144,7 +1194,7 @@ export function GoalsPage() {
                   </section>
                 )}
                 <ProfitTrend data={query.data} amountsHidden={amountsHidden} />
-                <div className="lg:col-span-2 xl:col-span-1">
+                <div className="h-full lg:col-span-2 xl:col-span-1">
                   <MarketPanel
                     data={query.data}
                     amountsHidden={amountsHidden}
@@ -1153,7 +1203,7 @@ export function GoalsPage() {
                   />
                 </div>
                 {hasGoalHistory ? (
-                  <div className="lg:col-span-2 xl:col-span-1">
+                  <div className="h-full lg:col-span-2 xl:col-span-1">
                     <GoalHistory data={query.data} amountsHidden={amountsHidden} />
                   </div>
                 ) : null}

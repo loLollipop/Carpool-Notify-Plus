@@ -10,9 +10,15 @@ const (
 	NotificationStatusPending = "pending"
 	NotificationStatusSuccess = "success"
 	NotificationStatusFailed  = "failed"
+	// NotificationStatusCanceled closes a pending delivery that is no longer
+	// applicable (for example, an operator canceled a scheduled price change).
+	NotificationStatusCanceled = "canceled"
 
 	NotificationKindScheduled = "scheduled"
 	NotificationKindTest      = "test"
+	// NotificationKindPriceIncreaseNotice is the advance notice sent before
+	// the normal renewal reminder for an approved future price increase.
+	NotificationKindPriceIncreaseNotice = "price_increase_notice"
 
 	RedemptionStatusPending  = "pending"
 	RedemptionStatusInvited  = "invited"
@@ -76,6 +82,38 @@ const DefaultCustomerEmailTemplate = `您好，您的 ChatGPT Team 拼车服务{
 
 为避免到期后影响使用，请在到期前完成续费。
 如需续费或售后协助，请联系管理员。`
+
+// DefaultPriceIncreaseAdvanceNoticeCustomerEmailTemplate is sent before the
+// first renewal affected by an approved price increase. It deliberately avoids
+// urgency language and gives the customer a clear effective date and choice.
+const DefaultPriceIncreaseAdvanceNoticeCustomerEmailTemplate = `您好，感谢您一直使用 ChatGPT Team 拼车服务。这里提前向您说明一项后续续费安排。
+
+综合近期同类服务价格以及账号、售后维护成本，经重新核算，您的每期续费价格将作小幅调整：
+
+当前每期价格：¥{{.PreviousPrice}}
+调整后每期价格：¥{{.AmountDue}}
+计费周期：{{.CycleDesc}}
+生效日期：{{.NextDueDate}}
+{{if .Remark}}备注：{{.Remark}}{{end}}
+{{if .TradeURL}}续费链接：{{.TradeURL}}{{end}}
+
+当前已支付周期不受影响，生效日前仍按原价格执行。我们会在临近续费时再次提醒。
+如对调整有疑问，或不准备继续续费，请在生效日前联系管理员确认。`
+
+// DefaultPriceIncreaseCustomerEmailTemplate is used only for the first billing
+// period affected by a scheduled price increase. Later periods return to the
+// operator-configured regular customer template after the new price is applied.
+const DefaultPriceIncreaseCustomerEmailTemplate = `您好，此前已向您说明续费价格调整安排。自本次续费起，将按调整后的价格续费。
+
+原每期价格：¥{{.PreviousPrice}}
+调整后每期价格：¥{{.AmountDue}}
+计费周期：{{.CycleDesc}}
+生效日期：{{.NextDueDate}}
+{{if .Remark}}备注：{{.Remark}}{{end}}
+{{if .TradeURL}}续费链接：{{.TradeURL}}{{end}}
+
+本次调整只影响新的续费周期，历史账单不受影响。完成本次续费后，后续周期将以调整后的价格为基准。
+如需续费或有任何疑问，请联系管理员。`
 
 // RedeemPageSettings is public, non-secret copy shown on the customer redemption page.
 type RedeemPageSettings struct {
@@ -359,6 +397,7 @@ type TemplateData struct {
 	AccountName      string
 	SeatName         string
 	PricePerPerson   string
+	PreviousPrice    string
 	// AmountDue is the amount to collect for this subscription period. It is
 	// currently an explicit alias of PricePerPerson for clearer templates.
 	AmountDue    string

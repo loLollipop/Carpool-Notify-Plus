@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/service"
 )
 
@@ -41,6 +42,42 @@ func TestSetDuePaidCreatesAndDeletesBill(t *testing.T) {
 	}
 	if _, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-07-13"); err == nil {
 		t.Fatal("expected bill deleted after unmark paid")
+	}
+}
+
+func TestSetDuePaidRejectsStaleSubscriptionPriceSnapshot(t *testing.T) {
+	subscriptionService := openTestService(t)
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "并发账单账号", "车位1")
+	subscriptionID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "并发账单用户",
+		PriceYuan:        "42.50",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := stale
+	current.PricePerPersonCents = 5000
+	if err := subscriptionService.Store.UpdateSubscription(current); err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.Store.SetDuePaidForSubscription(
+		stale,
+		"2026-07-01",
+		true,
+		4250,
+	); !errors.Is(err, db.ErrSubscriptionFinancialStateChanged) {
+		t.Fatalf("stale payment error = %v, want financial state change", err)
+	}
+	if _, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-07-01"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("stale payment created a bill: %v", err)
 	}
 }
 

@@ -167,11 +167,10 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 	seatID := int64(0)
 	archived := false
 	tradeURL := ""
-	priceYuan := ""
+	priceYuan := cycle.FormatCents(bill.AmountCents)
 	costYuan := cycle.FormatCents(bill.CostCents)
 	agencyFeeYuan := ""
 	isResale := false
-	profitCents := int64(0)
 	profitYuan := ""
 	cycleDesc := ""
 	cronExpr := ""
@@ -191,18 +190,14 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 		seatID = subscription.SeatID
 		archived = subscription.ArchivedAt != nil
 		tradeURL = subscription.TradeURL
-		priceYuan = cycle.FormatCents(subscription.PricePerPersonCents)
-		if !isPlusSubscription(subscription) {
-			costYuan = cycle.FormatCents(subscription.CostCents)
-		}
 		agencyFeeYuan = cycle.FormatCents(subscription.AgencyFeeCents)
 		isResale = subscription.IsResale
+		// Plus stores a true per-period cost snapshot on the bill, so its
+		// historical profit is exact. Team owner costs live in a separate account
+		// ledger and cannot be truthfully attributed to one old bill.
 		if isPlusSubscription(subscription) {
-			profitCents = bill.AmountCents - bill.CostCents - refundCents
-		} else {
-			profitCents = countedProfitCents(subscription) - refundCents
+			profitYuan = cycle.FormatCents(bill.AmountCents - bill.CostCents - refundCents)
 		}
-		profitYuan = cycle.FormatCents(profitCents)
 		cycleDesc = cycle.DescribeCron(subscription.CronExpr)
 		cronExpr = subscription.CronExpr
 		offsetsText = cycle.FormatOffsets(subscription.NotifyOffsets)

@@ -65,12 +65,19 @@ func TestScheduledNextPriceProtectsCurrentPeriodAndAppliesOnRenewal(t *testing.T
 		t.Fatalf("historical bill changed to %d, want 3000", unchangedInitialBill.AmountCents)
 	}
 
-	_, _, previewBody, err := subscriptionService.PreviewCustomerEmail(subscriptionID)
+	if err := subscriptionService.SaveCustomerEmailTemplate("普通续费模板：¥{{.AmountDue}}"); err != nil {
+		t.Fatal(err)
+	}
+	_, previewSubject, previewBody, err := subscriptionService.PreviewCustomerEmail(subscriptionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(previewBody, "45.00") {
-		t.Fatalf("preview does not contain scheduled price: %q", previewBody)
+	if !strings.Contains(previewSubject, "价格调整通知") ||
+		!strings.Contains(previewBody, "此前已向您说明") ||
+		!strings.Contains(previewBody, "30.00") ||
+		!strings.Contains(previewBody, "45.00") ||
+		strings.Contains(previewBody, "普通续费模板") {
+		t.Fatalf("price-increase preview = subject %q body %q", previewSubject, previewBody)
 	}
 
 	periods, err := subscriptionService.ListDuePeriodOptions(subscriptionID, "2026-07-13")
@@ -107,8 +114,11 @@ func TestScheduledNextPriceProtectsCurrentPeriodAndAppliesOnRenewal(t *testing.T
 	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if recorder.calls != 1 || !strings.Contains(recorder.lastBody, "45.00") {
-		t.Fatalf("scheduled reminder = calls %d body %q", recorder.calls, recorder.lastBody)
+	if recorder.calls != 1 ||
+		!strings.Contains(recorder.lastTitle, "价格调整通知") ||
+		!strings.Contains(recorder.lastBody, "45.00") ||
+		!strings.Contains(recorder.lastBody, "此前已向您说明") {
+		t.Fatalf("scheduled reminder = calls %d title %q body %q", recorder.calls, recorder.lastTitle, recorder.lastBody)
 	}
 
 	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-13", true); err != nil {
@@ -128,6 +138,29 @@ func TestScheduledNextPriceProtectsCurrentPeriodAndAppliesOnRenewal(t *testing.T
 	if applied.PricePerPersonCents != 4500 || applied.NextPriceCents != nil || applied.NextPriceEffectiveDueDate != "" {
 		t.Fatalf("applied price state = current %d next %v effective %q", applied.PricePerPersonCents, applied.NextPriceCents, applied.NextPriceEffectiveDueDate)
 	}
+	clock = time.Date(2026, time.July, 15, 9, 0, 0, 0, cycle.Location)
+	_, nextSubject, nextBody, err := subscriptionService.PreviewCustomerEmail(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(nextSubject, "拼车续费提醒") ||
+		strings.Contains(nextSubject, "价格调整") ||
+		nextBody != "普通续费模板：¥45.00" {
+		t.Fatalf("post-increase reminder = subject %q body %q", nextSubject, nextBody)
+	}
+	billsPage, err := subscriptionService.ListBillsPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	pricesByDue := map[string]string{}
+	for _, billView := range billsPage.Bills {
+		if billView.SubscriptionID == subscriptionID {
+			pricesByDue[billView.DueDate] = billView.PriceYuan
+		}
+	}
+	if pricesByDue["2026-07-06"] != "30.00" || pricesByDue["2026-07-13"] != "45.00" {
+		t.Fatalf("historical bill views changed after repricing: prices %#v", pricesByDue)
+	}
 	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-13", false); err != nil {
 		t.Fatal(err)
 	}
@@ -137,6 +170,151 @@ func TestScheduledNextPriceProtectsCurrentPeriodAndAppliesOnRenewal(t *testing.T
 	}
 	if afterUnmark.PricePerPersonCents != 4500 {
 		t.Fatalf("unmark rolled price back to %d", afterUnmark.PricePerPersonCents)
+	}
+}
+
+func TestScheduledPriceIncreaseSendsAdvanceNotice(t *testing.T) {
+	subscriptionService := openTestService(t)
+	clock := time.Date(2026, time.July, 2, 9, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return clock }
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "提前告知测试账号", "车位1")
+
+	input := service.CreateInput{
+		Name:             "提前告知用户",
+		PriceYuan:        "100.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "advance@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-06-01",
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.Store.SetDuePaid(subscriptionID, "2026-07-01", true, 10000); err != nil {
+		t.Fatal(err)
+	}
+	input.NextPriceYuan = "108.00"
+	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+		t.Fatal(err)
+	}
+	subscription, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subscription.NextPriceEffectiveDueDate != "2026-07-31" {
+		t.Fatalf("effective date = %q, want 2026-07-31", subscription.NextPriceEffectiveDueDate)
+	}
+
+	recorder := &recordingSender{}
+	subscriptionService.Notify = notify.Registry{SMTP: recorder}
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.calls != 1 ||
+		!strings.Contains(recorder.lastTitle, "价格调整提前告知") ||
+		!strings.Contains(recorder.lastBody, "提前向您说明") ||
+		!strings.Contains(recorder.lastBody, "100.00") ||
+		!strings.Contains(recorder.lastBody, "108.00") ||
+		!strings.Contains(recorder.lastBody, "当前已支付周期不受影响") {
+		t.Fatalf("advance notice = calls %d title %q body %q", recorder.calls, recorder.lastTitle, recorder.lastBody)
+	}
+	logEntry, err := subscriptionService.Store.GetNotificationLog(
+		subscriptionID,
+		"2026-07-31",
+		30,
+		model.ChannelSMTP,
+		model.NotificationKindPriceIncreaseNotice,
+	)
+	if err != nil || logEntry.Status != model.NotificationStatusSuccess {
+		t.Fatalf("advance notice log = %#v, err = %v", logEntry, err)
+	}
+}
+
+func TestWeeklyPriceIncreasePlansNoticeFromFutureEffectivePeriod(t *testing.T) {
+	subscriptionService := openTestService(t)
+	clock := time.Date(2026, time.June, 27, 9, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return clock }
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "周付提前告知账号", "车位1")
+
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "周付提前告知用户",
+		PriceYuan:        "100.00",
+		CronExpr:         "0 0 * * 1",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "weekly-notice@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-06-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscription, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextPriceCents := int64(10800)
+	subscription.NextPriceCents = &nextPriceCents
+	subscription.NextPriceEffectiveDueDate = "2026-07-27"
+	if err := subscriptionService.Store.UpdateSubscription(subscription); err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := &recordingSender{}
+	subscriptionService.Notify = notify.Registry{SMTP: recorder}
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.calls != 1 ||
+		!strings.Contains(recorder.lastTitle, "价格调整提前告知") ||
+		!strings.Contains(recorder.lastBody, "108.00") {
+		t.Fatalf("weekly advance notice = calls %d title %q body %q", recorder.calls, recorder.lastTitle, recorder.lastBody)
+	}
+	logEntry, err := subscriptionService.Store.GetNotificationLog(
+		subscriptionID,
+		"2026-07-27",
+		30,
+		model.ChannelSMTP,
+		model.NotificationKindPriceIncreaseNotice,
+	)
+	if err != nil || logEntry.Status != model.NotificationStatusSuccess {
+		t.Fatalf("weekly advance notice log = %#v, err = %v", logEntry, err)
+	}
+}
+
+func TestScheduledPriceDecreaseUsesRegularCustomerTemplate(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.July, 8, 10, 0, 0, 0, cycle.Location)
+	}
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "降价测试账号", "车位1")
+	input := service.CreateInput{
+		Name:             "降价用户",
+		PriceYuan:        "30.00",
+		CronExpr:         "0 0 * * 1",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "decrease@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-07-01",
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SaveCustomerEmailTemplate("常规客户模板：¥{{.AmountDue}}"); err != nil {
+		t.Fatal(err)
+	}
+	input.NextPriceYuan = "25.00"
+	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+		t.Fatal(err)
+	}
+	_, subject, body, err := subscriptionService.PreviewCustomerEmail(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(subject, "拼车续费提醒") || strings.Contains(subject, "价格调整") || body != "常规客户模板：¥25.00" {
+		t.Fatalf("price-decrease preview = subject %q body %q", subject, body)
 	}
 }
 
@@ -180,6 +358,69 @@ func TestScheduledNextPriceCanBeCancelled(t *testing.T) {
 	}
 	if !strings.Contains(previewBody, "30.00") || strings.Contains(previewBody, "45.00") {
 		t.Fatalf("cancelled preview uses wrong price: %q", previewBody)
+	}
+}
+
+func TestCanceledPriceIncreaseNoticeIsNotRetriedAsRegularEmail(t *testing.T) {
+	subscriptionService := openTestService(t)
+	clock := time.Date(2026, time.July, 2, 9, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return clock }
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "取消提前告知账号", "车位1")
+
+	input := service.CreateInput{
+		Name:             "取消提前告知用户",
+		PriceYuan:        "100.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "cancel-notice@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-06-01",
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.Store.SetDuePaid(subscriptionID, "2026-07-01", true, 10000); err != nil {
+		t.Fatal(err)
+	}
+	input.NextPriceYuan = "108.00"
+	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subscriptionService.Store.UpsertPendingNotification(
+		subscriptionID,
+		"2026-07-31",
+		30,
+		model.ChannelSMTP,
+		model.NotificationKindPriceIncreaseNotice,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	input.NextPriceYuan = ""
+	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+		t.Fatal(err)
+	}
+	recorder := &recordingSender{}
+	subscriptionService.Notify = notify.Registry{SMTP: recorder}
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("canceled price notice sent %d emails, want 0", recorder.calls)
+	}
+	logEntry, err := subscriptionService.Store.GetNotificationLog(
+		subscriptionID,
+		"2026-07-31",
+		30,
+		model.ChannelSMTP,
+		model.NotificationKindPriceIncreaseNotice,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if logEntry.Status != model.NotificationStatusCanceled {
+		t.Fatalf("canceled price notice status = %q, want %q", logEntry.Status, model.NotificationStatusCanceled)
 	}
 }
 

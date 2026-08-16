@@ -3,6 +3,7 @@ package service_test
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
@@ -496,6 +497,12 @@ func TestBanAccountCreatesReviewCaseWithoutPaidBill(t *testing.T) {
 	if page.Summary.ReviewCount != 1 {
 		t.Fatalf("review summary = %d, want 1", page.Summary.ReviewCount)
 	}
+	if err := subscriptionService.UpdateAfterSalesCase(caseItem.ID, service.UpdateAfterSalesCaseInput{
+		RefundAmountYuan: "12.34",
+		Note:             "线下账单待核对",
+	}); err != nil {
+		t.Fatalf("review case without a linked bill should allow a manual refund: %v", err)
+	}
 }
 
 func TestAfterSalesCaseCanBeAdjustedCompletedAndReopened(t *testing.T) {
@@ -512,6 +519,19 @@ func TestAfterSalesCaseCanBeAdjustedCompletedAndReopened(t *testing.T) {
 		t.Fatal(err)
 	}
 	caseID := page.Cases[0].Case.ID
+	if err := subscriptionService.UpdateAfterSalesCase(caseID, service.UpdateAfterSalesCaseInput{
+		RefundAmountYuan: "30.01",
+		Note:             "错误的超额退款",
+	}); err == nil || !strings.Contains(err.Error(), "剩余可退金额") {
+		t.Fatalf("over-refund error = %v, want remaining-refundable validation", err)
+	}
+	unchanged, err := subscriptionService.Store.GetAfterSalesCase(caseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.RefundAmountCents == 3001 || unchanged.Note == "错误的超额退款" {
+		t.Fatalf("invalid over-refund was persisted: %#v", unchanged)
+	}
 	if err := subscriptionService.UpdateAfterSalesCase(caseID, service.UpdateAfterSalesCaseInput{
 		RefundAmountYuan: "18.88",
 		Note:             "微信已核对",

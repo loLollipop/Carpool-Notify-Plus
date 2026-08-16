@@ -185,10 +185,25 @@ func (service *SubscriptionService) UpdateAfterSalesCase(
 	if err != nil || refundAmountCents < 0 {
 		return fmt.Errorf("退款金额无效")
 	}
+	if err := service.validateAfterSalesRefundAmount(caseID, refundAmountCents); err != nil {
+		return err
+	}
 	return service.Store.UpdateAfterSalesCase(caseID, refundAmountCents, input.Note)
 }
 
 func (service *SubscriptionService) SetAfterSalesCaseRefunded(caseID int64, refunded bool) error {
+	if refunded {
+		caseItem, err := service.Store.GetAfterSalesCase(caseID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return fmt.Errorf("售后记录不存在")
+			}
+			return err
+		}
+		if err := service.validateAfterSalesRefundAmount(caseID, caseItem.RefundAmountCents); err != nil {
+			return err
+		}
+	}
 	if err := service.Store.SetAfterSalesCaseRefunded(caseID, refunded, service.now()); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("售后记录不存在")
@@ -200,6 +215,41 @@ func (service *SubscriptionService) SetAfterSalesCaseRefunded(caseID int64, refu
 			return fmt.Errorf("原车位已被其他订阅占用，无法撤销退款状态")
 		}
 		return err
+	}
+	return nil
+}
+
+func (service *SubscriptionService) validateAfterSalesRefundAmount(caseID int64, refundAmountCents int64) error {
+	caseItem, err := service.Store.GetAfterSalesCase(caseID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("售后记录不存在")
+		}
+		return err
+	}
+	// A review case without a linked bill intentionally permits an operator-entered
+	// amount. Once a paid bill is known, however, refunds must never exceed the
+	// actual receipt, including any other completed refund linked to that bill.
+	if caseItem.BillID <= 0 || caseItem.PaidAmountCents <= 0 {
+		return nil
+	}
+	completedRefundCents := int64(0)
+	cases, err := service.Store.ListAfterSalesCases()
+	if err != nil {
+		return err
+	}
+	for _, other := range cases {
+		if other.ID != caseID &&
+			other.BillID == caseItem.BillID &&
+			other.Status == model.AfterSalesStatusRefunded {
+			completedRefundCents += other.RefundAmountCents
+		}
+	}
+	if refundAmountCents > caseItem.PaidAmountCents-completedRefundCents {
+		return fmt.Errorf(
+			"退款金额不能超过该账单剩余可退金额 ¥%s",
+			cycle.FormatCents(caseItem.PaidAmountCents-completedRefundCents),
+		)
 	}
 	return nil
 }

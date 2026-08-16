@@ -151,65 +151,79 @@ func (service *SubscriptionService) ListView() ([]SubscriptionView, error) {
 // its active non-resale customers. The allocated cents always add back up to
 // exactly one account cost, including costs that do not divide evenly.
 func (service *SubscriptionService) allocateActiveAccountCosts(views []SubscriptionView) error {
-	accounts, err := service.Store.ListAccounts()
+	subscriptions := make([]model.Subscription, 0, len(views))
+	for _, view := range views {
+		subscriptions = append(subscriptions, view.Subscription)
+	}
+	allocatedCosts, err := service.activeAllocatedCostCents(subscriptions)
 	if err != nil {
 		return err
+	}
+	for index := range views {
+		costCents := allocatedCosts[views[index].Subscription.ID]
+		views[index].AllocatedCostYuan = cycle.FormatCents(costCents)
+		views[index].AllocatedProfitYuan = cycle.FormatCents(
+			countedAmountCents(views[index].Subscription) - costCents,
+		)
+	}
+	return nil
+}
+
+func (service *SubscriptionService) activeAllocatedCostCents(
+	subscriptions []model.Subscription,
+) (map[int64]int64, error) {
+	accounts, err := service.Store.ListAccounts()
+	if err != nil {
+		return nil, err
 	}
 	accountCosts := make(map[int64]int64, len(accounts))
 	for _, account := range accounts {
 		accountCosts[account.ID] = account.CostCents
 	}
 
-	groups := make(map[string][]int)
+	allocatedCosts := make(map[int64]int64, len(subscriptions))
+	groups := make(map[string][]int64)
 	groupCosts := make(map[string]int64)
-	for index := range views {
-		view := &views[index]
-		if isPlusSubscription(view.Subscription) {
-			view.AllocatedCostYuan = cycle.FormatCents(view.Subscription.CostCents)
-			view.AllocatedProfitYuan = cycle.FormatCents(
-				view.Subscription.PricePerPersonCents - view.Subscription.CostCents,
-			)
+	for _, subscription := range subscriptions {
+		if isPlusSubscription(subscription) {
+			allocatedCosts[subscription.ID] = subscription.CostCents
 			continue
 		}
-		if view.Subscription.IsResale {
-			view.AllocatedCostYuan = cycle.FormatCents(0)
-			view.AllocatedProfitYuan = cycle.FormatCents(view.Subscription.AgencyFeeCents)
+		if subscription.IsResale {
+			allocatedCosts[subscription.ID] = 0
 			continue
 		}
-		key := fmt.Sprintf("name:%s", displayAccountName(view.Subscription))
+		key := fmt.Sprintf("name:%s", displayAccountName(subscription))
 		useLegacyCost := true
-		if view.AccountID > 0 {
-			key = fmt.Sprintf("id:%d", view.AccountID)
-			if accountCosts[view.AccountID] > 0 {
-				groupCosts[key] = accountCosts[view.AccountID]
+		if subscription.AccountID > 0 {
+			key = fmt.Sprintf("id:%d", subscription.AccountID)
+			if accountCosts[subscription.AccountID] > 0 {
+				groupCosts[key] = accountCosts[subscription.AccountID]
 				useLegacyCost = false
 			}
 		}
-		if useLegacyCost && view.Subscription.CostCents > groupCosts[key] {
-			groupCosts[key] = view.Subscription.CostCents
+		if useLegacyCost && subscription.CostCents > groupCosts[key] {
+			groupCosts[key] = subscription.CostCents
 		}
-		groups[key] = append(groups[key], index)
+		groups[key] = append(groups[key], subscription.ID)
 	}
 
-	for key, indexes := range groups {
-		sort.SliceStable(indexes, func(left int, right int) bool {
-			return views[indexes[left]].Subscription.ID < views[indexes[right]].Subscription.ID
+	for key, subscriptionIDs := range groups {
+		sort.Slice(subscriptionIDs, func(left int, right int) bool {
+			return subscriptionIDs[left] < subscriptionIDs[right]
 		})
 		costCents := groupCosts[key]
-		baseShare := costCents / int64(len(indexes))
-		remainder := costCents % int64(len(indexes))
-		for position, index := range indexes {
+		baseShare := costCents / int64(len(subscriptionIDs))
+		remainder := costCents % int64(len(subscriptionIDs))
+		for position, subscriptionID := range subscriptionIDs {
 			share := baseShare
 			if int64(position) < remainder {
 				share++
 			}
-			views[index].AllocatedCostYuan = cycle.FormatCents(share)
-			views[index].AllocatedProfitYuan = cycle.FormatCents(
-				views[index].Subscription.PricePerPersonCents - share,
-			)
+			allocatedCosts[subscriptionID] = share
 		}
 	}
-	return nil
+	return allocatedCosts, nil
 }
 
 func (service *SubscriptionService) buildView(
@@ -1315,6 +1329,12 @@ func nextPriceAppliesForDueDate(subscription model.Subscription, dueDate string)
 		strings.TrimSpace(dueDate) >= strings.TrimSpace(subscription.NextPriceEffectiveDueDate)
 }
 
+func priceIncreaseAppliesForDueDate(subscription model.Subscription, dueDate string) bool {
+	return nextPriceAppliesForDueDate(subscription, dueDate) &&
+		subscription.NextPriceCents != nil &&
+		*subscription.NextPriceCents > subscription.PricePerPersonCents
+}
+
 func billDefaultCostCents(subscription model.Subscription) int64 {
 	if isPlusSubscription(subscription) && subscription.CostCents > 0 {
 		return subscription.CostCents
@@ -1633,15 +1653,11 @@ func (service *SubscriptionService) RenderMessage(subscription model.Subscriptio
 
 // RenderCustomerEmail renders the customer email template for a subscription.
 func (service *SubscriptionService) RenderCustomerEmail(subscription model.Subscription) (string, error) {
-	templateBody, err := service.GetCustomerEmailTemplate()
-	if err != nil {
-		return "", err
-	}
 	dueAt, err := service.nextDueForTemplate(subscription)
 	if err != nil {
 		return "", err
 	}
-	return service.renderTemplateForDueDate("customer_email", templateBody, subscription, dueAt)
+	return service.renderCustomerEmailForDueDate(subscription, dueAt)
 }
 
 func (service *SubscriptionService) renderMessageForDueDate(subscription model.Subscription, dueAt time.Time) (string, error) {
@@ -1653,11 +1669,30 @@ func (service *SubscriptionService) renderMessageForDueDate(subscription model.S
 }
 
 func (service *SubscriptionService) renderCustomerEmailForDueDate(subscription model.Subscription, dueAt time.Time) (string, error) {
-	templateBody, err := service.GetCustomerEmailTemplate()
-	if err != nil {
-		return "", err
+	templateBody := model.DefaultPriceIncreaseCustomerEmailTemplate
+	if !priceIncreaseAppliesForDueDate(subscription, cycle.FormatDate(dueAt)) {
+		var err error
+		templateBody, err = service.GetCustomerEmailTemplate()
+		if err != nil {
+			return "", err
+		}
 	}
 	return service.renderTemplateForDueDate("customer_email", templateBody, subscription, dueAt)
+}
+
+func (service *SubscriptionService) renderPriceIncreaseAdvanceNoticeForDueDate(
+	subscription model.Subscription,
+	dueAt time.Time,
+) (string, error) {
+	if !priceIncreaseAppliesForDueDate(subscription, cycle.FormatDate(dueAt)) {
+		return "", fmt.Errorf("scheduled price increase no longer applies")
+	}
+	return service.renderTemplateForDueDate(
+		"price_increase_advance_notice",
+		model.DefaultPriceIncreaseAdvanceNoticeCustomerEmailTemplate,
+		subscription,
+		dueAt,
+	)
 }
 
 func parseTemplateDueDate(value string) (time.Time, error) {
@@ -1700,6 +1735,7 @@ func (service *SubscriptionService) renderTemplateForDueDate(
 		AccountName:      displayAccountName(subscription),
 		SeatName:         subscription.SeatName,
 		PricePerPerson:   cycle.FormatCents(amountDueCents),
+		PreviousPrice:    cycle.FormatCents(subscription.PricePerPersonCents),
 		AmountDue:        cycle.FormatCents(amountDueCents),
 		CycleDesc:        cycle.DescribeCron(subscription.CronExpr),
 		NextDueDate:      cycle.FormatDate(dueAt),
@@ -1796,7 +1832,11 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 	if !service.Config.SMTPConfigured() {
 		return fmt.Errorf("SMTP 未配置（需 host/port/from/username/password）")
 	}
-	message, err := service.RenderCustomerEmail(subscription)
+	dueAt, err := service.nextDueForTemplate(subscription)
+	if err != nil {
+		return err
+	}
+	message, err := service.renderCustomerEmailForDueDate(subscription, dueAt)
 	if err != nil {
 		return err
 	}
@@ -1807,12 +1847,31 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 		Password: service.Config.SMTPPassword,
 		From:     service.Config.SMTPFrom,
 	}
-	title := customerEmailSubject(subscription)
+	title := customerEmailSubjectForDueDate(subscription, dueAt)
 	return sender.SendTo(ctx, []string{subscription.CustomerEmail}, title, message)
 }
 
 func customerEmailSubject(subscription model.Subscription) string {
 	return "拼车续费提醒 · " + templateDisplayName(subscription)
+}
+
+func customerEmailSubjectForDueDate(subscription model.Subscription, dueAt time.Time) string {
+	if priceIncreaseAppliesForDueDate(subscription, cycle.FormatDate(dueAt)) {
+		return "拼车续费价格调整通知 · " + templateDisplayName(subscription)
+	}
+	return customerEmailSubject(subscription)
+}
+
+func customerEmailSubjectForNotification(
+	subscription model.Subscription,
+	dueAt time.Time,
+	kind string,
+) string {
+	if kind == model.NotificationKindPriceIncreaseNotice &&
+		priceIncreaseAppliesForDueDate(subscription, cycle.FormatDate(dueAt)) {
+		return "拼车续费价格调整提前告知 · " + templateDisplayName(subscription)
+	}
+	return customerEmailSubjectForDueDate(subscription, dueAt)
 }
 
 // Export builds a JSON-serializable export payload.
@@ -1961,11 +2020,15 @@ func (service *SubscriptionService) PreviewCustomerEmail(subscriptionID int64) (
 	if strings.TrimSpace(subscription.CustomerEmail) == "" {
 		return "", "", "", fmt.Errorf("该订阅未填写客户邮箱")
 	}
-	body, err = service.RenderCustomerEmail(subscription)
+	dueAt, dueErr := service.nextDueForTemplate(subscription)
+	if dueErr != nil {
+		return "", "", "", dueErr
+	}
+	body, err = service.renderCustomerEmailForDueDate(subscription, dueAt)
 	if err != nil {
 		return "", "", "", err
 	}
-	return subscription.CustomerEmail, customerEmailSubject(subscription), body, nil
+	return subscription.CustomerEmail, customerEmailSubjectForDueDate(subscription, dueAt), body, nil
 }
 
 func (service *SubscriptionService) sendToEnabledChannels(ctx context.Context, title string, message string, subscriptionID int64) error {
@@ -2091,6 +2154,23 @@ func (service *SubscriptionService) planSubscription(
 	if err != nil {
 		return nil
 	}
+	// The effective period can be several occurrences beyond the immediate next
+	// due date (notably for weekly subscriptions). Plan from the persisted
+	// effective date itself so the 30-day notice is not discovered too late.
+	if subscription.NextPriceCents != nil &&
+		*subscription.NextPriceCents > subscription.PricePerPersonCents &&
+		strings.TrimSpace(subscription.NextPriceEffectiveDueDate) != "" {
+		effectiveAt, parseErr := time.ParseInLocation(
+			"2006-01-02",
+			strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
+			cycle.Location,
+		)
+		if parseErr == nil {
+			if err := service.planPriceIncreaseAdvanceNotice(subscription.ID, effectiveAt, now); err != nil {
+				return err
+			}
+		}
+	}
 
 	candidates := make([]time.Time, 0, 2)
 	if isOneMonthRental(subscription) {
@@ -2136,6 +2216,31 @@ func (service *SubscriptionService) planSubscription(
 		}
 	}
 	return nil
+}
+
+func (service *SubscriptionService) planPriceIncreaseAdvanceNotice(
+	subscriptionID int64,
+	dueAt time.Time,
+	now time.Time,
+) error {
+	// Very late manual changes rely on the normal renewal reminder to avoid
+	// sending two near-identical emails a few days apart. Goal-center changes
+	// are separately guaranteed a full 30-day notice window.
+	if cycle.DaysRemaining(dueAt, now) < 14 {
+		return nil
+	}
+	sendAt := cycle.SendAt(dueAt, minimumPriceIncreaseNoticeDays)
+	if sendAt.After(now) {
+		return nil
+	}
+	_, err := service.Store.UpsertPendingNotification(
+		subscriptionID,
+		cycle.FormatDate(dueAt),
+		minimumPriceIncreaseNoticeDays,
+		model.ChannelSMTP,
+		model.NotificationKindPriceIncreaseNotice,
+	)
+	return err
 }
 
 func (service *SubscriptionService) planScheduledNotification(
@@ -2185,6 +2290,9 @@ func notificationSendDateMatches(logEntry model.NotificationLog, now time.Time, 
 		return false
 	}
 	sendAt := cycle.SendAt(dueAt, logEntry.OffsetDays)
+	if logEntry.Kind == model.NotificationKindPriceIncreaseNotice {
+		return !sendAt.After(now) && today < cycle.FormatDate(dueAt)
+	}
 	return !sendAt.After(now) && cycle.FormatDate(sendAt) == today
 }
 
@@ -2200,7 +2308,9 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 
 	var failures []string
 	for _, logEntry := range logEntries {
-		if logEntry.Status == model.NotificationStatusSuccess || logEntry.Status == model.NotificationStatusFailed {
+		if logEntry.Status == model.NotificationStatusSuccess ||
+			logEntry.Status == model.NotificationStatusFailed ||
+			logEntry.Status == model.NotificationStatusCanceled {
 			continue
 		}
 		if logEntry.AttemptCount >= maxAttempts {
@@ -2212,6 +2322,7 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 			return err
 		}
 		if paid {
+			_ = service.Store.MarkNotificationCanceled(logEntry.ID)
 			continue
 		}
 		subscription, err := service.Store.GetSubscription(logEntry.SubscriptionID)
@@ -2230,6 +2341,14 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 				nil,
 				true,
 			)
+			continue
+		}
+		if logEntry.Kind == model.NotificationKindPriceIncreaseNotice &&
+			!priceIncreaseAppliesForDueDate(subscription, logEntry.DueDate) {
+			// A failed or interrupted advance notice can outlive the pricing plan
+			// that created it. Close it instead of falling back to the ordinary
+			// renewal template and sending an unexpected email 30 days early.
+			_ = service.Store.MarkNotificationCanceled(logEntry.ID)
 			continue
 		}
 		if !ok {
@@ -2252,14 +2371,20 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 			failures = append(failures, err.Error())
 			continue
 		}
-		message, err := service.renderCustomerEmailForDueDate(subscription, dueAt)
+		var message string
+		if logEntry.Kind == model.NotificationKindPriceIncreaseNotice {
+			message, err = service.renderPriceIncreaseAdvanceNoticeForDueDate(subscription, dueAt)
+		} else {
+			message, err = service.renderCustomerEmailForDueDate(subscription, dueAt)
+		}
 		if err != nil {
 			logEntry.AttemptCount = logEntry.AttemptCount + 1
 			_ = service.failWithRetry(logEntry, err.Error())
 			failures = append(failures, err.Error())
 			continue
 		}
-		if err := sendCustomerSMTP(ctx, sender, customerEmail, customerEmailSubject(subscription), message); err != nil {
+		subject := customerEmailSubjectForNotification(subscription, dueAt, logEntry.Kind)
+		if err := sendCustomerSMTP(ctx, sender, customerEmail, subject, message); err != nil {
 			logEntry.AttemptCount = logEntry.AttemptCount + 1
 			_ = service.failWithRetry(logEntry, err.Error())
 			failures = append(failures, err.Error())
@@ -2301,7 +2426,9 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 	}
 	items := make([]digestItem, 0, len(logEntries))
 	for _, logEntry := range logEntries {
-		if logEntry.Status == model.NotificationStatusSuccess || logEntry.Status == model.NotificationStatusFailed {
+		if logEntry.Status == model.NotificationStatusSuccess ||
+			logEntry.Status == model.NotificationStatusFailed ||
+			logEntry.Status == model.NotificationStatusCanceled {
 			continue
 		}
 		if logEntry.AttemptCount >= maxAttempts {
@@ -2313,6 +2440,7 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 			return err
 		}
 		if paid {
+			_ = service.Store.MarkNotificationCanceled(logEntry.ID)
 			continue
 		}
 		subscription, err := service.Store.GetSubscription(logEntry.SubscriptionID)

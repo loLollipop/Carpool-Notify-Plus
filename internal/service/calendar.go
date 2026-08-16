@@ -3,6 +3,7 @@ package service
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
@@ -129,8 +130,8 @@ func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate str
 	if !ok {
 		return fmt.Errorf("%s 不是该订阅的到期日", dueDate)
 	}
-	if err := service.Store.SetDuePaid(
-		subscriptionID,
+	if err := service.Store.SetDuePaidForSubscription(
+		subscription,
 		dueDate,
 		paid,
 		billAmountCentsForDueDate(subscription, dueDate),
@@ -138,6 +139,9 @@ func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate str
 	); err != nil {
 		if errors.Is(err, db.ErrBillHasAfterSalesCase) {
 			return fmt.Errorf("该期账单已关联售后处理记录，不能取消缴费")
+		}
+		if errors.Is(err, db.ErrSubscriptionFinancialStateChanged) {
+			return fmt.Errorf("订阅价格或状态已变化，请刷新后重新确认本期金额")
 		}
 		return err
 	}
@@ -372,6 +376,21 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 	if err != nil {
 		return CalendarMonthView{}, err
 	}
+	allocatedCosts, err := service.activeAllocatedCostCents(subscriptions)
+	if err != nil {
+		return CalendarMonthView{}, err
+	}
+	bills, err := service.Store.ListBills()
+	if err != nil {
+		return CalendarMonthView{}, err
+	}
+	billsByOccurrence := make(map[dueOccurrenceKey]model.Bill, len(bills))
+	for _, bill := range bills {
+		billsByOccurrence[dueOccurrenceKey{
+			subscriptionID: bill.SubscriptionID,
+			dueDate:        bill.DueDate,
+		}] = bill
+	}
 	paidOccurrences, err := service.Store.ListPaidDueOccurrences(
 		cycle.FormatDate(gridStart),
 		cycle.FormatDate(gridEnd),
@@ -404,6 +423,8 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 					subscription,
 					periodStart,
 					paid,
+					billsByOccurrence[dueOccurrenceKey{subscriptionID: subscription.ID, dueDate: dueDate}],
+					allocatedCosts[subscription.ID],
 				))
 			}
 			continue
@@ -427,6 +448,8 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 				subscription,
 				dueAt,
 				paid,
+				billsByOccurrence[dueOccurrenceKey{subscriptionID: subscription.ID, dueDate: dueDate}],
+				allocatedCosts[subscription.ID],
 			))
 			cursor = cycle.StartOfDay(dueAt).AddDate(0, 0, 1).Add(-time.Nanosecond)
 		}
@@ -507,17 +530,23 @@ func (service *SubscriptionService) buildOccurrenceView(
 	subscription model.Subscription,
 	dueAt time.Time,
 	paid bool,
+	bill model.Bill,
+	allocatedCostCents int64,
 ) CalendarOccurrenceView {
 	dueDate := cycle.FormatDate(dueAt)
 	amountCents := billAmountCentsForDueDate(subscription, dueDate)
+	costCents := calendarPeriodCostCents(subscription, dueAt, allocatedCostCents)
+	if paid && bill.ID > 0 {
+		amountCents = bill.AmountCents
+		if isPlusSubscription(subscription) {
+			costCents = bill.CostCents
+		}
+	}
 	nextPriceYuan := ""
 	if subscription.NextPriceCents != nil {
 		nextPriceYuan = cycle.FormatCents(*subscription.NextPriceCents)
 	}
-	profitCents := amountCents - subscription.CostCents
-	if subscription.IsResale {
-		profitCents = amountCents
-	}
+	profitCents := amountCents - costCents
 	return CalendarOccurrenceView{
 		SubscriptionID:            subscription.ID,
 		Name:                      subscription.Name,
@@ -530,7 +559,7 @@ func (service *SubscriptionService) buildOccurrenceView(
 		NextPriceYuan:             nextPriceYuan,
 		NextPriceEffectiveDueDate: subscription.NextPriceEffectiveDueDate,
 		AmountCents:               amountCents,
-		CostYuan:                  cycle.FormatCents(subscription.CostCents),
+		CostYuan:                  cycle.FormatCents(costCents),
 		AgencyFeeYuan:             cycle.FormatCents(subscription.AgencyFeeCents),
 		IsResale:                  subscription.IsResale,
 		ProfitYuan:                cycle.FormatCents(profitCents),
@@ -552,6 +581,30 @@ func (service *SubscriptionService) buildOccurrenceView(
 		CustomerWechat:            subscription.CustomerWechat,
 		BoardedAt:                 subscription.BoardedAt,
 	}
+}
+
+func calendarPeriodCostCents(
+	subscription model.Subscription,
+	dueAt time.Time,
+	monthlyAllocatedCostCents int64,
+) int64 {
+	if isPlusSubscription(subscription) || subscription.IsResale || monthlyAllocatedCostCents <= 0 {
+		return monthlyAllocatedCostCents
+	}
+	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	if err != nil {
+		return monthlyAllocatedCostCents
+	}
+	periodEnd := schedule.NextDue(cycle.StartOfDay(dueAt))
+	periodDays := int64(math.Round(periodEnd.Sub(cycle.StartOfDay(dueAt)).Hours() / 24))
+	if periodDays <= 0 {
+		return monthlyAllocatedCostCents
+	}
+	// Account costs renew monthly while Team subscriptions may use weekly,
+	// 30-day, or calendar-month periods. Prorating by 365/12 days keeps each
+	// occurrence comparable and sums back to twelve monthly costs per year.
+	numerator := monthlyAllocatedCostCents * periodDays * 12
+	return (numerator + 365/2) / 365
 }
 
 // buildAgendaOccurrences builds the right-side list.

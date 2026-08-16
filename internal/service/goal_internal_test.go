@@ -1,10 +1,12 @@
 package service
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -155,14 +157,15 @@ func TestGoalForecastUsesActiveFutureRevenueAndScheduledPrices(t *testing.T) {
 		PricePerPersonCents: 10000,
 		CronExpr:            "interval:30d",
 		SeatID:              seats[0].ID,
-		BoardedAt:           "2026-08-01",
+		BoardedAt:           "2026-05-17",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedPaidPricingPeriods(t, service, subscriptionID, 10000)
 	if _, err := service.ScheduleBulkNextPrice(BulkNextPriceInput{
 		SubscriptionIDs: []int64{subscriptionID},
-		NextPriceYuan:   "120.00",
+		NextPriceYuan:   "108.00",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -175,9 +178,9 @@ func TestGoalForecastUsesActiveFutureRevenueAndScheduledPrices(t *testing.T) {
 		t.Fatal("forecast is nil")
 	}
 	// A 30-day cycle is normalized with 365/(30*12), then the monthly
-	// owner-account cost is deducted: 12000*365/360 - 3000 = 9166.
-	if center.Forecast.RunRateMonthlyProfitCents != 9166 {
-		t.Fatalf("run rate = %d, want 9166", center.Forecast.RunRateMonthlyProfitCents)
+	// owner-account cost is deducted: 10800*365/360 - 3000 = 7950.
+	if center.Forecast.RunRateMonthlyProfitCents != 7950 {
+		t.Fatalf("run rate = %d, want 7950", center.Forecast.RunRateMonthlyProfitCents)
 	}
 	if center.Forecast.ActiveRecurringCount != 1 || center.Forecast.Source != "run_rate" {
 		t.Fatalf("forecast basis = %#v", center.Forecast)
@@ -202,7 +205,7 @@ func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) 
 		t.Fatalf("seats = %#v, err = %v", seats, err)
 	}
 	teamIDs := make([]int64, 0, 2)
-	for index, price := range []int64{9000, 12000} {
+	for index, price := range []int64{9000, 9200} {
 		subscriptionID, createErr := service.Store.CreateSubscription(model.Subscription{
 			Name:                fmt.Sprintf("Team customer %d", index+1),
 			BusinessType:        model.SubscriptionBusinessTeam,
@@ -210,11 +213,12 @@ func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) 
 			CronExpr:            "interval:30d",
 			CustomerWechat:      fmt.Sprintf("wechat-%d", index+1),
 			SeatID:              seats[index].ID,
-			BoardedAt:           "2026-08-01",
+			BoardedAt:           "2026-05-17",
 		})
 		if createErr != nil {
 			t.Fatal(createErr)
 		}
+		seedPaidPricingPeriods(t, service, subscriptionID, price)
 		teamIDs = append(teamIDs, subscriptionID)
 	}
 	if _, err := service.Store.InsertMarketPriceSnapshot(model.MarketPriceSnapshot{
@@ -236,13 +240,22 @@ func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) 
 	if len(center.Candidates) != 2 || !center.Candidates[0].Recommended || center.Candidates[0].MarketPosition != "below_low" {
 		t.Fatalf("pricing candidates = %#v", center.Candidates)
 	}
-	if center.Candidates[1].MarketPosition != "below_median" {
+	if center.Candidates[0].SuggestedPriceCents != 9720 || center.Candidates[0].MaxIncreasePriceCents != 9720 {
+		t.Fatalf("first gradual suggestion = %#v", center.Candidates[0])
+	}
+	if center.Candidates[1].MarketPosition != "below_low" || !center.Candidates[1].Recommended {
 		t.Fatalf("second candidate = %#v", center.Candidates[1])
+	}
+	if _, err := service.ScheduleBulkNextPrice(BulkNextPriceInput{
+		SubscriptionIDs: teamIDs,
+		NextPriceYuan:   "110.00",
+	}); err == nil {
+		t.Fatal("unsafe bulk increase unexpectedly succeeded")
 	}
 
 	updated, err := service.ScheduleBulkNextPrice(BulkNextPriceInput{
 		SubscriptionIDs: teamIDs,
-		NextPriceYuan:   "135.00",
+		NextPriceYuan:   "97.00",
 	})
 	if err != nil || updated != 2 {
 		t.Fatalf("bulk result = %d, err = %v", updated, err)
@@ -252,11 +265,11 @@ func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) 
 		if getErr != nil {
 			t.Fatal(getErr)
 		}
-		if subscription.PricePerPersonCents != []int64{9000, 12000}[index] || subscription.NextPriceCents == nil || *subscription.NextPriceCents != 13500 {
+		if subscription.PricePerPersonCents != []int64{9000, 9200}[index] || subscription.NextPriceCents == nil || *subscription.NextPriceCents != 9700 {
 			t.Fatalf("scheduled subscription = %#v", subscription)
 		}
-		if subscription.NextPriceEffectiveDueDate == "" {
-			t.Fatalf("missing effective due date: %#v", subscription)
+		if subscription.NextPriceEffectiveDueDate != "2026-09-14" {
+			t.Fatalf("effective due date = %q, want 2026-09-14", subscription.NextPriceEffectiveDueDate)
 		}
 	}
 
@@ -289,6 +302,160 @@ func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) 
 	}
 	if after.NextPriceCents == nil || before.NextPriceCents == nil || *after.NextPriceCents != *before.NextPriceCents {
 		t.Fatalf("failed bulk update partially changed Team price: before=%#v after=%#v", before, after)
+	}
+}
+
+func TestBulkNextPriceStoreRejectsStaleFinancialState(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "stale-price-owner@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 1 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "并发调价用户",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 9000,
+		CronExpr:            "interval:30d",
+		SeatID:              seats[0].ID,
+		BoardedAt:           "2026-05-17",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, err := service.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current := stale
+	current.PricePerPersonCents = 9500
+	if err := service.Store.UpdateSubscription(current); err != nil {
+		t.Fatal(err)
+	}
+
+	nextPriceCents := int64(9700)
+	stale.NextPriceCents = &nextPriceCents
+	stale.NextPriceEffectiveDueDate = "2026-09-14"
+	if err := service.Store.UpdateSubscriptionNextPrices([]model.Subscription{stale}); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("stale bulk update error = %v, want sql.ErrNoRows", err)
+	}
+	stored, err := service.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.PricePerPersonCents != 9500 || stored.NextPriceCents != nil {
+		t.Fatalf("stale update changed financial state: %#v", stored)
+	}
+}
+
+func TestPricingCandidatesProtectNewCustomers(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "new-customer-owner@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 1 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "未满月新用户",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 9000,
+		CronExpr:            "interval:30d",
+		SeatID:              seats[0].ID,
+		BoardedAt:           "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Store.SetDuePaid(subscriptionID, "2026-08-01", true, 9000); err != nil {
+		t.Fatal(err)
+	}
+	candidates, err := service.buildPricingCandidates(&model.MarketPriceSnapshot{
+		LowPriceCents: 10000, MedianPriceCents: 13000, HighPriceCents: 15000, SampleCount: 10,
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].Eligible || candidates[0].Recommended ||
+		!strings.Contains(candidates[0].BlockedReason, "新用户保护期") {
+		t.Fatalf("new-customer candidate = %#v", candidates)
+	}
+	if _, err := service.ScheduleBulkNextPrice(BulkNextPriceInput{
+		SubscriptionIDs: []int64{subscriptionID},
+		NextPriceYuan:   "95.00",
+	}); err == nil || !strings.Contains(err.Error(), "新用户保护期") {
+		t.Fatalf("protected repricing error = %v", err)
+	}
+}
+
+func TestPricingCandidatesRespectSixMonthCooldown(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "cooldown-owner@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 1 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "刚调过价的老用户",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 9700,
+		CronExpr:            "interval:30d",
+		SeatID:              seats[0].ID,
+		BoardedAt:           "2026-01-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, bill := range []struct {
+		dueDate string
+		amount  int64
+	}{
+		{dueDate: "2026-05-17", amount: 9000},
+		{dueDate: "2026-06-16", amount: 9000},
+		{dueDate: "2026-07-16", amount: 9700},
+	} {
+		if err := service.Store.SetDuePaid(subscriptionID, bill.dueDate, true, bill.amount); err != nil {
+			t.Fatal(err)
+		}
+	}
+	candidates, err := service.buildPricingCandidates(&model.MarketPriceSnapshot{
+		LowPriceCents: 10000, MedianPriceCents: 13000, HighPriceCents: 15000, SampleCount: 10,
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].Eligible || candidates[0].LastPriceIncreaseDate != "2026-07-16" ||
+		!strings.Contains(candidates[0].BlockedReason, "6 个月") {
+		t.Fatalf("cooldown candidate = %#v", candidates)
+	}
+}
+
+func seedPaidPricingPeriods(t *testing.T, service *SubscriptionService, subscriptionID int64, amountCents int64) {
+	t.Helper()
+	for _, dueDate := range []string{"2026-05-17", "2026-06-16", "2026-07-16"} {
+		if err := service.Store.SetDuePaid(subscriptionID, dueDate, true, amountCents); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

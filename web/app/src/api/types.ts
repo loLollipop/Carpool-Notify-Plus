@@ -658,6 +658,10 @@ export interface PricingCandidate {
   market_position: "below_low" | "below_median" | "market_range" | "above_high" | "unavailable"
   gap_to_market_median_cents: number
   suggested_price_cents: number
+  max_increase_price_cents: number
+  paid_period_count: number
+  relationship_days: number
+  last_price_increase_date: string
   recommended: boolean
   eligible: boolean
   blocked_reason: string
