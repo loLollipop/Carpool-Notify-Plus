@@ -55,6 +55,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
 const SANDBOX_BUSINESS_PREFIXES = [
   "/api/calendar",
   "/api/dashboard",
+  "/api/goals",
   "/api/redemptions",
   "/api/redemption-codes",
   "/api/subscriptions",

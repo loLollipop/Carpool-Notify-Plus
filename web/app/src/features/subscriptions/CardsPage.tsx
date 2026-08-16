@@ -191,11 +191,18 @@ function SubscriptionCard({
           <h3 className="truncate text-[15px] font-semibold">
             {view.account_name || subscription.name}
           </h3>
-          {plusRental ? (
+          {plusRental || view.next_price_yuan ? (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              <Badge className="border-brand/25 bg-brand/10 font-normal text-brand">
-                {t("cards.plusRental")}
-              </Badge>
+              {plusRental ? (
+                <Badge className="border-brand/25 bg-brand/10 font-normal text-brand">
+                  {t("cards.plusRental")}
+                </Badge>
+              ) : null}
+              {view.next_price_yuan ? (
+                <Badge variant="outline" className="border-gold/25 bg-gold/[0.07] font-normal text-gold">
+                  {t("cards.nextPrice", { price: `¥${view.next_price_yuan}` })} · {view.next_price_effective_due_date}
+                </Badge>
+              ) : null}
             </div>
           ) : null}
           {subscription.remark ? (

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 
 import { fetchDuePeriods, setDuePaid } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -14,6 +15,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
+import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
+import { maskAmount } from "@/lib/amount-privacy"
 import {
   Select,
   SelectContent,
@@ -41,6 +44,7 @@ export function DuePaidDialog({
   target: DuePaidTarget | null
 }) {
   const { t } = useTranslation()
+  const { amountsHidden } = useAmountPrivacy()
   const plusRental = target?.kind === "plus"
   // User pick overrides the derived default; cleared whenever the dialog closes.
   const [overrideStart, setOverrideStart] = React.useState("")
@@ -61,6 +65,7 @@ export function DuePaidDialog({
     )?.start_date ?? ""
   const selectedStart = overrideStart !== "" ? overrideStart : defaultStart
   const selectedPeriod = periods.find((period) => period.start_date === selectedStart)
+  const selectedPriceYuan = selectedPeriod?.price_yuan || target?.priceYuan || ""
 
   const handleOpenChange = (next: boolean) => {
     if (!next) setOverrideStart("")
@@ -95,11 +100,20 @@ export function DuePaidDialog({
           <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-1">
               <span className="text-xs font-medium text-muted-foreground">
-                {t(plusRental ? "plusRentals.rentShort" : "duePaid.price")}
+                {t(plusRental ? "plusRentals.renewalPrice" : "duePaid.renewalPrice")}
               </span>
-              <span className="tabular-nums">
-                {target?.priceYuan ? `¥${target.priceYuan}` : "—"}
-              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="font-semibold tabular-nums">
+                  {selectedPriceYuan
+                    ? maskAmount(amountsHidden, `¥${selectedPriceYuan}`)
+                    : "—"}
+                </span>
+                {selectedPeriod?.price_change_applies ? (
+                  <Badge variant="secondary" className="font-normal text-brand">
+                    {t("duePaid.nextPriceBadge")}
+                  </Badge>
+                ) : null}
+              </div>
             </div>
             <div className="grid gap-1">
               <span className="text-xs font-medium text-muted-foreground">
@@ -135,6 +149,8 @@ export function DuePaidDialog({
                     disabled={period.paid}
                   >
                     {period.label || `${period.start_date} ${t("duePaid.to")} ${period.end_date}`}
+                    {` · ${maskAmount(amountsHidden, `¥${period.price_yuan}`)}`}
+                    {period.price_change_applies ? ` · ${t("duePaid.nextPriceBadge")}` : ""}
                     {period.paid ? t("duePaid.paidSuffix") : ""}
                   </SelectItem>
                 ))}
@@ -147,6 +163,7 @@ export function DuePaidDialog({
                   ? t("duePaid.periodHintSelected", {
                       start: selectedPeriod.start_date,
                       end: selectedPeriod.end_date,
+                      price: maskAmount(amountsHidden, selectedPeriod.price_yuan),
                     })
                   : t("duePaid.periodHintDefault")}
             </p>

@@ -29,20 +29,22 @@ type SeatView struct {
 	ActiveSubscriptionName string     `json:"active_subscription_name"`
 	ActiveBusinessType     string     `json:"active_business_type"`
 	// Edit form fields for the occupying subscription (empty when free).
-	ActivePriceYuan         string `json:"active_price_yuan"`
-	ActiveCostYuan          string `json:"active_cost_yuan"`
-	ActiveAgencyFeeYuan     string `json:"active_agency_fee_yuan"`
-	ActiveIsResale          bool   `json:"active_is_resale"`
-	ActiveCronExpr          string `json:"active_cron_expr"`
-	ActiveOffsetsText       string `json:"active_offsets_text"`
-	ActiveRemark            string `json:"active_remark"`
-	ActiveTradeURL          string `json:"active_trade_url"`
-	ActiveCustomerEmail     string `json:"active_customer_email"`
-	ActiveCustomerWechat    string `json:"active_customer_wechat"`
-	ActiveAccountID         int64  `json:"active_account_id"`
-	ActiveBoardedAt         string `json:"active_boarded_at"`
-	LinkedSubscriptionCount int    `json:"linked_subscription_count"`
-	CanDelete               bool   `json:"can_delete"`
+	ActivePriceYuan                 string `json:"active_price_yuan"`
+	ActiveNextPriceYuan             string `json:"active_next_price_yuan"`
+	ActiveNextPriceEffectiveDueDate string `json:"active_next_price_effective_due_date"`
+	ActiveCostYuan                  string `json:"active_cost_yuan"`
+	ActiveAgencyFeeYuan             string `json:"active_agency_fee_yuan"`
+	ActiveIsResale                  bool   `json:"active_is_resale"`
+	ActiveCronExpr                  string `json:"active_cron_expr"`
+	ActiveOffsetsText               string `json:"active_offsets_text"`
+	ActiveRemark                    string `json:"active_remark"`
+	ActiveTradeURL                  string `json:"active_trade_url"`
+	ActiveCustomerEmail             string `json:"active_customer_email"`
+	ActiveCustomerWechat            string `json:"active_customer_wechat"`
+	ActiveAccountID                 int64  `json:"active_account_id"`
+	ActiveBoardedAt                 string `json:"active_boarded_at"`
+	LinkedSubscriptionCount         int    `json:"linked_subscription_count"`
+	CanDelete                       bool   `json:"can_delete"`
 }
 
 // CreateAccountInput creates an account with at least one named seat.
@@ -166,6 +168,10 @@ func (service *SubscriptionService) buildSeatView(seat model.Seat) (SeatView, er
 		view.ActiveSubscriptionName = activeSubscription.Name
 		view.ActiveBusinessType = activeSubscription.BusinessType
 		view.ActivePriceYuan = cycle.FormatCents(activeSubscription.PricePerPersonCents)
+		if activeSubscription.NextPriceCents != nil {
+			view.ActiveNextPriceYuan = cycle.FormatCents(*activeSubscription.NextPriceCents)
+		}
+		view.ActiveNextPriceEffectiveDueDate = activeSubscription.NextPriceEffectiveDueDate
 		view.ActiveCostYuan = cycle.FormatCents(activeSubscription.CostCents)
 		view.ActiveAgencyFeeYuan = cycle.FormatCents(activeSubscription.AgencyFeeCents)
 		view.ActiveIsResale = activeSubscription.IsResale

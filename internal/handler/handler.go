@@ -98,6 +98,11 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 func (server *Server) registerBusinessRoutes(routes *gin.RouterGroup) {
 	routes.GET("/calendar", server.getCalendar)
 	routes.GET("/dashboard", server.getDashboard)
+	routes.GET("/goals", server.getGoals)
+	routes.POST("/goals", server.postCreateGoal)
+	routes.POST("/goals/market/refresh", server.postRefreshGoalMarket)
+	routes.PUT("/goals/:id", server.putUpdateGoal)
+	routes.POST("/goals/:id/complete", server.postCompleteGoal)
 
 	routes.GET("/redemptions", server.getRedemptions)
 	routes.POST("/redemptions/:id/invite", server.postInviteRedemption)

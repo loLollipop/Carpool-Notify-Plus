@@ -46,6 +46,83 @@ func (server *Server) getDashboard(context *gin.Context) {
 	respondOK(context, gin.H{"dashboard": dashboard})
 }
 
+func (server *Server) getGoals(context *gin.Context) {
+	center, err := server.Service.GetGoalCenter()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"goals": center})
+}
+
+type businessGoalRequest struct {
+	Name             string `json:"name"`
+	TargetProfitYuan string `json:"target_profit_yuan"`
+	Deadline         string `json:"deadline"`
+}
+
+func (request businessGoalRequest) toInput() service.BusinessGoalInput {
+	return service.BusinessGoalInput{
+		Name:             request.Name,
+		TargetProfitYuan: request.TargetProfitYuan,
+		Deadline:         request.Deadline,
+	}
+}
+
+func (server *Server) postCreateGoal(context *gin.Context) {
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
+	var request businessGoalRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的目标内容")
+		return
+	}
+	goalID, err := server.Service.CreateBusinessGoal(request.toInput())
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "目标已创建", "goal_id": goalID})
+}
+
+func (server *Server) putUpdateGoal(context *gin.Context) {
+	goalID, ok := parseIDParam(context, "id", "无效的目标 ID")
+	if !ok {
+		return
+	}
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
+	var request businessGoalRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的目标内容")
+		return
+	}
+	if err := server.Service.UpdateBusinessGoal(goalID, request.toInput()); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "目标已更新"})
+}
+
+func (server *Server) postCompleteGoal(context *gin.Context) {
+	goalID, ok := parseIDParam(context, "id", "无效的目标 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.CompleteBusinessGoal(goalID); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "目标已结束并归档"})
+}
+
+func (server *Server) postRefreshGoalMarket(context *gin.Context) {
+	market, err := server.Service.RefreshMarketPrice()
+	if err != nil {
+		respondError(context, http.StatusBadGateway, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "市场行情已更新", "market": market})
+}
+
 func (server *Server) getSubscriptions(context *gin.Context) {
 	views, err := server.Service.ListView()
 	if err != nil {
@@ -266,7 +343,13 @@ func (server *Server) getReminderPreview(context *gin.Context) {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
 	}
-	respondOK(context, gin.H{"to": to, "subject": subject, "body": body})
+	payload := gin.H{"to": to, "subject": subject, "body": body}
+	if subscription, getErr := server.Service.Get(subscriptionID); getErr == nil && subscription.NextPriceCents != nil {
+		payload["current_price_yuan"] = cycle.FormatCents(subscription.PricePerPersonCents)
+		payload["next_price_yuan"] = cycle.FormatCents(*subscription.NextPriceCents)
+		payload["next_price_effective_due_date"] = subscription.NextPriceEffectiveDueDate
+	}
+	respondOK(context, payload)
 }
 
 func (server *Server) getDuePeriods(context *gin.Context) {
@@ -347,6 +430,7 @@ type subscriptionRequest struct {
 	Name           string `json:"name"`
 	BusinessType   string `json:"business_type"`
 	PriceYuan      string `json:"price_yuan"`
+	NextPriceYuan  string `json:"next_price_yuan"`
 	CostYuan       string `json:"cost_yuan"`
 	CronExpr       string `json:"cron_expr"`
 	NotifyOffsets  []int  `json:"notify_offsets"`
@@ -372,6 +456,7 @@ func (request subscriptionRequest) toCreateInput() service.CreateInput {
 		Name:             request.Name,
 		BusinessType:     request.BusinessType,
 		PriceYuan:        request.PriceYuan,
+		NextPriceYuan:    request.NextPriceYuan,
 		CostYuan:         request.CostYuan,
 		CronExpr:         request.CronExpr,
 		NotifyOffsetsRaw: offsetsToRaw(request.NotifyOffsets),

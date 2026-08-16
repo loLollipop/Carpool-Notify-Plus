@@ -552,7 +552,7 @@ func TestOneMonthPlusRentalHasOneChargeAndNoRenewalPeriod(t *testing.T) {
 	if nextUnpaid != "" {
 		t.Fatalf("next unpaid due = %q, want none", nextUnpaid)
 	}
-	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-31", true); err == nil || !strings.Contains(err.Error(), "不能登记续费") {
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-31", true); err == nil || !strings.Contains(err.Error(), "不能登记续租") {
 		t.Fatalf("renewal bill error = %v, want one-month guard", err)
 	}
 	if billCount, countErr := subscriptionService.Store.CountBillsForSubscription(subscriptionID); countErr != nil || billCount != 1 {

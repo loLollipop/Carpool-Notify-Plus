@@ -121,6 +121,8 @@ func (store *Store) migrate() error {
                         name TEXT NOT NULL,
 						business_type TEXT NOT NULL DEFAULT 'team',
                         price_per_person_cents INTEGER NOT NULL,
+						next_price_cents INTEGER,
+						next_price_effective_due_date TEXT NOT NULL DEFAULT '',
                         cron_expr TEXT NOT NULL,
                         notify_offsets TEXT NOT NULL,
                         channels TEXT NOT NULL,
@@ -213,6 +215,33 @@ func (store *Store) migrate() error {
                         key TEXT PRIMARY KEY,
                         value TEXT NOT NULL
                 );`,
+		`CREATE TABLE IF NOT EXISTS business_goals (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			target_profit_cents INTEGER NOT NULL,
+			baseline_profit_cents INTEGER NOT NULL,
+			result_profit_cents INTEGER NOT NULL DEFAULT 0,
+			deadline TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL,
+			completed_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_business_goals_one_active
+			ON business_goals(status) WHERE status = 'active';`,
+		`CREATE TABLE IF NOT EXISTS market_price_snapshots (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			provider TEXT NOT NULL,
+			product TEXT NOT NULL,
+			low_price_cents INTEGER NOT NULL,
+			median_price_cents INTEGER NOT NULL,
+			high_price_cents INTEGER NOT NULL,
+			sample_count INTEGER NOT NULL,
+			source_updated_at TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_market_price_snapshots_product
+			ON market_price_snapshots(provider, product, created_at DESC, id DESC);`,
 		`CREATE TABLE IF NOT EXISTS redemption_applications (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			tracking_token TEXT NOT NULL UNIQUE,
@@ -254,6 +283,9 @@ func (store *Store) migrate() error {
 		return err
 	}
 	if err := store.ensureSubscriptionBusinessTypeColumn(); err != nil {
+		return err
+	}
+	if err := store.ensureSubscriptionNextPriceColumns(); err != nil {
 		return err
 	}
 	if err := store.ensureCostCentsColumn(); err != nil {
@@ -627,6 +659,29 @@ func (store *Store) ensureSubscriptionBusinessTypeColumn() error {
 	)
 	if err != nil {
 		return fmt.Errorf("add business_type: %w", err)
+	}
+	return nil
+}
+
+func (store *Store) ensureSubscriptionNextPriceColumns() error {
+	columns := []struct {
+		name      string
+		statement string
+	}{
+		{"next_price_cents", `ALTER TABLE subscriptions ADD COLUMN next_price_cents INTEGER`},
+		{"next_price_effective_due_date", `ALTER TABLE subscriptions ADD COLUMN next_price_effective_due_date TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, column := range columns {
+		hasColumn, err := store.subscriptionsHasColumn(column.name)
+		if err != nil {
+			return err
+		}
+		if hasColumn {
+			continue
+		}
+		if _, err := store.database.Exec(column.statement); err != nil {
+			return fmt.Errorf("add subscriptions.%s: %w", column.name, err)
+		}
 	}
 	return nil
 }
@@ -1244,6 +1299,8 @@ const subscriptionSelectColumns = `
 	subscription.name,
 	COALESCE(subscription.business_type, 'team'),
 	subscription.price_per_person_cents,
+	subscription.next_price_cents,
+	COALESCE(subscription.next_price_effective_due_date, ''),
 	subscription.cost_cents,
 	COALESCE(subscription.is_resale, 0),
 	COALESCE(subscription.agency_fee_cents, 0),
@@ -1414,12 +1471,15 @@ func insertSubscription(
 	}
 	result, err := executor.Exec(`
                 INSERT INTO subscriptions (
-                        name, business_type, price_per_person_cents, cost_cents, is_resale, agency_fee_cents, cron_expr, notify_offsets, channels,
+                        name, business_type, price_per_person_cents, next_price_cents, next_price_effective_due_date,
+						cost_cents, is_resale, agency_fee_cents, cron_expr, notify_offsets, channels,
                         remark, trade_url, customer_email, customer_wechat, subscription_type, seat_id, boarded_at, archived_at, deleted_at, created_at, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
 		subscription.Name,
 		businessType,
 		subscription.PricePerPersonCents,
+		subscription.NextPriceCents,
+		strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
 		subscription.CostCents,
 		isResale,
 		subscription.AgencyFeeCents,
@@ -1601,7 +1661,8 @@ func updateSubscriptionWithExecutor(
 	}
 	result, err := executor.Exec(`
                 UPDATE subscriptions
-                SET name = ?, business_type = ?, price_per_person_cents = ?, cost_cents = ?, is_resale = ?, agency_fee_cents = ?, cron_expr = ?, notify_offsets = ?,
+                SET name = ?, business_type = ?, price_per_person_cents = ?, next_price_cents = ?, next_price_effective_due_date = ?,
+					cost_cents = ?, is_resale = ?, agency_fee_cents = ?, cron_expr = ?, notify_offsets = ?,
                     channels = ?, remark = ?, trade_url = ?, customer_email = ?, customer_wechat = ?, subscription_type = ?, seat_id = ?, boarded_at = ?, updated_at = ?
                 WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL
                   AND NOT EXISTS (
@@ -1613,6 +1674,8 @@ func updateSubscriptionWithExecutor(
 		subscription.Name,
 		businessType,
 		subscription.PricePerPersonCents,
+		subscription.NextPriceCents,
+		strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
 		subscription.CostCents,
 		isResale,
 		subscription.AgencyFeeCents,
@@ -1772,14 +1835,48 @@ func (store *Store) SetDuePaid(
 		costCents = costSnapshotCents[0]
 	}
 	now := formatTime(time.Now().UTC())
-	_, err = store.database.Exec(`
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	result, err := transaction.Exec(`
 		INSERT INTO bills (
 			subscription_id, due_date, amount_cents, cost_cents, note, paid_at, created_at, updated_at
 		) VALUES (?, ?, ?, ?, '', ?, ?, ?)
 		ON CONFLICT(subscription_id, due_date) DO NOTHING`,
 		subscriptionID, dueDate, amountCents, costCents, now, now, now,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if inserted == 1 {
+		// A scheduled price becomes the regular price only after the first bill
+		// in its effective period is actually recorded. Removing that bill later
+		// deliberately does not rewrite the price or any historical bill.
+		if _, err := transaction.Exec(`
+			UPDATE subscriptions
+			SET price_per_person_cents = next_price_cents,
+				next_price_cents = NULL,
+				next_price_effective_due_date = '',
+				updated_at = ?
+			WHERE id = ?
+			  AND is_resale = 0
+			  AND next_price_cents IS NOT NULL
+			  AND next_price_effective_due_date <> ''
+			  AND next_price_effective_due_date <= ?`,
+			now,
+			subscriptionID,
+			strings.TrimSpace(dueDate),
+		); err != nil {
+			return err
+		}
+	}
+	return transaction.Commit()
 }
 
 // IsDuePaid reports whether one subscription due date has a bill.
@@ -3354,6 +3451,8 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 	var subscription model.Subscription
 	var offsetsJSON string
 	var channelsJSON string
+	var nextPriceCents sql.NullInt64
+	var nextPriceEffectiveDueDate string
 	var isResale int
 	var seatID int64
 	var accountID int64
@@ -3374,6 +3473,8 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 		&subscription.Name,
 		&subscription.BusinessType,
 		&subscription.PricePerPersonCents,
+		&nextPriceCents,
+		&nextPriceEffectiveDueDate,
 		&subscription.CostCents,
 		&isResale,
 		&subscription.AgencyFeeCents,
@@ -3401,6 +3502,11 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 	if err != nil {
 		return model.Subscription{}, err
 	}
+	if nextPriceCents.Valid {
+		value := nextPriceCents.Int64
+		subscription.NextPriceCents = &value
+	}
+	subscription.NextPriceEffectiveDueDate = strings.TrimSpace(nextPriceEffectiveDueDate)
 	subscription.IsResale = isResale != 0
 	subscription.BusinessType = normalizeStoredBusinessType(subscription.BusinessType)
 	subscription.CustomerEmail = strings.TrimSpace(customerEmail)

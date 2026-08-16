@@ -32,6 +32,9 @@ const PlusRentalsPage = lazy(() =>
     default: module.PlusRentalsPage,
   })),
 )
+const GoalsPage = lazy(() =>
+  import("@/features/goals/GoalsPage").then((module) => ({ default: module.GoalsPage })),
+)
 
 export default function App() {
   return (
@@ -54,6 +57,14 @@ export default function App() {
           }
         />
         <Route path="/calendar" element={<CalendarPage />} />
+        <Route
+          path="/goals"
+          element={
+            <Suspense fallback={<Skeleton className="h-96 rounded-xl" />}>
+              <GoalsPage />
+            </Suspense>
+          }
+        />
         <Route path="/users" element={<CardsPage />} />
         <Route
           path="/plus-rentals"

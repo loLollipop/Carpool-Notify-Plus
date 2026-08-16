@@ -9,10 +9,12 @@ import type {
   BillInput,
   BillView,
   BillsSummary,
+  BusinessGoalInput,
   CalendarMonth,
   CronPreview,
   Dashboard,
   DuePeriodOption,
+  GoalCenter,
   ReminderPreview,
   RedemptionApplicationView,
   RedemptionCodeGenerateInput,
@@ -57,6 +59,10 @@ export function fetchCalendar(month?: string) {
 
 export function fetchDashboard() {
   return api<{ dashboard: Dashboard }>("/api/dashboard").then((r) => r.dashboard)
+}
+
+export function fetchGoals() {
+  return api<{ goals: GoalCenter }>("/api/goals").then((result) => result.goals)
 }
 
 export function fetchSubscriptions() {
@@ -168,6 +174,24 @@ function publicSandboxPath(path: string, accessToken: string) {
 }
 
 // ---- Subscription mutations ----
+
+export function createBusinessGoal(input: BusinessGoalInput) {
+  return api<MessageResult & { goal_id: number }>("/api/goals", { method: "POST", body: input })
+}
+
+export function updateBusinessGoal(id: number, input: BusinessGoalInput) {
+  return api<MessageResult>(`/api/goals/${id}`, { method: "PUT", body: input })
+}
+
+export function completeBusinessGoal(id: number) {
+  return api<MessageResult>(`/api/goals/${id}/complete`, { method: "POST" })
+}
+
+export function refreshGoalMarket() {
+  return api<MessageResult & { market: GoalCenter["market"] }>("/api/goals/market/refresh", {
+    method: "POST",
+  })
+}
 
 export function createSubscription(input: SubscriptionInput) {
   return api<MessageResult>("/api/subscriptions", { method: "POST", body: input })

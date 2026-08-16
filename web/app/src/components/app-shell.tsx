@@ -20,6 +20,7 @@ import {
   Settings,
   Sun,
   TicketCheck,
+  Target,
   Users,
 } from "lucide-react"
 import { useTheme } from "next-themes"
@@ -44,7 +45,13 @@ import { useSandboxMode } from "@/hooks/use-sandbox-mode"
 
 const SIDEBAR_STORAGE_KEY = "carpool-notify:sidebar-collapsed"
 
-function BrandMark({ compact = false }: { compact?: boolean }) {
+function BrandMark({
+  compact = false,
+  hideLabelOnNarrow = false,
+}: {
+  compact?: boolean
+  hideLabelOnNarrow?: boolean
+}) {
   return (
     <NavLink
       to="/"
@@ -55,7 +62,13 @@ function BrandMark({ compact = false }: { compact?: boolean }) {
       )}
     >
       <BrandIcon />
-      <span className={cn("min-w-0", compact && "hidden")}>
+      <span
+        className={cn(
+          "min-w-0",
+          compact && "hidden",
+          hideLabelOnNarrow && "max-[440px]:hidden",
+        )}
+      >
         <span className="block truncate text-[15px] font-semibold text-[var(--sidebar-foreground)]">
           {APP_NAME}
         </span>
@@ -144,6 +157,7 @@ export function AppShell() {
   const operationsNav = [
     { to: "/", label: t("nav.dashboard"), icon: LayoutDashboard, end: true },
     { to: "/calendar", label: t("nav.calendar"), icon: CalendarDays, end: true },
+    { to: "/goals", label: t("nav.goals"), icon: Target, end: true },
     { to: "/users", label: t("nav.users"), icon: Users, end: true },
     { to: "/plus-rentals", label: t("nav.plusRentals"), icon: CircleDollarSign, end: true },
     { to: "/redemptions", label: t("nav.redemptions"), icon: TicketCheck, end: true },
@@ -323,7 +337,7 @@ export function AppShell() {
 
         <header className="sticky top-0 z-40 border-b border-border/70 bg-background/85 backdrop-blur-xl lg:hidden">
           <div className="flex h-16 items-center gap-2 px-4">
-            <BrandMark />
+            <BrandMark hideLabelOnNarrow />
             <div className="ml-auto flex items-center gap-1">
               <LanguageToggle />
               <ThemeToggle />

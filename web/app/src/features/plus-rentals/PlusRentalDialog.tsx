@@ -2,7 +2,7 @@ import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm, useWatch } from "react-hook-form"
 import { useTranslation } from "react-i18next"
-import { Mail, MessageCircle, WalletCards } from "lucide-react"
+import { BadgeDollarSign, Mail, MessageCircle, WalletCards } from "lucide-react"
 import { z } from "zod"
 
 import { createSubscription, updateSubscription } from "@/api/endpoints"
@@ -71,6 +71,12 @@ export function PlusRentalDialog({
           .trim()
           .min(1, t("plusRentals.validation.rentRequired"))
           .regex(MONEY_PATTERN, t("plusRentals.validation.amountInvalid")),
+        next_price_yuan: z
+          .string()
+          .trim()
+          .refine((value) => value === "" || MONEY_PATTERN.test(value), {
+            message: t("plusRentals.validation.amountInvalid"),
+          }),
         cost_yuan: z
           .string()
           .trim()
@@ -93,6 +99,7 @@ export function PlusRentalDialog({
       account_email: prefill?.customerEmail ?? "",
       contact: prefill?.customerWechat ?? "",
       price_yuan: prefill?.priceYuan ?? "",
+      next_price_yuan: prefill?.nextPriceYuan ?? "",
       cost_yuan: prefill?.costYuan === "0.00" ? "" : (prefill?.costYuan ?? ""),
       boarded_at: prefill?.boardedAt || todayShanghai(),
       rental_mode: isOneMonthRentalCron(prefill?.cronExpr ?? "") ? "one_month" : "recurring",
@@ -113,6 +120,11 @@ export function PlusRentalDialog({
 
   const rentalMode = useWatch({ control: form.control, name: "rental_mode" })
   const boardedAt = useWatch({ control: form.control, name: "boarded_at" })
+  const currentPriceYuan = useWatch({ control: form.control, name: "price_yuan" })
+  const nextPriceYuan = useWatch({ control: form.control, name: "next_price_yuan" })
+  const scheduleChanged =
+    form.formState.dirtyFields.boarded_at === true ||
+    form.formState.dirtyFields.cron_expr === true
   const oneMonthEndDate = oneMonthRentalEndDate(boardedAt)
 
   const saveMutation = useAppMutation(
@@ -121,6 +133,8 @@ export function PlusRentalDialog({
         name: values.name.trim(),
         business_type: "plus",
         price_yuan: values.price_yuan.trim(),
+        next_price_yuan:
+          isEdit && values.rental_mode === "recurring" ? values.next_price_yuan.trim() : "",
         cost_yuan: values.cost_yuan.trim(),
         cron_expr:
           values.rental_mode === "one_month" ? ONE_MONTH_RENTAL_CRON : values.cron_expr.trim(),
@@ -233,6 +247,12 @@ export function PlusRentalDialog({
                               )}
                               onClick={() => {
                                 field.onChange(mode)
+                                if (mode === "one_month") {
+                                  form.setValue("next_price_yuan", "", {
+                                    shouldDirty: true,
+                                    shouldValidate: true,
+                                  })
+                                }
                                 if (
                                   mode === "recurring" &&
                                   isOneMonthRentalCron(form.getValues("cron_expr"))
@@ -346,6 +366,72 @@ export function PlusRentalDialog({
                 )}
               />
             </section>
+
+            {isEdit && rentalMode === "recurring" ? (
+              <section className="grid gap-3 rounded-xl border border-brand/20 bg-brand/[0.045] p-4">
+                <div className="flex items-center gap-2">
+                  <span className="grid size-8 place-items-center rounded-lg bg-brand/10 text-brand">
+                    <BadgeDollarSign className="size-4" />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold">{t("plusRentals.nextPriceTitle")}</h3>
+                    <p className="text-xs text-muted-foreground">
+                      {t("plusRentals.nextPriceSummary")}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid items-start gap-3 sm:grid-cols-[1fr_auto]">
+                  <FormField
+                    control={form.control}
+                    name="next_price_yuan"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("plusRentals.nextRentalPrice")}</FormLabel>
+                        <FormControl>
+                          <Input
+                            inputMode="decimal"
+                            placeholder={t("subscriptionDialog.nextPricePlaceholder")}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {nextPriceYuan.trim() ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="self-end"
+                      onClick={() =>
+                        form.setValue("next_price_yuan", "", {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        })
+                      }
+                    >
+                      {t("subscriptionDialog.cancelPriceChange")}
+                    </Button>
+                  ) : null}
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {nextPriceYuan.trim()
+                    ? scheduleChanged
+                      ? t("plusRentals.nextPriceRecalculate", {
+                          current: currentPriceYuan || "--",
+                          next: nextPriceYuan,
+                        })
+                      : t("plusRentals.nextPriceEffective", {
+                          current: currentPriceYuan || "--",
+                          next: nextPriceYuan,
+                          date:
+                            prefill?.nextPriceEffectiveDueDate || prefill?.nextDueDate || "--",
+                        })
+                    : t("plusRentals.nextPriceHint")}
+                </p>
+              </section>
+            ) : null}
 
             <section>
               <FormField

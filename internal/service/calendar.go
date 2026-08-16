@@ -53,34 +53,38 @@ type CalendarDayView struct {
 
 // CalendarOccurrenceView is one subscription occurrence on its due date.
 type CalendarOccurrenceView struct {
-	SubscriptionID int64    `json:"subscription_id"`
-	Name           string   `json:"name"`
-	BusinessType   string   `json:"business_type"`
-	DueDate        string   `json:"due_date"`
-	DayNumber      int      `json:"day_number"`
-	WeekdayLabel   string   `json:"weekday_label"`
-	PriceYuan      string   `json:"price_yuan"`
-	CostYuan       string   `json:"cost_yuan"`
-	AgencyFeeYuan  string   `json:"agency_fee_yuan"`
-	IsResale       bool     `json:"is_resale"`
-	ProfitYuan     string   `json:"profit_yuan"`
-	CycleDesc      string   `json:"cycle_desc"`
-	ReminderLabel  string   `json:"reminder_label"`
-	ChannelLabels  string   `json:"channel_labels"`
-	Paid           bool     `json:"paid"`
-	AccountName    string   `json:"account_name"`
-	SeatName       string   `json:"seat_name"`
-	AccountID      int64    `json:"account_id"`
-	SeatID         int64    `json:"seat_id"`
-	DaysRemaining  int      `json:"days_remaining"`
-	TradeURL       string   `json:"trade_url"`
-	CronExpr       string   `json:"cron_expr"`
-	OffsetsText    string   `json:"offsets_text"`
-	CustomerEmail  string   `json:"customer_email"`
-	CustomerWechat string   `json:"customer_wechat"`
-	Channels       []string `json:"channels"`
-	Remark         string   `json:"remark"`
-	BoardedAt      string   `json:"boarded_at"`
+	SubscriptionID            int64    `json:"subscription_id"`
+	Name                      string   `json:"name"`
+	BusinessType              string   `json:"business_type"`
+	DueDate                   string   `json:"due_date"`
+	DayNumber                 int      `json:"day_number"`
+	WeekdayLabel              string   `json:"weekday_label"`
+	PriceYuan                 string   `json:"price_yuan"`
+	CurrentPriceYuan          string   `json:"current_price_yuan"`
+	NextPriceYuan             string   `json:"next_price_yuan"`
+	NextPriceEffectiveDueDate string   `json:"next_price_effective_due_date"`
+	AmountCents               int64    `json:"-"`
+	CostYuan                  string   `json:"cost_yuan"`
+	AgencyFeeYuan             string   `json:"agency_fee_yuan"`
+	IsResale                  bool     `json:"is_resale"`
+	ProfitYuan                string   `json:"profit_yuan"`
+	CycleDesc                 string   `json:"cycle_desc"`
+	ReminderLabel             string   `json:"reminder_label"`
+	ChannelLabels             string   `json:"channel_labels"`
+	Paid                      bool     `json:"paid"`
+	AccountName               string   `json:"account_name"`
+	SeatName                  string   `json:"seat_name"`
+	AccountID                 int64    `json:"account_id"`
+	SeatID                    int64    `json:"seat_id"`
+	DaysRemaining             int      `json:"days_remaining"`
+	TradeURL                  string   `json:"trade_url"`
+	CronExpr                  string   `json:"cron_expr"`
+	OffsetsText               string   `json:"offsets_text"`
+	CustomerEmail             string   `json:"customer_email"`
+	CustomerWechat            string   `json:"customer_wechat"`
+	Channels                  []string `json:"channels"`
+	Remark                    string   `json:"remark"`
+	BoardedAt                 string   `json:"boarded_at"`
 }
 
 type dueOccurrenceKey struct {
@@ -95,7 +99,11 @@ func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate str
 	if err != nil {
 		return err
 	}
-	if err := service.ensureNoPendingAfterSales(subscriptionID, "续费记账"); err != nil {
+	action := "续费记账"
+	if isPlusSubscription(subscription) {
+		action = "续租记账"
+	}
+	if err := service.ensureNoPendingAfterSales(subscriptionID, action); err != nil {
 		return err
 	}
 	if _, err := time.ParseInLocation("2006-01-02", dueDate, cycle.Location); err != nil {
@@ -107,7 +115,7 @@ func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate str
 			return periodErr
 		}
 		if strings.TrimSpace(dueDate) != cycle.FormatDate(periodStart) {
-			return fmt.Errorf("单月短租只有首期租金，不能登记续费；到期后请确认结束出租")
+			return fmt.Errorf("单月短租只有首期租金，不能登记续租；到期后请确认结束出租")
 		}
 	}
 	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
@@ -125,7 +133,7 @@ func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate str
 		subscriptionID,
 		dueDate,
 		paid,
-		billDefaultAmountCents(subscription),
+		billAmountCentsForDueDate(subscription, dueDate),
 		billDefaultCostCents(subscription),
 	); err != nil {
 		if errors.Is(err, db.ErrBillHasAfterSalesCase) {
@@ -139,11 +147,13 @@ func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate str
 // DuePeriodOption is one billing window between consecutive cron due dates.
 // StartDate is the bill/paid key; EndDate is the next cron occurrence (period end, exclusive of the next bill).
 type DuePeriodOption struct {
-	StartDate string `json:"start_date"`
-	EndDate   string `json:"end_date"`
-	Label     string `json:"label"`
-	Paid      bool   `json:"paid"`
-	Preferred bool   `json:"preferred"`
+	StartDate          string `json:"start_date"`
+	EndDate            string `json:"end_date"`
+	Label              string `json:"label"`
+	PriceYuan          string `json:"price_yuan"`
+	PriceChangeApplies bool   `json:"price_change_applies"`
+	Paid               bool   `json:"paid"`
+	Preferred          bool   `json:"preferred"`
 }
 
 // ListDuePeriodOptions returns selectable billing periods around preferredStart
@@ -175,11 +185,13 @@ func (service *SubscriptionService) ListDuePeriodOptions(subscriptionID int64, p
 			return nil, paidErr
 		}
 		return []DuePeriodOption{{
-			StartDate: startDate,
-			EndDate:   cycle.FormatDate(periodEnd),
-			Label:     startDate + " 至 " + cycle.FormatDate(periodEnd),
-			Paid:      paid,
-			Preferred: preferredStart == "" || preferredStart == startDate,
+			StartDate:          startDate,
+			EndDate:            cycle.FormatDate(periodEnd),
+			PriceYuan:          cycle.FormatCents(billAmountCentsForDueDate(subscription, startDate)),
+			PriceChangeApplies: nextPriceAppliesForDueDate(subscription, startDate),
+			Label:              startDate + " 至 " + cycle.FormatDate(periodEnd),
+			Paid:               paid,
+			Preferred:          preferredStart == "" || preferredStart == startDate,
 		}}, nil
 	}
 
@@ -234,11 +246,13 @@ func (service *SubscriptionService) ListDuePeriodOptions(subscriptionID int64, p
 			return nil, paidErr
 		}
 		options = append(options, DuePeriodOption{
-			StartDate: startDate,
-			EndDate:   endDate,
-			Label:     startDate + " 至 " + endDate,
-			Paid:      paid,
-			Preferred: preferredStart != "" && startDate == preferredStart,
+			StartDate:          startDate,
+			EndDate:            endDate,
+			PriceYuan:          cycle.FormatCents(billAmountCentsForDueDate(subscription, startDate)),
+			PriceChangeApplies: nextPriceAppliesForDueDate(subscription, startDate),
+			Label:              startDate + " 至 " + endDate,
+			Paid:               paid,
+			Preferred:          preferredStart != "" && startDate == preferredStart,
 		})
 	}
 
@@ -358,10 +372,6 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 	if err != nil {
 		return CalendarMonthView{}, err
 	}
-	amountBySubscription := make(map[int64]int64, len(subscriptions))
-	for _, subscription := range subscriptions {
-		amountBySubscription[subscription.ID] = billDefaultAmountCents(subscription)
-	}
 	paidOccurrences, err := service.Store.ListPaidDueOccurrences(
 		cycle.FormatDate(gridStart),
 		cycle.FormatDate(gridEnd),
@@ -445,7 +455,7 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 			paidCount++
 		} else {
 			pendingMonthCount++
-			pendingMonthAmountCents += amountBySubscription[occurrence.SubscriptionID]
+			pendingMonthAmountCents += occurrence.AmountCents
 			if occurrence.DaysRemaining <= 0 {
 				pendingCount++
 			}
@@ -498,36 +508,49 @@ func (service *SubscriptionService) buildOccurrenceView(
 	dueAt time.Time,
 	paid bool,
 ) CalendarOccurrenceView {
-	profitCents := countedProfitCents(subscription)
+	dueDate := cycle.FormatDate(dueAt)
+	amountCents := billAmountCentsForDueDate(subscription, dueDate)
+	nextPriceYuan := ""
+	if subscription.NextPriceCents != nil {
+		nextPriceYuan = cycle.FormatCents(*subscription.NextPriceCents)
+	}
+	profitCents := amountCents - subscription.CostCents
+	if subscription.IsResale {
+		profitCents = amountCents
+	}
 	return CalendarOccurrenceView{
-		SubscriptionID: subscription.ID,
-		Name:           subscription.Name,
-		BusinessType:   subscription.BusinessType,
-		DueDate:        cycle.FormatDate(dueAt),
-		DayNumber:      dueAt.In(cycle.Location).Day(),
-		WeekdayLabel:   calendarWeekdayLabel(dueAt.Weekday()),
-		PriceYuan:      cycle.FormatCents(subscription.PricePerPersonCents),
-		CostYuan:       cycle.FormatCents(subscription.CostCents),
-		AgencyFeeYuan:  cycle.FormatCents(subscription.AgencyFeeCents),
-		IsResale:       subscription.IsResale,
-		ProfitYuan:     cycle.FormatCents(profitCents),
-		CycleDesc:      cycle.DescribeCron(subscription.CronExpr),
-		ReminderLabel:  calendarReminderLabel(subscription.NotifyOffsets),
-		ChannelLabels:  scheduledNotificationLabelText(subscription),
-		Paid:           paid,
-		AccountName:    displayAccountName(subscription),
-		SeatName:       subscription.SeatName,
-		AccountID:      subscription.AccountID,
-		SeatID:         subscription.SeatID,
-		DaysRemaining:  cycle.DaysRemaining(dueAt, service.now()),
-		TradeURL:       subscription.TradeURL,
-		CronExpr:       subscription.CronExpr,
-		OffsetsText:    cycle.FormatOffsets(subscription.NotifyOffsets),
-		Channels:       append([]string(nil), subscription.Channels...),
-		Remark:         subscription.Remark,
-		CustomerEmail:  subscription.CustomerEmail,
-		CustomerWechat: subscription.CustomerWechat,
-		BoardedAt:      subscription.BoardedAt,
+		SubscriptionID:            subscription.ID,
+		Name:                      subscription.Name,
+		BusinessType:              subscription.BusinessType,
+		DueDate:                   dueDate,
+		DayNumber:                 dueAt.In(cycle.Location).Day(),
+		WeekdayLabel:              calendarWeekdayLabel(dueAt.Weekday()),
+		PriceYuan:                 cycle.FormatCents(amountCents),
+		CurrentPriceYuan:          cycle.FormatCents(subscription.PricePerPersonCents),
+		NextPriceYuan:             nextPriceYuan,
+		NextPriceEffectiveDueDate: subscription.NextPriceEffectiveDueDate,
+		AmountCents:               amountCents,
+		CostYuan:                  cycle.FormatCents(subscription.CostCents),
+		AgencyFeeYuan:             cycle.FormatCents(subscription.AgencyFeeCents),
+		IsResale:                  subscription.IsResale,
+		ProfitYuan:                cycle.FormatCents(profitCents),
+		CycleDesc:                 cycle.DescribeCron(subscription.CronExpr),
+		ReminderLabel:             calendarReminderLabel(subscription.NotifyOffsets),
+		ChannelLabels:             scheduledNotificationLabelText(subscription),
+		Paid:                      paid,
+		AccountName:               displayAccountName(subscription),
+		SeatName:                  subscription.SeatName,
+		AccountID:                 subscription.AccountID,
+		SeatID:                    subscription.SeatID,
+		DaysRemaining:             cycle.DaysRemaining(dueAt, service.now()),
+		TradeURL:                  subscription.TradeURL,
+		CronExpr:                  subscription.CronExpr,
+		OffsetsText:               cycle.FormatOffsets(subscription.NotifyOffsets),
+		Channels:                  append([]string(nil), subscription.Channels...),
+		Remark:                    subscription.Remark,
+		CustomerEmail:             subscription.CustomerEmail,
+		CustomerWechat:            subscription.CustomerWechat,
+		BoardedAt:                 subscription.BoardedAt,
 	}
 }
 

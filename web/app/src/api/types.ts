@@ -7,6 +7,8 @@ export interface Subscription {
   name: string
   business_type: SubscriptionBusinessType
   price_per_person_cents: number
+  next_price_cents: number | null
+  next_price_effective_due_date: string
   cost_cents: number
   cron_expr: string
   notify_offsets: number[] | null
@@ -33,6 +35,8 @@ export interface Subscription {
 export interface SubscriptionView {
   subscription: Subscription
   price_yuan: string
+  next_price_yuan: string
+  next_price_effective_due_date: string
   cost_yuan: string
   allocated_cost_yuan?: string
   profit_yuan: string
@@ -126,6 +130,9 @@ export interface CalendarOccurrence {
   day_number: number
   weekday_label: string
   price_yuan: string
+  current_price_yuan: string
+  next_price_yuan: string
+  next_price_effective_due_date: string
   cost_yuan: string
   profit_yuan: string
   cycle_desc: string
@@ -201,6 +208,7 @@ export interface Dashboard {
   net_revenue_yuan: string
   total_cost_yuan: string
   total_profit_yuan: string
+  total_profit_cents: number
   profit_margin_percent: string
   notify_success_30d: number
   notify_failed_30d: number
@@ -240,6 +248,8 @@ export interface SeatView {
   active_subscription_name: string
   active_business_type: SubscriptionBusinessType
   active_price_yuan: string
+  active_next_price_yuan: string
+  active_next_price_effective_due_date: string
   active_cost_yuan: string
   active_cron_expr: string
   active_offsets_text: string
@@ -489,6 +499,8 @@ export interface DuePeriodOption {
   start_date: string
   end_date: string
   label: string
+  price_yuan: string
+  price_change_applies: boolean
   paid: boolean
   preferred: boolean
 }
@@ -503,12 +515,16 @@ export interface ReminderPreview {
   to: string
   subject: string
   body: string
+  current_price_yuan?: string
+  next_price_yuan?: string
+  next_price_effective_due_date?: string
 }
 
 export interface SubscriptionInput {
   name: string
   business_type: SubscriptionBusinessType
   price_yuan: string
+  next_price_yuan: string
   cost_yuan: string
   cron_expr: string
   notify_offsets: number[]
@@ -542,6 +558,109 @@ export interface RedemptionInviteInput {
   remark: string
   trade_url: string
   operator_note: string
+}
+
+export interface BusinessGoal {
+  id: number
+  name: string
+  target_profit_cents: number
+  baseline_profit_cents: number
+  result_profit_cents: number
+  deadline: string
+  status: "active" | "completed"
+  completed_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface BusinessGoalProgress {
+  goal: BusinessGoal
+  current_profit_cents: number
+  earned_profit_cents: number
+  remaining_profit_cents: number
+  progress_percent: number
+  days_remaining: number
+  required_monthly_profit_cents: number
+  reached: boolean
+}
+
+export interface CompletedGoalView {
+  goal: BusinessGoal
+  progress_percent: number
+  reached: boolean
+}
+
+export interface ProfitMonth {
+  month: string
+  revenue_cents: number
+  cost_cents: number
+  refund_cents: number
+  profit_cents: number
+}
+
+export interface ForecastScenario {
+  monthly_profit_cents: number
+  months_needed: number
+  projected_date: string
+  meets_deadline: boolean
+}
+
+export interface ProfitForecast {
+  source: "blended" | "history" | "run_rate" | "unavailable"
+  historical_monthly_profit_cents: number
+  run_rate_monthly_profit_cents: number
+  conservative: ForecastScenario
+  baseline: ForecastScenario
+  optimistic: ForecastScenario
+}
+
+export interface MarketPriceSnapshot {
+  id: number
+  provider: string
+  product: string
+  low_price_cents: number
+  median_price_cents: number
+  high_price_cents: number
+  sample_count: number
+  source_updated_at: string
+  created_at: string
+}
+
+export interface MarketPriceView {
+  available: boolean
+  stale: boolean
+  warning: string
+  source_url: string
+  snapshot: MarketPriceSnapshot | null
+  history: MarketPriceSnapshot[] | null
+}
+
+export interface PricingRecommendation {
+  action: "raise" | "hold" | "fill" | "lower_test" | "insufficient"
+  reason_codes: string[] | null
+  internal_median_price_cents: number
+  suggested_low_price_cents: number
+  suggested_high_price_cents: number
+  seat_cost_floor_cents: number
+  seat_total: number
+  seat_used: number
+  seat_available: number
+  utilization_percent: number
+}
+
+export interface GoalCenter {
+  active_goal: BusinessGoalProgress | null
+  history: CompletedGoalView[] | null
+  trend: ProfitMonth[] | null
+  forecast: ProfitForecast | null
+  market: MarketPriceView
+  pricing: PricingRecommendation
+}
+
+export interface BusinessGoalInput {
+  name: string
+  target_profit_yuan: string
+  deadline: string
 }
 
 export interface RedemptionRejectInput {

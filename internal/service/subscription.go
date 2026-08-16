@@ -36,10 +36,12 @@ const (
 
 // SubscriptionService handles subscription CRUD and presentation helpers.
 type SubscriptionService struct {
-	Store  *db.Store
-	Config config.Config
-	Notify notify.Registry
-	Clock  func() time.Time
+	Store          *db.Store
+	Config         config.Config
+	Notify         notify.Registry
+	Clock          func() time.Time
+	MarketClient   MarketHTTPDoer
+	MarketPriceURL string
 }
 
 // NewNotifyRegistry builds senders from runtime configuration.
@@ -84,6 +86,8 @@ func (service *SubscriptionService) now() time.Time {
 type SubscriptionView struct {
 	Subscription               model.Subscription `json:"subscription"`
 	PriceYuan                  string             `json:"price_yuan"`
+	NextPriceYuan              string             `json:"next_price_yuan"`
+	NextPriceEffectiveDueDate  string             `json:"next_price_effective_due_date"`
 	CostYuan                   string             `json:"cost_yuan"`
 	AllocatedCostYuan          string             `json:"allocated_cost_yuan"`
 	AgencyFeeYuan              string             `json:"agency_fee_yuan"`
@@ -305,6 +309,10 @@ func (service *SubscriptionService) buildView(
 		cycleDays = 1
 	}
 	profitCents := countedProfitCents(subscription)
+	nextPriceYuan := ""
+	if subscription.NextPriceCents != nil {
+		nextPriceYuan = cycle.FormatCents(*subscription.NextPriceCents)
+	}
 	archivedAtLabel := ""
 	if subscription.ArchivedAt != nil {
 		archivedAtLabel = subscription.ArchivedAt.In(cycle.Location).Format("2006-01-02 15:04")
@@ -319,6 +327,8 @@ func (service *SubscriptionService) buildView(
 	return SubscriptionView{
 		Subscription:               subscription,
 		PriceYuan:                  cycle.FormatCents(subscription.PricePerPersonCents),
+		NextPriceYuan:              nextPriceYuan,
+		NextPriceEffectiveDueDate:  subscription.NextPriceEffectiveDueDate,
 		CostYuan:                   cycle.FormatCents(subscription.CostCents),
 		AllocatedCostYuan:          cycle.FormatCents(subscription.CostCents),
 		AgencyFeeYuan:              cycle.FormatCents(subscription.AgencyFeeCents),
@@ -569,6 +579,7 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		NetRevenueYuan:       cycle.FormatCents(netRevenueCents),
 		TotalCostYuan:        cycle.FormatCents(totalCostCents),
 		TotalProfitYuan:      cycle.FormatCents(totalProfitCents),
+		TotalProfitCents:     totalProfitCents,
 		TotalAgencyFeeYuan:   cycle.FormatCents(totalAgencyFeeCents),
 		ProfitMarginPercent:  profitMarginPercent,
 		NotifySuccess30d:     successCount,
@@ -580,10 +591,11 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 
 // CreateInput is validated form input for create/update.
 type CreateInput struct {
-	Name         string
-	BusinessType string
-	PriceYuan    string
-	CostYuan     string
+	Name          string
+	BusinessType  string
+	PriceYuan     string
+	NextPriceYuan string
+	CostYuan      string
 	// IsResale marks 串货; AgencyFeeYuan is the middleman fee (may be empty/0).
 	IsResale         bool
 	AgencyFeeYuan    string
@@ -615,6 +627,7 @@ type Dashboard struct {
 	NetRevenueYuan       string             `json:"net_revenue_yuan"`
 	TotalCostYuan        string             `json:"total_cost_yuan"`
 	TotalProfitYuan      string             `json:"total_profit_yuan"`
+	TotalProfitCents     int64              `json:"total_profit_cents"`
 	TotalAgencyFeeYuan   string             `json:"total_agency_fee_yuan"`
 	ProfitMarginPercent  string             `json:"profit_margin_percent"`
 	NotifySuccess30d     int                `json:"notify_success_30d"`
@@ -647,6 +660,9 @@ func (service *SubscriptionService) Create(input CreateInput) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
+	if subscription.NextPriceCents != nil {
+		return 0, fmt.Errorf("请先创建订阅，再在编辑中安排下周期调价")
+	}
 	subscriptionID, err := service.Store.CreateSubscription(subscription)
 	if err != nil {
 		return 0, publicSubscriptionMutationError(err)
@@ -660,6 +676,9 @@ func (service *SubscriptionService) CreateWithInitialBill(input CreateInput) (in
 	subscription, err := service.parseInput(input, 0)
 	if err != nil {
 		return 0, err
+	}
+	if subscription.NextPriceCents != nil {
+		return 0, fmt.Errorf("请先创建订阅，再在编辑中安排下周期调价")
 	}
 	initialDueDate, err := initialBillDueDate(subscription)
 	if err != nil {
@@ -709,10 +728,13 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 		subscription.AgencyFeeCents = previous.AgencyFeeCents
 	}
 	subscription.ID = subscriptionID
-	var updateErr error
 	scheduleChanged :=
 		(strings.TrimSpace(previous.BoardedAt) != strings.TrimSpace(subscription.BoardedAt) ||
 			strings.TrimSpace(previous.CronExpr) != strings.TrimSpace(subscription.CronExpr))
+	if err := service.configureNextPrice(previous, &subscription, scheduleChanged); err != nil {
+		return err
+	}
+	var updateErr error
 	if scheduleChanged {
 		billCount, err := service.Store.CountBillsForSubscription(subscriptionID)
 		if err != nil {
@@ -749,6 +771,65 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 			return err
 		}
 	}
+	return nil
+}
+
+func (service *SubscriptionService) configureNextPrice(
+	previous model.Subscription,
+	subscription *model.Subscription,
+	scheduleChanged bool,
+) error {
+	if subscription.NextPriceCents == nil {
+		subscription.NextPriceEffectiveDueDate = ""
+		return nil
+	}
+	if previous.IsResale {
+		return fmt.Errorf("历史代订记录不能安排下周期调价")
+	}
+	if isOneMonthRental(*subscription) {
+		return fmt.Errorf("单月短租没有下一续租周期，不能安排调价")
+	}
+	if *subscription.NextPriceCents == subscription.PricePerPersonCents {
+		return fmt.Errorf("下周期价格与当前价格相同，无需安排调价")
+	}
+	if !scheduleChanged &&
+		previous.NextPriceCents != nil &&
+		*previous.NextPriceCents == *subscription.NextPriceCents &&
+		strings.TrimSpace(previous.NextPriceEffectiveDueDate) != "" {
+		subscription.NextPriceEffectiveDueDate = previous.NextPriceEffectiveDueDate
+		return nil
+	}
+	if scheduleChanged {
+		billCount, err := service.Store.CountBillsForSubscription(subscription.ID)
+		if err != nil {
+			return err
+		}
+		if billCount == 1 {
+			firstDueDate, err := initialBillDueDate(*subscription)
+			if err != nil {
+				return err
+			}
+			firstDue, err := time.ParseInLocation("2006-01-02", firstDueDate, cycle.Location)
+			if err != nil {
+				return err
+			}
+			schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+			if err != nil {
+				return err
+			}
+			subscription.NextPriceEffectiveDueDate = cycle.FormatDate(schedule.NextDue(firstDue))
+			return nil
+		}
+	}
+	view, err := service.buildView(*subscription, service.now(), "")
+	if err != nil {
+		return err
+	}
+	effectiveDueDate := strings.TrimSpace(view.NextDueDate)
+	if effectiveDueDate == "" {
+		return fmt.Errorf("暂时无法确定下一个续费周期，请检查开始日期和计费周期")
+	}
+	subscription.NextPriceEffectiveDueDate = effectiveDueDate
 	return nil
 }
 
@@ -1020,6 +1101,14 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 	if err != nil {
 		return model.Subscription{}, fmt.Errorf("人均价格无效: %w", err)
 	}
+	var nextPriceCents *int64
+	if strings.TrimSpace(input.NextPriceYuan) != "" {
+		value, parseErr := cycle.ParseYuanToCents(input.NextPriceYuan)
+		if parseErr != nil {
+			return model.Subscription{}, fmt.Errorf("下周期价格无效: %w", parseErr)
+		}
+		nextPriceCents = &value
+	}
 	costCents := int64(0)
 	if strings.TrimSpace(input.CostYuan) != "" {
 		costCents, err = cycle.ParseYuanToCents(input.CostYuan)
@@ -1131,6 +1220,7 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 		Name:                name,
 		BusinessType:        businessType,
 		PricePerPersonCents: cents,
+		NextPriceCents:      nextPriceCents,
 		CostCents:           costCents,
 		IsResale:            input.IsResale && !plusRental,
 		AgencyFeeCents:      agencyFeeCents,
@@ -1204,6 +1294,25 @@ func billDefaultAmountCents(subscription model.Subscription) int64 {
 		return subscription.AgencyFeeCents
 	}
 	return subscription.PricePerPersonCents
+}
+
+func billAmountCentsForDueDate(subscription model.Subscription, dueDate string) int64 {
+	if subscription.IsResale {
+		return subscription.AgencyFeeCents
+	}
+	if subscription.NextPriceCents != nil &&
+		strings.TrimSpace(subscription.NextPriceEffectiveDueDate) != "" &&
+		strings.TrimSpace(dueDate) >= strings.TrimSpace(subscription.NextPriceEffectiveDueDate) {
+		return *subscription.NextPriceCents
+	}
+	return subscription.PricePerPersonCents
+}
+
+func nextPriceAppliesForDueDate(subscription model.Subscription, dueDate string) bool {
+	return !subscription.IsResale &&
+		subscription.NextPriceCents != nil &&
+		strings.TrimSpace(subscription.NextPriceEffectiveDueDate) != "" &&
+		strings.TrimSpace(dueDate) >= strings.TrimSpace(subscription.NextPriceEffectiveDueDate)
 }
 
 func billDefaultCostCents(subscription model.Subscription) int64 {
@@ -1582,6 +1691,7 @@ func (service *SubscriptionService) renderTemplateForDueDate(
 		return "", err
 	}
 	daysUntilDue := cycle.DaysRemaining(dueAt, service.now())
+	amountDueCents := billAmountCentsForDueDate(subscription, cycle.FormatDate(dueAt))
 	data := model.TemplateData{
 		Name:             templateDisplayName(subscription),
 		SubscriptionName: subscription.Name,
@@ -1589,8 +1699,8 @@ func (service *SubscriptionService) renderTemplateForDueDate(
 		CustomerWechat:   subscription.CustomerWechat,
 		AccountName:      displayAccountName(subscription),
 		SeatName:         subscription.SeatName,
-		PricePerPerson:   cycle.FormatCents(subscription.PricePerPersonCents),
-		AmountDue:        cycle.FormatCents(subscription.PricePerPersonCents),
+		PricePerPerson:   cycle.FormatCents(amountDueCents),
+		AmountDue:        cycle.FormatCents(amountDueCents),
 		CycleDesc:        cycle.DescribeCron(subscription.CronExpr),
 		NextDueDate:      cycle.FormatDate(dueAt),
 		DaysUntilDue:     daysUntilDue,
@@ -1774,21 +1884,28 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 	for _, subscription := range subscriptions {
 		profitCents := countedProfitCents(subscription)
 		accountName := displayAccountName(subscription)
+		nextPriceYuan := ""
+		if subscription.NextPriceCents != nil {
+			nextPriceYuan = cycle.FormatCents(*subscription.NextPriceCents)
+		}
 		payload.Subscriptions = append(payload.Subscriptions, model.ExportSubscription{
-			ID:                  subscription.ID,
-			Name:                subscription.Name,
-			BusinessType:        subscription.BusinessType,
-			PricePerPersonCents: subscription.PricePerPersonCents,
-			PricePerPersonYuan:  cycle.FormatCents(subscription.PricePerPersonCents),
-			CostCents:           subscription.CostCents,
-			CostYuan:            cycle.FormatCents(subscription.CostCents),
-			IsResale:            subscription.IsResale,
-			AgencyFeeCents:      subscription.AgencyFeeCents,
-			AgencyFeeYuan:       cycle.FormatCents(subscription.AgencyFeeCents),
-			ProfitCents:         profitCents,
-			ProfitYuan:          cycle.FormatCents(profitCents),
-			CronExpr:            subscription.CronExpr,
-			NotifyOffsets:       subscription.NotifyOffsets,
+			ID:                        subscription.ID,
+			Name:                      subscription.Name,
+			BusinessType:              subscription.BusinessType,
+			PricePerPersonCents:       subscription.PricePerPersonCents,
+			PricePerPersonYuan:        cycle.FormatCents(subscription.PricePerPersonCents),
+			NextPriceCents:            subscription.NextPriceCents,
+			NextPriceYuan:             nextPriceYuan,
+			NextPriceEffectiveDueDate: subscription.NextPriceEffectiveDueDate,
+			CostCents:                 subscription.CostCents,
+			CostYuan:                  cycle.FormatCents(subscription.CostCents),
+			IsResale:                  subscription.IsResale,
+			AgencyFeeCents:            subscription.AgencyFeeCents,
+			AgencyFeeYuan:             cycle.FormatCents(subscription.AgencyFeeCents),
+			ProfitCents:               profitCents,
+			ProfitYuan:                cycle.FormatCents(profitCents),
+			CronExpr:                  subscription.CronExpr,
+			NotifyOffsets:             subscription.NotifyOffsets,
 			// Legacy per-subscription field; prefer EnabledChannels on the payload root.
 			Channels:         subscription.Channels,
 			Remark:           subscription.Remark,
@@ -2255,16 +2372,16 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 	return nil
 }
 
-// buildDigestBody joins rendered Team subscription messages into one digest.
+// buildDigestBody joins rendered Team renewal and Plus renewal-rental messages.
 func buildDigestBody(parts []string) string {
 	return strings.Join(parts, "\n\n----------\n\n")
 }
 
 func digestTitle(count int) string {
 	if count <= 1 {
-		return "拼车收钱"
+		return "订阅到期收款"
 	}
-	return fmt.Sprintf("拼车收钱（%d 条）", count)
+	return fmt.Sprintf("订阅到期收款（%d 条）", count)
 }
 
 func (service *SubscriptionService) failWithRetry(logEntry model.NotificationLog, lastError string) error {

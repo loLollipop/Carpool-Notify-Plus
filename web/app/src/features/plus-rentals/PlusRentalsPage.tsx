@@ -139,6 +139,13 @@ function RentalCard({
                   {t("plusRentals.oneMonthBadge")}
                 </Badge>
               ) : null}
+              {view.next_price_yuan ? (
+                <Badge variant="outline" className="shrink-0 border-gold/25 bg-gold/[0.07] text-gold">
+                  {t("cards.nextPrice", {
+                    price: maskAmount(amountsHidden, `¥${view.next_price_yuan}`),
+                  })}
+                </Badge>
+              ) : null}
               <span className="shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
                 #{subscription.id}
               </span>

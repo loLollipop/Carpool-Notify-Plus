@@ -63,6 +63,15 @@ export function ReminderPreviewDialog({
           <p className="text-sm text-destructive">{(previewQuery.error as Error).message}</p>
         ) : preview ? (
           <div className="grid gap-3 text-sm">
+            {preview.next_price_yuan ? (
+              <div className="rounded-lg border border-brand/20 bg-brand/[0.05] px-3 py-2.5 text-xs leading-5">
+                {t("reminder.scheduledPrice", {
+                  current: preview.current_price_yuan,
+                  next: preview.next_price_yuan,
+                  date: preview.next_price_effective_due_date,
+                })}
+              </div>
+            ) : null}
             <div className="flex items-center gap-2">
               <Mail className="size-4 text-muted-foreground" />
               <span className="text-muted-foreground">{t("reminder.to")}</span>

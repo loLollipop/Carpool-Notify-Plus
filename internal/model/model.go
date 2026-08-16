@@ -27,6 +27,9 @@ const (
 	SettingEnabledChannels       = "enabled_channels"
 	SettingRedeemPageSettings    = "redeem_page_settings"
 
+	BusinessGoalStatusActive    = "active"
+	BusinessGoalStatusCompleted = "completed"
+
 	// SubscriptionTypeOther is a legacy default for the deprecated subscription_type column.
 	// New code uses AccountName for display; this remains for migration/export compatibility.
 	SubscriptionTypeOther = "其它"
@@ -138,6 +141,33 @@ type AccountCostRecord struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
+// BusinessGoal tracks an incremental profit target from a fixed profit baseline.
+type BusinessGoal struct {
+	ID                  int64      `json:"id"`
+	Name                string     `json:"name"`
+	TargetProfitCents   int64      `json:"target_profit_cents"`
+	BaselineProfitCents int64      `json:"baseline_profit_cents"`
+	ResultProfitCents   int64      `json:"result_profit_cents"`
+	Deadline            string     `json:"deadline"`
+	Status              string     `json:"status"`
+	CompletedAt         *time.Time `json:"completed_at"`
+	CreatedAt           time.Time  `json:"created_at"`
+	UpdatedAt           time.Time  `json:"updated_at"`
+}
+
+// MarketPriceSnapshot is one normalized external Team-seat price sample set.
+type MarketPriceSnapshot struct {
+	ID               int64     `json:"id"`
+	Provider         string    `json:"provider"`
+	Product          string    `json:"product"`
+	LowPriceCents    int64     `json:"low_price_cents"`
+	MedianPriceCents int64     `json:"median_price_cents"`
+	HighPriceCents   int64     `json:"high_price_cents"`
+	SampleCount      int       `json:"sample_count"`
+	SourceUpdatedAt  time.Time `json:"source_updated_at"`
+	CreatedAt        time.Time `json:"created_at"`
+}
+
 // Seat is a named parking slot under an account. At most one active subscription may occupy a seat.
 type Seat struct {
 	ID        int64     `json:"id"`
@@ -154,6 +184,11 @@ type Subscription struct {
 	// BusinessType distinguishes Team carpools from manually managed Plus rentals.
 	BusinessType        string `json:"business_type"`
 	PricePerPersonCents int64  `json:"price_per_person_cents"`
+	// NextPriceCents is an optional price change scheduled for a future billing
+	// period. The current price and existing bills remain unchanged until a bill
+	// is recorded on or after NextPriceEffectiveDueDate.
+	NextPriceCents            *int64 `json:"next_price_cents"`
+	NextPriceEffectiveDueDate string `json:"next_price_effective_due_date"`
 	// CostCents is the per-seat cost price in integer cents (0 if unset).
 	// For normal seats, profit = PricePerPersonCents - CostCents.
 	// For resale seats, dashboard totals ignore price/cost and use AgencyFeeCents only.
@@ -370,29 +405,32 @@ type ExportSeat struct {
 
 // ExportSubscription is one subscription in an export file.
 type ExportSubscription struct {
-	ID                  int64    `json:"id"`
-	Name                string   `json:"name"`
-	BusinessType        string   `json:"business_type"`
-	PricePerPersonCents int64    `json:"price_per_person_cents"`
-	PricePerPersonYuan  string   `json:"price_per_person_yuan"`
-	CostCents           int64    `json:"cost_cents"`
-	CostYuan            string   `json:"cost_yuan"`
-	IsResale            bool     `json:"is_resale"`
-	AgencyFeeCents      int64    `json:"agency_fee_cents"`
-	AgencyFeeYuan       string   `json:"agency_fee_yuan"`
-	ProfitCents         int64    `json:"profit_cents"`
-	ProfitYuan          string   `json:"profit_yuan"`
-	CronExpr            string   `json:"cron_expr"`
-	NotifyOffsets       []int    `json:"notify_offsets"`
-	Channels            []string `json:"channels"`
-	Remark              string   `json:"remark"`
-	TradeURL            string   `json:"trade_url"`
-	CustomerEmail       string   `json:"customer_email"`
-	CustomerWechat      string   `json:"customer_wechat"`
-	SeatID              int64    `json:"seat_id"`
-	SeatName            string   `json:"seat_name"`
-	AccountID           int64    `json:"account_id"`
-	AccountName         string   `json:"account_name"`
+	ID                        int64    `json:"id"`
+	Name                      string   `json:"name"`
+	BusinessType              string   `json:"business_type"`
+	PricePerPersonCents       int64    `json:"price_per_person_cents"`
+	PricePerPersonYuan        string   `json:"price_per_person_yuan"`
+	NextPriceCents            *int64   `json:"next_price_cents"`
+	NextPriceYuan             string   `json:"next_price_yuan"`
+	NextPriceEffectiveDueDate string   `json:"next_price_effective_due_date"`
+	CostCents                 int64    `json:"cost_cents"`
+	CostYuan                  string   `json:"cost_yuan"`
+	IsResale                  bool     `json:"is_resale"`
+	AgencyFeeCents            int64    `json:"agency_fee_cents"`
+	AgencyFeeYuan             string   `json:"agency_fee_yuan"`
+	ProfitCents               int64    `json:"profit_cents"`
+	ProfitYuan                string   `json:"profit_yuan"`
+	CronExpr                  string   `json:"cron_expr"`
+	NotifyOffsets             []int    `json:"notify_offsets"`
+	Channels                  []string `json:"channels"`
+	Remark                    string   `json:"remark"`
+	TradeURL                  string   `json:"trade_url"`
+	CustomerEmail             string   `json:"customer_email"`
+	CustomerWechat            string   `json:"customer_wechat"`
+	SeatID                    int64    `json:"seat_id"`
+	SeatName                  string   `json:"seat_name"`
+	AccountID                 int64    `json:"account_id"`
+	AccountName               string   `json:"account_name"`
 	// SubscriptionType is dual-written as account name for older importers.
 	SubscriptionType string `json:"subscription_type"`
 	CreatedAt        string `json:"created_at"`

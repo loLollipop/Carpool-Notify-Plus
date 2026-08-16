@@ -11,6 +11,9 @@ export interface SubscriptionPrefill {
   businessType: SubscriptionBusinessType
   name: string
   priceYuan: string
+  nextPriceYuan: string
+  nextPriceEffectiveDueDate: string
+  nextDueDate: string
   costYuan: string
   cronExpr: string
   offsets: number[]
@@ -38,6 +41,9 @@ export function prefillFromView(view: SubscriptionView): SubscriptionPrefill {
     businessType: view.subscription.business_type || "team",
     name: view.subscription.name,
     priceYuan: view.price_yuan,
+    nextPriceYuan: view.next_price_yuan,
+    nextPriceEffectiveDueDate: view.next_price_effective_due_date,
+    nextDueDate: view.next_due_date,
     costYuan: view.cost_yuan,
     cronExpr: view.subscription.cron_expr,
     offsets: view.subscription.notify_offsets ?? [],
@@ -56,7 +62,10 @@ export function prefillFromOccurrence(occurrence: CalendarOccurrence): Subscript
     id: occurrence.subscription_id,
     businessType: occurrence.business_type || "team",
     name: occurrence.name,
-    priceYuan: occurrence.price_yuan,
+    priceYuan: occurrence.current_price_yuan,
+    nextPriceYuan: occurrence.next_price_yuan,
+    nextPriceEffectiveDueDate: occurrence.next_price_effective_due_date,
+    nextDueDate: occurrence.due_date,
     costYuan: occurrence.cost_yuan,
     cronExpr: occurrence.cron_expr,
     offsets: parseOffsetsText(occurrence.offsets_text),
@@ -76,6 +85,9 @@ export function prefillFromSeat(seat: SeatView): SubscriptionPrefill {
     businessType: seat.active_business_type || "team",
     name: seat.active_subscription_name,
     priceYuan: seat.active_price_yuan,
+    nextPriceYuan: seat.active_next_price_yuan,
+    nextPriceEffectiveDueDate: seat.active_next_price_effective_due_date,
+    nextDueDate: "",
     costYuan: seat.active_cost_yuan,
     cronExpr: seat.active_cron_expr,
     offsets: parseOffsetsText(seat.active_offsets_text),

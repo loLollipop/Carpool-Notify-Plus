@@ -2,7 +2,7 @@ import * as React from "react"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm, useWatch } from "react-hook-form"
 import { useTranslation } from "react-i18next"
-import { CalendarClock } from "lucide-react"
+import { BadgeDollarSign, CalendarClock } from "lucide-react"
 import { z } from "zod"
 
 import { fetchCronPreview } from "@/api/endpoints"
@@ -132,6 +132,12 @@ export function SubscriptionDialog({
           .trim()
           .min(1, t("subscriptionDialog.validation.priceRequired"))
           .regex(MONEY_PATTERN, t("subscriptionDialog.validation.priceInvalid")),
+        next_price_yuan: z
+          .string()
+          .trim()
+          .refine((value) => value === "" || MONEY_PATTERN.test(value), {
+            message: t("subscriptionDialog.validation.priceInvalid"),
+          }),
         cost_yuan: z
           .string()
           .trim()
@@ -160,6 +166,7 @@ export function SubscriptionDialog({
       account_id: prefill && prefill.accountId > 0 ? String(prefill.accountId) : "",
       name: prefill?.name ?? "",
       price_yuan: prefill?.priceYuan ?? "",
+      next_price_yuan: prefill?.nextPriceYuan ?? "",
       cost_yuan: prefill?.costYuan ?? "",
       cron_expr: prefill?.cronExpr || "interval:30d",
       notify_offsets: prefill?.offsets ?? [],
@@ -186,6 +193,11 @@ export function SubscriptionDialog({
   const cronExpr = useWatch({ control: form.control, name: "cron_expr" })
   const boardedAt = useWatch({ control: form.control, name: "boarded_at" })
   const accountId = useWatch({ control: form.control, name: "account_id" })
+  const currentPriceYuan = useWatch({ control: form.control, name: "price_yuan" })
+  const nextPriceYuan = useWatch({ control: form.control, name: "next_price_yuan" })
+  const scheduleChanged =
+    form.formState.dirtyFields.boarded_at === true ||
+    form.formState.dirtyFields.cron_expr === true
   const cronPreview = useCronPreview(cronExpr, boardedAt, open)
 
   const saveMutation = useAppMutation(
@@ -194,6 +206,7 @@ export function SubscriptionDialog({
         name: values.name.trim(),
         business_type: "team",
         price_yuan: values.price_yuan.trim(),
+        next_price_yuan: isEdit ? values.next_price_yuan.trim() : "",
         cost_yuan: isEdit ? values.cost_yuan.trim() : "",
         cron_expr: values.cron_expr.trim(),
         notify_offsets: values.notify_offsets,
@@ -336,6 +349,74 @@ export function SubscriptionDialog({
                 )}
               />
             </div>
+
+            {isEdit ? (
+              <section className="grid gap-3 rounded-xl border border-brand/20 bg-brand/[0.045] p-4">
+                <div className="flex items-center gap-2">
+                  <span className="grid size-8 place-items-center rounded-lg bg-brand/10 text-brand">
+                    <BadgeDollarSign className="size-4" />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-semibold">
+                      {t("subscriptionDialog.nextPriceTitle")}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      {t("subscriptionDialog.nextPriceSummary")}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid items-start gap-3 sm:grid-cols-[1fr_auto]">
+                  <FormField
+                    control={form.control}
+                    name="next_price_yuan"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{t("subscriptionDialog.nextRenewalPrice")}</FormLabel>
+                        <FormControl>
+                          <Input
+                            inputMode="decimal"
+                            placeholder={t("subscriptionDialog.nextPricePlaceholder")}
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {nextPriceYuan.trim() ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="self-end"
+                      onClick={() =>
+                        form.setValue("next_price_yuan", "", {
+                          shouldDirty: true,
+                          shouldValidate: true,
+                        })
+                      }
+                    >
+                      {t("subscriptionDialog.cancelPriceChange")}
+                    </Button>
+                  ) : null}
+                </div>
+                <p className="text-xs leading-5 text-muted-foreground">
+                  {nextPriceYuan.trim()
+                    ? scheduleChanged
+                      ? t("subscriptionDialog.nextPriceRecalculate", {
+                          current: currentPriceYuan || "--",
+                          next: nextPriceYuan,
+                        })
+                      : t("subscriptionDialog.nextPriceEffective", {
+                          current: currentPriceYuan || "--",
+                          next: nextPriceYuan,
+                          date:
+                            prefill?.nextPriceEffectiveDueDate || prefill?.nextDueDate || "--",
+                        })
+                    : t("subscriptionDialog.nextPriceHint")}
+                </p>
+              </section>
+            ) : null}
 
             <FormField
               control={form.control}
