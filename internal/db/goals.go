@@ -29,14 +29,14 @@ func (store *Store) CreateBusinessGoal(goal model.BusinessGoal) (int64, error) {
 	return result.LastInsertId()
 }
 
-func (store *Store) UpdateBusinessGoal(goalID int64, name string, targetProfitCents int64, deadline string) error {
+func (store *Store) UpdateBusinessGoal(goalID int64, name string, targetProfitCents int64) error {
 	result, err := store.database.Exec(`
 		UPDATE business_goals
 		SET name = ?, target_profit_cents = ?, deadline = ?, updated_at = ?
 		WHERE id = ? AND status = ?`,
 		name,
 		targetProfitCents,
-		deadline,
+		"",
 		formatTime(time.Now().UTC()),
 		goalID,
 		model.BusinessGoalStatusActive,

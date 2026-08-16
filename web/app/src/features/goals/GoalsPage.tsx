@@ -18,8 +18,11 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
+  SlidersHorizontal,
   Target,
   TrendingUp,
+  Users,
   WalletCards,
 } from "lucide-react"
 
@@ -27,6 +30,7 @@ import {
   completeBusinessGoal,
   createBusinessGoal,
   refreshGoalMarket,
+  scheduleGoalBulkNextPrice,
   updateBusinessGoal,
 } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
@@ -36,6 +40,7 @@ import type {
   BusinessGoalInput,
   ForecastScenario,
   GoalCenter,
+  PricingCandidate,
 } from "@/api/types"
 import { AmountPrivacyToggle } from "@/components/amount-privacy-toggle"
 import { ConfirmDialog } from "@/components/confirm-dialog"
@@ -43,6 +48,7 @@ import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Checkbox } from "@/components/ui/checkbox"
 import {
   Dialog,
   DialogContent,
@@ -52,7 +58,22 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { maskAmount } from "@/lib/amount-privacy"
 import { cn } from "@/lib/utils"
@@ -72,12 +93,6 @@ function inputYuan(cents: number) {
   return (cents / 100).toFixed(2)
 }
 
-function futureDate(days: number) {
-  const date = new Date()
-  date.setDate(date.getDate() + days)
-  return date.toISOString().slice(0, 10)
-}
-
 function GoalDialog({
   open,
   onOpenChange,
@@ -92,7 +107,6 @@ function GoalDialog({
   const [target, setTarget] = React.useState(() =>
     goal ? inputYuan(goal.target_profit_cents) : "",
   )
-  const [deadline, setDeadline] = React.useState(() => goal?.deadline ?? futureDate(90))
 
   const mutation = useAppMutation(
     (input: BusinessGoalInput) =>
@@ -113,7 +127,6 @@ function GoalDialog({
             mutation.mutate({
               name: name.trim(),
               target_profit_yuan: target.trim(),
-              deadline,
             })
           }}
         >
@@ -128,36 +141,24 @@ function GoalDialog({
               autoFocus
             />
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            <div className="grid gap-2">
-              <Label htmlFor="goal-target">{t("goals.targetProfit")}</Label>
-              <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
-                  \u00a5
-                </span>
-                <Input
-                  id="goal-target"
-                  className="pl-7 tabular-nums"
-                  value={target}
-                  onChange={(event) => setTarget(event.target.value)}
-                  inputMode="decimal"
-                  pattern="\d+(\.\d{1,2})?"
-                  placeholder="10000.00"
-                  required
-                />
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="goal-deadline">{t("goals.deadline")}</Label>
+          <div className="grid gap-2">
+            <Label htmlFor="goal-target">{t("goals.targetProfit")}</Label>
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                ¥
+              </span>
               <Input
-                id="goal-deadline"
-                type="date"
-                min={futureDate(0)}
-                value={deadline}
-                onChange={(event) => setDeadline(event.target.value)}
+                id="goal-target"
+                className="pl-7 tabular-nums"
+                value={target}
+                onChange={(event) => setTarget(event.target.value)}
+                inputMode="decimal"
+                pattern="\d+(\.\d{1,2})?"
+                placeholder="10000.00"
                 required
               />
             </div>
+            <p className="text-xs leading-5 text-muted-foreground">{t("goals.forecastHint")}</p>
           </div>
           <DialogFooter className="mt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
@@ -198,11 +199,13 @@ function Metric({
 
 function ActiveGoalPanel({
   data,
+  forecast,
   amountsHidden,
   onEdit,
   onComplete,
 }: {
   data: NonNullable<GoalCenter["active_goal"]>
+  forecast: GoalCenter["forecast"]
   amountsHidden: boolean
   onEdit: () => void
   onComplete: () => void
@@ -221,9 +224,6 @@ function ActiveGoalPanel({
                   {data.reached ? <CheckCircle2 /> : <Target />}
                   {data.reached ? t("goals.reached") : t("goals.inProgress")}
                 </Badge>
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {t("goals.deadlineValue", { date: data.goal.deadline })}
-                </span>
               </div>
               <h2 className="mt-3 truncate text-xl font-semibold sm:text-2xl">{data.goal.name}</h2>
             </div>
@@ -268,19 +268,19 @@ function ActiveGoalPanel({
           <Metric
             label={t("goals.remaining")}
             value={visibleYuan(data.remaining_profit_cents, amountsHidden)}
-            detail={t("goals.remainingDays", { count: Math.max(data.days_remaining, 0) })}
+            detail={t("goals.forecastBasisShort")}
             icon={WalletCards}
           />
           <Metric
-            label={t("goals.requiredMonthly")}
-            value={visibleYuan(data.required_monthly_profit_cents, amountsHidden)}
-            detail={t("goals.untilDeadline")}
+            label={t("goals.futureMonthly")}
+            value={visibleYuan(forecast?.baseline.monthly_profit_cents ?? 0, amountsHidden)}
+            detail={t("goals.activeRecurring", { count: forecast?.active_recurring_count ?? 0 })}
             icon={TrendingUp}
           />
           <Metric
-            label={t("goals.daysLeft")}
-            value={Math.max(data.days_remaining, 0)}
-            detail={data.goal.deadline}
+            label={t("goals.estimatedDate")}
+            value={forecast?.baseline.projected_date || "-"}
+            detail={t("goals.autoCalculated")}
             icon={CalendarClock}
           />
         </div>
@@ -312,11 +312,6 @@ function ForecastRow({
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold">{label}</span>
-          {available ? (
-            <Badge variant={scenario.meets_deadline ? "success" : "warning"}>
-              {scenario.meets_deadline ? t("goals.onTime") : t("goals.behind")}
-            </Badge>
-          ) : null}
         </div>
         <p className="mt-1 text-xs text-muted-foreground tabular-nums">
           {available
@@ -348,7 +343,7 @@ function ForecastPanel({
         <div>
           <h2 className="text-sm font-semibold">{t("goals.forecastTitle")}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            {t(`goals.forecastSource.${data.source}`)}
+            {t(`goals.forecastSource.${data.source}`, { count: data.active_recurring_count })}
           </p>
         </div>
         <CircleGauge className="size-5 text-brand" />
@@ -590,6 +585,326 @@ function MarketPanel({
   )
 }
 
+type PricingFilter = "recommended" | "below_market" | "scheduled" | "all"
+
+const marketPositionBadge = {
+  below_low: "destructive",
+  below_median: "warning",
+  market_range: "success",
+  above_high: "secondary",
+  unavailable: "outline",
+} as const
+
+function candidateSearchText(candidate: PricingCandidate) {
+  return [
+    candidate.name,
+    candidate.customer_email,
+    candidate.customer_wechat,
+    candidate.account_name,
+    candidate.seat_name,
+  ]
+    .join(" ")
+    .toLocaleLowerCase()
+}
+
+function BulkPricingPanel({
+  data,
+  amountsHidden,
+}: {
+  data: GoalCenter
+  amountsHidden: boolean
+}) {
+  const { t } = useTranslation()
+  const candidates = React.useMemo(() => data.pricing_candidates ?? [], [data.pricing_candidates])
+  const [filter, setFilter] = React.useState<PricingFilter>("recommended")
+  const [search, setSearch] = React.useState("")
+  const [selected, setSelected] = React.useState<Set<number>>(() => new Set())
+  const [nextPrice, setNextPrice] = React.useState("")
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
+
+  const filtered = React.useMemo(() => {
+    const keyword = search.trim().toLocaleLowerCase()
+    return candidates.filter((candidate) => {
+      const matchesFilter =
+        filter === "all" ||
+        (filter === "recommended" && candidate.recommended) ||
+        (filter === "scheduled" && candidate.next_price_cents !== null) ||
+        (filter === "below_market" &&
+          (candidate.market_position === "below_low" || candidate.market_position === "below_median"))
+      return matchesFilter && (!keyword || candidateSearchText(candidate).includes(keyword))
+    })
+  }, [candidates, filter, search])
+
+  const visibleEligibleIDs = filtered
+    .filter((candidate) => candidate.eligible)
+    .map((candidate) => candidate.subscription_id)
+  const allVisibleSelected =
+    visibleEligibleIDs.length > 0 && visibleEligibleIDs.every((id) => selected.has(id))
+  const someVisibleSelected = visibleEligibleIDs.some((id) => selected.has(id))
+  const selectedCandidates = candidates.filter((candidate) => selected.has(candidate.subscription_id))
+  const parsedNextPriceCents = /^\d+(\.\d{1,2})?$/.test(nextPrice.trim())
+    ? Math.round(Number(nextPrice) * 100)
+    : 0
+  const hasUnchangedPrice = selectedCandidates.some(
+    (candidate) => candidate.current_price_cents === parsedNextPriceCents,
+  )
+  const canSubmit = selectedCandidates.length > 0 && parsedNextPriceCents > 0 && !hasUnchangedPrice
+  const recommendedCount = candidates.filter((candidate) => candidate.recommended).length
+
+  const mutation = useAppMutation(
+    () =>
+      scheduleGoalBulkNextPrice({
+        subscription_ids: selectedCandidates.map((candidate) => candidate.subscription_id),
+        next_price_yuan: nextPrice.trim(),
+      }),
+    {
+      onSuccess: () => {
+        setConfirmOpen(false)
+        setSelected(new Set())
+        setNextPrice("")
+      },
+    },
+  )
+
+  function toggleCandidate(candidate: PricingCandidate, checked: boolean) {
+    if (!candidate.eligible) return
+    setSelected((current) => {
+      const next = new Set(current)
+      if (checked) next.add(candidate.subscription_id)
+      else next.delete(candidate.subscription_id)
+      return next
+    })
+  }
+
+  function toggleVisible(checked: boolean) {
+    setSelected((current) => {
+      const next = new Set(current)
+      for (const id of visibleEligibleIDs) {
+        if (checked) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }
+
+  function selectRecommendations() {
+    const recommended = candidates.filter((candidate) => candidate.recommended && candidate.eligible)
+    setFilter("recommended")
+    setSelected(new Set(recommended.map((candidate) => candidate.subscription_id)))
+    if (!nextPrice && data.market.snapshot?.median_price_cents) {
+      setNextPrice(inputYuan(data.market.snapshot.median_price_cents))
+    }
+  }
+
+  return (
+    <section className="overflow-hidden rounded-lg border bg-card shadow-card">
+      <div className="flex flex-col gap-3 border-b px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+            <SlidersHorizontal className="size-4" />
+          </span>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold">{t("goals.bulkPricingTitle")}</h2>
+              <Badge variant={recommendedCount > 0 ? "warning" : "secondary"}>
+                {t("goals.recommendedCount", { count: recommendedCount })}
+              </Badge>
+            </div>
+            <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
+              {t("goals.bulkPricingDesc")}
+            </p>
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={selectRecommendations}
+          disabled={recommendedCount === 0}
+        >
+          <Users />
+          {t("goals.selectRecommended")}
+        </Button>
+      </div>
+
+      <div className="grid gap-3 border-b bg-muted/20 p-4 lg:grid-cols-[minmax(220px,1fr)_190px_auto] lg:items-center">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="pl-9"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t("goals.searchCustomer")}
+            aria-label={t("goals.searchCustomer")}
+          />
+        </div>
+        <Select value={filter} onValueChange={(value) => setFilter(value as PricingFilter)}>
+          <SelectTrigger aria-label={t("goals.priceFilter")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="recommended">{t("goals.filter.recommended")}</SelectItem>
+            <SelectItem value="below_market">{t("goals.filter.below_market")}</SelectItem>
+            <SelectItem value="scheduled">{t("goals.filter.scheduled")}</SelectItem>
+            <SelectItem value="all">{t("goals.filter.all")}</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-xs tabular-nums text-muted-foreground lg:text-right">
+          {t("goals.filterResult", { visible: filtered.length, total: candidates.length })}
+        </p>
+      </div>
+
+      {filtered.length > 0 ? (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead className="w-10">
+                <Checkbox
+                  checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                  onCheckedChange={(checked) => toggleVisible(checked === true)}
+                  aria-label={t("goals.selectVisible")}
+                  disabled={visibleEligibleIDs.length === 0}
+                />
+              </TableHead>
+              <TableHead>{t("goals.customer")}</TableHead>
+              <TableHead>{t("goals.teamSeat")}</TableHead>
+              <TableHead>{t("goals.currentPrice")}</TableHead>
+              <TableHead>{t("goals.marketPositionLabel")}</TableHead>
+              <TableHead>{t("goals.scheduledPrice")}</TableHead>
+              <TableHead>{t("goals.nextRenewal")}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filtered.map((candidate) => {
+              const contact = candidate.customer_wechat || candidate.customer_email || "-"
+              return (
+                <TableRow
+                  key={candidate.subscription_id}
+                  data-state={selected.has(candidate.subscription_id) ? "selected" : undefined}
+                  className={!candidate.eligible ? "opacity-60" : undefined}
+                >
+                  <TableCell>
+                    <Checkbox
+                      checked={selected.has(candidate.subscription_id)}
+                      onCheckedChange={(checked) => toggleCandidate(candidate, checked === true)}
+                      aria-label={t("goals.selectCustomer", { name: candidate.name })}
+                      disabled={!candidate.eligible}
+                    />
+                  </TableCell>
+                  <TableCell className="min-w-48 whitespace-normal">
+                    <div className="font-medium">{candidate.name}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{contact}</div>
+                    {!candidate.eligible ? (
+                      <div className="mt-1 text-[11px] text-destructive">{candidate.blocked_reason}</div>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="min-w-40 whitespace-normal">
+                    <div>{candidate.account_name || "-"}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{candidate.seat_name || "-"}</div>
+                  </TableCell>
+                  <TableCell className="font-semibold tabular-nums">
+                    {visibleYuan(candidate.current_price_cents, amountsHidden)}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={marketPositionBadge[candidate.market_position]}>
+                      {t(`goals.marketPosition.${candidate.market_position}`)}
+                    </Badge>
+                    {candidate.gap_to_market_median_cents > 0 ? (
+                      <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+                        {t("goals.belowMedianBy", {
+                          amount: visibleYuan(candidate.gap_to_market_median_cents, amountsHidden),
+                        })}
+                      </div>
+                    ) : null}
+                  </TableCell>
+                  <TableCell className="tabular-nums">
+                    {candidate.next_price_cents !== null ? (
+                      <>
+                        <div className="font-medium text-brand">
+                          {visibleYuan(candidate.next_price_cents, amountsHidden)}
+                        </div>
+                        <div className="mt-0.5 text-[11px] text-muted-foreground">
+                          {candidate.next_price_effective_date}
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="tabular-nums">{candidate.next_due_date || "-"}</TableCell>
+                </TableRow>
+              )
+            })}
+          </TableBody>
+        </Table>
+      ) : (
+        <div className="grid min-h-36 place-items-center p-6 text-center">
+          <div>
+            <Search className="mx-auto size-5 text-muted-foreground" />
+            <p className="mt-2 text-sm font-medium">{t("goals.noPricingCandidates")}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-4 border-t bg-muted/25 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)_auto] lg:items-end">
+        <div>
+          <p className="text-sm font-semibold">
+            {t("goals.selectedCount", { count: selectedCandidates.length })}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            {t("goals.currentPeriodProtected")}
+          </p>
+        </div>
+        <div className="grid gap-2">
+          <Label htmlFor="bulk-next-price">{t("goals.bulkNextPrice")}</Label>
+          <div className="flex gap-2">
+            <div className="relative min-w-0 flex-1">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
+              <Input
+                id="bulk-next-price"
+                className="pl-7 tabular-nums"
+                value={nextPrice}
+                onChange={(event) => setNextPrice(event.target.value)}
+                inputMode="decimal"
+                placeholder={data.market.snapshot ? inputYuan(data.market.snapshot.median_price_cents) : "0.00"}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                if (data.market.snapshot) setNextPrice(inputYuan(data.market.snapshot.median_price_cents))
+              }}
+              disabled={!data.market.snapshot}
+            >
+              {t("goals.useMedian")}
+            </Button>
+          </div>
+          {hasUnchangedPrice ? (
+            <p className="text-xs text-destructive">{t("goals.samePriceWarning")}</p>
+          ) : null}
+        </div>
+        <Button disabled={!canSubmit || mutation.isPending} onClick={() => setConfirmOpen(true)}>
+          <SlidersHorizontal />
+          {t("goals.scheduleBulkPrice")}
+        </Button>
+      </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={t("goals.bulkConfirmTitle")}
+        description={t("goals.bulkConfirmDesc", {
+          count: selectedCandidates.length,
+          price: `¥${nextPrice}`,
+        })}
+        actionLabel={t("goals.scheduleBulkPrice")}
+        pending={mutation.isPending}
+        onConfirm={() => mutation.mutate()}
+      />
+    </section>
+  )
+}
+
 function GoalHistory({ data, amountsHidden }: { data: GoalCenter; amountsHidden: boolean }) {
   const { t } = useTranslation()
   const history = data.history ?? []
@@ -604,7 +919,11 @@ function GoalHistory({ data, amountsHidden }: { data: GoalCenter; amountsHidden:
           <div key={item.goal.id} className="grid gap-3 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{item.goal.name}</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground">{item.goal.deadline}</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
+                {t("goals.completedAt", {
+                  date: item.goal.completed_at?.slice(0, 10) || item.goal.updated_at.slice(0, 10),
+                })}
+              </p>
             </div>
             <span className="text-sm font-semibold tabular-nums">
               {visibleYuan(item.goal.result_profit_cents, amountsHidden)}
@@ -684,6 +1003,7 @@ export function GoalsPage() {
           {query.data.active_goal ? (
             <ActiveGoalPanel
               data={query.data.active_goal}
+              forecast={query.data.forecast}
               amountsHidden={amountsHidden}
               onEdit={() => setDialogOpen(true)}
               onComplete={() => setCompleteOpen(true)}
@@ -712,6 +1032,7 @@ export function GoalsPage() {
             refreshing={refreshMutation.isPending}
             onRefresh={() => refreshMutation.mutate()}
           />
+          <BulkPricingPanel data={query.data} amountsHidden={amountsHidden} />
           <GoalHistory data={query.data} amountsHidden={amountsHidden} />
         </>
       ) : null}

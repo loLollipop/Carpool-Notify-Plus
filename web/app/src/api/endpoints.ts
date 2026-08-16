@@ -10,6 +10,7 @@ import type {
   BillView,
   BillsSummary,
   BusinessGoalInput,
+  BulkNextPriceInput,
   CalendarMonth,
   CronPreview,
   Dashboard,
@@ -190,6 +191,13 @@ export function completeBusinessGoal(id: number) {
 export function refreshGoalMarket() {
   return api<MessageResult & { market: GoalCenter["market"] }>("/api/goals/market/refresh", {
     method: "POST",
+  })
+}
+
+export function scheduleGoalBulkNextPrice(input: BulkNextPriceInput) {
+  return api<MessageResult & { updated_count: number }>("/api/goals/pricing/bulk-next-price", {
+    method: "POST",
+    body: input,
   })
 }
 

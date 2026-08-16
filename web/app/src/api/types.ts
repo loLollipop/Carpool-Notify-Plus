@@ -566,7 +566,6 @@ export interface BusinessGoal {
   target_profit_cents: number
   baseline_profit_cents: number
   result_profit_cents: number
-  deadline: string
   status: "active" | "completed"
   completed_at: string | null
   created_at: string
@@ -579,8 +578,6 @@ export interface BusinessGoalProgress {
   earned_profit_cents: number
   remaining_profit_cents: number
   progress_percent: number
-  days_remaining: number
-  required_monthly_profit_cents: number
   reached: boolean
 }
 
@@ -602,12 +599,11 @@ export interface ForecastScenario {
   monthly_profit_cents: number
   months_needed: number
   projected_date: string
-  meets_deadline: boolean
 }
 
 export interface ProfitForecast {
-  source: "blended" | "history" | "run_rate" | "unavailable"
-  historical_monthly_profit_cents: number
+  source: "run_rate" | "unavailable"
+  active_recurring_count: number
   run_rate_monthly_profit_cents: number
   conservative: ForecastScenario
   baseline: ForecastScenario
@@ -648,6 +644,25 @@ export interface PricingRecommendation {
   utilization_percent: number
 }
 
+export interface PricingCandidate {
+  subscription_id: number
+  name: string
+  customer_email: string
+  customer_wechat: string
+  account_name: string
+  seat_name: string
+  current_price_cents: number
+  next_price_cents: number | null
+  next_price_effective_date: string
+  next_due_date: string
+  market_position: "below_low" | "below_median" | "market_range" | "above_high" | "unavailable"
+  gap_to_market_median_cents: number
+  suggested_price_cents: number
+  recommended: boolean
+  eligible: boolean
+  blocked_reason: string
+}
+
 export interface GoalCenter {
   active_goal: BusinessGoalProgress | null
   history: CompletedGoalView[] | null
@@ -655,12 +670,17 @@ export interface GoalCenter {
   forecast: ProfitForecast | null
   market: MarketPriceView
   pricing: PricingRecommendation
+  pricing_candidates: PricingCandidate[] | null
 }
 
 export interface BusinessGoalInput {
   name: string
   target_profit_yuan: string
-  deadline: string
+}
+
+export interface BulkNextPriceInput {
+  subscription_ids: number[]
+  next_price_yuan: string
 }
 
 export interface RedemptionRejectInput {

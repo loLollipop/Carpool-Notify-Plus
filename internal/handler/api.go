@@ -58,14 +58,12 @@ func (server *Server) getGoals(context *gin.Context) {
 type businessGoalRequest struct {
 	Name             string `json:"name"`
 	TargetProfitYuan string `json:"target_profit_yuan"`
-	Deadline         string `json:"deadline"`
 }
 
 func (request businessGoalRequest) toInput() service.BusinessGoalInput {
 	return service.BusinessGoalInput{
 		Name:             request.Name,
 		TargetProfitYuan: request.TargetProfitYuan,
-		Deadline:         request.Deadline,
 	}
 }
 
@@ -121,6 +119,32 @@ func (server *Server) postRefreshGoalMarket(context *gin.Context) {
 		return
 	}
 	respondOK(context, gin.H{"message": "市场行情已更新", "market": market})
+}
+
+type bulkNextPriceRequest struct {
+	SubscriptionIDs []int64 `json:"subscription_ids"`
+	NextPriceYuan   string  `json:"next_price_yuan"`
+}
+
+func (server *Server) postGoalBulkNextPrice(context *gin.Context) {
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 32<<10)
+	var request bulkNextPriceRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的批量调价内容")
+		return
+	}
+	updated, err := server.Service.ScheduleBulkNextPrice(service.BulkNextPriceInput{
+		SubscriptionIDs: request.SubscriptionIDs,
+		NextPriceYuan:   request.NextPriceYuan,
+	})
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{
+		"message":       fmt.Sprintf("已为 %d 位 Team 用户安排下周期调价", updated),
+		"updated_count": updated,
+	})
 }
 
 func (server *Server) getSubscriptions(context *gin.Context) {

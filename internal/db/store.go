@@ -1549,6 +1549,60 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 	return sql.ErrNoRows
 }
 
+// UpdateSubscriptionNextPrices atomically updates only future pricing fields.
+// Guarding eligibility again inside the transaction prevents a concurrent
+// archive or after-sales case from producing a partial bulk update.
+func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscription) error {
+	if len(subscriptions) == 0 {
+		return nil
+	}
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	now := formatTime(time.Now().UTC())
+	for _, subscription := range subscriptions {
+		if subscription.NextPriceCents == nil || strings.TrimSpace(subscription.NextPriceEffectiveDueDate) == "" {
+			return fmt.Errorf("subscription %d has incomplete next price", subscription.ID)
+		}
+		result, updateErr := transaction.Exec(`
+			UPDATE subscriptions
+			SET next_price_cents = ?, next_price_effective_due_date = ?, updated_at = ?
+			WHERE id = ?
+			  AND deleted_at IS NULL
+			  AND archived_at IS NULL
+			  AND LOWER(TRIM(COALESCE(business_type, 'team'))) = ?
+			  AND COALESCE(is_resale, 0) = 0
+			  AND seat_id IS NOT NULL
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM after_sales_cases
+				WHERE subscription_id = subscriptions.id
+				  AND status IN (?, ?)
+			  )`,
+			*subscription.NextPriceCents,
+			strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
+			now,
+			subscription.ID,
+			model.SubscriptionBusinessTeam,
+			model.AfterSalesStatusPending,
+			model.AfterSalesStatusReview,
+		)
+		if updateErr != nil {
+			return updateErr
+		}
+		affected, rowsErr := result.RowsAffected()
+		if rowsErr != nil {
+			return rowsErr
+		}
+		if affected != 1 {
+			return sql.ErrNoRows
+		}
+	}
+	return transaction.Commit()
+}
+
 // UpdateSubscriptionAndMoveInitialBill atomically updates a subscription's
 // schedule and re-keys its single initial bill to the corrected first period.
 func (store *Store) UpdateSubscriptionAndMoveInitialBill(

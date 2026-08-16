@@ -37,18 +37,15 @@ type MarketHTTPDoer interface {
 type BusinessGoalInput struct {
 	Name             string
 	TargetProfitYuan string
-	Deadline         string
 }
 
 type BusinessGoalProgress struct {
-	Goal                       model.BusinessGoal `json:"goal"`
-	CurrentProfitCents         int64              `json:"current_profit_cents"`
-	EarnedProfitCents          int64              `json:"earned_profit_cents"`
-	RemainingProfitCents       int64              `json:"remaining_profit_cents"`
-	ProgressPercent            int                `json:"progress_percent"`
-	DaysRemaining              int                `json:"days_remaining"`
-	RequiredMonthlyProfitCents int64              `json:"required_monthly_profit_cents"`
-	Reached                    bool               `json:"reached"`
+	Goal                 model.BusinessGoal `json:"goal"`
+	CurrentProfitCents   int64              `json:"current_profit_cents"`
+	EarnedProfitCents    int64              `json:"earned_profit_cents"`
+	RemainingProfitCents int64              `json:"remaining_profit_cents"`
+	ProgressPercent      int                `json:"progress_percent"`
+	Reached              bool               `json:"reached"`
 }
 
 type CompletedGoalView struct {
@@ -69,16 +66,15 @@ type ForecastScenario struct {
 	MonthlyProfitCents int64   `json:"monthly_profit_cents"`
 	MonthsNeeded       float64 `json:"months_needed"`
 	ProjectedDate      string  `json:"projected_date"`
-	MeetsDeadline      bool    `json:"meets_deadline"`
 }
 
 type ProfitForecast struct {
-	Source                       string           `json:"source"`
-	HistoricalMonthlyProfitCents int64            `json:"historical_monthly_profit_cents"`
-	RunRateMonthlyProfitCents    int64            `json:"run_rate_monthly_profit_cents"`
-	Conservative                 ForecastScenario `json:"conservative"`
-	Baseline                     ForecastScenario `json:"baseline"`
-	Optimistic                   ForecastScenario `json:"optimistic"`
+	Source                    string           `json:"source"`
+	ActiveRecurringCount      int              `json:"active_recurring_count"`
+	RunRateMonthlyProfitCents int64            `json:"run_rate_monthly_profit_cents"`
+	Conservative              ForecastScenario `json:"conservative"`
+	Baseline                  ForecastScenario `json:"baseline"`
+	Optimistic                ForecastScenario `json:"optimistic"`
 }
 
 type MarketPriceView struct {
@@ -103,6 +99,33 @@ type PricingRecommendation struct {
 	UtilizationPercent       int      `json:"utilization_percent"`
 }
 
+// PricingCandidate exposes one active Team customer for market comparison and
+// optional next-cycle repricing. Current-period prices and bills are never
+// mutated by the bulk action.
+type PricingCandidate struct {
+	SubscriptionID         int64  `json:"subscription_id"`
+	Name                   string `json:"name"`
+	CustomerEmail          string `json:"customer_email"`
+	CustomerWechat         string `json:"customer_wechat"`
+	AccountName            string `json:"account_name"`
+	SeatName               string `json:"seat_name"`
+	CurrentPriceCents      int64  `json:"current_price_cents"`
+	NextPriceCents         *int64 `json:"next_price_cents"`
+	NextPriceEffectiveDate string `json:"next_price_effective_date"`
+	NextDueDate            string `json:"next_due_date"`
+	MarketPosition         string `json:"market_position"`
+	GapToMarketMedianCents int64  `json:"gap_to_market_median_cents"`
+	SuggestedPriceCents    int64  `json:"suggested_price_cents"`
+	Recommended            bool   `json:"recommended"`
+	Eligible               bool   `json:"eligible"`
+	BlockedReason          string `json:"blocked_reason"`
+}
+
+type BulkNextPriceInput struct {
+	SubscriptionIDs []int64
+	NextPriceYuan   string
+}
+
 type GoalCenter struct {
 	ActiveGoal *BusinessGoalProgress `json:"active_goal"`
 	History    []CompletedGoalView   `json:"history"`
@@ -110,10 +133,11 @@ type GoalCenter struct {
 	Forecast   *ProfitForecast       `json:"forecast"`
 	Market     MarketPriceView       `json:"market"`
 	Pricing    PricingRecommendation `json:"pricing"`
+	Candidates []PricingCandidate    `json:"pricing_candidates"`
 }
 
 func (service *SubscriptionService) CreateBusinessGoal(input BusinessGoalInput) (int64, error) {
-	name, targetProfitCents, deadline, err := service.normalizeBusinessGoalInput(input)
+	name, targetProfitCents, err := service.normalizeBusinessGoalInput(input)
 	if err != nil {
 		return 0, err
 	}
@@ -130,16 +154,15 @@ func (service *SubscriptionService) CreateBusinessGoal(input BusinessGoalInput) 
 		Name:                name,
 		TargetProfitCents:   targetProfitCents,
 		BaselineProfitCents: dashboard.TotalProfitCents,
-		Deadline:            deadline,
 	})
 }
 
 func (service *SubscriptionService) UpdateBusinessGoal(goalID int64, input BusinessGoalInput) error {
-	name, targetProfitCents, deadline, err := service.normalizeBusinessGoalInput(input)
+	name, targetProfitCents, err := service.normalizeBusinessGoalInput(input)
 	if err != nil {
 		return err
 	}
-	if err := service.Store.UpdateBusinessGoal(goalID, name, targetProfitCents, deadline); err != nil {
+	if err := service.Store.UpdateBusinessGoal(goalID, name, targetProfitCents); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("进行中的目标不存在")
 		}
@@ -166,27 +189,19 @@ func (service *SubscriptionService) CompleteBusinessGoal(goalID int64) error {
 	return service.Store.CompleteBusinessGoal(goalID, dashboard.TotalProfitCents-goal.BaselineProfitCents)
 }
 
-func (service *SubscriptionService) normalizeBusinessGoalInput(input BusinessGoalInput) (string, int64, string, error) {
+func (service *SubscriptionService) normalizeBusinessGoalInput(input BusinessGoalInput) (string, int64, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
-		return "", 0, "", fmt.Errorf("请填写目标名称")
+		return "", 0, fmt.Errorf("请填写目标名称")
 	}
 	if len([]rune(name)) > 80 {
-		return "", 0, "", fmt.Errorf("目标名称不能超过 80 个字符")
+		return "", 0, fmt.Errorf("目标名称不能超过 80 个字符")
 	}
 	targetProfitCents, err := cycle.ParseYuanToCents(strings.TrimSpace(input.TargetProfitYuan))
 	if err != nil || targetProfitCents <= 0 {
-		return "", 0, "", fmt.Errorf("目标利润须大于 0 元")
+		return "", 0, fmt.Errorf("目标利润须大于 0 元")
 	}
-	deadline := strings.TrimSpace(input.Deadline)
-	deadlineDay, err := time.ParseInLocation("2006-01-02", deadline, cycle.Location)
-	if err != nil {
-		return "", 0, "", fmt.Errorf("请选择有效的截止日期")
-	}
-	if deadlineDay.Before(cycle.StartOfDay(service.now())) {
-		return "", 0, "", fmt.Errorf("截止日期不能早于今天")
-	}
-	return name, targetProfitCents, deadline, nil
+	return name, targetProfitCents, nil
 }
 
 func (service *SubscriptionService) GetGoalCenter() (GoalCenter, error) {
@@ -222,12 +237,12 @@ func (service *SubscriptionService) GetGoalCenter() (GoalCenter, error) {
 		}
 	}
 
-	runRateCents, err := service.activeMonthlyProfitRunRate()
+	runRateCents, activeRecurringCount, err := service.activeMonthlyProfitRunRate()
 	if err != nil {
 		return GoalCenter{}, err
 	}
 	if center.ActiveGoal != nil {
-		forecast := service.buildProfitForecast(*center.ActiveGoal, trend, runRateCents)
+		forecast := service.buildProfitForecast(*center.ActiveGoal, runRateCents, activeRecurringCount)
 		center.Forecast = &forecast
 	}
 
@@ -237,6 +252,10 @@ func (service *SubscriptionService) GetGoalCenter() (GoalCenter, error) {
 	}
 	center.Market = market
 	center.Pricing, err = service.buildPricingRecommendation(market.Snapshot)
+	if err != nil {
+		return GoalCenter{}, err
+	}
+	center.Candidates, err = service.buildPricingCandidates(market.Snapshot)
 	if err != nil {
 		return GoalCenter{}, err
 	}
@@ -253,25 +272,13 @@ func (service *SubscriptionService) buildGoalProgress(goal model.BusinessGoal, c
 	if remainingProfitCents < 0 {
 		remainingProfitCents = 0
 	}
-	deadline, _ := time.ParseInLocation("2006-01-02", goal.Deadline, cycle.Location)
-	daysRemaining := int(cycle.StartOfDay(deadline).Sub(cycle.StartOfDay(service.now())).Hours() / 24)
-	requiredMonthlyProfitCents := int64(0)
-	if remainingProfitCents > 0 {
-		daysForPace := daysRemaining
-		if daysForPace < 1 {
-			daysForPace = 1
-		}
-		requiredMonthlyProfitCents = divideRoundUp(remainingProfitCents*30, int64(daysForPace))
-	}
 	return BusinessGoalProgress{
-		Goal:                       goal,
-		CurrentProfitCents:         currentProfitCents,
-		EarnedProfitCents:          earnedProfitCents,
-		RemainingProfitCents:       remainingProfitCents,
-		ProgressPercent:            percentOf(earnedProfitCents, goal.TargetProfitCents),
-		DaysRemaining:              daysRemaining,
-		RequiredMonthlyProfitCents: requiredMonthlyProfitCents,
-		Reached:                    earnedProfitCents >= goal.TargetProfitCents,
+		Goal:                 goal,
+		CurrentProfitCents:   currentProfitCents,
+		EarnedProfitCents:    earnedProfitCents,
+		RemainingProfitCents: remainingProfitCents,
+		ProgressPercent:      percentOf(earnedProfitCents, goal.TargetProfitCents),
+		Reached:              earnedProfitCents >= goal.TargetProfitCents,
 	}
 }
 
@@ -331,14 +338,14 @@ func (service *SubscriptionService) buildProfitTrend(monthCount int) ([]ProfitMo
 	return months, nil
 }
 
-func (service *SubscriptionService) activeMonthlyProfitRunRate() (int64, error) {
+func (service *SubscriptionService) activeMonthlyProfitRunRate() (int64, int, error) {
 	subscriptions, err := service.Store.ListSubscriptions()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	afterSalesCases, err := service.Store.ListAfterSalesCases()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	frozenSubscriptions := make(map[int64]struct{})
 	for _, caseItem := range afterSalesCases {
@@ -348,6 +355,7 @@ func (service *SubscriptionService) activeMonthlyProfitRunRate() (int64, error) 
 	}
 
 	var monthlyProfitCents int64
+	activeRecurringCount := 0
 	for _, subscription := range subscriptions {
 		if _, frozen := frozenSubscriptions[subscription.ID]; frozen {
 			continue
@@ -359,21 +367,26 @@ func (service *SubscriptionService) activeMonthlyProfitRunRate() (int64, error) 
 		if factorDenominator <= 0 {
 			continue
 		}
-		monthlyProfitCents += countedAmountCents(subscription) * factorNumerator / factorDenominator
+		futureAmountCents := countedAmountCents(subscription)
+		if !subscription.IsResale && subscription.NextPriceCents != nil {
+			futureAmountCents = *subscription.NextPriceCents
+		}
+		monthlyProfitCents += futureAmountCents * factorNumerator / factorDenominator
 		if isPlusSubscription(subscription) {
 			monthlyProfitCents -= subscription.CostCents * factorNumerator / factorDenominator
 		}
+		activeRecurringCount++
 	}
 	accounts, err := service.Store.ListAccounts()
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	for _, account := range accounts {
 		if strings.TrimSpace(account.BannedAt) == "" {
 			monthlyProfitCents -= account.CostCents
 		}
 	}
-	return monthlyProfitCents, nil
+	return monthlyProfitCents, activeRecurringCount, nil
 }
 
 func monthlyCycleFactor(subscription model.Subscription, now time.Time) (int64, int64) {
@@ -394,58 +407,31 @@ func monthlyCycleFactor(subscription model.Subscription, now time.Time) (int64, 
 
 func (service *SubscriptionService) buildProfitForecast(
 	goal BusinessGoalProgress,
-	trend []ProfitMonth,
 	runRateCents int64,
+	activeRecurringCount int,
 ) ProfitForecast {
-	completeMonths := make([]ProfitMonth, 0, 3)
-	currentMonth := service.now().In(cycle.Location).Format("2006-01")
-	for index := len(trend) - 1; index >= 0 && len(completeMonths) < 3; index-- {
-		if trend[index].Month != currentMonth {
-			completeMonths = append(completeMonths, trend[index])
-		}
-	}
-	var historicalMonthlyProfitCents int64
-	for _, month := range completeMonths {
-		historicalMonthlyProfitCents += month.ProfitCents
-	}
-	if len(completeMonths) > 0 {
-		historicalMonthlyProfitCents /= int64(len(completeMonths))
-	}
-
 	baseMonthlyProfitCents := int64(0)
 	source := "unavailable"
-	switch {
-	case historicalMonthlyProfitCents != 0 && runRateCents != 0:
-		baseMonthlyProfitCents = (historicalMonthlyProfitCents*2 + runRateCents) / 3
-		source = "blended"
-	case historicalMonthlyProfitCents != 0:
-		baseMonthlyProfitCents = historicalMonthlyProfitCents
-		source = "history"
-	case runRateCents != 0:
+	if runRateCents > 0 && activeRecurringCount > 0 {
 		baseMonthlyProfitCents = runRateCents
 		source = "run_rate"
-	}
-	if baseMonthlyProfitCents < 0 {
-		baseMonthlyProfitCents = 0
 	}
 	conservativeMonthly := baseMonthlyProfitCents * 75 / 100
 	optimisticMonthly := baseMonthlyProfitCents * 125 / 100
 	return ProfitForecast{
-		Source:                       source,
-		HistoricalMonthlyProfitCents: historicalMonthlyProfitCents,
-		RunRateMonthlyProfitCents:    runRateCents,
-		Conservative:                 service.buildForecastScenario(goal, conservativeMonthly),
-		Baseline:                     service.buildForecastScenario(goal, baseMonthlyProfitCents),
-		Optimistic:                   service.buildForecastScenario(goal, optimisticMonthly),
+		Source:                    source,
+		ActiveRecurringCount:      activeRecurringCount,
+		RunRateMonthlyProfitCents: runRateCents,
+		Conservative:              service.buildForecastScenario(goal, conservativeMonthly),
+		Baseline:                  service.buildForecastScenario(goal, baseMonthlyProfitCents),
+		Optimistic:                service.buildForecastScenario(goal, optimisticMonthly),
 	}
 }
 
 func (service *SubscriptionService) buildForecastScenario(goal BusinessGoalProgress, monthlyProfitCents int64) ForecastScenario {
 	scenario := ForecastScenario{MonthlyProfitCents: monthlyProfitCents}
-	deadline, deadlineErr := time.ParseInLocation("2006-01-02", goal.Goal.Deadline, cycle.Location)
 	if goal.RemainingProfitCents <= 0 {
 		scenario.ProjectedDate = cycle.FormatDate(service.now())
-		scenario.MeetsDeadline = deadlineErr == nil && !cycle.StartOfDay(service.now()).After(deadline)
 		return scenario
 	}
 	if monthlyProfitCents <= 0 {
@@ -455,7 +441,6 @@ func (service *SubscriptionService) buildForecastScenario(goal BusinessGoalProgr
 	projected := cycle.StartOfDay(service.now()).AddDate(0, 0, int(daysNeeded))
 	scenario.MonthsNeeded = math.Round(float64(daysNeeded)/30*10) / 10
 	scenario.ProjectedDate = cycle.FormatDate(projected)
-	scenario.MeetsDeadline = deadlineErr == nil && !projected.After(deadline)
 	return scenario
 }
 
@@ -739,6 +724,155 @@ func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.M
 		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, marketHigh)
 	}
 	return recommendation, nil
+}
+
+func (service *SubscriptionService) buildPricingCandidates(snapshot *model.MarketPriceSnapshot) ([]PricingCandidate, error) {
+	accounts, err := service.Store.ListAccounts()
+	if err != nil {
+		return nil, err
+	}
+	activeAccountIDs := make(map[int64]struct{}, len(accounts))
+	for _, account := range accounts {
+		if strings.TrimSpace(account.BannedAt) == "" {
+			activeAccountIDs[account.ID] = struct{}{}
+		}
+	}
+
+	afterSalesCases, err := service.Store.ListAfterSalesCases()
+	if err != nil {
+		return nil, err
+	}
+	frozenSubscriptions := make(map[int64]struct{})
+	for _, caseItem := range afterSalesCases {
+		if caseItem.Status == model.AfterSalesStatusPending || caseItem.Status == model.AfterSalesStatusReview {
+			frozenSubscriptions[caseItem.SubscriptionID] = struct{}{}
+		}
+	}
+
+	subscriptions, err := service.Store.ListSubscriptions()
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]PricingCandidate, 0, len(subscriptions))
+	for _, subscription := range subscriptions {
+		if subscription.BusinessType != model.SubscriptionBusinessTeam || subscription.SeatID <= 0 || subscription.IsResale {
+			continue
+		}
+		candidate := PricingCandidate{
+			SubscriptionID:         subscription.ID,
+			Name:                   subscription.Name,
+			CustomerEmail:          subscription.CustomerEmail,
+			CustomerWechat:         subscription.CustomerWechat,
+			AccountName:            subscription.AccountName,
+			SeatName:               subscription.SeatName,
+			CurrentPriceCents:      subscription.PricePerPersonCents,
+			NextPriceCents:         subscription.NextPriceCents,
+			NextPriceEffectiveDate: subscription.NextPriceEffectiveDueDate,
+			Eligible:               true,
+			MarketPosition:         "unavailable",
+		}
+		if _, active := activeAccountIDs[subscription.AccountID]; !active {
+			candidate.Eligible = false
+			candidate.BlockedReason = "所属 Team 账号已封禁"
+		}
+		if _, frozen := frozenSubscriptions[subscription.ID]; frozen {
+			candidate.Eligible = false
+			candidate.BlockedReason = "正在等待售后处理"
+		}
+		view, viewErr := service.buildView(subscription, service.now(), "")
+		if viewErr != nil {
+			candidate.Eligible = false
+			candidate.BlockedReason = "计费周期无效，无法确定下次续费日"
+		} else {
+			candidate.NextDueDate = view.NextDueDate
+		}
+		if snapshot != nil && snapshot.SampleCount >= 3 {
+			candidate.GapToMarketMedianCents = snapshot.MedianPriceCents - subscription.PricePerPersonCents
+			candidate.SuggestedPriceCents = snapshot.MedianPriceCents
+			switch {
+			case subscription.PricePerPersonCents < snapshot.LowPriceCents:
+				candidate.MarketPosition = "below_low"
+			case subscription.PricePerPersonCents < snapshot.MedianPriceCents:
+				candidate.MarketPosition = "below_median"
+			case subscription.PricePerPersonCents > snapshot.HighPriceCents:
+				candidate.MarketPosition = "above_high"
+			default:
+				candidate.MarketPosition = "market_range"
+			}
+			candidate.Recommended = candidate.Eligible &&
+				subscription.NextPriceCents == nil &&
+				subscription.PricePerPersonCents < snapshot.LowPriceCents
+		}
+		candidates = append(candidates, candidate)
+	}
+	sort.SliceStable(candidates, func(left int, right int) bool {
+		if candidates[left].Recommended != candidates[right].Recommended {
+			return candidates[left].Recommended
+		}
+		if candidates[left].CurrentPriceCents != candidates[right].CurrentPriceCents {
+			return candidates[left].CurrentPriceCents < candidates[right].CurrentPriceCents
+		}
+		return candidates[left].SubscriptionID < candidates[right].SubscriptionID
+	})
+	return candidates, nil
+}
+
+// ScheduleBulkNextPrice atomically arranges the same next-cycle Team price for
+// selected customers. Each subscription keeps its own calculated effective due
+// date, and neither the current price nor historical bills are changed.
+func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInput) (int, error) {
+	if len(input.SubscriptionIDs) == 0 {
+		return 0, fmt.Errorf("请至少选择一位 Team 用户")
+	}
+	if len(input.SubscriptionIDs) > 200 {
+		return 0, fmt.Errorf("单次最多调整 200 位 Team 用户")
+	}
+	nextPriceCents, err := cycle.ParseYuanToCents(strings.TrimSpace(input.NextPriceYuan))
+	if err != nil || nextPriceCents <= 0 {
+		return 0, fmt.Errorf("请填写有效的下周期价格")
+	}
+
+	seen := make(map[int64]struct{}, len(input.SubscriptionIDs))
+	updates := make([]model.Subscription, 0, len(input.SubscriptionIDs))
+	for _, subscriptionID := range input.SubscriptionIDs {
+		if subscriptionID <= 0 {
+			return 0, fmt.Errorf("包含无效的订阅 ID")
+		}
+		if _, duplicate := seen[subscriptionID]; duplicate {
+			continue
+		}
+		seen[subscriptionID] = struct{}{}
+
+		previous, getErr := service.Store.GetSubscription(subscriptionID)
+		if getErr != nil {
+			if getErr == sql.ErrNoRows {
+				return 0, fmt.Errorf("所选 Team 用户不存在或已下车")
+			}
+			return 0, getErr
+		}
+		if previous.BusinessType != model.SubscriptionBusinessTeam || previous.SeatID <= 0 || previous.IsResale {
+			return 0, fmt.Errorf("%s 不是可批量调价的 Team 席位", previous.Name)
+		}
+		if err := service.ensureNoPendingAfterSales(subscriptionID, "安排调价"); err != nil {
+			return 0, fmt.Errorf("%s：%w", previous.Name, err)
+		}
+		updated := previous
+		updated.NextPriceCents = &nextPriceCents
+		if err := service.configureNextPrice(previous, &updated, false); err != nil {
+			return 0, fmt.Errorf("%s：%w", previous.Name, err)
+		}
+		updates = append(updates, updated)
+	}
+	if len(updates) == 0 {
+		return 0, fmt.Errorf("没有可调价的 Team 用户")
+	}
+	if err := service.Store.UpdateSubscriptionNextPrices(updates); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, fmt.Errorf("所选用户状态已变化，请刷新后重试")
+		}
+		return 0, err
+	}
+	return len(updates), nil
 }
 
 func monthFromDate(raw string) string {

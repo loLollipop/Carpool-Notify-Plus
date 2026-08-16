@@ -2,6 +2,7 @@ package service
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"testing"
@@ -38,7 +39,6 @@ func TestBusinessGoalProgressUsesProfitBaselineAcrossTeamPlusAndRefunds(t *testi
 	goalID, err := service.CreateBusinessGoal(BusinessGoalInput{
 		Name:             "August profit",
 		TargetProfitYuan: "1000.00",
-		Deadline:         "2026-12-31",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -114,6 +114,169 @@ func TestBusinessGoalProgressUsesProfitBaselineAcrossTeamPlusAndRefunds(t *testi
 	}
 	if center.ActiveGoal.RemainingProfitCents != 84000 || center.ActiveGoal.ProgressPercent != 16 {
 		t.Fatalf("goal progress = %#v", center.ActiveGoal)
+	}
+}
+
+func TestGoalForecastUsesActiveFutureRevenueAndScheduledPrices(t *testing.T) {
+	service := openGoalTestService(t)
+	if _, err := service.CreateBusinessGoal(BusinessGoalInput{
+		Name:             "Future revenue goal",
+		TargetProfitYuan: "1000.00",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "forecast-owner@example.com",
+		CostYuan:  "30.00",
+		SeatCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 1 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "Scheduled price customer",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 10000,
+		CronExpr:            "interval:30d",
+		SeatID:              seats[0].ID,
+		BoardedAt:           "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ScheduleBulkNextPrice(BulkNextPriceInput{
+		SubscriptionIDs: []int64{subscriptionID},
+		NextPriceYuan:   "120.00",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	center, err := service.GetGoalCenter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if center.Forecast == nil {
+		t.Fatal("forecast is nil")
+	}
+	// A 30-day cycle is normalized with 365/(30*12), then the monthly
+	// owner-account cost is deducted: 12000*365/360 - 3000 = 9166.
+	if center.Forecast.RunRateMonthlyProfitCents != 9166 {
+		t.Fatalf("run rate = %d, want 9166", center.Forecast.RunRateMonthlyProfitCents)
+	}
+	if center.Forecast.ActiveRecurringCount != 1 || center.Forecast.Source != "run_rate" {
+		t.Fatalf("forecast basis = %#v", center.Forecast)
+	}
+	if center.Forecast.Baseline.ProjectedDate == "" {
+		t.Fatalf("baseline forecast = %#v", center.Forecast.Baseline)
+	}
+}
+
+func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "bulk-owner@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 2 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	teamIDs := make([]int64, 0, 2)
+	for index, price := range []int64{9000, 12000} {
+		subscriptionID, createErr := service.Store.CreateSubscription(model.Subscription{
+			Name:                fmt.Sprintf("Team customer %d", index+1),
+			BusinessType:        model.SubscriptionBusinessTeam,
+			PricePerPersonCents: price,
+			CronExpr:            "interval:30d",
+			CustomerWechat:      fmt.Sprintf("wechat-%d", index+1),
+			SeatID:              seats[index].ID,
+			BoardedAt:           "2026-08-01",
+		})
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		teamIDs = append(teamIDs, subscriptionID)
+	}
+	if _, err := service.Store.InsertMarketPriceSnapshot(model.MarketPriceSnapshot{
+		Provider:         marketProvider,
+		Product:          marketProduct,
+		LowPriceCents:    10000,
+		MedianPriceCents: 13000,
+		HighPriceCents:   15000,
+		SampleCount:      10,
+		SourceUpdatedAt:  service.now(),
+		CreatedAt:        service.now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	center, err := service.GetGoalCenter()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(center.Candidates) != 2 || !center.Candidates[0].Recommended || center.Candidates[0].MarketPosition != "below_low" {
+		t.Fatalf("pricing candidates = %#v", center.Candidates)
+	}
+	if center.Candidates[1].MarketPosition != "below_median" {
+		t.Fatalf("second candidate = %#v", center.Candidates[1])
+	}
+
+	updated, err := service.ScheduleBulkNextPrice(BulkNextPriceInput{
+		SubscriptionIDs: teamIDs,
+		NextPriceYuan:   "135.00",
+	})
+	if err != nil || updated != 2 {
+		t.Fatalf("bulk result = %d, err = %v", updated, err)
+	}
+	for index, subscriptionID := range teamIDs {
+		subscription, getErr := service.Get(subscriptionID)
+		if getErr != nil {
+			t.Fatal(getErr)
+		}
+		if subscription.PricePerPersonCents != []int64{9000, 12000}[index] || subscription.NextPriceCents == nil || *subscription.NextPriceCents != 13500 {
+			t.Fatalf("scheduled subscription = %#v", subscription)
+		}
+		if subscription.NextPriceEffectiveDueDate == "" {
+			t.Fatalf("missing effective due date: %#v", subscription)
+		}
+	}
+
+	plusID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "Plus is not eligible",
+		BusinessType:        model.SubscriptionBusinessPlus,
+		PricePerPersonCents: 6800,
+		CronExpr:            "interval:30d",
+		CustomerEmail:       "plus@example.com",
+		CustomerWechat:      "plus-wechat",
+		BoardedAt:           "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := service.Get(teamIDs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.ScheduleBulkNextPrice(BulkNextPriceInput{
+		SubscriptionIDs: []int64{teamIDs[0], plusID},
+		NextPriceYuan:   "140.00",
+	})
+	if err == nil {
+		t.Fatal("bulk update with Plus subscription unexpectedly succeeded")
+	}
+	after, err := service.Get(teamIDs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.NextPriceCents == nil || before.NextPriceCents == nil || *after.NextPriceCents != *before.NextPriceCents {
+		t.Fatalf("failed bulk update partially changed Team price: before=%#v after=%#v", before, after)
 	}
 }
 
