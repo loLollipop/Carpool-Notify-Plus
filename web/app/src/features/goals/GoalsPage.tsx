@@ -14,6 +14,7 @@ import {
   YAxis,
 } from "recharts"
 import {
+  ArrowRight,
   CalendarClock,
   CheckCircle2,
   CircleGauge,
@@ -22,6 +23,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  ShieldCheck,
   SlidersHorizontal,
   Target,
   TrendingUp,
@@ -471,26 +473,31 @@ function MarketPanel({
     ? [
         {
           label: t("goals.seatCostFloorShort"),
+          shortLabel: t("goals.seatCostFloorAxis"),
           value: pricing.seat_cost_floor_cents,
           color: "var(--muted-foreground)",
         },
         {
           label: t("goals.internalMedianShort"),
+          shortLabel: t("goals.internalMedianAxis"),
           value: pricing.internal_median_price_cents,
           color: "var(--brand)",
         },
         {
           label: t("goals.marketLow"),
+          shortLabel: t("goals.marketLowShort"),
           value: snapshot.low_price_cents,
           color: "color-mix(in oklab, var(--success) 48%, var(--muted))",
         },
         {
           label: t("goals.marketMedianShort"),
+          shortLabel: t("goals.marketMedianAxis"),
           value: snapshot.median_price_cents,
           color: "var(--success)",
         },
         {
           label: t("goals.marketHigh"),
+          shortLabel: t("goals.marketHighShort"),
           value: snapshot.high_price_cents,
           color: "color-mix(in oklab, var(--success) 68%, var(--muted))",
         },
@@ -583,15 +590,18 @@ function MarketPanel({
                   <XAxis type="number" hide domain={[0, "dataMax"]} />
                   <YAxis
                     type="category"
-                    dataKey="label"
+                    dataKey="shortLabel"
                     axisLine={false}
                     tickLine={false}
-                    width={58}
+                    width={48}
                     tick={{ fill: "var(--muted-foreground)", fontSize: 9 }}
                   />
                   <ChartTooltip
                     cursor={{ fill: "color-mix(in oklab, var(--brand) 6%, transparent)" }}
                     formatter={(value) => [visibleYuan(Number(value ?? 0), amountsHidden), t("goals.price")]}
+                    labelFormatter={(label) =>
+                      benchmarkData.find((item) => item.shortLabel === label)?.label ?? String(label)
+                    }
                     contentStyle={{
                       border: "1px solid var(--border)",
                       borderRadius: 6,
@@ -602,7 +612,7 @@ function MarketPanel({
                   />
                   <Bar dataKey="value" maxBarSize={11} radius={[0, 4, 4, 0]}>
                     {benchmarkData.map((item) => (
-                      <Cell key={item.label} fill={item.color} />
+                      <Cell key={item.shortLabel} fill={item.color} />
                     ))}
                   </Bar>
                 </BarChart>
@@ -619,6 +629,284 @@ function MarketPanel({
         )}
       </div>
     </section>
+  )
+}
+
+function RepricingMetric({
+  icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: React.ReactNode
+  hint: string
+}) {
+  return (
+    <div className="rounded-lg border bg-card p-4 shadow-card">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        <span className="grid size-8 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+          {icon}
+        </span>
+      </div>
+      <p className="mt-3 text-2xl font-semibold tabular-nums tracking-tight">{value}</p>
+      <p className="mt-1 truncate text-[11px] text-muted-foreground" title={hint}>
+        {hint}
+      </p>
+    </div>
+  )
+}
+
+function RepricingAnalysisPanel({
+  data,
+  amountsHidden,
+  onOpenBulkPricing,
+}: {
+  data: GoalCenter
+  amountsHidden: boolean
+  onOpenBulkPricing: () => void
+}) {
+  const { t } = useTranslation()
+  const analysis = data.repricing_analysis
+  const candidates = React.useMemo(() => data.pricing_candidates ?? [], [data.pricing_candidates])
+  const windowData = (analysis.windows ?? []).map((window) => ({
+    ...window,
+    label: t(`goals.repricing.window.${window.key}`),
+  }))
+  const upcomingCount = windowData
+    .filter((window) => window.key === "next_30" || window.key === "next_60")
+    .reduce((total, window) => total + window.count, 0)
+  const upliftData = [
+    {
+      key: "ready",
+      label: t("goals.repricing.upliftReady"),
+      value: analysis.estimated_monthly_uplift_cents,
+      color: "var(--brand)",
+    },
+    {
+      key: "pipeline",
+      label: t("goals.repricing.upliftPipeline"),
+      value: analysis.pipeline_monthly_uplift_cents,
+      color: "var(--success)",
+    },
+    {
+      key: "scheduled",
+      label: t("goals.repricing.upliftScheduled"),
+      value: analysis.scheduled_monthly_uplift_cents,
+      color: "color-mix(in oklab, var(--brand) 55%, var(--muted))",
+    },
+  ]
+  const queue = candidates
+    .filter(
+      (candidate) =>
+        candidate.recommended ||
+        candidate.next_price_cents !== null ||
+        (candidate.next_review_date !== "" && candidate.suggested_monthly_uplift_cents > 0),
+    )
+    .sort((left, right) => {
+      if (left.recommended !== right.recommended) return left.recommended ? -1 : 1
+      if ((left.next_price_cents !== null) !== (right.next_price_cents !== null)) {
+        return left.next_price_cents === null ? -1 : 1
+      }
+      return (left.next_review_date || "9999-12-31").localeCompare(
+        right.next_review_date || "9999-12-31",
+      )
+    })
+  const visibleQueue = queue.slice(0, 6)
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <RepricingMetric
+          icon={<CheckCircle2 className="size-4" />}
+          label={t("goals.repricing.ready")}
+          value={analysis.recommended_count}
+          hint={t("goals.repricing.readyHint")}
+        />
+        <RepricingMetric
+          icon={<CalendarClock className="size-4" />}
+          label={t("goals.repricing.upcoming")}
+          value={upcomingCount}
+          hint={t("goals.repricing.upcomingHint")}
+        />
+        <RepricingMetric
+          icon={<ShieldCheck className="size-4" />}
+          label={t("goals.repricing.scheduled")}
+          value={analysis.scheduled_count}
+          hint={t("goals.repricing.scheduledHint")}
+        />
+        <RepricingMetric
+          icon={<TrendingUp className="size-4" />}
+          label={t("goals.repricing.monthlyPotential")}
+          value={visibleYuan(analysis.pipeline_monthly_uplift_cents, amountsHidden)}
+          hint={t("goals.repricing.monthlyPotentialHint")}
+        />
+      </div>
+
+      <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(320px,0.92fr)]">
+        <Card className="gap-0 overflow-hidden p-0 shadow-card">
+          <div className="border-b px-5 py-4">
+            <h2 className="text-sm font-semibold">{t("goals.repricing.queueTitle")}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{t("goals.repricing.queueHint")}</p>
+          </div>
+          <div className="h-[220px] px-3 py-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={windowData} layout="vertical" margin={{ top: 0, right: 18, left: 8, bottom: 0 }}>
+                <CartesianGrid stroke="var(--border)" strokeDasharray="3 5" horizontal={false} />
+                <XAxis
+                  type="number"
+                  allowDecimals={false}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="label"
+                  width={66}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                />
+                <ChartTooltip
+                  cursor={{ fill: "color-mix(in oklab, var(--brand) 6%, transparent)" }}
+                  formatter={(value, name, item) => [
+                    name === "count"
+                      ? t("goals.repricing.people", { count: Number(value ?? 0) })
+                      : visibleYuan(Number(value ?? 0), amountsHidden),
+                    item?.payload?.label ?? "",
+                  ]}
+                  contentStyle={{
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    background: "var(--popover)",
+                    color: "var(--popover-foreground)",
+                    fontSize: 11,
+                  }}
+                />
+                <Bar dataKey="count" fill="var(--brand)" maxBarSize={18} radius={[0, 5, 5, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        <Card className="gap-0 overflow-hidden p-0 shadow-card">
+          <div className="border-b px-5 py-4">
+            <h2 className="text-sm font-semibold">{t("goals.repricing.upliftTitle")}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{t("goals.repricing.upliftHint")}</p>
+          </div>
+          <div className="h-[172px] px-4 pt-4">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={upliftData} margin={{ top: 4, right: 4, left: 4, bottom: 0 }}>
+                <XAxis
+                  dataKey="label"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                />
+                <YAxis hide />
+                <ChartTooltip
+                  cursor={{ fill: "color-mix(in oklab, var(--brand) 6%, transparent)" }}
+                  formatter={(value) => [visibleYuan(Number(value ?? 0), amountsHidden), t("goals.repricing.monthlyUplift")]}
+                  contentStyle={{
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    background: "var(--popover)",
+                    color: "var(--popover-foreground)",
+                    fontSize: 11,
+                  }}
+                />
+                <Bar dataKey="value" maxBarSize={42} radius={[5, 5, 0, 0]}>
+                  {upliftData.map((item) => (
+                    <Cell key={item.key} fill={item.color} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="grid grid-cols-3 gap-2 px-4 pb-4 text-center">
+            {upliftData.map((item) => (
+              <div key={item.key} className="rounded-md bg-muted/45 px-2 py-2">
+                <p className="truncate text-[9px] text-muted-foreground" title={item.label}>{item.label}</p>
+                <p className="mt-0.5 truncate text-xs font-semibold tabular-nums">
+                  {visibleYuan(item.value, amountsHidden)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+
+      <Card className="gap-0 overflow-hidden p-0 shadow-card">
+        <div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-sm font-semibold">{t("goals.repricing.nextBatchTitle")}</h2>
+            <p className="mt-1 text-xs text-muted-foreground">{t("goals.repricing.nextBatchHint")}</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={onOpenBulkPricing}>
+            {t("goals.repricing.manageBatch")}
+            <ArrowRight />
+          </Button>
+        </div>
+        {visibleQueue.length > 0 ? (
+          <div className="divide-y">
+            {visibleQueue.map((candidate) => {
+              const targetPrice = candidate.next_price_cents ?? candidate.suggested_price_cents
+              const statusKey = candidate.recommended
+                ? "ready"
+                : candidate.next_price_cents !== null
+                  ? "scheduled"
+                  : candidate.blocked_code
+              const actionDate = candidate.recommended
+                ? t("goals.repricing.now")
+                : candidate.next_price_cents !== null
+                  ? candidate.next_price_effective_date
+                  : candidate.next_review_date
+              return (
+                <div
+                  key={candidate.subscription_id}
+                  className="grid gap-2 px-5 py-3 sm:grid-cols-[minmax(0,1.25fr)_minmax(120px,0.6fr)_minmax(160px,0.8fr)_110px] sm:items-center"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{candidate.name}</p>
+                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                      {candidate.account_name || "-"} · {candidate.seat_name || "-"}
+                    </p>
+                  </div>
+                  <div>
+                    <Badge
+                      variant={candidate.recommended ? "success" : candidate.next_price_cents !== null ? "brand" : "warning"}
+                    >
+                      {t(`goals.repricing.status.${statusKey}`)}
+                    </Badge>
+                  </div>
+                  <p className="text-xs font-medium tabular-nums">
+                    {visibleYuan(candidate.current_price_cents, amountsHidden)}
+                    <span className="mx-1.5 text-muted-foreground">→</span>
+                    {visibleYuan(targetPrice, amountsHidden)}
+                  </p>
+                  <p className="text-xs tabular-nums text-muted-foreground sm:text-right">
+                    {actionDate || "-"}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="grid min-h-32 place-items-center p-6 text-center">
+            <p className="text-sm text-muted-foreground">{t("goals.repricing.emptyQueue")}</p>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2 border-t bg-muted/20 px-5 py-3">
+          <Badge variant="outline">{t("goals.repricing.guardrailTenure")}</Badge>
+          <Badge variant="outline">{t("goals.repricing.guardrailCap")}</Badge>
+          <Badge variant="outline">{t("goals.repricing.guardrailNotice")}</Badge>
+          <Badge variant="outline">{t("goals.repricing.guardrailCooldown")}</Badge>
+        </div>
+      </Card>
+    </div>
   )
 }
 
@@ -1097,6 +1385,7 @@ export function GoalsPage() {
   const query = useGoals()
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [completeOpen, setCompleteOpen] = React.useState(false)
+  const [workspaceTab, setWorkspaceTab] = React.useState("overview")
 
   const refreshMutation = useAppMutation(refreshGoalMarket)
   const completeMutation = useAppMutation(
@@ -1105,6 +1394,11 @@ export function GoalsPage() {
   )
   const recommendedPricingCount =
     query.data?.pricing_candidates?.filter((candidate) => candidate.recommended).length ?? 0
+  const upcomingPricingCount =
+    query.data?.repricing_analysis.windows
+      ?.filter((window) => window.key === "next_30" || window.key === "next_60")
+      .reduce((total, window) => total + window.count, recommendedPricingCount) ??
+    recommendedPricingCount
   const hasGoalHistory = (query.data?.history?.length ?? 0) > 0
 
   return (
@@ -1151,14 +1445,23 @@ export function GoalsPage() {
             <EmptyGoal onCreate={() => setDialogOpen(true)} />
           )}
 
-          <Tabs defaultValue="overview" className="gap-3">
+          <Tabs value={workspaceTab} onValueChange={setWorkspaceTab} className="gap-3">
             <TabsList
-              className="grid h-11 w-full grid-cols-2 bg-muted/70 p-1 sm:w-fit sm:min-w-[360px]"
+              className="grid h-11 w-full grid-cols-3 bg-muted/70 p-1 sm:w-fit sm:min-w-[520px]"
               aria-label={t("goals.workspaceNav")}
             >
               <TabsTrigger value="overview" className="h-9 px-3 text-xs sm:px-4 sm:text-sm">
                 <CircleGauge />
                 {t("goals.overviewTab")}
+              </TabsTrigger>
+              <TabsTrigger value="analysis" className="h-9 px-2 text-xs sm:px-4 sm:text-sm">
+                <TrendingUp />
+                {t("goals.repricingAnalysisTab")}
+                {upcomingPricingCount > 0 ? (
+                  <span className="rounded-full bg-brand/10 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-brand">
+                    {upcomingPricingCount}
+                  </span>
+                ) : null}
               </TabsTrigger>
               <TabsTrigger value="repricing" className="h-9 px-3 text-xs sm:px-4 sm:text-sm">
                 <SlidersHorizontal />
@@ -1208,6 +1511,18 @@ export function GoalsPage() {
                   </div>
                 ) : null}
               </div>
+            </TabsContent>
+
+            <TabsContent
+              value="analysis"
+              forceMount
+              className="mt-0 data-[state=inactive]:hidden animate-fade-in"
+            >
+              <RepricingAnalysisPanel
+                data={query.data}
+                amountsHidden={amountsHidden}
+                onOpenBulkPricing={() => setWorkspaceTab("repricing")}
+              />
             </TabsContent>
 
             <TabsContent

@@ -132,9 +132,32 @@ type PricingCandidate struct {
 	PaidPeriodCount        int    `json:"paid_period_count"`
 	RelationshipDays       int    `json:"relationship_days"`
 	LastPriceIncreaseDate  string `json:"last_price_increase_date"`
+	BlockedCode            string `json:"blocked_code"`
+	NextReviewDate         string `json:"next_review_date"`
+	SuggestedMonthlyUplift int64  `json:"suggested_monthly_uplift_cents"`
+	ScheduledMonthlyUplift int64  `json:"scheduled_monthly_uplift_cents"`
 	Recommended            bool   `json:"recommended"`
 	Eligible               bool   `json:"eligible"`
 	BlockedReason          string `json:"blocked_reason"`
+}
+
+type RepricingWindow struct {
+	Key                string `json:"key"`
+	Count              int    `json:"count"`
+	MonthlyUpliftCents int64  `json:"monthly_uplift_cents"`
+}
+
+type RepricingAnalysis struct {
+	TotalCount                  int               `json:"total_count"`
+	EligibleCount               int               `json:"eligible_count"`
+	RecommendedCount            int               `json:"recommended_count"`
+	ScheduledCount              int               `json:"scheduled_count"`
+	ProtectedCount              int               `json:"protected_count"`
+	BelowMarketCount            int               `json:"below_market_count"`
+	EstimatedMonthlyUpliftCents int64             `json:"estimated_monthly_uplift_cents"`
+	PipelineMonthlyUpliftCents  int64             `json:"pipeline_monthly_uplift_cents"`
+	ScheduledMonthlyUpliftCents int64             `json:"scheduled_monthly_uplift_cents"`
+	Windows                     []RepricingWindow `json:"windows"`
 }
 
 type BulkNextPriceInput struct {
@@ -150,6 +173,7 @@ type GoalCenter struct {
 	Market     MarketPriceView       `json:"market"`
 	Pricing    PricingRecommendation `json:"pricing"`
 	Candidates []PricingCandidate    `json:"pricing_candidates"`
+	Repricing  RepricingAnalysis     `json:"repricing_analysis"`
 }
 
 func (service *SubscriptionService) CreateBusinessGoal(input BusinessGoalInput) (int64, error) {
@@ -271,6 +295,7 @@ func (service *SubscriptionService) GetGoalCenter() (GoalCenter, error) {
 	if err != nil {
 		return GoalCenter{}, err
 	}
+	center.Repricing = buildRepricingAnalysis(center.Candidates, service.now())
 	return center, nil
 }
 
@@ -313,7 +338,13 @@ func (service *SubscriptionService) buildProfitTrend(monthCount int) ([]ProfitMo
 		return nil, err
 	}
 	for _, bill := range bills {
-		key := bill.PaidAt.In(cycle.Location).Format("2006-01")
+		// Profit trend is an accounting-period view. Historical bills are often
+		// imported later, so using paid_at would move July revenue into the import
+		// month and rewrite history. due_date remains the stable period identity.
+		key := monthFromDate(bill.DueDate)
+		if key == "" {
+			key = bill.PaidAt.In(cycle.Location).Format("2006-01")
+		}
 		if index, exists := monthIndex[key]; exists {
 			months[index].RevenueCents += bill.AmountCents
 			months[index].CostCents += bill.CostCents
@@ -759,7 +790,7 @@ func (service *SubscriptionService) buildPricingCandidates(
 		return nil, err
 	}
 	frozenSubscriptions := make(map[int64]struct{})
-	recentAfterSalesSubscriptions := make(map[int64]struct{})
+	afterSalesRecoveryEnds := make(map[int64]time.Time)
 	for _, caseItem := range afterSalesCases {
 		if caseItem.Status == model.AfterSalesStatusPending || caseItem.Status == model.AfterSalesStatusReview {
 			frozenSubscriptions[caseItem.SubscriptionID] = struct{}{}
@@ -769,8 +800,12 @@ func (service *SubscriptionService) buildPricingCandidates(
 		if caseItem.ProcessedAt != nil {
 			resolvedAt = *caseItem.ProcessedAt
 		}
-		if !resolvedAt.IsZero() && service.now().Sub(resolvedAt.In(cycle.Location)) < repricingAfterSalesRecoveryDays*24*time.Hour {
-			recentAfterSalesSubscriptions[caseItem.SubscriptionID] = struct{}{}
+		if !resolvedAt.IsZero() {
+			recoveryEndsAt := cycle.StartOfDay(resolvedAt.In(cycle.Location)).AddDate(0, 0, repricingAfterSalesRecoveryDays)
+			if cycle.StartOfDay(service.now()).Before(recoveryEndsAt) &&
+				recoveryEndsAt.After(afterSalesRecoveryEnds[caseItem.SubscriptionID]) {
+				afterSalesRecoveryEnds[caseItem.SubscriptionID] = recoveryEndsAt
+			}
 		}
 	}
 	bills, err := service.Store.ListBills()
@@ -799,6 +834,7 @@ func (service *SubscriptionService) buildPricingCandidates(
 			NextPriceCents:         subscription.NextPriceCents,
 			NextPriceEffectiveDate: subscription.NextPriceEffectiveDueDate,
 			Eligible:               true,
+			BlockedCode:            "eligible",
 			MarketPosition:         "unavailable",
 			MaxIncreasePriceCents:  maximumGradualPriceCents(subscription.PricePerPersonCents),
 		}
@@ -806,46 +842,64 @@ func (service *SubscriptionService) buildPricingCandidates(
 		candidate.PaidPeriodCount = history.PaidPeriodCount
 		candidate.LastPriceIncreaseDate = history.LastIncreaseDate
 		candidate.RelationshipDays = subscriptionRelationshipDays(subscription, service.now())
-		block := func(reason string) {
+		block := func(code string, reason string, nextReviewDate string) {
 			if candidate.Eligible {
 				candidate.Eligible = false
+				candidate.BlockedCode = code
 				candidate.BlockedReason = reason
+				candidate.NextReviewDate = nextReviewDate
 			}
 		}
 		if _, active := activeAccountIDs[subscription.AccountID]; !active {
-			block("所属 Team 账号已封禁")
+			block("account_banned", "所属 Team 账号已封禁", "")
 		}
 		if _, frozen := frozenSubscriptions[subscription.ID]; frozen {
-			block("正在等待售后处理")
+			block("after_sales", "正在等待售后处理", "")
 		}
-		if _, recovering := recentAfterSalesSubscriptions[subscription.ID]; recovering {
-			block("售后恢复期：处理完成后至少保持 30 天再评估调价")
+		if recoveryEndsAt, recovering := afterSalesRecoveryEnds[subscription.ID]; recovering {
+			block(
+				"after_sales_recovery",
+				"售后恢复期：处理完成后至少保持 30 天再评估调价",
+				cycle.FormatDate(recoveryEndsAt),
+			)
 		}
 		view, viewErr := service.buildView(subscription, service.now(), "")
 		if viewErr != nil {
-			block("计费周期无效，无法确定下次续费日")
+			block("invalid_schedule", "计费周期无效，无法确定下次续费日", "")
 		} else {
 			candidate.NextDueDate = view.NextDueDate
 		}
 		if subscription.NextPriceCents != nil {
-			block("已有调价安排，请先取消原安排后再重新评估")
+			block(
+				"scheduled",
+				"已有调价安排，请先取消原安排后再重新评估",
+				subscription.NextPriceEffectiveDueDate,
+			)
 		}
 		if history.PaidPeriodCount < minimumRepricingPaidPeriods ||
 			candidate.RelationshipDays < minimumRepricingRelationshipDays {
-			block(fmt.Sprintf(
-				"新用户保护期：至少保持 %d 天并完成 %d 个付费周期（当前 %d 天 / %d 期）",
-				minimumRepricingRelationshipDays,
-				minimumRepricingPaidPeriods,
-				candidate.RelationshipDays,
-				history.PaidPeriodCount,
-			))
+			block(
+				"protection",
+				fmt.Sprintf(
+					"新用户保护期：至少保持 %d 天并完成 %d 个付费周期（当前 %d 天 / %d 期）",
+					minimumRepricingRelationshipDays,
+					minimumRepricingPaidPeriods,
+					candidate.RelationshipDays,
+					history.PaidPeriodCount,
+				),
+				earliestProtectionReviewDate(subscription, history.PaidPeriodCount, service.now()),
+			)
 		}
 		if history.LastIncreaseDate != "" {
 			lastIncreaseAt, parseErr := time.ParseInLocation("2006-01-02", history.LastIncreaseDate, cycle.Location)
 			if parseErr == nil {
 				cooldownEndsAt := lastIncreaseAt.AddDate(0, 0, repricingCooldownDays)
 				if cycle.StartOfDay(service.now()).Before(cooldownEndsAt) {
-					block("调价冷静期：上次涨价后至少保持 6 个月再评估")
+					block(
+						"cooldown",
+						"调价冷静期：上次涨价后至少保持 6 个月再评估",
+						cycle.FormatDate(cooldownEndsAt),
+					)
 				}
 			}
 		}
@@ -871,6 +925,17 @@ func (service *SubscriptionService) buildPricingCandidates(
 				subscription.NextPriceCents == nil &&
 				subscription.PricePerPersonCents < snapshot.LowPriceCents &&
 				candidate.SuggestedPriceCents > subscription.PricePerPersonCents
+		}
+		factorNumerator, factorDenominator := monthlyCycleFactor(subscription, service.now())
+		if factorDenominator > 0 {
+			if candidate.SuggestedPriceCents > subscription.PricePerPersonCents {
+				candidate.SuggestedMonthlyUplift =
+					(candidate.SuggestedPriceCents - subscription.PricePerPersonCents) * factorNumerator / factorDenominator
+			}
+			if subscription.NextPriceCents != nil && *subscription.NextPriceCents > subscription.PricePerPersonCents {
+				candidate.ScheduledMonthlyUplift =
+					(*subscription.NextPriceCents - subscription.PricePerPersonCents) * factorNumerator / factorDenominator
+			}
 		}
 		candidates = append(candidates, candidate)
 	}
@@ -925,6 +990,101 @@ func subscriptionRelationshipDays(subscription model.Subscription, now time.Time
 	}
 	days := int(cycle.StartOfDay(now).Sub(cycle.StartOfDay(startedAt)).Hours() / 24)
 	return maxInt(days, 0)
+}
+
+func earliestProtectionReviewDate(
+	subscription model.Subscription,
+	paidPeriodCount int,
+	now time.Time,
+) string {
+	startedAt, err := time.ParseInLocation(
+		"2006-01-02",
+		strings.TrimSpace(subscription.BoardedAt),
+		cycle.Location,
+	)
+	if err != nil {
+		if subscription.CreatedAt.IsZero() {
+			return ""
+		}
+		startedAt = subscription.CreatedAt.In(cycle.Location)
+	}
+	reviewAt := cycle.StartOfDay(startedAt).AddDate(0, 0, minimumRepricingRelationshipDays)
+	remainingPeriods := minimumRepricingPaidPeriods - paidPeriodCount
+	if remainingPeriods > 0 {
+		schedule, parseErr := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+		if parseErr != nil {
+			return ""
+		}
+		dueDates := schedule.NextDueTimes(cycle.StartOfDay(now), remainingPeriods)
+		if len(dueDates) < remainingPeriods {
+			return ""
+		}
+		paymentReviewAt := cycle.StartOfDay(dueDates[len(dueDates)-1])
+		if paymentReviewAt.After(reviewAt) {
+			reviewAt = paymentReviewAt
+		}
+	}
+	return cycle.FormatDate(reviewAt)
+}
+
+func buildRepricingAnalysis(candidates []PricingCandidate, now time.Time) RepricingAnalysis {
+	windowOrder := []string{"ready", "next_30", "next_60", "later", "on_hold"}
+	windowIndexes := make(map[string]int, len(windowOrder))
+	analysis := RepricingAnalysis{}
+	for _, key := range windowOrder {
+		windowIndexes[key] = len(analysis.Windows)
+		analysis.Windows = append(analysis.Windows, RepricingWindow{Key: key})
+	}
+	today := cycle.StartOfDay(now)
+	for _, candidate := range candidates {
+		analysis.TotalCount++
+		if candidate.Eligible {
+			analysis.EligibleCount++
+		}
+		if candidate.MarketPosition == "below_low" || candidate.MarketPosition == "below_median" {
+			analysis.BelowMarketCount++
+		}
+		if candidate.BlockedCode == "protection" ||
+			candidate.BlockedCode == "cooldown" ||
+			candidate.BlockedCode == "after_sales_recovery" {
+			analysis.ProtectedCount++
+		}
+		if candidate.NextPriceCents != nil {
+			analysis.ScheduledCount++
+			analysis.ScheduledMonthlyUpliftCents += candidate.ScheduledMonthlyUplift
+			continue
+		}
+		if candidate.Recommended {
+			analysis.RecommendedCount++
+			analysis.EstimatedMonthlyUpliftCents += candidate.SuggestedMonthlyUplift
+			analysis.PipelineMonthlyUpliftCents += candidate.SuggestedMonthlyUplift
+			readyWindow := &analysis.Windows[windowIndexes["ready"]]
+			readyWindow.Count++
+			readyWindow.MonthlyUpliftCents += candidate.SuggestedMonthlyUplift
+			continue
+		}
+		underpriced := candidate.MarketPosition == "below_low" || candidate.MarketPosition == "below_median"
+		if !underpriced || candidate.SuggestedMonthlyUplift <= 0 || candidate.Eligible {
+			continue
+		}
+		windowKey := "on_hold"
+		if reviewAt, err := time.ParseInLocation("2006-01-02", candidate.NextReviewDate, cycle.Location); err == nil {
+			daysUntilReview := int(math.Ceil(cycle.StartOfDay(reviewAt).Sub(today).Hours() / 24))
+			switch {
+			case daysUntilReview <= 30:
+				windowKey = "next_30"
+			case daysUntilReview <= 60:
+				windowKey = "next_60"
+			default:
+				windowKey = "later"
+			}
+			analysis.PipelineMonthlyUpliftCents += candidate.SuggestedMonthlyUplift
+		}
+		window := &analysis.Windows[windowIndexes[windowKey]]
+		window.Count++
+		window.MonthlyUpliftCents += candidate.SuggestedMonthlyUplift
+	}
+	return analysis
 }
 
 func attractiveRenewalPriceCents(marketMedianCents int64) int64 {

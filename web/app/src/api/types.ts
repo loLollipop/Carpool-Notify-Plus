@@ -662,9 +662,40 @@ export interface PricingCandidate {
   paid_period_count: number
   relationship_days: number
   last_price_increase_date: string
+  blocked_code:
+    | "eligible"
+    | "account_banned"
+    | "after_sales"
+    | "after_sales_recovery"
+    | "invalid_schedule"
+    | "scheduled"
+    | "protection"
+    | "cooldown"
+  next_review_date: string
+  suggested_monthly_uplift_cents: number
+  scheduled_monthly_uplift_cents: number
   recommended: boolean
   eligible: boolean
   blocked_reason: string
+}
+
+export interface RepricingWindow {
+  key: "ready" | "next_30" | "next_60" | "later" | "on_hold"
+  count: number
+  monthly_uplift_cents: number
+}
+
+export interface RepricingAnalysis {
+  total_count: number
+  eligible_count: number
+  recommended_count: number
+  scheduled_count: number
+  protected_count: number
+  below_market_count: number
+  estimated_monthly_uplift_cents: number
+  pipeline_monthly_uplift_cents: number
+  scheduled_monthly_uplift_cents: number
+  windows: RepricingWindow[] | null
 }
 
 export interface GoalCenter {
@@ -675,6 +706,7 @@ export interface GoalCenter {
   market: MarketPriceView
   pricing: PricingRecommendation
   pricing_candidates: PricingCandidate[] | null
+  repricing_analysis: RepricingAnalysis
 }
 
 export interface BusinessGoalInput {

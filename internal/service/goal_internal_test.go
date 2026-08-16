@@ -36,6 +36,41 @@ func openGoalTestService(t *testing.T) *SubscriptionService {
 	}
 }
 
+func TestProfitTrendUsesBillingPeriodInsteadOfImportMonth(t *testing.T) {
+	service := openGoalTestService(t)
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "Imported July Plus rental",
+		BusinessType:        model.SubscriptionBusinessPlus,
+		PricePerPersonCents: 4200,
+		CostCents:           1000,
+		CronExpr:            "interval:30d",
+		CustomerEmail:       "july-plus@example.com",
+		BoardedAt:           "2026-07-15",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// SetDuePaid records paid_at at import time. The trend must still place the
+	// bill in its July accounting period via due_date.
+	if err := service.Store.SetDuePaid(subscriptionID, "2026-07-15", true, 4200, 1000); err != nil {
+		t.Fatal(err)
+	}
+	trend, err := service.buildProfitTrend(6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byMonth := make(map[string]ProfitMonth, len(trend))
+	for _, month := range trend {
+		byMonth[month.Month] = month
+	}
+	if july := byMonth["2026-07"]; july.RevenueCents != 4200 || july.CostCents != 1000 || july.ProfitCents != 3200 {
+		t.Fatalf("July trend = %#v, want revenue=4200 cost=1000 profit=3200", july)
+	}
+	if august := byMonth["2026-08"]; august.RevenueCents != 0 {
+		t.Fatalf("import month incorrectly received July revenue: %#v", august)
+	}
+}
+
 func TestBusinessGoalProgressIncludesExistingProfitAcrossTeamPlusAndRefunds(t *testing.T) {
 	service := openGoalTestService(t)
 	accountID, err := service.CreateAccount(CreateAccountInput{
@@ -246,6 +281,12 @@ func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) 
 	if center.Candidates[1].MarketPosition != "below_low" || !center.Candidates[1].Recommended {
 		t.Fatalf("second candidate = %#v", center.Candidates[1])
 	}
+	if center.Repricing.RecommendedCount != 2 || center.Repricing.EligibleCount != 2 ||
+		center.Repricing.BelowMarketCount != 2 || center.Repricing.EstimatedMonthlyUpliftCents != 1476 ||
+		len(center.Repricing.Windows) != 5 || center.Repricing.Windows[0].Key != "ready" ||
+		center.Repricing.Windows[0].Count != 2 {
+		t.Fatalf("repricing analysis = %#v", center.Repricing)
+	}
 	if _, err := service.ScheduleBulkNextPrice(BulkNextPriceInput{
 		SubscriptionIDs: teamIDs,
 		NextPriceYuan:   "110.00",
@@ -390,6 +431,7 @@ func TestPricingCandidatesProtectNewCustomers(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(candidates) != 1 || candidates[0].Eligible || candidates[0].Recommended ||
+		candidates[0].BlockedCode != "protection" || candidates[0].NextReviewDate != "2026-09-30" ||
 		!strings.Contains(candidates[0].BlockedReason, "新用户保护期") {
 		t.Fatalf("new-customer candidate = %#v", candidates)
 	}
@@ -445,6 +487,7 @@ func TestPricingCandidatesRespectSixMonthCooldown(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(candidates) != 1 || candidates[0].Eligible || candidates[0].LastPriceIncreaseDate != "2026-07-16" ||
+		candidates[0].BlockedCode != "cooldown" || candidates[0].NextReviewDate != "2027-01-12" ||
 		!strings.Contains(candidates[0].BlockedReason, "6 个月") {
 		t.Fatalf("cooldown candidate = %#v", candidates)
 	}
