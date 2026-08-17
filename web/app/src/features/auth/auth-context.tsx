@@ -3,16 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 
 import { setUnauthorizedHandler } from "@/api/client"
 import { getSession, logout as apiLogout } from "@/api/endpoints"
-
-type AuthStatus = "loading" | "authenticated" | "unauthenticated"
-
-interface AuthContextValue {
-  status: AuthStatus
-  markAuthenticated: () => void
-  logout: () => Promise<void>
-}
-
-const AuthContext = React.createContext<AuthContextValue | null>(null)
+import { AuthContext, type AuthStatus } from "./auth-state"
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = React.useState<AuthStatus>("loading")
@@ -58,12 +49,4 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
-}
-
-export function useAuth() {
-  const context = React.useContext(AuthContext)
-  if (!context) {
-    throw new Error("useAuth must be used within AuthProvider")
-  }
-  return context
 }

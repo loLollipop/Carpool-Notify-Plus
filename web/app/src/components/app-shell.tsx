@@ -30,6 +30,7 @@ import { exitSandboxMode } from "@/lib/sandbox-mode"
 import { cn } from "@/lib/utils"
 import { APP_NAME, BrandIcon } from "@/components/brand"
 import { Button } from "@/components/ui/button"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -40,8 +41,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { useAuth } from "@/features/auth/auth-context"
+import { useAuth } from "@/features/auth/auth-state"
 import { useSandboxMode } from "@/hooks/use-sandbox-mode"
+import { preloadRoute } from "@/route-pages"
 
 const SIDEBAR_STORAGE_KEY = "carpool-notify:sidebar-collapsed"
 
@@ -222,6 +224,8 @@ export function AppShell() {
               to={item.to}
               end={item.end}
               aria-label={item.label}
+              onFocus={() => preloadRoute(item.to)}
+              onPointerEnter={() => preloadRoute(item.to)}
               onClick={() => setOpenNavTooltip(null)}
               className={({ isActive }) =>
                 cn(
@@ -360,6 +364,8 @@ export function AppShell() {
                         <NavLink
                           to={item.to}
                           end={item.end}
+                          onFocus={() => preloadRoute(item.to)}
+                          onPointerEnter={() => preloadRoute(item.to)}
                           className={({ isActive }) =>
                             cn(
                               "flex w-full items-center gap-3 rounded-sm px-3 py-2.5",
@@ -422,7 +428,9 @@ export function AppShell() {
         ) : null}
 
         <main className="mx-auto w-full max-w-[1600px] px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-6">
-          <Outlet />
+          <React.Suspense fallback={<Skeleton className="h-96 rounded-xl" />}>
+            <Outlet />
+          </React.Suspense>
         </main>
       </div>
     </div>

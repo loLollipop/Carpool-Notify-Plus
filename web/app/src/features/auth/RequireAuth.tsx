@@ -1,7 +1,7 @@
 import { Navigate, useLocation } from "react-router-dom"
 
 import { APP_NAME, BrandIcon } from "@/components/brand"
-import { useAuth } from "./auth-context"
+import { useAuth } from "./auth-state"
 
 function BootSplash() {
   return (

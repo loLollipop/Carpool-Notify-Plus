@@ -18,10 +18,10 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import {
-  SeatSubscriptionDialog,
   seatInfoFromOccurrence,
   type SeatSubscriptionInfo,
-} from "./SeatSubscriptionDialog"
+} from "./seat-subscription-info"
+import { SeatSubscriptionDialog } from "./SeatSubscriptionDialog"
 
 // ---- Month grid -------------------------------------------------------------------
 

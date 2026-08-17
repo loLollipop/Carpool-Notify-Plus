@@ -3,7 +3,7 @@ import { CheckCircle2, Clock3 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
-export function dueMetaLabel(t: (key: string, options?: Record<string, unknown>) => string, days: number) {
+function dueMetaLabel(t: (key: string, options?: Record<string, unknown>) => string, days: number) {
   if (days === 0) return t("dueStatus.today")
   if (days < 0) return t("dueStatus.overdueDays", { count: -days })
   return t("dueStatus.days", { count: days })

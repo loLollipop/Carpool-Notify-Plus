@@ -16,7 +16,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { useAuth } from "./auth-context"
+import { useAuth } from "./auth-state"
 
 export function LoginPage() {
   const { t } = useTranslation()
