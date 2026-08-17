@@ -380,6 +380,10 @@ func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) 
 	if center.Candidates[1].MarketPosition != "below_low" || !center.Candidates[1].Recommended {
 		t.Fatalf("second candidate = %#v", center.Candidates[1])
 	}
+	if center.Candidates[0].CustomerTier != "repair" || center.Candidates[1].CustomerTier != "premium" ||
+		center.Candidates[0].MonthlyRevenueCents <= 0 || center.Candidates[1].MonthlyRevenueCents <= 0 {
+		t.Fatalf("goal-center customer tiers = %#v", center.Candidates)
+	}
 	if center.Repricing.RecommendedCount != 2 || center.Repricing.EligibleCount != 2 ||
 		center.Repricing.BelowMarketCount != 2 || center.Repricing.EstimatedMonthlyUpliftCents != 1476 ||
 		len(center.Repricing.Windows) != 5 || center.Repricing.Windows[0].Key != "ready" ||
@@ -711,6 +715,87 @@ func TestRepricingAnalysisDoesNotCountBelowMedianProtectedUserAsFutureAction(t *
 	if analysis.BelowMarketCount != 1 || analysis.PipelineMonthlyUpliftCents != 0 ||
 		analysis.Windows[1].Count != 0 || analysis.Windows[2].Count != 0 {
 		t.Fatalf("below-median protected analysis = %#v", analysis)
+	}
+}
+
+func TestAssignCustomerTiersUsesInterpolatedInternalPriceBands(t *testing.T) {
+	nextPriceCents := int64(9500)
+	candidates := []PricingCandidate{
+		{CurrentPriceCents: 8000, MonthlyRevenueCents: 8000, Recommended: true},
+		{CurrentPriceCents: 9000, MonthlyRevenueCents: 9000, NextPriceCents: &nextPriceCents},
+		{CurrentPriceCents: 10000, MonthlyRevenueCents: 10000},
+		{CurrentPriceCents: 11000, MonthlyRevenueCents: 11000},
+	}
+
+	assignCustomerTiers(candidates)
+	wantTiers := []string{"repair", "nurture", "stable", "premium"}
+	for index, want := range wantTiers {
+		if candidates[index].CustomerTier != want {
+			t.Fatalf("candidate %d tier = %q, want %q", index, candidates[index].CustomerTier, want)
+		}
+	}
+
+	analysis := buildRepricingAnalysis(candidates, time.Date(2026, time.August, 17, 12, 0, 0, 0, cycle.Location))
+	if len(analysis.CustomerTiers) != 4 {
+		t.Fatalf("customer tiers = %#v", analysis.CustomerTiers)
+	}
+	wants := []struct {
+		key              string
+		monthlyRevenue   int64
+		revenueShare     int
+		averagePrice     int64
+		recommendedCount int
+		scheduledCount   int
+	}{
+		{key: "premium", monthlyRevenue: 11000, revenueShare: 29, averagePrice: 11000},
+		{key: "stable", monthlyRevenue: 10000, revenueShare: 26, averagePrice: 10000},
+		{key: "nurture", monthlyRevenue: 9000, revenueShare: 24, averagePrice: 9000, scheduledCount: 1},
+		{key: "repair", monthlyRevenue: 8000, revenueShare: 21, averagePrice: 8000, recommendedCount: 1},
+	}
+	for index, want := range wants {
+		got := analysis.CustomerTiers[index]
+		if got.Key != want.key || got.Count != 1 || got.MonthlyRevenueCents != want.monthlyRevenue ||
+			got.RevenueSharePercent != want.revenueShare || got.AveragePriceCents != want.averagePrice ||
+			got.LowestPriceCents != want.averagePrice || got.HighestPriceCents != want.averagePrice ||
+			got.RecommendedCount != want.recommendedCount || got.ScheduledCount != want.scheduledCount {
+			t.Fatalf("customer tier %d = %#v, want %#v", index, got, want)
+		}
+	}
+}
+
+func TestAssignCustomerTiersKeepsUniformPricesStable(t *testing.T) {
+	candidates := []PricingCandidate{
+		{CurrentPriceCents: 10000},
+		{CurrentPriceCents: 10000},
+		{CurrentPriceCents: 10000},
+	}
+	assignCustomerTiers(candidates)
+	for index, candidate := range candidates {
+		if candidate.CustomerTier != "stable" {
+			t.Fatalf("candidate %d tier = %q, want stable", index, candidate.CustomerTier)
+		}
+	}
+}
+
+func TestCustomerTierRevenueSharesAlwaysTotalOneHundred(t *testing.T) {
+	analysis := buildRepricingAnalysis([]PricingCandidate{
+		{CustomerTier: "stable", CurrentPriceCents: 1, MonthlyRevenueCents: 1},
+		{CustomerTier: "nurture", CurrentPriceCents: 1, MonthlyRevenueCents: 1},
+		{CustomerTier: "repair", CurrentPriceCents: 1, MonthlyRevenueCents: 1},
+	}, time.Date(2026, time.August, 17, 12, 0, 0, 0, cycle.Location))
+
+	total := 0
+	for _, tier := range analysis.CustomerTiers {
+		total += tier.RevenueSharePercent
+	}
+	if total != 100 {
+		t.Fatalf("customer tier revenue shares total = %d, want 100: %#v", total, analysis.CustomerTiers)
+	}
+	if analysis.CustomerTiers[0].RevenueSharePercent != 0 ||
+		analysis.CustomerTiers[1].RevenueSharePercent != 34 ||
+		analysis.CustomerTiers[2].RevenueSharePercent != 33 ||
+		analysis.CustomerTiers[3].RevenueSharePercent != 33 {
+		t.Fatalf("largest-remainder allocation = %#v", analysis.CustomerTiers)
 	}
 }
 

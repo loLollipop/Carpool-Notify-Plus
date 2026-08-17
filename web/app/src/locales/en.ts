@@ -171,6 +171,38 @@ export default {
         protectedUsersHint: "Maintain trust before discussing a price change",
         nextBatch: "Next candidates",
         nextBatchMetricHint: "Materially underpriced users who pass every safeguard",
+        customerTier: {
+          title: "Customer value tiers",
+          hint: "Dynamically groups customers by where their current renewal price sits in the internal distribution. Click a tier to filter the profiles below.",
+          showAll: "Show all tiers",
+          chartTitle: "Price contribution ladder",
+          chartHint: "Compare each tier's revenue contribution and average renewal price",
+          chartRevenue: "Monthly revenue share",
+          chartPrice: "Average renewal",
+          empty: "No customer segmentation data is available",
+          revenueShare: "Monthly revenue share",
+          averagePrice: "Average renewal",
+          priceRange: "Actual range {{value}}",
+          recommended: "{{count}} suggested",
+          scheduled: "{{count}} scheduled",
+          footnote: "A value tier describes current price contribution; it never justifies lower service quality. Repricing must still pass relationship, after-sales, notice-period, and increase-cap safeguards.",
+          premium: {
+            label: "Premium",
+            strategy: "Prioritize retention and proactive care. Resolve service issues quickly and avoid frequent changes without clear cost pressure.",
+          },
+          stable: {
+            label: "Stable",
+            strategy: "Maintain regular service and renewal follow-up. Consider only small, infrequent changes after maturity and market movement.",
+          },
+          nurture: {
+            label: "Nurture",
+            strategy: "Build a renewal habit through reliable service first; review price after 60 days and three valid paid periods.",
+          },
+          repair: {
+            label: "Price repair",
+            strategy: "Move toward a sustainable next-cycle price. Renew if accepted; otherwise release the seat and recruit at the new-sale price.",
+          },
+        },
         relationshipTitle: "Customer relationship stage",
         relationshipHint: "Segmented by tenure and valid paid periods together",
         relationship: {

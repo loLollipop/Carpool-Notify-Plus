@@ -678,6 +678,8 @@ export interface PricingCandidate {
   next_review_date: string
   suggested_monthly_uplift_cents: number
   scheduled_monthly_uplift_cents: number
+  monthly_revenue_cents: number
+  customer_tier: "premium" | "stable" | "nurture" | "repair"
   relationship_stage: "new" | "developing" | "established" | "loyal"
   adjustment_risk: "low" | "medium" | "high"
   readiness_score: number
@@ -700,6 +702,18 @@ export interface RepricingSegment {
   count: number
 }
 
+export interface CustomerTierSummary {
+  key: "premium" | "stable" | "nurture" | "repair"
+  count: number
+  monthly_revenue_cents: number
+  revenue_share_percent: number
+  average_price_cents: number
+  lowest_price_cents: number
+  highest_price_cents: number
+  recommended_count: number
+  scheduled_count: number
+}
+
 export interface RepricingAnalysis {
   total_count: number
   eligible_count: number
@@ -716,6 +730,7 @@ export interface RepricingAnalysis {
   relationship_segments: RepricingSegment[] | null
   risk_segments: RepricingSegment[] | null
   price_segments: RepricingSegment[] | null
+  customer_tiers: CustomerTierSummary[] | null
 }
 
 export interface GoalCenter {

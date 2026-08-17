@@ -171,6 +171,38 @@ export default {
         protectedUsersHint: "暂不建议涨价，优先维护信任",
         nextBatch: "下一批候选",
         nextBatchMetricHint: "价格明显偏低且已通过保护规则",
+        customerTier: {
+          title: "客户价值梯队",
+          hint: "按当前续费价在内部价格分布中的位置动态分层，用不同方式经营高价、稳定、培育和价格修复客户。点击梯队可筛选下方用户。",
+          showAll: "查看全部梯队",
+          chartTitle: "价格贡献阶梯",
+          chartHint: "同时观察每档客户的收入贡献和平均续费价",
+          chartRevenue: "月收入占比",
+          chartPrice: "平均续费价",
+          empty: "暂无可用于客户分层的数据",
+          revenueShare: "月收入占比",
+          averagePrice: "平均续费价",
+          priceRange: "实际价位 {{value}}",
+          recommended: "{{count}} 位建议调价",
+          scheduled: "{{count}} 位已安排",
+          footnote: "价值梯队描述当前价格贡献，不代表服务优先级可以降低。调价仍须同时通过关系成熟度、售后状态、提前通知和单次涨幅等风控规则。",
+          premium: {
+            label: "优质客户",
+            strategy: "优先留存并主动关怀，服务问题快速处理；没有明显成本压力时避免频繁调价。",
+          },
+          stable: {
+            label: "稳定客户",
+            strategy: "保持常规维护与续费跟进；关系成熟且行情上行时，再做小幅、低频调整。",
+          },
+          nurture: {
+            label: "培育客户",
+            strategy: "先用稳定服务培养续费习惯；满 60 天并完成 3 个有效缴费期后再评估价格。",
+          },
+          repair: {
+            label: "价格修复",
+            strategy: "进入下周期价格修复；接受新价格则续费，不接受则释放席位并按新单价招募。",
+          },
+        },
         relationshipTitle: "用户关系阶段",
         relationshipHint: "按订阅天数与有效缴费期数共同分层",
         relationship: {

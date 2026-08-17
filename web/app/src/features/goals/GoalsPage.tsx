@@ -43,6 +43,7 @@ import { useGoals } from "@/api/queries"
 import type {
   BusinessGoal,
   BusinessGoalInput,
+  CustomerTierSummary,
   ForecastScenario,
   GoalCenter,
   PricingCandidate,
@@ -688,6 +689,29 @@ type SegmentChartDatum = {
   color: string
 }
 
+type CustomerTierKey = PricingCandidate["customer_tier"]
+
+const customerTierOrder: CustomerTierKey[] = ["premium", "stable", "nurture", "repair"]
+
+const customerTierVisuals = {
+  premium: {
+    color: "var(--brand)",
+    badge: "brand",
+  },
+  stable: {
+    color: "var(--success)",
+    badge: "success",
+  },
+  nurture: {
+    color: "var(--warning)",
+    badge: "warning",
+  },
+  repair: {
+    color: "var(--destructive)",
+    badge: "destructive",
+  },
+} as const
+
 function segmentTotal(data: SegmentChartDatum[]) {
   return data.reduce((total, item) => total + item.count, 0)
 }
@@ -708,6 +732,245 @@ function SegmentCardHeader({ title, hint }: { title: string; hint: string }) {
       <h2 className="text-sm font-semibold">{title}</h2>
       <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{hint}</p>
     </div>
+  )
+}
+
+function CustomerTierPanel({
+  tiers,
+  amountsHidden,
+  activeTier,
+  onTierChange,
+}: {
+  tiers: CustomerTierSummary[]
+  amountsHidden: boolean
+  activeTier: CustomerTierKey | "all"
+  onTierChange: (tier: CustomerTierKey | "all") => void
+}) {
+  const { t } = useTranslation()
+  const tierMap = new Map(tiers.map((tier) => [tier.key, tier]))
+  const orderedTiers = customerTierOrder.map(
+    (key) =>
+      tierMap.get(key) ?? {
+        key,
+        count: 0,
+        monthly_revenue_cents: 0,
+        revenue_share_percent: 0,
+        average_price_cents: 0,
+        lowest_price_cents: 0,
+        highest_price_cents: 0,
+        recommended_count: 0,
+        scheduled_count: 0,
+      },
+  )
+  const total = orderedTiers.reduce((sum, tier) => sum + tier.count, 0)
+  const chartData = [...orderedTiers].reverse().map((tier) => ({
+    ...tier,
+    label: t(`goals.repricing.customerTier.${tier.key}.label`),
+    revenueShare: tier.revenue_share_percent,
+    averagePrice: tier.count > 0 ? tier.average_price_cents : null,
+    color: customerTierVisuals[tier.key].color,
+  }))
+
+  return (
+    <Card className="gap-0 overflow-hidden p-0 shadow-card">
+      <div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold">{t("goals.repricing.customerTier.title")}</h2>
+          <p className="mt-1 max-w-3xl text-[11px] leading-4 text-muted-foreground">
+            {t("goals.repricing.customerTier.hint")}
+          </p>
+        </div>
+        {activeTier !== "all" ? (
+          <Button variant="ghost" size="sm" onClick={() => onTierChange("all")}>
+            {t("goals.repricing.customerTier.showAll")}
+          </Button>
+        ) : null}
+      </div>
+
+      <div className="grid xl:grid-cols-[minmax(0,1.08fr)_minmax(520px,0.92fr)]">
+        <div className="min-w-0 border-b p-4 xl:border-b-0 xl:border-r">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 className="text-xs font-semibold">
+                {t("goals.repricing.customerTier.chartTitle")}
+              </h3>
+              <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+                {t("goals.repricing.customerTier.chartHint")}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-3 text-[9px] font-medium text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <span className="size-2.5 rounded-sm bg-success" />
+                {t("goals.repricing.customerTier.chartRevenue")}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-0.5 w-4 rounded-full bg-brand" />
+                {t("goals.repricing.customerTier.chartPrice")}
+              </span>
+            </div>
+          </div>
+          {total > 0 ? (
+            <div className="mt-3 h-[238px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={chartData} margin={{ top: 12, right: 0, left: -8, bottom: 0 }}>
+                  <CartesianGrid
+                    stroke="var(--border)"
+                    strokeDasharray="3 5"
+                    vertical={false}
+                  />
+                  <XAxis
+                    dataKey="label"
+                    axisLine={false}
+                    tickLine={false}
+                    interval={0}
+                    tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                  />
+                  <YAxis
+                    yAxisId="share"
+                    axisLine={false}
+                    tickLine={false}
+                    width={38}
+                    tick={{ fill: "var(--muted-foreground)", fontSize: 9 }}
+                    tickFormatter={(value: number) => `${value}%`}
+                  />
+                  <YAxis
+                    yAxisId="price"
+                    orientation="right"
+                    axisLine={false}
+                    tickLine={false}
+                    width={48}
+                    tick={{ fill: "var(--muted-foreground)", fontSize: 9 }}
+                    tickFormatter={(value: number) =>
+                      amountsHidden ? "*" : `¥${Math.round(value / 100)}`
+                    }
+                  />
+                  <ChartTooltip
+                    cursor={{ fill: "color-mix(in oklab, var(--brand) 6%, transparent)" }}
+                    formatter={(value, name) =>
+                      name === "averagePrice"
+                        ? [
+                            visibleYuan(Number(value ?? 0), amountsHidden),
+                            t("goals.repricing.customerTier.averagePrice"),
+                          ]
+                        : [
+                            `${Number(value ?? 0)}%`,
+                            t("goals.repricing.customerTier.revenueShare"),
+                          ]
+                    }
+                    labelFormatter={(label) => String(label)}
+                    contentStyle={{
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                      background: "var(--popover)",
+                      color: "var(--popover-foreground)",
+                      fontSize: 11,
+                      boxShadow: "var(--shadow-card)",
+                    }}
+                  />
+                  <Bar
+                    yAxisId="share"
+                    dataKey="revenueShare"
+                    maxBarSize={42}
+                    radius={[8, 8, 3, 3]}
+                  >
+                    {chartData.map((tier) => (
+                      <Cell
+                        key={tier.key}
+                        fill={tier.color}
+                        fillOpacity={activeTier === "all" || activeTier === tier.key ? 0.92 : 0.2}
+                      />
+                    ))}
+                  </Bar>
+                  <Line
+                    yAxisId="price"
+                    type="monotone"
+                    dataKey="averagePrice"
+                    stroke="var(--brand)"
+                    strokeWidth={2.5}
+                    connectNulls={false}
+                    dot={{ r: 3, fill: "var(--card)", strokeWidth: 2.25 }}
+                    activeDot={{ r: 4.5, fill: "var(--card)", strokeWidth: 2.25 }}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="grid h-[238px] place-items-center text-center">
+              <p className="text-xs text-muted-foreground">
+                {t("goals.repricing.customerTier.empty")}
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="grid gap-2 bg-muted/15 p-3 sm:grid-cols-2">
+          {orderedTiers.map((tier) => {
+            const visual = customerTierVisuals[tier.key]
+            const isActive = activeTier === tier.key
+            const priceRange =
+              tier.count > 0
+                ? tier.lowest_price_cents === tier.highest_price_cents
+                  ? String(visibleYuan(tier.lowest_price_cents, amountsHidden))
+                  : `${visibleYuan(tier.lowest_price_cents, amountsHidden)} – ${visibleYuan(tier.highest_price_cents, amountsHidden)}`
+                : "-"
+            return (
+              <button
+                key={tier.key}
+                type="button"
+                className={cn(
+                  "min-w-0 rounded-lg border bg-card p-3 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-brand/35 hover:bg-card focus-visible:ring-2 focus-visible:ring-brand",
+                  isActive && "border-brand/45 bg-brand/[0.045] shadow-card",
+                )}
+                aria-pressed={isActive}
+                onClick={() => onTierChange(isActive ? "all" : tier.key)}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <Badge variant={visual.badge}>
+                    {t(`goals.repricing.customerTier.${tier.key}.label`)}
+                  </Badge>
+                  <span className="display-numeral text-[22px] leading-none">{tier.count}</span>
+                </div>
+                <div className="mt-3 flex items-end justify-between gap-3">
+                  <div>
+                    <p className="text-[9px] text-muted-foreground">
+                      {t("goals.repricing.customerTier.revenueShare")}
+                    </p>
+                    <p className="mt-0.5 text-sm font-semibold tabular-nums">
+                      {tier.revenue_share_percent}%
+                    </p>
+                  </div>
+                  <p className="truncate text-right text-[10px] font-medium tabular-nums" title={priceRange}>
+                    {priceRange}
+                  </p>
+                </div>
+                <p className="mt-2 min-h-12 text-[10px] leading-4 text-muted-foreground">
+                  {t(`goals.repricing.customerTier.${tier.key}.strategy`)}
+                </p>
+                <div className="mt-2 flex min-h-5 flex-wrap gap-1.5">
+                  {tier.recommended_count > 0 ? (
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[9px] font-medium text-muted-foreground">
+                      {t("goals.repricing.customerTier.recommended", {
+                        count: tier.recommended_count,
+                      })}
+                    </span>
+                  ) : null}
+                  {tier.scheduled_count > 0 ? (
+                    <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[9px] font-medium text-brand">
+                      {t("goals.repricing.customerTier.scheduled", {
+                        count: tier.scheduled_count,
+                      })}
+                    </span>
+                  ) : null}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div className="border-t bg-muted/20 px-5 py-2.5 text-[10px] leading-4 text-muted-foreground">
+        {t("goals.repricing.customerTier.footnote")}
+      </div>
+    </Card>
   )
 }
 
@@ -907,6 +1170,7 @@ function RepricingAnalysisPanel({
   const { t } = useTranslation()
   const analysis = data.repricing_analysis
   const candidates = React.useMemo(() => data.pricing_candidates ?? [], [data.pricing_candidates])
+  const [activeTier, setActiveTier] = React.useState<CustomerTierKey | "all">("all")
   if (!analysis) {
     return (
       <Card className="items-center justify-center py-16 text-center">
@@ -944,7 +1208,8 @@ function RepricingAnalysisPanel({
         "var(--muted-foreground)",
       ][index] ?? "var(--brand)",
   }))
-  const queue = [...candidates]
+  const queue = candidates
+    .filter((candidate) => activeTier === "all" || candidate.customer_tier === activeTier)
     .sort((left, right) => {
       if (left.recommended !== right.recommended) return left.recommended ? -1 : 1
       if (left.readiness_score !== right.readiness_score) {
@@ -987,6 +1252,13 @@ function RepricingAnalysisPanel({
         />
       </div>
 
+      <CustomerTierPanel
+        tiers={analysis.customer_tiers ?? []}
+        amountsHidden={amountsHidden}
+        activeTier={activeTier}
+        onTierChange={setActiveTier}
+      />
+
       <div className="grid items-stretch gap-4 lg:grid-cols-3">
         <RelationshipJourneyCard
           title={t("goals.repricing.relationshipTitle")}
@@ -1008,7 +1280,14 @@ function RepricingAnalysisPanel({
       <Card className="gap-0 overflow-hidden p-0 shadow-card">
         <div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-sm font-semibold">{t("goals.repricing.userAnalysisTitle")}</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-sm font-semibold">{t("goals.repricing.userAnalysisTitle")}</h2>
+              {activeTier !== "all" ? (
+                <Badge variant={customerTierVisuals[activeTier].badge}>
+                  {t(`goals.repricing.customerTier.${activeTier}.label`)}
+                </Badge>
+              ) : null}
+            </div>
             <p className="mt-1 text-xs text-muted-foreground">{t("goals.repricing.userAnalysisHint")}</p>
           </div>
           <Button variant="outline" size="sm" onClick={onOpenBulkPricing}>
@@ -1055,6 +1334,9 @@ function RepricingAnalysisPanel({
                       </Badge>
                       <Badge variant={riskVariant}>
                         {t(`goals.repricing.risk.${candidate.adjustment_risk}`)}
+                      </Badge>
+                      <Badge variant={customerTierVisuals[candidate.customer_tier].badge}>
+                        {t(`goals.repricing.customerTier.${candidate.customer_tier}.label`)}
                       </Badge>
                     </div>
                     <p className="mt-1.5 text-[11px] tabular-nums text-muted-foreground">

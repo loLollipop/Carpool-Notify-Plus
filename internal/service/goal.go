@@ -141,6 +141,8 @@ type PricingCandidate struct {
 	NextReviewDate         string   `json:"next_review_date"`
 	SuggestedMonthlyUplift int64    `json:"suggested_monthly_uplift_cents"`
 	ScheduledMonthlyUplift int64    `json:"scheduled_monthly_uplift_cents"`
+	MonthlyRevenueCents    int64    `json:"monthly_revenue_cents"`
+	CustomerTier           string   `json:"customer_tier"`
 	RelationshipStage      string   `json:"relationship_stage"`
 	AdjustmentRisk         string   `json:"adjustment_risk"`
 	ReadinessScore         int      `json:"readiness_score"`
@@ -163,22 +165,39 @@ type RepricingSegment struct {
 	Count int    `json:"count"`
 }
 
+// CustomerTierSummary groups Team customers by their current internal price.
+// It is intentionally separate from market position and repricing risk: the
+// tier describes customer value, while the existing safeguards decide whether
+// and when a price change is appropriate.
+type CustomerTierSummary struct {
+	Key                 string `json:"key"`
+	Count               int    `json:"count"`
+	MonthlyRevenueCents int64  `json:"monthly_revenue_cents"`
+	RevenueSharePercent int    `json:"revenue_share_percent"`
+	AveragePriceCents   int64  `json:"average_price_cents"`
+	LowestPriceCents    int64  `json:"lowest_price_cents"`
+	HighestPriceCents   int64  `json:"highest_price_cents"`
+	RecommendedCount    int    `json:"recommended_count"`
+	ScheduledCount      int    `json:"scheduled_count"`
+}
+
 type RepricingAnalysis struct {
-	TotalCount                  int                `json:"total_count"`
-	EligibleCount               int                `json:"eligible_count"`
-	RecommendedCount            int                `json:"recommended_count"`
-	ScheduledCount              int                `json:"scheduled_count"`
-	ProtectedCount              int                `json:"protected_count"`
-	BelowMarketCount            int                `json:"below_market_count"`
-	EstimatedMonthlyUpliftCents int64              `json:"estimated_monthly_uplift_cents"`
-	PipelineMonthlyUpliftCents  int64              `json:"pipeline_monthly_uplift_cents"`
-	ScheduledMonthlyUpliftCents int64              `json:"scheduled_monthly_uplift_cents"`
-	Windows                     []RepricingWindow  `json:"windows"`
-	AverageRelationshipDays     int                `json:"average_relationship_days"`
-	AveragePaidPeriods          float64            `json:"average_paid_periods"`
-	RelationshipSegments        []RepricingSegment `json:"relationship_segments"`
-	RiskSegments                []RepricingSegment `json:"risk_segments"`
-	PriceSegments               []RepricingSegment `json:"price_segments"`
+	TotalCount                  int                   `json:"total_count"`
+	EligibleCount               int                   `json:"eligible_count"`
+	RecommendedCount            int                   `json:"recommended_count"`
+	ScheduledCount              int                   `json:"scheduled_count"`
+	ProtectedCount              int                   `json:"protected_count"`
+	BelowMarketCount            int                   `json:"below_market_count"`
+	EstimatedMonthlyUpliftCents int64                 `json:"estimated_monthly_uplift_cents"`
+	PipelineMonthlyUpliftCents  int64                 `json:"pipeline_monthly_uplift_cents"`
+	ScheduledMonthlyUpliftCents int64                 `json:"scheduled_monthly_uplift_cents"`
+	Windows                     []RepricingWindow     `json:"windows"`
+	AverageRelationshipDays     int                   `json:"average_relationship_days"`
+	AveragePaidPeriods          float64               `json:"average_paid_periods"`
+	RelationshipSegments        []RepricingSegment    `json:"relationship_segments"`
+	RiskSegments                []RepricingSegment    `json:"risk_segments"`
+	PriceSegments               []RepricingSegment    `json:"price_segments"`
+	CustomerTiers               []CustomerTierSummary `json:"customer_tiers"`
 }
 
 type BulkNextPriceInput struct {
@@ -316,6 +335,7 @@ func (service *SubscriptionService) GetGoalCenter() (GoalCenter, error) {
 	if err != nil {
 		return GoalCenter{}, err
 	}
+	assignCustomerTiers(center.Candidates)
 	center.Repricing = buildRepricingAnalysis(center.Candidates, service.now())
 	return center, nil
 }
@@ -1007,7 +1027,10 @@ func (service *SubscriptionService) buildPricingCandidates(
 				candidate.SuggestedPriceCents > subscription.PricePerPersonCents
 		}
 		factorNumerator, factorDenominator := monthlyCycleFactor(subscription, service.now())
+		candidate.MonthlyRevenueCents = subscription.PricePerPersonCents
 		if factorDenominator > 0 {
+			candidate.MonthlyRevenueCents =
+				subscription.PricePerPersonCents * factorNumerator / factorDenominator
 			if candidate.SuggestedPriceCents > subscription.PricePerPersonCents {
 				candidate.SuggestedMonthlyUplift =
 					(candidate.SuggestedPriceCents - subscription.PricePerPersonCents) * factorNumerator / factorDenominator
@@ -1030,6 +1053,45 @@ func (service *SubscriptionService) buildPricingCandidates(
 		return candidates[left].SubscriptionID < candidates[right].SubscriptionID
 	})
 	return candidates, nil
+}
+
+// assignCustomerTiers uses the internal price distribution instead of fixed
+// currency thresholds, so the segmentation stays meaningful as the business
+// and market move. Equal-price datasets are kept in the stable tier rather
+// than inventing artificial high- and low-value customers.
+func assignCustomerTiers(candidates []PricingCandidate) {
+	if len(candidates) == 0 {
+		return
+	}
+	prices := make([]int64, len(candidates))
+	for index, candidate := range candidates {
+		prices[index] = candidate.CurrentPriceCents
+	}
+	sort.Slice(prices, func(left int, right int) bool {
+		return prices[left] < prices[right]
+	})
+	if prices[0] == prices[len(prices)-1] {
+		for index := range candidates {
+			candidates[index].CustomerTier = "stable"
+		}
+		return
+	}
+
+	lowerQuartile := percentileCents(prices, 0.25)
+	median := percentileCents(prices, 0.5)
+	upperQuartile := percentileCents(prices, 0.75)
+	for index := range candidates {
+		switch price := candidates[index].CurrentPriceCents; {
+		case price >= upperQuartile:
+			candidates[index].CustomerTier = "premium"
+		case price >= median:
+			candidates[index].CustomerTier = "stable"
+		case price > lowerQuartile:
+			candidates[index].CustomerTier = "nurture"
+		default:
+			candidates[index].CustomerTier = "repair"
+		}
+	}
 }
 
 func populateRepricingInsights(candidate *PricingCandidate) {
@@ -1221,10 +1283,22 @@ func buildRepricingAnalysis(candidates []PricingCandidate, now time.Time) Repric
 			{Key: "above_high"},
 			{Key: "unavailable"},
 		},
+		CustomerTiers: []CustomerTierSummary{
+			{Key: "premium"},
+			{Key: "stable"},
+			{Key: "nurture"},
+			{Key: "repair"},
+		},
 	}
 	relationshipIndexes := segmentIndexes(analysis.RelationshipSegments)
 	riskIndexes := segmentIndexes(analysis.RiskSegments)
 	priceIndexes := segmentIndexes(analysis.PriceSegments)
+	tierIndexes := make(map[string]int, len(analysis.CustomerTiers))
+	for index, tier := range analysis.CustomerTiers {
+		tierIndexes[tier.Key] = index
+	}
+	tierPriceTotals := make([]int64, len(analysis.CustomerTiers))
+	var totalMonthlyRevenueCents int64
 	for _, key := range windowOrder {
 		windowIndexes[key] = len(analysis.Windows)
 		analysis.Windows = append(analysis.Windows, RepricingWindow{Key: key})
@@ -1239,6 +1313,25 @@ func buildRepricingAnalysis(candidates []PricingCandidate, now time.Time) Repric
 		incrementSegment(analysis.RelationshipSegments, relationshipIndexes, candidate.RelationshipStage)
 		incrementSegment(analysis.RiskSegments, riskIndexes, candidate.AdjustmentRisk)
 		incrementSegment(analysis.PriceSegments, priceIndexes, candidate.MarketPosition)
+		if tierIndex, exists := tierIndexes[candidate.CustomerTier]; exists {
+			tier := &analysis.CustomerTiers[tierIndex]
+			tier.Count++
+			tier.MonthlyRevenueCents += candidate.MonthlyRevenueCents
+			tierPriceTotals[tierIndex] += candidate.CurrentPriceCents
+			totalMonthlyRevenueCents += candidate.MonthlyRevenueCents
+			if tier.LowestPriceCents == 0 || candidate.CurrentPriceCents < tier.LowestPriceCents {
+				tier.LowestPriceCents = candidate.CurrentPriceCents
+			}
+			if candidate.CurrentPriceCents > tier.HighestPriceCents {
+				tier.HighestPriceCents = candidate.CurrentPriceCents
+			}
+			if candidate.Recommended {
+				tier.RecommendedCount++
+			}
+			if candidate.NextPriceCents != nil {
+				tier.ScheduledCount++
+			}
+		}
 		if candidate.Eligible {
 			analysis.EligibleCount++
 		}
@@ -1296,7 +1389,49 @@ func buildRepricingAnalysis(candidates []PricingCandidate, now time.Time) Repric
 			float64(totalPaidPeriods)/float64(analysis.TotalCount)*10,
 		) / 10
 	}
+	for index := range analysis.CustomerTiers {
+		tier := &analysis.CustomerTiers[index]
+		if tier.Count > 0 {
+			tier.AveragePriceCents = int64(math.Round(
+				float64(tierPriceTotals[index]) / float64(tier.Count),
+			))
+		}
+	}
+	allocateCustomerTierRevenueShares(analysis.CustomerTiers, totalMonthlyRevenueCents)
 	return analysis
+}
+
+// allocateCustomerTierRevenueShares uses the largest-remainder method so the
+// displayed integer percentages always add up to exactly 100 without changing
+// the underlying cent amounts.
+func allocateCustomerTierRevenueShares(tiers []CustomerTierSummary, totalRevenueCents int64) {
+	if totalRevenueCents <= 0 {
+		return
+	}
+	type tierRemainder struct {
+		index     int
+		remainder int64
+	}
+	remainders := make([]tierRemainder, 0, len(tiers))
+	allocated := 0
+	for index := range tiers {
+		numerator := tiers[index].MonthlyRevenueCents * 100
+		tiers[index].RevenueSharePercent = int(numerator / totalRevenueCents)
+		allocated += tiers[index].RevenueSharePercent
+		if tiers[index].MonthlyRevenueCents > 0 {
+			remainders = append(remainders, tierRemainder{
+				index:     index,
+				remainder: numerator % totalRevenueCents,
+			})
+		}
+	}
+	sort.SliceStable(remainders, func(left int, right int) bool {
+		return remainders[left].remainder > remainders[right].remainder
+	})
+	for index := 0; allocated < 100 && index < len(remainders); index++ {
+		tiers[remainders[index].index].RevenueSharePercent++
+		allocated++
+	}
 }
 
 func segmentIndexes(segments []RepricingSegment) map[string]int {
