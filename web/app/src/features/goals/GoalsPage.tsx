@@ -36,6 +36,7 @@ import {
 import {
   completeBusinessGoal,
   createBusinessGoal,
+  exemptGoalBulkPricing,
   refreshGoalMarket,
   scheduleGoalBulkNextPrice,
   updateBusinessGoal,
@@ -45,6 +46,7 @@ import { useGoals } from "@/api/queries"
 import type {
   BusinessGoal,
   BusinessGoalInput,
+  BulkPricingExemptionInput,
   CustomerTierSummary,
   ForecastScenario,
   GoalCenter,
@@ -83,6 +85,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Textarea } from "@/components/ui/textarea"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { maskAmount } from "@/lib/amount-privacy"
 import { cn } from "@/lib/utils"
@@ -752,11 +755,14 @@ function CustomerTierPanel({
 }) {
   const { t } = useTranslation()
   const tierMap = new Map(tiers.map((tier) => [tier.key, tier]))
-  const orderedTiers = customerTierOrder.map(
-    (key) =>
-      tierMap.get(key) ?? {
+  const orderedTiers = customerTierOrder.map((key) => {
+    const tier = tierMap.get(key)
+    return tier
+      ? { ...tier, customer_count: tier.customer_count ?? tier.count }
+      : {
         key,
         count: 0,
+        customer_count: 0,
         monthly_revenue_cents: 0,
         revenue_share_percent: 0,
         average_price_cents: 0,
@@ -764,9 +770,10 @@ function CustomerTierPanel({
         highest_price_cents: 0,
         recommended_count: 0,
         scheduled_count: 0,
-      },
-  )
-  const total = orderedTiers.reduce((sum, tier) => sum + tier.count, 0)
+      }
+  })
+  const totalSeats = orderedTiers.reduce((sum, tier) => sum + tier.count, 0)
+  const totalCustomers = orderedTiers.reduce((sum, tier) => sum + tier.customer_count, 0)
   const chartData = orderedTiers.map((tier) => ({
     ...tier,
     label: t(`goals.repricing.customerTier.${tier.key}.label`),
@@ -775,7 +782,7 @@ function CustomerTierPanel({
   const chartAriaLabel = chartData
     .map(
       (tier) =>
-        `${tier.label}: ${tier.revenue_share_percent}%, ${t("goals.repricing.customerTier.people", { count: tier.count })}`,
+        `${tier.label}: ${tier.revenue_share_percent}%, ${t("goals.repricing.customerTier.customerSeatSummary", { customers: tier.customer_count, seats: tier.count })}`,
     )
     .join("; ")
 
@@ -805,7 +812,7 @@ function CustomerTierPanel({
               {t("goals.repricing.customerTier.chartHint")}
             </p>
           </div>
-          {total > 0 ? (
+          {totalSeats > 0 ? (
             <div className="mt-3 grid min-h-[286px] items-center gap-2 sm:grid-cols-[238px_minmax(0,1fr)]">
               <div
                 className="relative h-[238px] min-w-0"
@@ -857,9 +864,9 @@ function CustomerTierPanel({
                   <span className="text-[10px] font-medium text-muted-foreground">
                     {t("goals.repricing.customerTier.totalCustomers")}
                   </span>
-                  <span className="display-numeral mt-1 text-[30px] leading-none">{total}</span>
+                  <span className="display-numeral mt-1 text-[30px] leading-none">{totalCustomers}</span>
                   <span className="mt-1 text-[9px] text-muted-foreground">
-                    {t("goals.repricing.customerTier.allTiers")}
+                    {t("goals.repricing.customerTier.totalSeats", { count: totalSeats })}
                   </span>
                 </div>
               </div>
@@ -901,7 +908,12 @@ function CustomerTierPanel({
                         />
                       </div>
                       <div className="mt-2 flex items-center justify-between gap-2 text-[9px] text-muted-foreground">
-                        <span>{t("goals.repricing.customerTier.people", { count: tier.count })}</span>
+                        <span>
+                          {t("goals.repricing.customerTier.customerSeatSummary", {
+                            customers: tier.customer_count,
+                            seats: tier.count,
+                          })}
+                        </span>
                         <span className="tabular-nums">
                           {t("goals.repricing.customerTier.averagePrice")}{" "}
                           {tier.count > 0
@@ -976,9 +988,11 @@ function CustomerTierPanel({
                     <div className="grid grid-cols-3 gap-2 self-center rounded-md bg-muted/30 p-2.5">
                       <div>
                         <p className="text-[8px] text-muted-foreground">
-                          {t("goals.repricing.customerTier.customerCount")}
+                          {t("goals.repricing.customerTier.customerSeatCount")}
                         </p>
-                        <p className="display-numeral mt-1 text-lg leading-none">{tier.count}</p>
+                        <p className="display-numeral mt-1 text-lg leading-none">
+                          {tier.customer_count} / {tier.count}
+                        </p>
                       </div>
                       <div>
                         <p className="text-[8px] text-muted-foreground">
@@ -1210,6 +1224,31 @@ function RepricingAnalysisPanel({
   const analysis = data.repricing_analysis
   const candidates = React.useMemo(() => data.pricing_candidates ?? [], [data.pricing_candidates])
   const [activeTier, setActiveTier] = React.useState<CustomerTierKey | "all">("all")
+  const [profilePage, setProfilePage] = React.useState(1)
+  const profilePageSize = 6
+  const queue = React.useMemo(
+    () =>
+      candidates
+        .filter((candidate) => activeTier === "all" || candidate.customer_tier === activeTier)
+        .sort((left, right) => {
+          if (left.recommended !== right.recommended) return left.recommended ? -1 : 1
+          if (left.readiness_score !== right.readiness_score) {
+            return right.readiness_score - left.readiness_score
+          }
+          return (left.next_review_date || "9999-12-31").localeCompare(
+            right.next_review_date || "9999-12-31",
+          )
+        }),
+    [activeTier, candidates],
+  )
+  const profilePageCount = Math.max(1, Math.ceil(queue.length / profilePageSize))
+  const currentProfilePage = Math.min(profilePage, profilePageCount)
+  const profilePageStart = (currentProfilePage - 1) * profilePageSize
+  const visibleQueue = queue.slice(profilePageStart, profilePageStart + profilePageSize)
+  const handleTierChange = (tier: CustomerTierKey | "all") => {
+    setActiveTier(tier)
+    setProfilePage(1)
+  }
   if (!analysis) {
     return (
       <Card className="items-center justify-center py-16 text-center">
@@ -1247,16 +1286,6 @@ function RepricingAnalysisPanel({
         "var(--muted-foreground)",
       ][index] ?? "var(--brand)",
   }))
-  const queue = candidates
-    .filter((candidate) => activeTier === "all" || candidate.customer_tier === activeTier)
-    .sort((left, right) => {
-      if (left.recommended !== right.recommended) return left.recommended ? -1 : 1
-      if (left.readiness_score !== right.readiness_score) {
-        return right.readiness_score - left.readiness_score
-      }
-      return (left.next_review_date || "9999-12-31").localeCompare(right.next_review_date || "9999-12-31")
-    })
-  const visibleQueue = queue.slice(0, 8)
   const protectedUsers =
     (analysis.risk_segments ?? []).find((segment) => segment.key === "high")?.count ?? 0
 
@@ -1266,8 +1295,8 @@ function RepricingAnalysisPanel({
         <RepricingMetric
           icon={<Users className="size-4" />}
           label={t("goals.repricing.analyzedUsers")}
-          value={analysis.total_count}
-          hint={t("goals.repricing.analyzedUsersHint")}
+          value={analysis.customer_count ?? analysis.total_count}
+          hint={t("goals.repricing.analyzedUsersHint", { seats: analysis.total_count })}
         />
         <RepricingMetric
           icon={<CalendarClock className="size-4" />}
@@ -1275,13 +1304,16 @@ function RepricingAnalysisPanel({
           value={t("goals.repricing.daysValue", { count: analysis.average_relationship_days })}
           hint={t("goals.repricing.averageRelationshipHint", {
             periods: (analysis.average_paid_periods ?? 0).toFixed(1),
+            loyalty: analysis.average_loyalty_score ?? 0,
           })}
         />
         <RepricingMetric
           icon={<ShieldCheck className="size-4" />}
           label={t("goals.repricing.protectedUsers")}
           value={protectedUsers}
-          hint={t("goals.repricing.protectedUsersHint")}
+          hint={t("goals.repricing.protectedUsersHint", {
+            exemptions: analysis.active_exemption_count ?? 0,
+          })}
         />
         <RepricingMetric
           icon={<CheckCircle2 className="size-4" />}
@@ -1295,7 +1327,7 @@ function RepricingAnalysisPanel({
         tiers={analysis.customer_tiers ?? []}
         amountsHidden={amountsHidden}
         activeTier={activeTier}
-        onTierChange={setActiveTier}
+        onTierChange={handleTierChange}
       />
 
       <div className="grid items-stretch gap-4 lg:grid-cols-3">
@@ -1354,7 +1386,23 @@ function RepricingAnalysisPanel({
                   : candidate.adjustment_risk === "medium"
                     ? "warning"
                     : "destructive"
-              const score = Math.max(0, Math.min(candidate.readiness_score, 100))
+              const decisionScores = [
+                {
+                  key: "loyalty",
+                  value: candidate.loyalty_score,
+                  color: "var(--brand)",
+                },
+                {
+                  key: "relationshipAsset",
+                  value: candidate.relationship_asset_score,
+                  color: "var(--success)",
+                },
+                {
+                  key: "pricePressure",
+                  value: candidate.price_pressure_score,
+                  color: "var(--warning)",
+                },
+              ] as const
               return (
                 <div
                   key={candidate.subscription_id}
@@ -1383,6 +1431,20 @@ function RepricingAnalysisPanel({
                       >
                         {t(`goals.repricing.customerTier.${candidate.customer_tier}.label`)}
                       </Badge>
+                      {candidate.customer_group_size > 1 ? (
+                        <Badge variant="brand">
+                          {t("goals.repricing.multiSeatCustomer", {
+                            count: candidate.customer_group_size,
+                          })}
+                        </Badge>
+                      ) : null}
+                      {candidate.exemption_count > 0 ? (
+                        <Badge variant="outline">
+                          {t("goals.repricing.exemptionCount", {
+                            count: candidate.exemption_count,
+                          })}
+                        </Badge>
+                      ) : null}
                     </div>
                     <p className="mt-1.5 text-[11px] tabular-nums text-muted-foreground">
                       {t("goals.relationshipStatus", {
@@ -1406,15 +1468,32 @@ function RepricingAnalysisPanel({
                             : t("goals.repricing.nearTypical")}
                       </span>
                     </div>
-                    <div
-                      className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
-                      aria-label={t("goals.repricing.readinessValue", { value: score })}
-                    >
-                      <div className="h-full rounded-full bg-brand" style={{ width: `${score}%` }} />
+                    <div className="mt-2 space-y-1.5">
+                      {decisionScores.map((score) => {
+                        const value = Math.max(0, Math.min(score.value, 100))
+                        return (
+                          <div
+                            key={score.key}
+                            className="grid grid-cols-[3.25rem_minmax(0,1fr)_1.5rem] items-center gap-1.5 text-[9px] text-muted-foreground"
+                          >
+                            <span>{t(`goals.repricing.score.${score.key}`)}</span>
+                            <div
+                              className="h-1 overflow-hidden rounded-full bg-muted"
+                              aria-label={t("goals.repricing.scoreValue", {
+                                label: t(`goals.repricing.score.${score.key}`),
+                                value,
+                              })}
+                            >
+                              <div
+                                className="h-full rounded-full"
+                                style={{ width: `${value}%`, background: score.color }}
+                              />
+                            </div>
+                            <span className="text-right tabular-nums">{value}</span>
+                          </div>
+                        )
+                      })}
                     </div>
-                    <p className="mt-1 text-[10px] text-muted-foreground">
-                      {t("goals.repricing.readinessScore", { value: score })}
-                    </p>
                   </div>
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -1450,6 +1529,16 @@ function RepricingAnalysisPanel({
                         {t("goals.repricing.reviewOn", { date: candidate.next_review_date })}
                       </p>
                     ) : null}
+                    {candidate.blocked_code === "exempted" &&
+                    candidate.exemption_reason_code ? (
+                      <p className="mt-1 text-[10px] text-success">
+                        {t("goals.repricing.exemptionReason", {
+                          reason: t(
+                            `goals.exemptionDialog.reasons.${candidate.exemption_reason_code}`,
+                          ),
+                        })}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
               )
@@ -1460,35 +1549,46 @@ function RepricingAnalysisPanel({
             <p className="text-sm text-muted-foreground">{t("goals.repricing.emptyQueue")}</p>
           </div>
         )}
-      </Card>
-
-      <Card className="gap-0 overflow-hidden p-0 shadow-card">
-        <div className="border-b px-5 py-4">
-          <h2 className="text-sm font-semibold">{t("goals.repricing.principlesTitle")}</h2>
-          <p className="mt-1 text-xs text-muted-foreground">{t("goals.repricing.principlesHint")}</p>
-        </div>
-        <div className="grid divide-y md:grid-cols-3 md:divide-x md:divide-y-0">
-          {(["fairness", "gradual", "stability"] as const).map((principle, index) => (
-            <article key={principle} className="p-5">
-              <p className="font-mono text-[10px] font-semibold text-brand">0{index + 1}</p>
-              <h3 className="mt-2 text-sm font-semibold">
-                {t(`goals.repricing.principle.${principle}.title`)}
-              </h3>
-              <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                {t(`goals.repricing.principle.${principle}.desc`)}
-              </p>
-            </article>
-          ))}
-        </div>
-        <div className="border-t bg-muted/20 px-5 py-3 text-[11px] leading-5 text-muted-foreground">
-          {t("goals.repricing.scoreMethod")}
-        </div>
+        {queue.length > profilePageSize ? (
+          <div className="flex flex-col gap-2 border-t bg-muted/10 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs tabular-nums text-muted-foreground">
+              {t("goals.repricing.profilePageStatus", {
+                page: currentProfilePage,
+                pageCount: profilePageCount,
+                start: profilePageStart + 1,
+                end: Math.min(profilePageStart + profilePageSize, queue.length),
+                total: queue.length,
+              })}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-10 flex-1 sm:min-h-8 sm:flex-none"
+                disabled={currentProfilePage <= 1}
+                onClick={() => setProfilePage(Math.max(1, currentProfilePage - 1))}
+              >
+                {t("goals.prevPage")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="min-h-10 flex-1 sm:min-h-8 sm:flex-none"
+                disabled={currentProfilePage >= profilePageCount}
+                onClick={() => setProfilePage(Math.min(profilePageCount, currentProfilePage + 1))}
+              >
+                {t("goals.nextPage")}
+              </Button>
+            </div>
+          </div>
+        ) : null}
       </Card>
     </div>
   )
 }
 
-type PricingFilter = "recommended" | "below_market" | "scheduled" | "all"
+type PricingFilter = "recommended" | "below_market" | "scheduled" | "exempted" | "all"
+type PricingExemptionReason = BulkPricingExemptionInput["reason_code"]
 const pricingPageSize = 8
 
 const marketPositionBadge = {
@@ -1525,6 +1625,11 @@ function BulkPricingPanel({
   const [selected, setSelected] = React.useState<Set<number>>(() => new Set())
   const [nextPrice, setNextPrice] = React.useState("")
   const [confirmOpen, setConfirmOpen] = React.useState(false)
+  const [exemptionOpen, setExemptionOpen] = React.useState(false)
+  const [exemptionReason, setExemptionReason] =
+    React.useState<PricingExemptionReason>("relationship_investment")
+  const [exemptionCycles, setExemptionCycles] = React.useState("1")
+  const [exemptionNote, setExemptionNote] = React.useState("")
   const [page, setPage] = React.useState(1)
 
   const filtered = React.useMemo(() => {
@@ -1534,6 +1639,7 @@ function BulkPricingPanel({
         filter === "all" ||
         (filter === "recommended" && candidate.recommended) ||
         (filter === "scheduled" && candidate.next_price_cents !== null) ||
+        (filter === "exempted" && candidate.blocked_code === "exempted") ||
         (filter === "below_market" &&
           (candidate.market_position === "below_low" || candidate.market_position === "below_median"))
       return matchesFilter && (!keyword || candidateSearchText(candidate).includes(keyword))
@@ -1560,6 +1666,8 @@ function BulkPricingPanel({
   const selectedCandidates = candidates.filter(
     (candidate) => candidate.eligible && selected.has(candidate.subscription_id),
   )
+  const canExempt =
+    selectedCandidates.length > 0 && selectedCandidates.every((candidate) => candidate.recommended)
   const parsedNextPriceCents = /^\d+(\.\d{1,2})?$/.test(nextPrice.trim())
     ? Math.round(Number(nextPrice) * 100)
     : 0
@@ -1597,6 +1705,23 @@ function BulkPricingPanel({
         setConfirmOpen(false)
         setSelected(new Set())
         setNextPrice("")
+      },
+    },
+  )
+
+  const exemptionMutation = useAppMutation(
+    () =>
+      exemptGoalBulkPricing({
+        subscription_ids: selectedCandidates.map((candidate) => candidate.subscription_id),
+        review_cycles: Number(exemptionCycles),
+        reason_code: exemptionReason,
+        note: exemptionNote.trim(),
+      }),
+    {
+      onSuccess: () => {
+        setExemptionOpen(false)
+        setSelected(new Set())
+        setExemptionNote("")
       },
     },
   )
@@ -1696,6 +1821,7 @@ function BulkPricingPanel({
             <SelectItem value="recommended">{t("goals.filter.recommended")}</SelectItem>
             <SelectItem value="below_market">{t("goals.filter.below_market")}</SelectItem>
             <SelectItem value="scheduled">{t("goals.filter.scheduled")}</SelectItem>
+            <SelectItem value="exempted">{t("goals.filter.exempted")}</SelectItem>
             <SelectItem value="all">{t("goals.filter.all")}</SelectItem>
           </SelectContent>
         </Select>
@@ -1751,7 +1877,16 @@ function BulkPricingPanel({
                       })}
                     </div>
                     {!candidate.eligible ? (
-                      <div className="mt-1 text-[11px] text-destructive">{candidate.blocked_reason}</div>
+                      <div
+                        className={cn(
+                          "mt-1 text-[11px]",
+                          candidate.blocked_code === "exempted"
+                            ? "text-success"
+                            : "text-destructive",
+                        )}
+                      >
+                        {candidate.blocked_reason}
+                      </div>
                     ) : null}
                   </TableCell>
                   <TableCell className="min-w-40 whitespace-normal">
@@ -1859,6 +1994,9 @@ function BulkPricingPanel({
               })}
             </p>
           ) : null}
+          {selectedCandidates.length > 0 && !canExempt ? (
+            <p className="mt-1 text-xs text-warning">{t("goals.exemptionSelectionHint")}</p>
+          ) : null}
         </div>
         <div className="grid gap-2">
           <Label htmlFor="bulk-next-price">{t("goals.bulkNextPrice")}</Label>
@@ -1895,10 +2033,23 @@ function BulkPricingPanel({
             <p className="text-xs text-warning">{t("goals.splitBatchWarning")}</p>
           ) : null}
         </div>
-        <Button disabled={!canSubmit || mutation.isPending} onClick={() => setConfirmOpen(true)}>
-          <SlidersHorizontal />
-          {t("goals.scheduleBulkPrice")}
-        </Button>
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
+          <Button
+            variant="outline"
+            disabled={!canExempt || exemptionMutation.isPending}
+            onClick={() => setExemptionOpen(true)}
+          >
+            <ShieldCheck />
+            {t("goals.exemptCurrentRound")}
+          </Button>
+          <Button
+            disabled={!canSubmit || mutation.isPending}
+            onClick={() => setConfirmOpen(true)}
+          >
+            <SlidersHorizontal />
+            {t("goals.scheduleBulkPrice")}
+          </Button>
+        </div>
       </div>
 
       <ConfirmDialog
@@ -1913,6 +2064,98 @@ function BulkPricingPanel({
         pending={mutation.isPending}
         onConfirm={() => mutation.mutate()}
       />
+
+      <Dialog open={exemptionOpen} onOpenChange={setExemptionOpen}>
+        <DialogContent aria-describedby={undefined} className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{t("goals.exemptionDialog.title")}</DialogTitle>
+          </DialogHeader>
+          <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
+            {t("goals.exemptionDialog.summary", { count: selectedCandidates.length })}
+          </div>
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="pricing-exemption-reason">
+                {t("goals.exemptionDialog.reason")}
+              </Label>
+              <Select
+                value={exemptionReason}
+                onValueChange={(value) =>
+                  setExemptionReason(value as PricingExemptionReason)
+                }
+              >
+                <SelectTrigger id="pricing-exemption-reason">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(
+                    [
+                      "relationship_investment",
+                      "loyalty_reward",
+                      "multi_seat_retention",
+                      "price_observation",
+                      "manual",
+                    ] as PricingExemptionReason[]
+                  ).map((reason) => (
+                    <SelectItem key={reason} value={reason}>
+                      {t(`goals.exemptionDialog.reasons.${reason}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="pricing-exemption-cycles">
+                {t("goals.exemptionDialog.reviewCycle")}
+              </Label>
+              <Select value={exemptionCycles} onValueChange={setExemptionCycles}>
+                <SelectTrigger id="pricing-exemption-cycles">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {[1, 2, 3].map((cycles) => (
+                    <SelectItem key={cycles} value={String(cycles)}>
+                      {t(`goals.exemptionDialog.cycles.${cycles}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs leading-5 text-muted-foreground">
+                {t("goals.exemptionDialog.reviewHint")}
+              </p>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="pricing-exemption-note">
+                {t("goals.exemptionDialog.note")}
+              </Label>
+              <Textarea
+                id="pricing-exemption-note"
+                value={exemptionNote}
+                onChange={(event) => setExemptionNote(event.target.value)}
+                maxLength={500}
+                placeholder={t("goals.exemptionDialog.notePlaceholder")}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setExemptionOpen(false)}
+              disabled={exemptionMutation.isPending}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              onClick={() => exemptionMutation.mutate()}
+              disabled={!canExempt || exemptionMutation.isPending}
+            >
+              {exemptionMutation.isPending
+                ? t("common.saving")
+                : t("goals.exemptionDialog.confirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

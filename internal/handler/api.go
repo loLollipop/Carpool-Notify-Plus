@@ -149,6 +149,36 @@ func (server *Server) postGoalBulkNextPrice(context *gin.Context) {
 	})
 }
 
+type bulkPricingExemptionRequest struct {
+	SubscriptionIDs []int64 `json:"subscription_ids"`
+	ReviewCycles    int     `json:"review_cycles"`
+	ReasonCode      string  `json:"reason_code"`
+	Note            string  `json:"note"`
+}
+
+func (server *Server) postGoalBulkPricingExemption(context *gin.Context) {
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 32<<10)
+	var request bulkPricingExemptionRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的批量调价豁免内容")
+		return
+	}
+	updated, err := server.Service.ExemptBulkPricing(service.BulkPricingExemptionInput{
+		SubscriptionIDs: request.SubscriptionIDs,
+		ReviewCycles:    request.ReviewCycles,
+		ReasonCode:      request.ReasonCode,
+		Note:            request.Note,
+	})
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{
+		"message":       fmt.Sprintf("已豁免 %d 位 Team 用户的本轮调价，并安排后续复评", updated),
+		"updated_count": updated,
+	})
+}
+
 func (server *Server) getSubscriptions(context *gin.Context) {
 	views, err := server.Service.ListView()
 	if err != nil {

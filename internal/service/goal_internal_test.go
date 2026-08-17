@@ -785,6 +785,249 @@ func TestAssignCustomerTiersKeepsUniformPricesMainstay(t *testing.T) {
 	}
 }
 
+func TestLowPriceSingleSeatCustomerGetsEarlierRepricingReview(t *testing.T) {
+	now := time.Date(2026, time.August, 17, 12, 0, 0, 0, cycle.Location)
+	candidates := []PricingCandidate{
+		{
+			SubscriptionID:      1,
+			CustomerEmail:       "low@example.com",
+			CurrentPriceCents:   8000,
+			MonthlyRevenueCents: 8000,
+			PaidPeriodCount:     2,
+			RelationshipDays:    30,
+			BlockedCode:         "protection",
+			BlockedReason:       "standard protection",
+			MarketPosition:      "below_low",
+			SuggestedPriceCents: 8600,
+		},
+		{SubscriptionID: 2, CustomerEmail: "mid@example.com", CurrentPriceCents: 10000, MonthlyRevenueCents: 10000, Eligible: true, BlockedCode: "eligible"},
+		{SubscriptionID: 3, CustomerEmail: "high@example.com", CurrentPriceCents: 12000, MonthlyRevenueCents: 12000, Eligible: true, BlockedCode: "eligible"},
+	}
+	finalizePricingCandidates(candidates, map[int64]model.Subscription{
+		1: {ID: 1, BoardedAt: "2026-07-18", CronExpr: "interval:30d"},
+	}, now)
+
+	low := candidates[0]
+	if low.CustomerTier != "optimize" || !low.ExpeditedReview || !low.Eligible ||
+		low.BlockedCode != "eligible" || !low.Recommended || low.NextReviewDate != "" ||
+		!strings.Contains(strings.Join(low.AnalysisCodes, ","), "expedited_low_price_review") {
+		t.Fatalf("expedited low-price candidate = %#v", low)
+	}
+}
+
+func TestBulkNextPriceRechecksEarlierLowPriceEligibility(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "expedited-owner@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 3 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+
+	type seededCustomer struct {
+		name       string
+		email      string
+		priceCents int64
+		boardedAt  string
+		paidDates  []string
+	}
+	seeded := []seededCustomer{
+		{name: "low", email: "low@example.com", priceCents: 8000, boardedAt: "2026-07-01", paidDates: []string{"2026-07-01", "2026-07-31"}},
+		{name: "mid", email: "mid@example.com", priceCents: 10000, boardedAt: "2026-05-01", paidDates: []string{"2026-05-01", "2026-05-31", "2026-06-30"}},
+		{name: "high", email: "high@example.com", priceCents: 12000, boardedAt: "2026-05-01", paidDates: []string{"2026-05-01", "2026-05-31", "2026-06-30"}},
+	}
+	var lowSubscriptionID int64
+	for index, customer := range seeded {
+		subscriptionID, createErr := service.Store.CreateSubscription(model.Subscription{
+			Name:                customer.name,
+			BusinessType:        model.SubscriptionBusinessTeam,
+			PricePerPersonCents: customer.priceCents,
+			CronExpr:            "interval:30d",
+			SeatID:              seats[index].ID,
+			CustomerEmail:       customer.email,
+			BoardedAt:           customer.boardedAt,
+		})
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		for _, dueDate := range customer.paidDates {
+			if setErr := service.Store.SetDuePaid(subscriptionID, dueDate, true, customer.priceCents); setErr != nil {
+				t.Fatal(setErr)
+			}
+		}
+		if customer.name == "low" {
+			lowSubscriptionID = subscriptionID
+		}
+	}
+
+	candidates, err := service.buildPricingCandidates(&model.MarketPriceSnapshot{
+		LowPriceCents: 10000, MedianPriceCents: 13000, HighPriceCents: 15000, SampleCount: 10,
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lowCandidate PricingCandidate
+	for _, candidate := range candidates {
+		if candidate.SubscriptionID == lowSubscriptionID {
+			lowCandidate = candidate
+			break
+		}
+	}
+	if !lowCandidate.ExpeditedReview || !lowCandidate.Eligible || !lowCandidate.Recommended ||
+		lowCandidate.CustomerTier != "optimize" {
+		t.Fatalf("built expedited candidate = %#v", lowCandidate)
+	}
+
+	updated, err := service.ScheduleBulkNextPrice(BulkNextPriceInput{
+		SubscriptionIDs: []int64{lowSubscriptionID},
+		NextPriceYuan:   "86.00",
+	})
+	if err != nil || updated != 1 {
+		t.Fatalf("schedule expedited candidate: updated=%d err=%v", updated, err)
+	}
+	stored, err := service.Store.GetSubscription(lowSubscriptionID)
+	if err != nil || stored.NextPriceCents == nil || *stored.NextPriceCents != 8600 {
+		t.Fatalf("scheduled low subscription = %#v, err = %v", stored, err)
+	}
+}
+
+func TestLowPriceSingleSeatCustomerMustMeetBothEarlierThresholds(t *testing.T) {
+	now := time.Date(2026, time.August, 17, 12, 0, 0, 0, cycle.Location)
+	tests := []struct {
+		name           string
+		days           int
+		paidPeriods    int
+		wantReviewDate string
+	}{
+		{name: "relationship too short", days: 29, paidPeriods: 2, wantReviewDate: "2026-08-18"},
+		{name: "one payment only", days: 30, paidPeriods: 1, wantReviewDate: "2026-08-18"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidates := []PricingCandidate{
+				{
+					SubscriptionID:      1,
+					CustomerEmail:       "low@example.com",
+					CurrentPriceCents:   8000,
+					MonthlyRevenueCents: 8000,
+					PaidPeriodCount:     test.paidPeriods,
+					RelationshipDays:    test.days,
+					BlockedCode:         "protection",
+					BlockedReason:       "standard protection",
+					MarketPosition:      "below_low",
+					SuggestedPriceCents: 8600,
+				},
+				{SubscriptionID: 2, CustomerEmail: "mid@example.com", CurrentPriceCents: 10000, MonthlyRevenueCents: 10000},
+				{SubscriptionID: 3, CustomerEmail: "high@example.com", CurrentPriceCents: 12000, MonthlyRevenueCents: 12000},
+			}
+			finalizePricingCandidates(candidates, map[int64]model.Subscription{
+				1: {ID: 1, BoardedAt: "2026-07-19", CronExpr: "interval:30d"},
+			}, now)
+
+			low := candidates[0]
+			if !low.ExpeditedReview || low.Eligible || low.Recommended || low.BlockedCode != "protection" ||
+				low.NextReviewDate != test.wantReviewDate || !strings.Contains(low.BlockedReason, "30 天") ||
+				!strings.Contains(low.BlockedReason, "2 个付费周期") {
+				t.Fatalf("protected low-price candidate = %#v", low)
+			}
+		})
+	}
+}
+
+func TestLowPriceCustomerInCooldownCannotUseEarlierReview(t *testing.T) {
+	candidates := []PricingCandidate{
+		{
+			SubscriptionID:      1,
+			CustomerEmail:       "low@example.com",
+			CurrentPriceCents:   8000,
+			MonthlyRevenueCents: 8000,
+			PaidPeriodCount:     2,
+			RelationshipDays:    30,
+			BlockedCode:         "cooldown",
+			BlockedReason:       "cooldown active",
+			MarketPosition:      "below_low",
+			SuggestedPriceCents: 8600,
+		},
+		{SubscriptionID: 2, CustomerEmail: "mid@example.com", CurrentPriceCents: 10000, MonthlyRevenueCents: 10000},
+		{SubscriptionID: 3, CustomerEmail: "high@example.com", CurrentPriceCents: 12000, MonthlyRevenueCents: 12000},
+	}
+	finalizePricingCandidates(candidates, nil, time.Date(2026, time.August, 17, 12, 0, 0, 0, cycle.Location))
+
+	low := candidates[0]
+	if low.ExpeditedReview || low.Eligible || low.Recommended || low.BlockedCode != "cooldown" {
+		t.Fatalf("cooldown candidate bypassed safeguard = %#v", low)
+	}
+}
+
+func TestAssignCustomerTiersMergesMultiSeatCustomersTransitively(t *testing.T) {
+	candidates := []PricingCandidate{
+		{SubscriptionID: 1, CustomerEmail: " SHARED@example.com ", CustomerWechat: "wx-a", CurrentPriceCents: 4000, MonthlyRevenueCents: 4000},
+		{SubscriptionID: 2, CustomerEmail: "shared@example.com", CustomerWechat: "wx-b", CurrentPriceCents: 4000, MonthlyRevenueCents: 4000},
+		{SubscriptionID: 3, CustomerEmail: "other@example.com", CustomerWechat: "WX-B", CurrentPriceCents: 4000, MonthlyRevenueCents: 4000},
+		{SubscriptionID: 4, CustomerWechat: "-", CurrentPriceCents: 10000, MonthlyRevenueCents: 10000},
+		{SubscriptionID: 5, CustomerWechat: "-", CurrentPriceCents: 12000, MonthlyRevenueCents: 12000},
+		{SubscriptionID: 6, CustomerEmail: "pair@example.com", CurrentPriceCents: 1000, MonthlyRevenueCents: 1000},
+		{SubscriptionID: 7, CustomerEmail: "pair@example.com", CurrentPriceCents: 1000, MonthlyRevenueCents: 1000},
+	}
+	assignCustomerTiers(candidates)
+
+	for index := 0; index < 3; index++ {
+		if candidates[index].CustomerGroupID != candidates[0].CustomerGroupID ||
+			candidates[index].CustomerGroupSize != 3 || candidates[index].CustomerTier != "core" ||
+			candidates[index].CustomerGroupMonthlyRevenueCents != 12000 {
+			t.Fatalf("transitive customer member %d = %#v", index, candidates[index])
+		}
+	}
+	if candidates[3].CustomerGroupID == candidates[4].CustomerGroupID ||
+		candidates[3].CustomerGroupSize != 1 || candidates[4].CustomerGroupSize != 1 {
+		t.Fatalf("blank identities were merged: %#v / %#v", candidates[3], candidates[4])
+	}
+	for _, index := range []int{5, 6} {
+		if candidates[index].CustomerGroupSize != 2 || candidates[index].CustomerTier == "optimize" ||
+			candidates[index].CustomerGroupID != candidates[5].CustomerGroupID {
+			t.Fatalf("two-seat customer member %d = %#v", index, candidates[index])
+		}
+	}
+
+	analysis := buildRepricingAnalysis(candidates, time.Date(2026, time.August, 17, 12, 0, 0, 0, cycle.Location))
+	if analysis.TotalCount != 7 || analysis.CustomerCount != 4 {
+		t.Fatalf("customer/seat counts = %d/%d, analysis = %#v", analysis.CustomerCount, analysis.TotalCount, analysis)
+	}
+	seatCount := 0
+	customerCount := 0
+	for _, tier := range analysis.CustomerTiers {
+		seatCount += tier.Count
+		customerCount += tier.CustomerCount
+	}
+	if seatCount != 7 || customerCount != 4 {
+		t.Fatalf("tier customer/seat counts = %d/%d: %#v", customerCount, seatCount, analysis.CustomerTiers)
+	}
+}
+
+func TestMultiSeatCustomerNeverUsesEarlierLowPriceReview(t *testing.T) {
+	candidates := []PricingCandidate{
+		{SubscriptionID: 1, CustomerWechat: "multi", CurrentPriceCents: 5000, MonthlyRevenueCents: 5000, PaidPeriodCount: 2, RelationshipDays: 30, BlockedCode: "protection", MarketPosition: "below_low", SuggestedPriceCents: 5400},
+		{SubscriptionID: 2, CustomerWechat: "multi", CurrentPriceCents: 5000, MonthlyRevenueCents: 5000, PaidPeriodCount: 2, RelationshipDays: 30, BlockedCode: "protection", MarketPosition: "below_low", SuggestedPriceCents: 5400},
+		{SubscriptionID: 3, CustomerWechat: "single", CurrentPriceCents: 12000, MonthlyRevenueCents: 12000, Eligible: true, BlockedCode: "eligible"},
+	}
+	finalizePricingCandidates(candidates, nil, time.Date(2026, time.August, 17, 12, 0, 0, 0, cycle.Location))
+
+	for index := 0; index < 2; index++ {
+		candidate := candidates[index]
+		if candidate.CustomerGroupSize != 2 || candidate.ExpeditedReview || candidate.Eligible ||
+			candidate.Recommended || candidate.BlockedCode != "protection" ||
+			!strings.Contains(strings.Join(candidate.AnalysisCodes, ","), "multi_seat_customer") {
+			t.Fatalf("multi-seat candidate %d bypassed protection = %#v", index, candidate)
+		}
+	}
+}
+
 func TestCustomerTierRevenueSharesAlwaysTotalOneHundred(t *testing.T) {
 	analysis := buildRepricingAnalysis([]PricingCandidate{
 		{CustomerTier: "core", CurrentPriceCents: 1, MonthlyRevenueCents: 1},
@@ -816,6 +1059,152 @@ func TestPricingHistoryExcludesRefundedBills(t *testing.T) {
 	history := histories[9]
 	if history.PaidPeriodCount != 2 || history.LastIncreaseDate != "2026-07-01" {
 		t.Fatalf("pricing history excluding refund = %#v", history)
+	}
+}
+
+func TestBulkPricingExemptionIsAtomicBlocksCurrentRoundAndReentersLater(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "exemption-owner@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 1 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "Exemption customer",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 9000,
+		CronExpr:            "interval:30d",
+		CustomerEmail:       "exemption-customer@example.com",
+		SeatID:              seats[0].ID,
+		BoardedAt:           "2026-05-17",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedPaidPricingPeriods(t, service, subscriptionID, 9000)
+	snapshot := model.MarketPriceSnapshot{
+		Provider:         marketProvider,
+		Product:          marketProduct,
+		LowPriceCents:    10000,
+		MedianPriceCents: 13000,
+		HighPriceCents:   15000,
+		SampleCount:      10,
+		SourceUpdatedAt:  service.now(),
+		CreatedAt:        service.now(),
+	}
+	if _, err := service.Store.InsertMarketPriceSnapshot(snapshot); err != nil {
+		t.Fatal(err)
+	}
+
+	beforeCandidates, err := service.buildPricingCandidates(&snapshot, 0)
+	if err != nil || len(beforeCandidates) != 1 || !beforeCandidates[0].Recommended {
+		t.Fatalf("before candidates = %#v, err = %v", beforeCandidates, err)
+	}
+	before := beforeCandidates[0]
+
+	if _, err := service.ExemptBulkPricing(BulkPricingExemptionInput{
+		SubscriptionIDs: []int64{subscriptionID, 999999},
+		ReviewCycles:    1,
+		ReasonCode:      "relationship_investment",
+	}); err == nil {
+		t.Fatal("mixed valid/invalid exemption batch unexpectedly succeeded")
+	}
+	if exemptions, listErr := service.Store.ListPricingExemptions(); listErr != nil || len(exemptions) != 0 {
+		t.Fatalf("failed batch left exemptions = %#v, err = %v", exemptions, listErr)
+	}
+	for _, input := range []BulkPricingExemptionInput{
+		{SubscriptionIDs: []int64{subscriptionID}, ReviewCycles: 0, ReasonCode: "manual"},
+		{SubscriptionIDs: []int64{subscriptionID}, ReviewCycles: 1, ReasonCode: "invalid"},
+	} {
+		if _, err := service.ExemptBulkPricing(input); err == nil {
+			t.Fatalf("invalid exemption input unexpectedly succeeded: %#v", input)
+		}
+	}
+
+	updated, err := service.ExemptBulkPricing(BulkPricingExemptionInput{
+		SubscriptionIDs: []int64{subscriptionID, subscriptionID},
+		ReviewCycles:    1,
+		ReasonCode:      "relationship_investment",
+		Note:            "Preserve this billing round",
+	})
+	if err != nil || updated != 1 {
+		t.Fatalf("exemption result = %d, err = %v", updated, err)
+	}
+	exemptions, err := service.Store.ListPricingExemptions()
+	if err != nil || len(exemptions) != 1 || exemptions[0].ReviewAfter != "2026-09-14" {
+		t.Fatalf("stored exemptions = %#v, err = %v", exemptions, err)
+	}
+
+	activeCandidates, err := service.buildPricingCandidates(&snapshot, 0)
+	if err != nil || len(activeCandidates) != 1 {
+		t.Fatalf("active candidates = %#v, err = %v", activeCandidates, err)
+	}
+	active := activeCandidates[0]
+	if active.Eligible || active.Recommended || active.BlockedCode != "exempted" ||
+		active.NextReviewDate != "2026-09-14" || active.ExemptionCount != 1 ||
+		active.RelationshipAssetScore <= before.RelationshipAssetScore ||
+		active.PricePressureScore <= before.PricePressureScore {
+		t.Fatalf("active exemption candidate = %#v, before = %#v", active, before)
+	}
+	if _, err := service.ScheduleBulkNextPrice(BulkNextPriceInput{
+		SubscriptionIDs: []int64{subscriptionID},
+		NextPriceYuan:   "97.00",
+	}); err == nil {
+		t.Fatal("active exemption was bypassed by pricing service")
+	}
+	stale, err := service.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stalePrice := int64(9700)
+	stale.NextPriceCents = &stalePrice
+	stale.NextPriceEffectiveDueDate = "2026-10-14"
+	if err := service.Store.UpdateSubscriptionNextPrices([]model.Subscription{stale}, "2026-08-15"); err != sql.ErrNoRows {
+		t.Fatalf("store active-exemption guard err = %v, want sql.ErrNoRows", err)
+	}
+
+	laterService := &SubscriptionService{
+		Store:        service.Store,
+		MarketClient: service.MarketClient,
+		Clock: func() time.Time {
+			return time.Date(2026, time.September, 14, 12, 0, 0, 0, cycle.Location)
+		},
+	}
+	expiredCandidates, err := laterService.buildPricingCandidates(&snapshot, 0)
+	if err != nil || len(expiredCandidates) != 1 || !expiredCandidates[0].Eligible ||
+		!expiredCandidates[0].Recommended || expiredCandidates[0].BlockedCode != "eligible" {
+		t.Fatalf("expired exemption did not reenter evaluation: %#v, err = %v", expiredCandidates, err)
+	}
+	updated, err = laterService.ExemptBulkPricing(BulkPricingExemptionInput{
+		SubscriptionIDs: []int64{subscriptionID},
+		ReviewCycles:    1,
+		ReasonCode:      "price_observation",
+	})
+	if err != nil || updated != 1 {
+		t.Fatalf("second exemption result = %d, err = %v", updated, err)
+	}
+	repeatedCandidates, err := laterService.buildPricingCandidates(&snapshot, 0)
+	if err != nil || len(repeatedCandidates) != 1 {
+		t.Fatalf("repeated candidates = %#v, err = %v", repeatedCandidates, err)
+	}
+	repeated := repeatedCandidates[0]
+	if repeated.ExemptionCount != 2 || repeated.ExemptionReviewDate != "2026-10-14" ||
+		repeated.RelationshipAssetScore <= active.RelationshipAssetScore ||
+		repeated.PricePressureScore < active.PricePressureScore {
+		t.Fatalf("repeated exemption scores = %#v, first = %#v", repeated, active)
+	}
+	if err := laterService.Store.ResetBusinessData(); err != nil {
+		t.Fatalf("reset business data with exemption history: %v", err)
+	}
+	if resetExemptions, listErr := laterService.Store.ListPricingExemptions(); listErr != nil || len(resetExemptions) != 0 {
+		t.Fatalf("reset exemption history = %#v, err = %v", resetExemptions, listErr)
 	}
 }
 

@@ -244,6 +244,20 @@ func (store *Store) migrate() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_market_price_snapshots_product
 			ON market_price_snapshots(provider, product, created_at DESC, id DESC);`,
+		`CREATE TABLE IF NOT EXISTS pricing_exemptions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			subscription_id INTEGER NOT NULL,
+			reason_code TEXT NOT NULL,
+			note TEXT NOT NULL DEFAULT '',
+			review_after TEXT NOT NULL,
+			review_cycles INTEGER NOT NULL,
+			price_cents_snapshot INTEGER NOT NULL,
+			market_median_cents_snapshot INTEGER NOT NULL DEFAULT 0,
+			created_at TEXT NOT NULL,
+			FOREIGN KEY(subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_pricing_exemptions_subscription
+			ON pricing_exemptions(subscription_id, created_at DESC, id DESC);`,
 		`CREATE TABLE IF NOT EXISTS redemption_applications (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			tracking_token TEXT NOT NULL UNIQUE,
@@ -1681,7 +1695,7 @@ func (store *Store) UpdateSubscriptionAndSyncBill(
 // UpdateSubscriptionNextPrices atomically updates only future pricing fields.
 // Guarding eligibility again inside the transaction prevents a concurrent
 // archive or after-sales case from producing a partial bulk update.
-func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscription) error {
+func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscription, reviewDates ...string) error {
 	if len(subscriptions) == 0 {
 		return nil
 	}
@@ -1691,6 +1705,10 @@ func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscript
 	}
 	defer func() { _ = transaction.Rollback() }()
 	now := formatTime(time.Now().UTC())
+	today := cycle.FormatDate(time.Now().In(cycle.Location))
+	if len(reviewDates) > 0 && strings.TrimSpace(reviewDates[0]) != "" {
+		today = strings.TrimSpace(reviewDates[0])
+	}
 	for _, subscription := range subscriptions {
 		if subscription.NextPriceCents == nil || strings.TrimSpace(subscription.NextPriceEffectiveDueDate) == "" {
 			return fmt.Errorf("subscription %d has incomplete next price", subscription.ID)
@@ -1713,6 +1731,12 @@ func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscript
 				FROM after_sales_cases
 				WHERE subscription_id = subscriptions.id
 				  AND status IN (?, ?)
+			  )
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM pricing_exemptions
+				WHERE subscription_id = subscriptions.id
+				  AND review_after > ?
 			  )`,
 			*subscription.NextPriceCents,
 			strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
@@ -1725,6 +1749,7 @@ func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscript
 			subscription.SeatID,
 			model.AfterSalesStatusPending,
 			model.AfterSalesStatusReview,
+			today,
 		)
 		if updateErr != nil {
 			return updateErr
@@ -2480,6 +2505,7 @@ func (store *Store) ResetBusinessData() error {
 		"notification_log",
 		"bills",
 		"paid_due_occurrences",
+		"pricing_exemptions",
 		"subscriptions",
 		"seats",
 		"account_cost_records",

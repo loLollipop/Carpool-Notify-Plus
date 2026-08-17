@@ -207,6 +207,23 @@ type MarketPriceSnapshot struct {
 	CreatedAt        time.Time `json:"created_at"`
 }
 
+// PricingExemption records one administrator decision to keep a Team
+// subscription at its current price for a bounded number of billing cycles.
+// Rows are immutable history: an exemption stops being active once ReviewAfter
+// is reached, but remains available to later relationship and opportunity-cost
+// analysis.
+type PricingExemption struct {
+	ID                        int64     `json:"id"`
+	SubscriptionID            int64     `json:"subscription_id"`
+	ReasonCode                string    `json:"reason_code"`
+	Note                      string    `json:"note"`
+	ReviewAfter               string    `json:"review_after"`
+	ReviewCycles              int       `json:"review_cycles"`
+	PriceCentsSnapshot        int64     `json:"price_cents_snapshot"`
+	MarketMedianCentsSnapshot int64     `json:"market_median_cents_snapshot"`
+	CreatedAt                 time.Time `json:"created_at"`
+}
+
 // Seat is a named parking slot under an account. At most one active subscription may occupy a seat.
 type Seat struct {
 	ID        int64     `json:"id"`

@@ -11,6 +11,7 @@ import type {
   BillsSummary,
   BusinessGoalInput,
   BulkNextPriceInput,
+  BulkPricingExemptionInput,
   CalendarMonth,
   CronPreview,
   Dashboard,
@@ -196,6 +197,13 @@ export function refreshGoalMarket() {
 
 export function scheduleGoalBulkNextPrice(input: BulkNextPriceInput) {
   return api<MessageResult & { updated_count: number }>("/api/goals/pricing/bulk-next-price", {
+    method: "POST",
+    body: input,
+  })
+}
+
+export function exemptGoalBulkPricing(input: BulkPricingExemptionInput) {
+  return api<MessageResult & { updated_count: number }>("/api/goals/pricing/bulk-exempt", {
     method: "POST",
     body: input,
   })

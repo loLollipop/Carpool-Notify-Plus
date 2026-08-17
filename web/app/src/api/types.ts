@@ -675,10 +675,13 @@ export interface PricingCandidate {
     | "scheduled"
     | "protection"
     | "cooldown"
+    | "exempted"
   next_review_date: string
   suggested_monthly_uplift_cents: number
   scheduled_monthly_uplift_cents: number
   monthly_revenue_cents: number
+  customer_group_size: number
+  customer_group_monthly_revenue_cents: number
   customer_tier: "core" | "mainstay" | "optimize"
   relationship_stage: "new" | "developing" | "established" | "loyal"
   adjustment_risk: "low" | "medium" | "high"
@@ -686,6 +689,17 @@ export interface PricingCandidate {
   price_gap_percent: number
   suggested_increase_percent: number
   analysis_codes: string[] | null
+  expedited_review: boolean
+  exemption_count: number
+  last_exempted_at: string
+  exemption_review_date: string
+  exemption_reason_code: string
+  loyalty_score: number
+  relationship_asset_score: number
+  price_pressure_score: number
+  price_stable_days: number
+  paid_periods_after_increase: number
+  after_sales_case_count: number
   recommended: boolean
   eligible: boolean
   blocked_reason: string
@@ -705,6 +719,7 @@ export interface RepricingSegment {
 export interface CustomerTierSummary {
   key: "core" | "mainstay" | "optimize"
   count: number
+  customer_count: number
   monthly_revenue_cents: number
   revenue_share_percent: number
   average_price_cents: number
@@ -716,6 +731,7 @@ export interface CustomerTierSummary {
 
 export interface RepricingAnalysis {
   total_count: number
+  customer_count: number
   eligible_count: number
   recommended_count: number
   scheduled_count: number
@@ -727,6 +743,10 @@ export interface RepricingAnalysis {
   windows: RepricingWindow[] | null
   average_relationship_days: number
   average_paid_periods: number
+  average_loyalty_score: number
+  average_relationship_asset_score: number
+  average_price_pressure_score: number
+  active_exemption_count: number
   relationship_segments: RepricingSegment[] | null
   risk_segments: RepricingSegment[] | null
   price_segments: RepricingSegment[] | null
@@ -752,6 +772,18 @@ export interface BusinessGoalInput {
 export interface BulkNextPriceInput {
   subscription_ids: number[]
   next_price_yuan: string
+}
+
+export interface BulkPricingExemptionInput {
+  subscription_ids: number[]
+  review_cycles: number
+  reason_code:
+    | "loyalty_reward"
+    | "multi_seat_retention"
+    | "price_observation"
+    | "relationship_investment"
+    | "manual"
+  note: string
 }
 
 export interface RedemptionRejectInput {
