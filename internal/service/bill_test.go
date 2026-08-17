@@ -45,6 +45,44 @@ func TestSetDuePaidCreatesAndDeletesBill(t *testing.T) {
 	}
 }
 
+func TestBillsPageHidesLegacyTeamBillCostSnapshot(t *testing.T) {
+	subscriptionService := openTestService(t)
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "legacy-cost-owner", "车位1")
+	subscriptionID, err := subscriptionService.Create(service.CreateInput{
+		Name:             "legacy-cost-customer",
+		PriceYuan:        "90.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "0",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.Store.SetDuePaid(subscriptionID, "2026-07-01", true, 9000, 4500); err != nil {
+		t.Fatal(err)
+	}
+
+	page, err := subscriptionService.ListBillsPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Bills) != 1 || page.Bills[0].CostCents != 0 || page.Bills[0].CostYuan != "0.00" {
+		t.Fatalf("legacy Team bill cost leaked into reporting: %#v", page.Bills)
+	}
+	if page.Summary.TotalCostCents != 0 || page.Summary.TotalProfitCents != 9000 {
+		t.Fatalf("legacy Team cost was double counted: %#v", page.Summary)
+	}
+	dashboard, err := subscriptionService.ComputeDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dashboard.TotalCostYuan != page.Summary.TotalCostYuan ||
+		dashboard.TotalProfitCents != page.Summary.TotalProfitCents {
+		t.Fatalf("dashboard and bills disagree: dashboard=%#v bills=%#v", dashboard, page.Summary)
+	}
+}
+
 func TestSetDuePaidRejectsStaleSubscriptionPriceSnapshot(t *testing.T) {
 	subscriptionService := openTestService(t)
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "并发账单账号", "车位1")

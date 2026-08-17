@@ -168,7 +168,8 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 	archived := false
 	tradeURL := ""
 	priceYuan := cycle.FormatCents(bill.AmountCents)
-	costYuan := cycle.FormatCents(bill.CostCents)
+	reportedCostCents := int64(0)
+	costYuan := cycle.FormatCents(0)
 	agencyFeeYuan := ""
 	isResale := false
 	profitYuan := ""
@@ -196,6 +197,8 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 		// historical profit is exact. Team owner costs live in a separate account
 		// ledger and cannot be truthfully attributed to one old bill.
 		if isPlusSubscription(subscription) {
+			reportedCostCents = bill.CostCents
+			costYuan = cycle.FormatCents(reportedCostCents)
 			profitYuan = cycle.FormatCents(bill.AmountCents - bill.CostCents - refundCents)
 		}
 		cycleDesc = cycle.DescribeCron(subscription.CronExpr)
@@ -242,7 +245,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 		DueDate:          bill.DueDate,
 		AmountYuan:       cycle.FormatCents(bill.AmountCents),
 		AmountCents:      bill.AmountCents,
-		CostCents:        bill.CostCents,
+		CostCents:        reportedCostCents,
 		RefundYuan:       cycle.FormatCents(refundCents),
 		RefundCents:      refundCents,
 		NetAmountYuan:    cycle.FormatCents(netAmountCents),
@@ -295,10 +298,7 @@ func buildBillsSummaryWithRefunds(
 	subscriptionArchived := map[int64]bool{}
 
 	subscriptionTotals := map[int64]*AmountBar{}
-	accountTotals := map[string]struct {
-		count int
-		cents int64
-	}{}
+	accountTotals := map[string]*accountAmountBucket{}
 	monthTotals := map[string]struct {
 		count       int
 		grossCents  int64
@@ -311,7 +311,12 @@ func buildBillsSummaryWithRefunds(
 			netAmountCents = view.AmountCents - view.RefundCents
 		}
 		totalCents += view.AmountCents
-		totalCostCents += view.CostCents
+		// Team owner costs are recorded once in the account ledger. Some legacy
+		// Team bills may still contain an old per-bill cost snapshot; counting it
+		// here would charge the same owner-account cost twice.
+		if view.BusinessType == model.SubscriptionBusinessPlus {
+			totalCostCents += view.CostCents
+		}
 		// One subscription can have many renewal bills. These two KPIs describe
 		// linked subscriptions, so each subscription must only be counted once.
 		subscriptionArchived[view.SubscriptionID] = view.Archived
@@ -338,18 +343,27 @@ func buildBillsSummaryWithRefunds(
 		bar, exists := subscriptionTotals[view.SubscriptionID]
 		if !exists {
 			bar = &AmountBar{
-				Name:        view.SubscriptionName,
-				AccountName: view.AccountName,
+				SubscriptionID: view.SubscriptionID,
+				Name:           view.SubscriptionName,
+				AccountName:    view.AccountName,
 			}
 			subscriptionTotals[view.SubscriptionID] = bar
 		}
 		bar.AmountCents += netAmountCents
 		bar.AmountYuan = cycle.FormatCents(bar.AmountCents)
 
-		accountBucket := accountTotals[view.AccountName]
+		accountKey := accountAmountKey(view.BusinessType, view.AccountID, view.AccountName)
+		accountBucket, exists := accountTotals[accountKey]
+		if !exists {
+			accountBucket = &accountAmountBucket{
+				Key:         accountKey,
+				AccountID:   view.AccountID,
+				AccountName: view.AccountName,
+			}
+			accountTotals[accountKey] = accountBucket
+		}
 		accountBucket.count++
 		accountBucket.cents += netAmountCents
-		accountTotals[view.AccountName] = accountBucket
 	}
 	for _, archived := range subscriptionArchived {
 		if archived {
@@ -382,16 +396,21 @@ func buildBillsSummaryWithRefunds(
 	}
 	sort.Slice(amountBars, func(left int, right int) bool {
 		if amountBars[left].AmountCents == amountBars[right].AmountCents {
+			if amountBars[left].Name == amountBars[right].Name {
+				return amountBars[left].SubscriptionID < amountBars[right].SubscriptionID
+			}
 			return amountBars[left].Name < amountBars[right].Name
 		}
 		return amountBars[left].AmountCents > amountBars[right].AmountCents
 	})
 
 	accounts := make([]AccountBreakdown, 0, len(accountTotals))
-	for accountName, bucket := range accountTotals {
+	for _, bucket := range accountTotals {
 		accounts = append(accounts, AccountBreakdown{
-			AccountName: accountName,
-			Type:        accountName,
+			Key:         bucket.Key,
+			AccountID:   bucket.AccountID,
+			AccountName: bucket.AccountName,
+			Type:        bucket.AccountName,
 			Count:       bucket.count,
 			AmountYuan:  cycle.FormatCents(bucket.cents),
 			AmountCents: bucket.cents,
@@ -399,6 +418,9 @@ func buildBillsSummaryWithRefunds(
 	}
 	sort.Slice(accounts, func(left int, right int) bool {
 		if accounts[left].AmountCents == accounts[right].AmountCents {
+			if accounts[left].AccountName == accounts[right].AccountName {
+				return accounts[left].Key < accounts[right].Key
+			}
 			return accounts[left].AccountName < accounts[right].AccountName
 		}
 		return accounts[left].AmountCents > accounts[right].AmountCents

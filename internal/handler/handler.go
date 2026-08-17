@@ -231,10 +231,12 @@ func respondOK(context *gin.Context, payload gin.H) {
 	if payload == nil {
 		payload = gin.H{}
 	}
+	context.Header("Cache-Control", "no-store")
 	payload["ok"] = true
 	context.JSON(http.StatusOK, payload)
 }
 
 func respondError(context *gin.Context, status int, message string) {
+	context.Header("Cache-Control", "no-store")
 	context.JSON(status, gin.H{"ok": false, "error": message})
 }

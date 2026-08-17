@@ -105,6 +105,14 @@ function formatAxisCents(cents: number) {
   })}`
 }
 
+function compactChartLabel(value: string, maxLength = 12) {
+  const characters = Array.from(value)
+  if (characters.length <= maxLength) return value
+  const suffixLength = Math.min(4, maxLength - 2)
+  const prefixLength = maxLength - suffixLength - 1
+  return `${characters.slice(0, prefixLength).join("")}…${characters.slice(-suffixLength).join("")}`
+}
+
 function getChartScale(values: number[]) {
   const minValue = Math.min(0, ...values)
   const maxValue = Math.max(0, ...values)
@@ -341,12 +349,14 @@ function AmountDistributionCard({
   const data = React.useMemo(() => {
     if (mode === "subscription") {
       return (summary.amount_by_subscription ?? []).map((bar) => ({
+        key: `subscription:${bar.subscription_id}`,
         name: bar.name,
         cents: bar.amount_cents,
         yuan: bar.amount_yuan,
       }))
     }
     return (summary.accounts ?? []).map((bar) => ({
+      key: bar.key,
       name: bar.account_name,
       cents: bar.amount_cents,
       yuan: bar.amount_yuan,
@@ -359,6 +369,7 @@ function AmountDistributionCard({
   const pageStartIndex = (safePage - 1) * AMOUNT_ITEMS_PER_PAGE
   const pagedData = data.slice(pageStartIndex, pageStartIndex + AMOUNT_ITEMS_PER_PAGE)
   const pageEndIndex = pageStartIndex + pagedData.length
+  const chartHeight = Math.max(128, pagedData.length * 40)
 
   return (
     <Card className="gap-4 overflow-hidden p-5 animate-fade-up" style={{ animationDelay: "120ms" }}>
@@ -403,20 +414,18 @@ function AmountDistributionCard({
         <p className="py-10 text-center text-sm text-muted-foreground">{t("bills.chartEmpty")}</p>
       ) : (
         <div className="grid gap-3">
-          <div className="h-[240px]">
+          <div style={{ height: chartHeight }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={pagedData} layout="vertical" margin={{ top: 0, right: 56, bottom: 0, left: 0 }}>
                 <XAxis type="number" hide />
                 <YAxis
                   type="category"
                   dataKey="name"
-                  width={104}
+                  width={124}
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                  tickFormatter={(value: string) =>
-                    value.length > 8 ? `${value.slice(0, 8)}…` : value
-                  }
+                  tickFormatter={(value: string) => compactChartLabel(value)}
                 />
                 <RechartsTooltip
                   cursor={{ fill: "var(--accent)" }}
@@ -434,9 +443,9 @@ function AmountDistributionCard({
                       amountsHidden ? AMOUNT_MASK : formatCents(Number(value)),
                   }}
                 >
-                  {pagedData.map((_, index) => (
+                  {pagedData.map((item, index) => (
                     <Cell
-                      key={index}
+                      key={item.key}
                       fill={CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length]}
                     />
                   ))}
@@ -448,7 +457,8 @@ function AmountDistributionCard({
           {pageCount > 1 ? (
             <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
               <span className="tabular-nums">
-                {pageStartIndex + 1}-{pageEndIndex} / {data.length}
+                {maskValue(amountsHidden, pageStartIndex + 1)}-
+                {maskValue(amountsHidden, pageEndIndex)} / {maskValue(amountsHidden, data.length)}
               </span>
               <div className="flex items-center gap-1.5">
                 <Button
@@ -462,7 +472,7 @@ function AmountDistributionCard({
                   <ChevronLeft />
                 </Button>
                 <span className="min-w-12 text-center tabular-nums">
-                  {safePage} / {pageCount}
+                  {maskValue(amountsHidden, safePage)} / {maskValue(amountsHidden, pageCount)}
                 </span>
                 <Button
                   type="button"
@@ -498,6 +508,7 @@ function AccountDonutCard({
     window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   )
   const data = (summary.accounts ?? []).map((item) => ({
+    key: item.key,
     name: item.account_name,
     cents: item.amount_cents,
     yuan: item.amount_yuan,
@@ -545,9 +556,9 @@ function AccountDonutCard({
                   animationDuration={1000}
                   animationEasing="ease-out"
                 >
-                  {pagedData.map((_, index) => (
+                  {pagedData.map((item, index) => (
                     <Cell
-                      key={index}
+                      key={item.key}
                       fill={CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length]}
                     />
                   ))}
@@ -556,7 +567,7 @@ function AccountDonutCard({
             </div>
             <ul className="grid min-w-0 flex-1 gap-2">
               {pagedData.map((item, index) => (
-                <li key={item.name} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-xs">
+                <li key={item.key} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-xs">
                   <i
                     className="size-2.5 shrink-0 rounded-[3px]"
                     style={{ background: CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length] }}
@@ -574,7 +585,8 @@ function AccountDonutCard({
           {pageCount > 1 ? (
             <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
               <span className="tabular-nums">
-                {pageStartIndex + 1}-{pageEndIndex} / {data.length}
+                {maskValue(amountsHidden, pageStartIndex + 1)}-
+                {maskValue(amountsHidden, pageEndIndex)} / {maskValue(amountsHidden, data.length)}
               </span>
               <div className="flex items-center gap-1.5">
                 <Button
@@ -588,7 +600,7 @@ function AccountDonutCard({
                   <ChevronLeft />
                 </Button>
                 <span className="min-w-12 text-center tabular-nums">
-                  {safePage} / {pageCount}
+                  {maskValue(amountsHidden, safePage)} / {maskValue(amountsHidden, pageCount)}
                 </span>
                 <Button
                   type="button"
@@ -882,15 +894,15 @@ export function BillsPage() {
                 </SelectContent>
               </Select>
               <p className="shrink-0 text-xs text-muted-foreground">
-                {t("bills.listMeta", { count: filteredBills.length })}
+                {t("bills.listMeta", { count: maskValue(amountsHidden, filteredBills.length) })}
               </p>
             </div>
           </div>
 
-          {bills.length === 0 ? (
+          {filteredBills.length === 0 ? (
             <Card className="items-center py-16 text-center animate-fade-up">
               <p className="max-w-md text-sm leading-relaxed text-muted-foreground">
-                {t("bills.empty")}
+                {t(bills.length === 0 ? "bills.empty" : "bills.searchEmpty")}
               </p>
             </Card>
           ) : (
@@ -924,13 +936,6 @@ export function BillsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredBills.length === 0 ? (
-                    <TableRow className="hover:bg-transparent">
-                      <TableCell colSpan={9} className="py-12 text-center text-muted-foreground">
-                        {t("bills.searchEmpty")}
-                      </TableCell>
-                    </TableRow>
-                  ) : null}
                   {pagedBills.map((bill) => {
                     const { plusRental, primaryName, customerLine } = billIdentity(bill)
                     return (
@@ -1007,11 +1012,11 @@ export function BillsPage() {
                 <div className="flex flex-col items-center justify-between gap-3 border-t px-4 py-3 text-xs text-muted-foreground sm:flex-row">
                   <span>
                     {t("bills.pageStatus", {
-                      page: safePage,
-                      pageCount,
-                      start: pageStartIndex + 1,
-                      end: pageEndIndex,
-                      total: filteredBills.length,
+                      page: maskValue(amountsHidden, safePage),
+                      pageCount: maskValue(amountsHidden, pageCount),
+                      start: maskValue(amountsHidden, pageStartIndex + 1),
+                      end: maskValue(amountsHidden, pageEndIndex),
+                      total: maskValue(amountsHidden, filteredBills.length),
                     })}
                   </span>
                   <div className="flex items-center gap-1.5">
@@ -1042,11 +1047,11 @@ export function BillsPage() {
                 <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground md:hidden">
                   <span>
                     {t("bills.pageStatus", {
-                      page: safePage,
-                      pageCount,
-                      start: pageStartIndex + 1,
-                      end: pageEndIndex,
-                      total: filteredBills.length,
+                      page: maskValue(amountsHidden, safePage),
+                      pageCount: maskValue(amountsHidden, pageCount),
+                      start: maskValue(amountsHidden, pageStartIndex + 1),
+                      end: maskValue(amountsHidden, pageEndIndex),
+                      total: maskValue(amountsHidden, filteredBills.length),
                     })}
                   </span>
                   <div className="flex items-center gap-1.5">

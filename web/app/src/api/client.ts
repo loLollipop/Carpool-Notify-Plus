@@ -30,6 +30,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   const { method = "GET", body, silent401 = false } = options
   const response = await fetch(scopeBusinessPath(path), {
     method,
+    cache: "no-store",
     credentials: "same-origin",
     headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,

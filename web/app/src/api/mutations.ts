@@ -25,13 +25,16 @@ export function useAppMutation<TVariables = void, TData = { message?: string }>(
   return useMutation<TData, Error, TVariables>({
     mutationFn,
     onSuccess: (data, variables) => {
+      // Run the screen-specific success action first. Dialogs and confirms
+      // must be allowed to close even if a later cache refresh or toast has a
+      // problem in the browser.
+      options.onSuccess?.(data, variables)
       void invalidateAppData(queryClient)
       if (options.successToast !== false) {
         const serverMessage = (data as { message?: string } | null | undefined)?.message
         const message = options.successMessage ?? serverMessage
         if (message) toast.success(message)
       }
-      options.onSuccess?.(data, variables)
     },
     onError: (error, variables) => {
       toast.error(error.message)

@@ -228,6 +228,13 @@ func (service *SubscriptionService) CreateAccount(input CreateAccountInput) (int
 	if totalCostCents != nil {
 		initialCostCents = *totalCostCents
 	}
+	initialCostPeriod := cycle.FormatDate(service.now())
+	// A value different from the monthly cost represents an imported cumulative
+	// balance. Without a detailed historical ledger it must stay in the import
+	// period; moving the whole balance to opened_at would distort that month.
+	if openedAt != "" && initialCostCents == costCents {
+		initialCostPeriod = openedAt
+	}
 
 	accountID, err := service.Store.CreateAccount(model.Account{
 		Name:                 name,
@@ -238,7 +245,7 @@ func (service *SubscriptionService) CreateAccount(input CreateAccountInput) (int
 		OpenedAt:             openedAt,
 		CostCents:            costCents,
 		ZeroRenewalNextMonth: input.ZeroRenewalNextMonth,
-	}, initialCostCents, cycle.FormatDate(service.now()))
+	}, initialCostCents, initialCostPeriod)
 	if err != nil {
 		return 0, err
 	}
@@ -256,7 +263,8 @@ func (service *SubscriptionService) CreateAccount(input CreateAccountInput) (int
 // UpdateAccount updates account name, remark, and optional seat capacity.
 // When SeatCount > 0, seat rows are resized to that count (cannot shrink below active occupancy).
 func (service *SubscriptionService) UpdateAccount(accountID int64, input UpdateAccountInput) error {
-	if _, err := service.Store.GetAccount(accountID); err != nil {
+	storedAccount, err := service.Store.GetAccount(accountID)
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("账号不存在")
 		}
@@ -279,6 +287,17 @@ func (service *SubscriptionService) UpdateAccount(accountID int64, input UpdateA
 	totalCostCents, err := normalizeOptionalAccountTotalCost(input.TotalCostYuan)
 	if err != nil {
 		return err
+	}
+	if openedAt != strings.TrimSpace(storedAccount.OpenedAt) {
+		costRecords, listErr := service.Store.ListAccountCostRecords(accountID)
+		if listErr != nil {
+			return listErr
+		}
+		for _, record := range costRecords {
+			if record.Source == model.AccountCostSourceRenewal || record.Source == model.AccountCostSourceZeroRenewal {
+				return fmt.Errorf("该账号已有续费成本记录，为避免重复计费，不能再修改开通日期")
+			}
+		}
 	}
 	// Validate capacity before persisting metadata/cost changes. Previously an
 	// invalid shrink returned an error after those unrelated fields were saved.

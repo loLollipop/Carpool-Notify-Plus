@@ -343,6 +343,9 @@ func (store *Store) migrate() error {
 	if err := store.backfillAccountCostRecords(); err != nil {
 		return err
 	}
+	if err := store.repairMisdatedInitialAccountCosts(); err != nil {
+		return err
+	}
 	if err := store.repairMisdatedInitialBills(); err != nil {
 		return err
 	}
@@ -535,7 +538,13 @@ func (store *Store) backfillAccountCostRecords() error {
 		INSERT INTO account_cost_records (
 			account_id, period_date, amount_cents, source, note, created_at
 		)
-		SELECT id, ?, COALESCE(cost_cents, 0), ?, 'Migrated current account cost', ?
+		SELECT id,
+			CASE
+				WHEN LENGTH(TRIM(opened_at)) = 10 AND date(TRIM(opened_at)) IS NOT NULL
+					THEN TRIM(opened_at)
+				ELSE ?
+			END,
+			COALESCE(cost_cents, 0), ?, 'Migrated current account cost', ?
 		FROM accounts
 		WHERE NOT EXISTS (
 			SELECT 1 FROM account_cost_records WHERE account_id = accounts.id
@@ -546,6 +555,51 @@ func (store *Store) backfillAccountCostRecords() error {
 	)
 	if err != nil {
 		return fmt.Errorf("backfill account cost records: %w", err)
+	}
+	return nil
+}
+
+// repairMisdatedInitialAccountCosts moves imported single-period owner-account
+// costs to the opening period. Older versions used the record/import date,
+// which shifted historical profit into the month the account was entered.
+// A cumulative historical balance is deliberately kept in its import period.
+// Conflicting automatic records are left untouched here; period reporting also
+// resolves initial costs by opened_at so a legacy conflict cannot distort profit.
+func (store *Store) repairMisdatedInitialAccountCosts() error {
+	_, err := store.database.Exec(`
+		UPDATE account_cost_records AS cost
+		SET period_date = (
+			SELECT TRIM(account.opened_at)
+			FROM accounts AS account
+			WHERE account.id = cost.account_id
+		)
+		WHERE cost.source = ?
+		  AND EXISTS (
+			SELECT 1
+			FROM accounts AS account
+			WHERE account.id = cost.account_id
+			  AND LENGTH(TRIM(account.opened_at)) = 10
+			  AND date(TRIM(account.opened_at)) IS NOT NULL
+			  AND cost.amount_cents = account.cost_cents
+			  AND cost.note <> 'Historical cumulative account cost'
+			  AND TRIM(account.opened_at) <> cost.period_date
+		  )
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM account_cost_records AS other
+			JOIN accounts AS account ON account.id = cost.account_id
+			WHERE other.account_id = cost.account_id
+			  AND other.id <> cost.id
+			  AND other.period_date = TRIM(account.opened_at)
+			  AND other.source IN (?, ?, ?)
+		  )`,
+		model.AccountCostSourceInitial,
+		model.AccountCostSourceInitial,
+		model.AccountCostSourceRenewal,
+		model.AccountCostSourceZeroRenewal,
+	)
+	if err != nil {
+		return fmt.Errorf("repair initial account cost periods: %w", err)
 	}
 	return nil
 }
@@ -2809,6 +2863,10 @@ func (store *Store) CreateAccount(account model.Account, initialCostCents int64,
 	if err != nil {
 		return 0, err
 	}
+	initialCostNote := "Initial account cost"
+	if initialCostCents != account.CostCents {
+		initialCostNote = "Historical cumulative account cost"
+	}
 	if _, err := transaction.Exec(`
 		INSERT INTO account_cost_records (
 			account_id, period_date, amount_cents, source, note, created_at
@@ -2817,7 +2875,7 @@ func (store *Store) CreateAccount(account model.Account, initialCostCents int64,
 		periodDate,
 		initialCostCents,
 		model.AccountCostSourceInitial,
-		"Initial account cost",
+		initialCostNote,
 		now,
 	); err != nil {
 		return 0, err
@@ -2840,6 +2898,13 @@ func (store *Store) UpdateAccount(account model.Account, targetTotalCostCents *i
 		return err
 	}
 	defer func() { _ = transaction.Rollback() }()
+	var previousMonthlyCostCents int64
+	if err := transaction.QueryRow(
+		`SELECT cost_cents FROM accounts WHERE id = ?`,
+		account.ID,
+	).Scan(&previousMonthlyCostCents); err != nil {
+		return err
+	}
 
 	result, err := transaction.Exec(`
 		UPDATE accounts
@@ -2866,6 +2931,37 @@ func (store *Store) UpdateAccount(account model.Account, targetTotalCostCents *i
 	}
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
+	}
+	if openedAt := strings.TrimSpace(account.OpenedAt); openedAt != "" {
+		if _, err := transaction.Exec(`
+			UPDATE account_cost_records AS cost
+			SET period_date = ?
+			WHERE cost.account_id = ?
+			  AND cost.source = ?
+			  AND cost.amount_cents IN (?, ?)
+			  AND cost.note <> 'Historical cumulative account cost'
+			  AND cost.period_date <> ?
+			  AND NOT EXISTS (
+				SELECT 1
+				FROM account_cost_records AS other
+				WHERE other.account_id = cost.account_id
+				  AND other.id <> cost.id
+				  AND other.period_date = ?
+				  AND other.source IN (?, ?, ?)
+			  )`,
+			openedAt,
+			account.ID,
+			model.AccountCostSourceInitial,
+			previousMonthlyCostCents,
+			account.CostCents,
+			openedAt,
+			openedAt,
+			model.AccountCostSourceInitial,
+			model.AccountCostSourceRenewal,
+			model.AccountCostSourceZeroRenewal,
+		); err != nil {
+			return fmt.Errorf("align initial account cost period: %w", err)
+		}
 	}
 	if targetTotalCostCents != nil {
 		var currentTotal int64

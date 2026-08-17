@@ -115,30 +115,36 @@ type PricingRecommendation struct {
 // optional next-cycle repricing. Current-period prices and bills are never
 // mutated by the bulk action.
 type PricingCandidate struct {
-	SubscriptionID         int64  `json:"subscription_id"`
-	Name                   string `json:"name"`
-	CustomerEmail          string `json:"customer_email"`
-	CustomerWechat         string `json:"customer_wechat"`
-	AccountName            string `json:"account_name"`
-	SeatName               string `json:"seat_name"`
-	CurrentPriceCents      int64  `json:"current_price_cents"`
-	NextPriceCents         *int64 `json:"next_price_cents"`
-	NextPriceEffectiveDate string `json:"next_price_effective_date"`
-	NextDueDate            string `json:"next_due_date"`
-	MarketPosition         string `json:"market_position"`
-	GapToMarketMedianCents int64  `json:"gap_to_market_median_cents"`
-	SuggestedPriceCents    int64  `json:"suggested_price_cents"`
-	MaxIncreasePriceCents  int64  `json:"max_increase_price_cents"`
-	PaidPeriodCount        int    `json:"paid_period_count"`
-	RelationshipDays       int    `json:"relationship_days"`
-	LastPriceIncreaseDate  string `json:"last_price_increase_date"`
-	BlockedCode            string `json:"blocked_code"`
-	NextReviewDate         string `json:"next_review_date"`
-	SuggestedMonthlyUplift int64  `json:"suggested_monthly_uplift_cents"`
-	ScheduledMonthlyUplift int64  `json:"scheduled_monthly_uplift_cents"`
-	Recommended            bool   `json:"recommended"`
-	Eligible               bool   `json:"eligible"`
-	BlockedReason          string `json:"blocked_reason"`
+	SubscriptionID         int64    `json:"subscription_id"`
+	Name                   string   `json:"name"`
+	CustomerEmail          string   `json:"customer_email"`
+	CustomerWechat         string   `json:"customer_wechat"`
+	AccountName            string   `json:"account_name"`
+	SeatName               string   `json:"seat_name"`
+	CurrentPriceCents      int64    `json:"current_price_cents"`
+	NextPriceCents         *int64   `json:"next_price_cents"`
+	NextPriceEffectiveDate string   `json:"next_price_effective_date"`
+	NextDueDate            string   `json:"next_due_date"`
+	MarketPosition         string   `json:"market_position"`
+	GapToMarketMedianCents int64    `json:"gap_to_market_median_cents"`
+	SuggestedPriceCents    int64    `json:"suggested_price_cents"`
+	MaxIncreasePriceCents  int64    `json:"max_increase_price_cents"`
+	PaidPeriodCount        int      `json:"paid_period_count"`
+	RelationshipDays       int      `json:"relationship_days"`
+	LastPriceIncreaseDate  string   `json:"last_price_increase_date"`
+	BlockedCode            string   `json:"blocked_code"`
+	NextReviewDate         string   `json:"next_review_date"`
+	SuggestedMonthlyUplift int64    `json:"suggested_monthly_uplift_cents"`
+	ScheduledMonthlyUplift int64    `json:"scheduled_monthly_uplift_cents"`
+	RelationshipStage      string   `json:"relationship_stage"`
+	AdjustmentRisk         string   `json:"adjustment_risk"`
+	ReadinessScore         int      `json:"readiness_score"`
+	PriceGapPercent        int      `json:"price_gap_percent"`
+	SuggestedIncreasePct   int      `json:"suggested_increase_percent"`
+	AnalysisCodes          []string `json:"analysis_codes"`
+	Recommended            bool     `json:"recommended"`
+	Eligible               bool     `json:"eligible"`
+	BlockedReason          string   `json:"blocked_reason"`
 }
 
 type RepricingWindow struct {
@@ -147,17 +153,27 @@ type RepricingWindow struct {
 	MonthlyUpliftCents int64  `json:"monthly_uplift_cents"`
 }
 
+type RepricingSegment struct {
+	Key   string `json:"key"`
+	Count int    `json:"count"`
+}
+
 type RepricingAnalysis struct {
-	TotalCount                  int               `json:"total_count"`
-	EligibleCount               int               `json:"eligible_count"`
-	RecommendedCount            int               `json:"recommended_count"`
-	ScheduledCount              int               `json:"scheduled_count"`
-	ProtectedCount              int               `json:"protected_count"`
-	BelowMarketCount            int               `json:"below_market_count"`
-	EstimatedMonthlyUpliftCents int64             `json:"estimated_monthly_uplift_cents"`
-	PipelineMonthlyUpliftCents  int64             `json:"pipeline_monthly_uplift_cents"`
-	ScheduledMonthlyUpliftCents int64             `json:"scheduled_monthly_uplift_cents"`
-	Windows                     []RepricingWindow `json:"windows"`
+	TotalCount                  int                `json:"total_count"`
+	EligibleCount               int                `json:"eligible_count"`
+	RecommendedCount            int                `json:"recommended_count"`
+	ScheduledCount              int                `json:"scheduled_count"`
+	ProtectedCount              int                `json:"protected_count"`
+	BelowMarketCount            int                `json:"below_market_count"`
+	EstimatedMonthlyUpliftCents int64              `json:"estimated_monthly_uplift_cents"`
+	PipelineMonthlyUpliftCents  int64              `json:"pipeline_monthly_uplift_cents"`
+	ScheduledMonthlyUpliftCents int64              `json:"scheduled_monthly_uplift_cents"`
+	Windows                     []RepricingWindow  `json:"windows"`
+	AverageRelationshipDays     int                `json:"average_relationship_days"`
+	AveragePaidPeriods          float64            `json:"average_paid_periods"`
+	RelationshipSegments        []RepricingSegment `json:"relationship_segments"`
+	RiskSegments                []RepricingSegment `json:"risk_segments"`
+	PriceSegments               []RepricingSegment `json:"price_segments"`
 }
 
 type BulkNextPriceInput struct {
@@ -337,6 +353,21 @@ func (service *SubscriptionService) buildProfitTrend(monthCount int) ([]ProfitMo
 	if err != nil {
 		return nil, err
 	}
+	activeSubscriptions, err := service.Store.ListSubscriptions()
+	if err != nil {
+		return nil, err
+	}
+	archivedSubscriptions, err := service.Store.ListArchivedSubscriptions()
+	if err != nil {
+		return nil, err
+	}
+	businessTypeBySubscriptionID := make(map[int64]string, len(activeSubscriptions)+len(archivedSubscriptions))
+	for _, subscription := range activeSubscriptions {
+		businessTypeBySubscriptionID[subscription.ID] = subscription.BusinessType
+	}
+	for _, subscription := range archivedSubscriptions {
+		businessTypeBySubscriptionID[subscription.ID] = subscription.BusinessType
+	}
 	for _, bill := range bills {
 		// Profit trend is an accounting-period view. Historical bills are often
 		// imported later, so using paid_at would move July revenue into the import
@@ -347,7 +378,11 @@ func (service *SubscriptionService) buildProfitTrend(monthCount int) ([]ProfitMo
 		}
 		if index, exists := monthIndex[key]; exists {
 			months[index].RevenueCents += bill.AmountCents
-			months[index].CostCents += bill.CostCents
+			// Team costs belong to the owner-account ledger. Ignore legacy Team
+			// bill snapshots here or the same cost would be counted twice.
+			if businessTypeBySubscriptionID[bill.SubscriptionID] == model.SubscriptionBusinessPlus {
+				months[index].CostCents += bill.CostCents
+			}
 		}
 	}
 
@@ -355,8 +390,36 @@ func (service *SubscriptionService) buildProfitTrend(monthCount int) ([]ProfitMo
 	if err != nil {
 		return nil, err
 	}
+	accounts, err := service.Store.ListAccounts()
+	if err != nil {
+		return nil, err
+	}
+	type accountOpeningCost struct {
+		month            string
+		monthlyCostCents int64
+	}
+	accountOpeningCosts := make(map[int64]accountOpeningCost, len(accounts))
+	for _, account := range accounts {
+		if key := monthFromDate(account.OpenedAt); key != "" {
+			accountOpeningCosts[account.ID] = accountOpeningCost{
+				month:            key,
+				monthlyCostCents: account.CostCents,
+			}
+		}
+	}
 	for _, record := range costRecords {
 		key := monthFromDate(record.PeriodDate)
+		// Imported initial owner-account costs belong to the opening period, not
+		// the later date on which the historical account was entered. Keep this
+		// reporting fallback even after the storage repair for conflict safety.
+		// Historical cumulative balances deliberately stay in their import month.
+		if record.Source == model.AccountCostSourceInitial {
+			if openingCost, exists := accountOpeningCosts[record.AccountID]; exists &&
+				record.AmountCents == openingCost.monthlyCostCents &&
+				record.Note != "Historical cumulative account cost" {
+				key = openingCost.month
+			}
+		}
 		if index, exists := monthIndex[key]; exists {
 			months[index].CostCents += record.AmountCents
 		}
@@ -743,29 +806,35 @@ func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.M
 	marketLow := snapshot.LowPriceCents
 	marketMedian := snapshot.MedianPriceCents
 	marketHigh := snapshot.HighPriceCents
-	attractiveMarketPrice := attractiveRenewalPriceCents(marketMedian)
+	competitiveUpper := marketMedian
+	if competitiveUpper <= marketLow && marketHigh > marketLow {
+		competitiveUpper = marketHigh
+	}
 	minimumHealthyPrice := seatCostFloorCents * 120 / 100
 	switch {
 	case utilizationPercent < 70:
 		recommendation.Action = "fill"
 		recommendation.ReasonCodes = []string{"low_utilization", "protect_occupancy"}
 		recommendation.SuggestedLowPriceCents = maxInt64(minimumHealthyPrice, minInt64(internalMedian, marketLow))
-		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, minInt64(internalMedian, attractiveMarketPrice))
+		recommendation.SuggestedHighPriceCents = maxInt64(
+			recommendation.SuggestedLowPriceCents,
+			minInt64(maxInt64(internalMedian, marketLow), competitiveUpper),
+		)
 	case utilizationPercent >= 85 && internalMedian < marketLow*95/100:
 		recommendation.Action = "raise"
 		recommendation.ReasonCodes = []string{"high_utilization", "below_market"}
 		recommendation.SuggestedLowPriceCents = maxInt64(minimumHealthyPrice, marketLow)
-		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, attractiveMarketPrice)
+		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, competitiveUpper)
 	case utilizationPercent < 85 && internalMedian > marketHigh*110/100:
 		recommendation.Action = "lower_test"
 		recommendation.ReasonCodes = []string{"above_market", "available_seats"}
-		recommendation.SuggestedLowPriceCents = maxInt64(minimumHealthyPrice, attractiveMarketPrice)
-		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, attractiveMarketPrice)
+		recommendation.SuggestedLowPriceCents = maxInt64(minimumHealthyPrice, marketLow)
+		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, competitiveUpper)
 	default:
 		recommendation.Action = "hold"
 		recommendation.ReasonCodes = []string{"price_in_range", "stable_utilization"}
 		recommendation.SuggestedLowPriceCents = maxInt64(minimumHealthyPrice, marketLow)
-		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, marketHigh)
+		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, competitiveUpper)
 	}
 	return recommendation, nil
 }
@@ -791,7 +860,11 @@ func (service *SubscriptionService) buildPricingCandidates(
 	}
 	frozenSubscriptions := make(map[int64]struct{})
 	afterSalesRecoveryEnds := make(map[int64]time.Time)
+	refundedBillIDs := make(map[int64]struct{})
 	for _, caseItem := range afterSalesCases {
+		if caseItem.Status == model.AfterSalesStatusRefunded && caseItem.BillID > 0 {
+			refundedBillIDs[caseItem.BillID] = struct{}{}
+		}
 		if caseItem.Status == model.AfterSalesStatusPending || caseItem.Status == model.AfterSalesStatusReview {
 			frozenSubscriptions[caseItem.SubscriptionID] = struct{}{}
 			continue
@@ -812,7 +885,7 @@ func (service *SubscriptionService) buildPricingCandidates(
 	if err != nil {
 		return nil, err
 	}
-	billHistories := summarizePricingBillHistories(bills)
+	billHistories := summarizePricingBillHistories(bills, refundedBillIDs)
 
 	subscriptions, err := service.Store.ListSubscriptions()
 	if err != nil {
@@ -937,6 +1010,7 @@ func (service *SubscriptionService) buildPricingCandidates(
 					(*subscription.NextPriceCents - subscription.PricePerPersonCents) * factorNumerator / factorDenominator
 			}
 		}
+		populateRepricingInsights(&candidate)
 		candidates = append(candidates, candidate)
 	}
 	sort.SliceStable(candidates, func(left int, right int) bool {
@@ -951,14 +1025,105 @@ func (service *SubscriptionService) buildPricingCandidates(
 	return candidates, nil
 }
 
+func populateRepricingInsights(candidate *PricingCandidate) {
+	switch {
+	case candidate.RelationshipDays < 30 || candidate.PaidPeriodCount == 0:
+		candidate.RelationshipStage = "new"
+	case candidate.RelationshipDays < minimumRepricingRelationshipDays || candidate.PaidPeriodCount < minimumRepricingPaidPeriods:
+		candidate.RelationshipStage = "developing"
+	case candidate.RelationshipDays >= repricingCooldownDays && candidate.PaidPeriodCount >= 6:
+		candidate.RelationshipStage = "loyal"
+	default:
+		candidate.RelationshipStage = "established"
+	}
+
+	switch candidate.BlockedCode {
+	case "account_banned", "after_sales", "after_sales_recovery", "invalid_schedule", "protection", "cooldown":
+		candidate.AdjustmentRisk = "high"
+	default:
+		if candidate.RelationshipDays >= 90 && candidate.PaidPeriodCount >= minimumRepricingPaidPeriods {
+			candidate.AdjustmentRisk = "low"
+		} else {
+			candidate.AdjustmentRisk = "medium"
+		}
+	}
+
+	marketMedianCents := candidate.CurrentPriceCents + candidate.GapToMarketMedianCents
+	if marketMedianCents > 0 && candidate.MarketPosition != "unavailable" {
+		candidate.PriceGapPercent = int(math.Round(
+			float64(candidate.GapToMarketMedianCents) * 100 / float64(marketMedianCents),
+		))
+	}
+	if candidate.CurrentPriceCents > 0 && candidate.SuggestedPriceCents > candidate.CurrentPriceCents {
+		candidate.SuggestedIncreasePct = int(math.Round(
+			float64(candidate.SuggestedPriceCents-candidate.CurrentPriceCents) * 100 /
+				float64(candidate.CurrentPriceCents),
+		))
+	}
+
+	candidate.AnalysisCodes = []string{
+		"relationship_" + candidate.RelationshipStage,
+		"market_" + candidate.MarketPosition,
+	}
+	switch candidate.BlockedCode {
+	case "protection":
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "protect_reference_price")
+	case "cooldown":
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "avoid_repeat_increase")
+	case "after_sales", "after_sales_recovery":
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "repair_service_trust")
+	case "scheduled":
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "change_already_scheduled")
+	case "eligible":
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "relationship_threshold_met")
+	}
+	if candidate.SuggestedPriceCents > candidate.CurrentPriceCents {
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "gradual_increase_cap")
+	}
+
+	marketScore := 0
+	switch candidate.MarketPosition {
+	case "below_low":
+		marketScore = 35
+	case "below_median":
+		marketScore = 22
+	case "market_range":
+		marketScore = 8
+	}
+	tenureScore := minInt(candidate.RelationshipDays, repricingCooldownDays) * 25 / repricingCooldownDays
+	paidScore := minInt(candidate.PaidPeriodCount, 6) * 20 / 6
+	statusScore := 0
+	if candidate.Eligible {
+		statusScore = 20
+	} else if candidate.BlockedCode == "scheduled" {
+		statusScore = 15
+	}
+	candidate.ReadinessScore = marketScore + tenureScore + paidScore + statusScore
+	if candidate.MarketPosition == "unavailable" {
+		candidate.ReadinessScore = minInt(candidate.ReadinessScore, 40)
+	}
+	switch candidate.AdjustmentRisk {
+	case "high":
+		candidate.ReadinessScore = minInt(candidate.ReadinessScore, 39)
+	case "medium":
+		candidate.ReadinessScore = minInt(candidate.ReadinessScore, 74)
+	}
+}
+
 type pricingBillHistory struct {
 	PaidPeriodCount  int
 	LastIncreaseDate string
 }
 
-func summarizePricingBillHistories(bills []model.Bill) map[int64]pricingBillHistory {
+func summarizePricingBillHistories(
+	bills []model.Bill,
+	refundedBillIDs map[int64]struct{},
+) map[int64]pricingBillHistory {
 	grouped := make(map[int64][]model.Bill)
 	for _, bill := range bills {
+		if _, refunded := refundedBillIDs[bill.ID]; refunded {
+			continue
+		}
 		grouped[bill.SubscriptionID] = append(grouped[bill.SubscriptionID], bill)
 	}
 	histories := make(map[int64]pricingBillHistory, len(grouped))
@@ -1030,14 +1195,43 @@ func earliestProtectionReviewDate(
 func buildRepricingAnalysis(candidates []PricingCandidate, now time.Time) RepricingAnalysis {
 	windowOrder := []string{"ready", "next_30", "next_60", "later", "on_hold"}
 	windowIndexes := make(map[string]int, len(windowOrder))
-	analysis := RepricingAnalysis{}
+	analysis := RepricingAnalysis{
+		RelationshipSegments: []RepricingSegment{
+			{Key: "new"},
+			{Key: "developing"},
+			{Key: "established"},
+			{Key: "loyal"},
+		},
+		RiskSegments: []RepricingSegment{
+			{Key: "low"},
+			{Key: "medium"},
+			{Key: "high"},
+		},
+		PriceSegments: []RepricingSegment{
+			{Key: "below_low"},
+			{Key: "below_median"},
+			{Key: "market_range"},
+			{Key: "above_high"},
+			{Key: "unavailable"},
+		},
+	}
+	relationshipIndexes := segmentIndexes(analysis.RelationshipSegments)
+	riskIndexes := segmentIndexes(analysis.RiskSegments)
+	priceIndexes := segmentIndexes(analysis.PriceSegments)
 	for _, key := range windowOrder {
 		windowIndexes[key] = len(analysis.Windows)
 		analysis.Windows = append(analysis.Windows, RepricingWindow{Key: key})
 	}
 	today := cycle.StartOfDay(now)
+	totalRelationshipDays := 0
+	totalPaidPeriods := 0
 	for _, candidate := range candidates {
 		analysis.TotalCount++
+		totalRelationshipDays += candidate.RelationshipDays
+		totalPaidPeriods += candidate.PaidPeriodCount
+		incrementSegment(analysis.RelationshipSegments, relationshipIndexes, candidate.RelationshipStage)
+		incrementSegment(analysis.RiskSegments, riskIndexes, candidate.AdjustmentRisk)
+		incrementSegment(analysis.PriceSegments, priceIndexes, candidate.MarketPosition)
 		if candidate.Eligible {
 			analysis.EligibleCount++
 		}
@@ -1063,7 +1257,10 @@ func buildRepricingAnalysis(candidates []PricingCandidate, now time.Time) Repric
 			readyWindow.MonthlyUpliftCents += candidate.SuggestedMonthlyUplift
 			continue
 		}
-		underpriced := candidate.MarketPosition == "below_low" || candidate.MarketPosition == "below_median"
+		// Only prices below the lower market reference enter the future action
+		// pipeline. A merely below-median user is useful context, but is not an
+		// automatic repricing candidate once their protection period ends.
+		underpriced := candidate.MarketPosition == "below_low"
 		if !underpriced || candidate.SuggestedMonthlyUplift <= 0 || candidate.Eligible {
 			continue
 		}
@@ -1084,7 +1281,29 @@ func buildRepricingAnalysis(candidates []PricingCandidate, now time.Time) Repric
 		window.Count++
 		window.MonthlyUpliftCents += candidate.SuggestedMonthlyUplift
 	}
+	if analysis.TotalCount > 0 {
+		analysis.AverageRelationshipDays = int(math.Round(
+			float64(totalRelationshipDays) / float64(analysis.TotalCount),
+		))
+		analysis.AveragePaidPeriods = math.Round(
+			float64(totalPaidPeriods)/float64(analysis.TotalCount)*10,
+		) / 10
+	}
 	return analysis
+}
+
+func segmentIndexes(segments []RepricingSegment) map[string]int {
+	indexes := make(map[string]int, len(segments))
+	for index, segment := range segments {
+		indexes[segment.Key] = index
+	}
+	return indexes
+}
+
+func incrementSegment(segments []RepricingSegment, indexes map[string]int, key string) {
+	if index, exists := indexes[key]; exists {
+		segments[index].Count++
+	}
 }
 
 func attractiveRenewalPriceCents(marketMedianCents int64) int64 {
@@ -1248,6 +1467,13 @@ func maxInt64(left int64, right int64) int64 {
 
 func maxInt(left int, right int) int {
 	if left > right {
+		return left
+	}
+	return right
+}
+
+func minInt(left int, right int) int {
+	if left < right {
 		return left
 	}
 	return right

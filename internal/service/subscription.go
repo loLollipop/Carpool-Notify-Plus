@@ -520,38 +520,49 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 	}
 
 	amountBars := make([]AmountBar, 0, len(subscriptions))
-	accountTotals := map[string]struct {
-		count int
-		cents int64
-	}{}
+	accountTotals := map[string]*accountAmountBucket{}
 
 	for _, subscription := range subscriptions {
 		accountName := displayAccountName(subscription)
 		amountCents := countedAmountCents(subscription)
 		amountBars = append(amountBars, AmountBar{
-			Name:        subscription.Name,
-			AccountName: accountName,
-			AmountYuan:  cycle.FormatCents(amountCents),
-			AmountCents: amountCents,
+			SubscriptionID: subscription.ID,
+			Name:           subscription.Name,
+			AccountName:    accountName,
+			AmountYuan:     cycle.FormatCents(amountCents),
+			AmountCents:    amountCents,
 		})
-		bucket := accountTotals[accountName]
+		accountKey := accountAmountKey(subscription.BusinessType, subscription.AccountID, accountName)
+		bucket, exists := accountTotals[accountKey]
+		if !exists {
+			bucket = &accountAmountBucket{
+				Key:         accountKey,
+				AccountID:   subscription.AccountID,
+				AccountName: accountName,
+			}
+			accountTotals[accountKey] = bucket
+		}
 		bucket.count++
 		bucket.cents += amountCents
-		accountTotals[accountName] = bucket
 	}
 
 	sort.Slice(amountBars, func(left int, right int) bool {
 		if amountBars[left].AmountCents == amountBars[right].AmountCents {
+			if amountBars[left].Name == amountBars[right].Name {
+				return amountBars[left].SubscriptionID < amountBars[right].SubscriptionID
+			}
 			return amountBars[left].Name < amountBars[right].Name
 		}
 		return amountBars[left].AmountCents > amountBars[right].AmountCents
 	})
 
 	accounts := make([]AccountBreakdown, 0, len(accountTotals))
-	for accountName, bucket := range accountTotals {
+	for _, bucket := range accountTotals {
 		accounts = append(accounts, AccountBreakdown{
-			AccountName: accountName,
-			Type:        accountName,
+			Key:         bucket.Key,
+			AccountID:   bucket.AccountID,
+			AccountName: bucket.AccountName,
+			Type:        bucket.AccountName,
 			Count:       bucket.count,
 			AmountYuan:  cycle.FormatCents(bucket.cents),
 			AmountCents: bucket.cents,
@@ -559,6 +570,9 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 	}
 	sort.Slice(accounts, func(left int, right int) bool {
 		if accounts[left].AmountCents == accounts[right].AmountCents {
+			if accounts[left].AccountName == accounts[right].AccountName {
+				return accounts[left].Key < accounts[right].Key
+			}
 			return accounts[left].AccountName < accounts[right].AccountName
 		}
 		return accounts[left].AmountCents > accounts[right].AmountCents
@@ -652,20 +666,41 @@ type Dashboard struct {
 
 // AmountBar is one row in the amount distribution chart.
 type AmountBar struct {
-	Name        string `json:"name"`
-	AccountName string `json:"account_name"`
-	AmountYuan  string `json:"amount_yuan"`
-	AmountCents int64  `json:"amount_cents"`
+	SubscriptionID int64  `json:"subscription_id"`
+	Name           string `json:"name"`
+	AccountName    string `json:"account_name"`
+	AmountYuan     string `json:"amount_yuan"`
+	AmountCents    int64  `json:"amount_cents"`
 }
 
 // AccountBreakdown is one slice in the account chart.
 type AccountBreakdown struct {
+	Key         string `json:"key"`
+	AccountID   int64  `json:"account_id"`
 	AccountName string `json:"account_name"`
 	// Type is a legacy alias of AccountName retained for export compatibility.
 	Type        string `json:"type"`
 	Count       int    `json:"count"`
 	AmountYuan  string `json:"amount_yuan"`
 	AmountCents int64  `json:"amount_cents"`
+}
+
+type accountAmountBucket struct {
+	Key         string
+	AccountID   int64
+	AccountName string
+	count       int
+	cents       int64
+}
+
+func accountAmountKey(businessType string, accountID int64, accountName string) string {
+	if businessType == model.SubscriptionBusinessPlus {
+		return "business:plus"
+	}
+	if accountID > 0 {
+		return fmt.Sprintf("account:%d", accountID)
+	}
+	return "legacy:" + strings.ToLower(strings.TrimSpace(accountName))
 }
 
 // Create validates and inserts a subscription.

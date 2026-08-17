@@ -71,6 +71,105 @@ func TestProfitTrendUsesBillingPeriodInsteadOfImportMonth(t *testing.T) {
 	}
 }
 
+func TestProfitTrendIgnoresLegacyTeamBillCostSnapshot(t *testing.T) {
+	service := openGoalTestService(t)
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "Legacy Team bill cost",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 9000,
+		CronExpr:            "interval:30d",
+		BoardedAt:           "2026-07-15",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Historical versions could persist the Team owner cost on every bill.
+	// Reporting must use the account ledger only and ignore this stale snapshot.
+	if err := service.Store.SetDuePaid(subscriptionID, "2026-07-15", true, 9000, 4500); err != nil {
+		t.Fatal(err)
+	}
+
+	trend, err := service.buildProfitTrend(6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byMonth := make(map[string]ProfitMonth, len(trend))
+	for _, month := range trend {
+		byMonth[month.Month] = month
+	}
+	if july := byMonth["2026-07"]; july.RevenueCents != 9000 || july.CostCents != 0 || july.ProfitCents != 9000 {
+		t.Fatalf("legacy Team bill cost was counted again: %#v", july)
+	}
+}
+
+func TestProfitTrendUsesAccountOpeningPeriodForImportedInitialCost(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.Store.CreateAccount(model.Account{
+		Name:      "Imported July Team account",
+		OpenedAt:  "2026-07-18",
+		CostCents: 4500,
+	}, 4500, "2026-08-07")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seatID, err := service.Store.CreateSeat(model.Seat{AccountID: accountID, Name: "seat1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "Imported July Team customer",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 9000,
+		CronExpr:            "interval:30d",
+		SeatID:              seatID,
+		BoardedAt:           "2026-07-20",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Store.SetDuePaid(subscriptionID, "2026-07-20", true, 9000); err != nil {
+		t.Fatal(err)
+	}
+
+	trend, err := service.buildProfitTrend(6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byMonth := make(map[string]ProfitMonth, len(trend))
+	for _, month := range trend {
+		byMonth[month.Month] = month
+	}
+	if july := byMonth["2026-07"]; july.RevenueCents != 9000 || july.CostCents != 4500 || july.ProfitCents != 4500 {
+		t.Fatalf("July trend = %#v, want revenue=9000 cost=4500 profit=4500", july)
+	}
+	if august := byMonth["2026-08"]; august.CostCents != 0 {
+		t.Fatalf("import month incorrectly received July account cost: %#v", august)
+	}
+}
+
+func TestProfitTrendKeepsHistoricalCumulativeCostInImportMonth(t *testing.T) {
+	service := openGoalTestService(t)
+	if _, err := service.Store.CreateAccount(model.Account{
+		Name:      "Historical Team account",
+		OpenedAt:  "2026-01-18",
+		CostCents: 2000,
+	}, 7500, "2026-08-07"); err != nil {
+		t.Fatal(err)
+	}
+
+	trend, err := service.buildProfitTrend(6)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byMonth := make(map[string]ProfitMonth, len(trend))
+	for _, month := range trend {
+		byMonth[month.Month] = month
+	}
+	if august := byMonth["2026-08"]; august.CostCents != 7500 || august.ProfitCents != -7500 {
+		t.Fatalf("historical cumulative cost import month = %#v", august)
+	}
+}
+
 func TestBusinessGoalProgressIncludesExistingProfitAcrossTeamPlusAndRefunds(t *testing.T) {
 	service := openGoalTestService(t)
 	accountID, err := service.CreateAccount(CreateAccountInput{
@@ -284,7 +383,8 @@ func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) 
 	if center.Repricing.RecommendedCount != 2 || center.Repricing.EligibleCount != 2 ||
 		center.Repricing.BelowMarketCount != 2 || center.Repricing.EstimatedMonthlyUpliftCents != 1476 ||
 		len(center.Repricing.Windows) != 5 || center.Repricing.Windows[0].Key != "ready" ||
-		center.Repricing.Windows[0].Count != 2 {
+		center.Repricing.Windows[0].Count != 2 || center.Repricing.RiskSegments[0].Count != 2 ||
+		center.Repricing.RelationshipSegments[2].Count != 2 {
 		t.Fatalf("repricing analysis = %#v", center.Repricing)
 	}
 	if _, err := service.ScheduleBulkNextPrice(BulkNextPriceInput{
@@ -432,7 +532,8 @@ func TestPricingCandidatesProtectNewCustomers(t *testing.T) {
 	}
 	if len(candidates) != 1 || candidates[0].Eligible || candidates[0].Recommended ||
 		candidates[0].BlockedCode != "protection" || candidates[0].NextReviewDate != "2026-09-30" ||
-		!strings.Contains(candidates[0].BlockedReason, "新用户保护期") {
+		candidates[0].RelationshipStage != "new" || candidates[0].AdjustmentRisk != "high" ||
+		candidates[0].ReadinessScore > 39 || !strings.Contains(candidates[0].BlockedReason, "新用户保护期") {
 		t.Fatalf("new-customer candidate = %#v", candidates)
 	}
 	if _, err := service.ScheduleBulkNextPrice(BulkNextPriceInput{
@@ -553,8 +654,54 @@ func TestPricingRecommendationRespectsUtilizationBeforeRaisingPrice(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if highAdvice.Action != "raise" || highAdvice.UtilizationPercent != 90 {
+	if highAdvice.Action != "raise" || highAdvice.UtilizationPercent != 90 ||
+		highAdvice.SuggestedLowPriceCents != 13000 || highAdvice.SuggestedHighPriceCents != 14000 {
 		t.Fatalf("high-utilization advice = %#v", highAdvice)
+	}
+}
+
+func TestPricingRecommendationDoesNotCollapseCurrentMarketRange(t *testing.T) {
+	service := openGoalTestService(t)
+	seedPricingSeats(t, service, 10, 9, 9000)
+	advice, err := service.buildPricingRecommendation(&model.MarketPriceSnapshot{
+		LowPriceCents:    13133,
+		MedianPriceCents: 13390,
+		HighPriceCents:   14163,
+		SampleCount:      7,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if advice.Action != "raise" || advice.SuggestedLowPriceCents != 13133 || advice.SuggestedHighPriceCents != 13390 {
+		t.Fatalf("current-market new-sale range = %#v", advice)
+	}
+}
+
+func TestRepricingAnalysisDoesNotCountBelowMedianProtectedUserAsFutureAction(t *testing.T) {
+	analysis := buildRepricingAnalysis([]PricingCandidate{{
+		MarketPosition:         "below_median",
+		BlockedCode:            "protection",
+		NextReviewDate:         "2026-09-01",
+		SuggestedMonthlyUplift: 500,
+		RelationshipStage:      "developing",
+		AdjustmentRisk:         "high",
+	}}, time.Date(2026, time.August, 15, 12, 0, 0, 0, cycle.Location))
+	if analysis.BelowMarketCount != 1 || analysis.PipelineMonthlyUpliftCents != 0 ||
+		analysis.Windows[1].Count != 0 || analysis.Windows[2].Count != 0 {
+		t.Fatalf("below-median protected analysis = %#v", analysis)
+	}
+}
+
+func TestPricingHistoryExcludesRefundedBills(t *testing.T) {
+	bills := []model.Bill{
+		{ID: 1, SubscriptionID: 9, DueDate: "2026-05-01", AmountCents: 9000},
+		{ID: 2, SubscriptionID: 9, DueDate: "2026-06-01", AmountCents: 10000},
+		{ID: 3, SubscriptionID: 9, DueDate: "2026-07-01", AmountCents: 10000},
+	}
+	histories := summarizePricingBillHistories(bills, map[int64]struct{}{2: {}})
+	history := histories[9]
+	if history.PaidPeriodCount != 2 || history.LastIncreaseDate != "2026-07-01" {
+		t.Fatalf("pricing history excluding refund = %#v", history)
 	}
 }
 

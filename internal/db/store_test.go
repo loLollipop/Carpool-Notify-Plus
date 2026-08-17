@@ -32,8 +32,8 @@ func TestOpenBackfillsOneCurrentCostRecordForLegacyAccount(t *testing.T) {
 			updated_at TEXT NOT NULL
 		);
 		INSERT INTO accounts (
-			name, cost_cents, created_at, updated_at
-		) VALUES ('owner@example.com', 1850, '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z');
+			name, opened_at, cost_cents, created_at, updated_at
+		) VALUES ('owner@example.com', '2026-07-01', 1850, '2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z');
 	`); err != nil {
 		t.Fatal(err)
 	}
@@ -64,8 +64,74 @@ func TestOpenBackfillsOneCurrentCostRecordForLegacyAccount(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].Source != model.AccountCostSourceInitial || records[0].AmountCents != 1850 {
+	if len(records) != 1 || records[0].Source != model.AccountCostSourceInitial ||
+		records[0].PeriodDate != "2026-07-01" || records[0].AmountCents != 1850 {
 		t.Fatalf("backfilled records = %#v", records)
+	}
+}
+
+func TestOpenRepairsImportedInitialAccountCostToOpeningPeriod(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "misdated-initial-account-cost.db")
+	store := openStore(t, databasePath)
+	accountID, err := store.CreateAccount(model.Account{
+		Name:      "Historical Team account",
+		OpenedAt:  "2026-07-18",
+		CostCents: 4500,
+	}, 4500, "2026-08-07")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store = openStore(t, databasePath)
+	records, err := store.ListAccountCostRecords(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].PeriodDate != "2026-07-18" || records[0].AmountCents != 4500 {
+		t.Fatalf("repaired initial cost = %#v", records)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store = openStore(t, databasePath)
+	defer store.Close()
+	records, err = store.ListAccountCostRecords(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].PeriodDate != "2026-07-18" {
+		t.Fatalf("idempotent repaired initial cost = %#v", records)
+	}
+}
+
+func TestOpenDoesNotMoveHistoricalCumulativeAccountCostToOpeningPeriod(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "historical-cumulative-account-cost.db")
+	store := openStore(t, databasePath)
+	accountID, err := store.CreateAccount(model.Account{
+		Name:      "Historical Team account",
+		OpenedAt:  "2026-01-18",
+		CostCents: 2000,
+	}, 7500, "2026-08-07")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store = openStore(t, databasePath)
+	defer store.Close()
+	records, err := store.ListAccountCostRecords(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].PeriodDate != "2026-08-07" ||
+		records[0].AmountCents != 7500 || records[0].Note != "Historical cumulative account cost" {
+		t.Fatalf("historical cumulative cost = %#v", records)
 	}
 }
 

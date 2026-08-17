@@ -183,6 +183,7 @@ export interface CalendarMonth {
 }
 
 export interface AmountBar {
+  subscription_id: number
   name: string
   account_name: string
   amount_yuan: string
@@ -190,6 +191,8 @@ export interface AmountBar {
 }
 
 export interface AccountBreakdown {
+  key: string
+  account_id: number
   account_name: string
   type: string
   count: number
@@ -674,6 +677,12 @@ export interface PricingCandidate {
   next_review_date: string
   suggested_monthly_uplift_cents: number
   scheduled_monthly_uplift_cents: number
+  relationship_stage: "new" | "developing" | "established" | "loyal"
+  adjustment_risk: "low" | "medium" | "high"
+  readiness_score: number
+  price_gap_percent: number
+  suggested_increase_percent: number
+  analysis_codes: string[] | null
   recommended: boolean
   eligible: boolean
   blocked_reason: string
@@ -683,6 +692,11 @@ export interface RepricingWindow {
   key: "ready" | "next_30" | "next_60" | "later" | "on_hold"
   count: number
   monthly_uplift_cents: number
+}
+
+export interface RepricingSegment {
+  key: string
+  count: number
 }
 
 export interface RepricingAnalysis {
@@ -696,6 +710,11 @@ export interface RepricingAnalysis {
   pipeline_monthly_uplift_cents: number
   scheduled_monthly_uplift_cents: number
   windows: RepricingWindow[] | null
+  average_relationship_days: number
+  average_paid_periods: number
+  relationship_segments: RepricingSegment[] | null
+  risk_segments: RepricingSegment[] | null
+  price_segments: RepricingSegment[] | null
 }
 
 export interface GoalCenter {
