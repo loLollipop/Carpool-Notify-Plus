@@ -5,6 +5,8 @@ import {
   Archive,
   CalendarClock,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
   Clock3,
   Mail,
@@ -58,6 +60,7 @@ import { isOneMonthRentalCron } from "./rental-mode"
 type RentalFilter = "active" | "due" | "archived" | "all"
 
 const EMPTY_VIEWS: SubscriptionView[] = []
+const RENTALS_PER_PAGE = 9
 
 function formatYuan(cents: number) {
   return `¥${(cents / 100).toLocaleString("zh-CN", {
@@ -335,6 +338,7 @@ export function PlusRentalsPage() {
     return initial === "archived" || initial === "due" || initial === "all" ? initial : "active"
   })
   const [search, setSearch] = React.useState(() => searchParams.get("q") ?? "")
+  const [page, setPage] = React.useState(1)
   const [renewTarget, setRenewTarget] = React.useState<DuePaidTarget | null>(null)
   const [archiveTarget, setArchiveTarget] = React.useState<SubscriptionView | null>(null)
   const [completeTarget, setCompleteTarget] = React.useState<SubscriptionView | null>(null)
@@ -399,6 +403,12 @@ export function PlusRentalsPage() {
       ].some((value) => value?.toLowerCase().includes(query)),
     )
   }, [active, archived, filter, isActionableDue, search])
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / RENTALS_PER_PAGE))
+  const safePage = Math.min(page, pageCount)
+  const pageStart = (safePage - 1) * RENTALS_PER_PAGE
+  const paged = filtered.slice(pageStart, pageStart + RENTALS_PER_PAGE)
+  const pageEnd = pageStart + paged.length
 
   const setDialogVisibility = (open: boolean) => {
     setDialogOpen(open)
@@ -473,12 +483,21 @@ export function PlusRentalsPage() {
           <Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             value={search}
-            onChange={(event) => setSearch(event.target.value)}
+            onChange={(event) => {
+              setPage(1)
+              setSearch(event.target.value)
+            }}
             className="pl-9"
             placeholder={t("plusRentals.searchPlaceholder")}
           />
         </div>
-        <Select value={filter} onValueChange={(value) => setFilter(value as RentalFilter)}>
+        <Select
+          value={filter}
+          onValueChange={(value) => {
+            setPage(1)
+            setFilter(value as RentalFilter)
+          }}
+        >
           <SelectTrigger className="w-full sm:w-36">
             <SelectValue />
           </SelectTrigger>
@@ -512,29 +531,64 @@ export function PlusRentalsPage() {
           <p className="text-sm font-medium">{t("plusRentals.empty")}</p>
         </Card>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {filtered.map((view) => (
-            <RentalCard
-              key={view.subscription.id}
-              view={view}
-              archived={view.subscription.archived_at !== null}
-              amountsHidden={amountsHidden}
-              onEdit={openEdit}
-              onRenew={(item) =>
-                setRenewTarget({
-                  subscriptionId: item.subscription.id,
-                  name: item.subscription.name,
-                  priceYuan: item.price_yuan,
-                  cycleDesc: item.cycle_desc,
-                  dueDate: item.next_due_date,
-                  kind: "plus",
-                })
-              }
-              onArchive={setArchiveTarget}
-              onComplete={setCompleteTarget}
-              onGoAfterSales={(caseId) => navigate(`/after-sales?case=${caseId}`)}
-            />
-          ))}
+        <div className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {paged.map((view) => (
+              <RentalCard
+                key={view.subscription.id}
+                view={view}
+                archived={view.subscription.archived_at !== null}
+                amountsHidden={amountsHidden}
+                onEdit={openEdit}
+                onRenew={(item) =>
+                  setRenewTarget({
+                    subscriptionId: item.subscription.id,
+                    name: item.subscription.name,
+                    priceYuan: item.price_yuan,
+                    cycleDesc: item.cycle_desc,
+                    dueDate: item.next_due_date,
+                    kind: "plus",
+                  })
+                }
+                onArchive={setArchiveTarget}
+                onComplete={setCompleteTarget}
+                onGoAfterSales={(caseId) => navigate(`/after-sales?case=${caseId}`)}
+              />
+            ))}
+          </div>
+          {pageCount > 1 ? (
+            <div className="flex flex-col items-center justify-between gap-3 border-t pt-4 text-xs text-muted-foreground sm:flex-row">
+              <span>
+                {t("cards.pageStatus", {
+                  page: maskValue(amountsHidden, safePage),
+                  pageCount: maskValue(amountsHidden, pageCount),
+                  start: maskValue(amountsHidden, pageStart + 1),
+                  end: maskValue(amountsHidden, pageEnd),
+                  total: maskValue(amountsHidden, filtered.length),
+                })}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t("cards.prevPage")}
+                  disabled={safePage <= 1}
+                  onClick={() => setPage(safePage - 1)}
+                >
+                  <ChevronLeft />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon-sm"
+                  aria-label={t("cards.nextPage")}
+                  disabled={safePage >= pageCount}
+                  onClick={() => setPage(safePage + 1)}
+                >
+                  <ChevronRight />
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 

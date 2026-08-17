@@ -840,7 +840,7 @@ func TestProcessDueNotificationsSkipsRetryAfterReminderDate(t *testing.T) {
 	subscriptionService.Notify = notify.Registry{IYUU: failing}
 
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Expired retry account", "seat1")
-	_, err := subscriptionService.Create(service.CreateInput{
+	subscriptionID, err := subscriptionService.Create(service.CreateInput{
 		Name:             "Expired retry",
 		PriceYuan:        "35.00",
 		CronExpr:         "0 0 15 * *",
@@ -867,6 +867,19 @@ func TestProcessDueNotificationsSkipsRetryAfterReminderDate(t *testing.T) {
 	}
 	if recorder.calls != 0 {
 		t.Fatalf("expired retry sends = %d, want 0", recorder.calls)
+	}
+	logEntry, err := subscriptionService.Store.GetNotificationLog(
+		subscriptionID,
+		"2026-07-15",
+		0,
+		model.ChannelIYUU,
+		model.NotificationKindScheduled,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if logEntry.Status != model.NotificationStatusCanceled || logEntry.NextRetryAt != nil {
+		t.Fatalf("expired retry was not canceled: %#v", logEntry)
 	}
 }
 

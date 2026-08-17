@@ -154,7 +154,7 @@ func (store *Store) RequestSubscriptionCancellation(
 		}
 		remainingDays = periodDays - usedDays
 		periodEnd = periodEndDay.Format("2006-01-02")
-		refundAmountCents = (paidAmountCents*int64(remainingDays) + int64(periodDays/2)) / int64(periodDays)
+		refundAmountCents = proratedRefundCents(paidAmountCents, remainingDays, periodDays)
 		status = model.AfterSalesStatusPending
 		note = ""
 	}
@@ -321,6 +321,9 @@ func (store *Store) CompleteCancellationRefund(caseID int64, processedTime time.
 	}
 	if status != model.AfterSalesStatusPending && status != model.AfterSalesStatusReview {
 		return ErrAfterSalesProcessed
+	}
+	if err := ensureAfterSalesRefundWithinPayment(transaction, caseID, -1); err != nil {
+		return err
 	}
 
 	nowText := formatTime(processedTime.UTC())

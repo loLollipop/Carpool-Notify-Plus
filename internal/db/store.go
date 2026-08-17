@@ -34,6 +34,7 @@ var (
 	ErrSubscriptionFinancialStateChanged = errors.New("subscription financial state changed")
 	ErrSubscriptionHasPendingAfterSales  = errors.New("subscription has a pending after-sales case")
 	ErrAfterSalesProcessed               = errors.New("after-sales case already processed")
+	ErrAfterSalesRefundExceedsPayment    = errors.New("after-sales refund exceeds remaining payment")
 	ErrCancellationPending               = errors.New("subscription cancellation already pending")
 	ErrCancellationCaseConflict          = errors.New("subscription already has an after-sales case for this date")
 	ErrCancellationNotReassignable       = errors.New("cancellation case cannot be reassigned")
@@ -1629,6 +1630,54 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 	return sql.ErrNoRows
 }
 
+// UpdateSubscriptionAndSyncBill atomically updates an active subscription and,
+// when present, the bill for the current billing period. Bills referenced by an
+// after-sales snapshot remain immutable while the subscription update proceeds.
+func (store *Store) UpdateSubscriptionAndSyncBill(
+	subscription model.Subscription,
+	dueDate string,
+	amountCents int64,
+	costCents int64,
+) error {
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	now := formatTime(time.Now().UTC())
+	if err := updateSubscriptionWithExecutor(transaction, subscription, now); err != nil {
+		if err == sql.ErrNoRows {
+			var pendingCount int
+			if pendingErr := transaction.QueryRow(`
+				SELECT COUNT(1)
+				FROM after_sales_cases
+				WHERE subscription_id = ? AND status IN (?, ?)`,
+				subscription.ID,
+				model.AfterSalesStatusPending,
+				model.AfterSalesStatusReview,
+			).Scan(&pendingCount); pendingErr != nil {
+				return pendingErr
+			}
+			if pendingCount > 0 {
+				return ErrSubscriptionHasPendingAfterSales
+			}
+		}
+		return err
+	}
+	if err := updateBillFinancialsForOccurrence(
+		transaction,
+		subscription.ID,
+		dueDate,
+		amountCents,
+		costCents,
+		now,
+	); err != nil {
+		return err
+	}
+	return transaction.Commit()
+}
+
 // UpdateSubscriptionNextPrices atomically updates only future pricing fields.
 // Guarding eligibility again inside the transaction prevents a concurrent
 // archive or after-sales case from producing a partial bulk update.
@@ -1697,6 +1746,8 @@ func (store *Store) UpdateSubscriptionAndMoveInitialBill(
 	subscription model.Subscription,
 	oldDueDate string,
 	newDueDate string,
+	amountCents int64,
+	costCents int64,
 ) error {
 	transaction, err := store.database.Begin()
 	if err != nil {
@@ -1721,6 +1772,7 @@ func (store *Store) UpdateSubscriptionAndMoveInitialBill(
 	if billCount != 1 || storedDueDate != strings.TrimSpace(oldDueDate) {
 		return ErrInitialBillNotMovable
 	}
+	now := formatTime(time.Now().UTC())
 	if strings.TrimSpace(oldDueDate) != strings.TrimSpace(newDueDate) {
 		if err := ensureBillUnreferenced(transaction, billID); err != nil {
 			return err
@@ -1730,7 +1782,7 @@ func (store *Store) UpdateSubscriptionAndMoveInitialBill(
 			SET due_date = ?, updated_at = ?
 			WHERE id = ?`,
 			strings.TrimSpace(newDueDate),
-			formatTime(time.Now().UTC()),
+			now,
 			billID,
 		)
 		if moveErr != nil {
@@ -1748,7 +1800,6 @@ func (store *Store) UpdateSubscriptionAndMoveInitialBill(
 		}
 	}
 
-	now := formatTime(time.Now().UTC())
 	if err := updateSubscriptionWithExecutor(transaction, subscription, now); err != nil {
 		if err == sql.ErrNoRows {
 			var pendingCount int
@@ -1768,7 +1819,64 @@ func (store *Store) UpdateSubscriptionAndMoveInitialBill(
 		}
 		return err
 	}
+	if err := updateBillFinancialsByID(
+		transaction,
+		billID,
+		amountCents,
+		costCents,
+		now,
+	); err != nil {
+		return err
+	}
 	return transaction.Commit()
+}
+
+func updateBillFinancialsForOccurrence(
+	executor sqlExecer,
+	subscriptionID int64,
+	dueDate string,
+	amountCents int64,
+	costCents int64,
+	now string,
+) error {
+	_, err := executor.Exec(`
+		UPDATE bills
+		SET amount_cents = ?, cost_cents = ?, updated_at = ?
+		WHERE subscription_id = ? AND due_date = ?
+		  AND NOT EXISTS (
+			SELECT 1 FROM after_sales_cases
+			WHERE bill_id = bills.id
+		  )`,
+		amountCents,
+		costCents,
+		now,
+		subscriptionID,
+		strings.TrimSpace(dueDate),
+	)
+	return err
+}
+
+func updateBillFinancialsByID(
+	executor sqlExecer,
+	billID int64,
+	amountCents int64,
+	costCents int64,
+	now string,
+) error {
+	_, err := executor.Exec(`
+		UPDATE bills
+		SET amount_cents = ?, cost_cents = ?, updated_at = ?
+		WHERE id = ?
+		  AND NOT EXISTS (
+			SELECT 1 FROM after_sales_cases
+			WHERE bill_id = bills.id
+		  )`,
+		amountCents,
+		costCents,
+		now,
+		billID,
+	)
+	return err
 }
 
 func updateSubscriptionWithExecutor(
@@ -2330,6 +2438,30 @@ func (store *Store) SetSetting(key string, value string) error {
 		key, value,
 	)
 	return err
+}
+
+// SetSettings upserts a group of settings in one transaction so the settings
+// page never exposes a mixture of old and new templates after a write failure.
+func (store *Store) SetSettings(values map[string]string) error {
+	if len(values) == 0 {
+		return nil
+	}
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	for key, value := range values {
+		if _, err := transaction.Exec(`
+			INSERT INTO settings(key, value) VALUES(?, ?)
+			ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+			key,
+			value,
+		); err != nil {
+			return err
+		}
+	}
+	return transaction.Commit()
 }
 
 // ResetBusinessData clears operational rows while preserving settings.

@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net"
 	"net/http"
+	"net/mail"
 	"net/smtp"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -138,40 +141,61 @@ func (sender SMTPSender) Send(ctx context.Context, title string, message string)
 
 // SendTo delivers title/message to explicit recipients.
 func (sender SMTPSender) SendTo(ctx context.Context, recipients []string, title string, message string) error {
-	_ = ctx
 	if sender.Host == "" || sender.Port <= 0 || sender.From == "" {
 		return fmt.Errorf("smtp is not configured")
 	}
-	cleaned := make([]string, 0, len(recipients))
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	fromAddress, err := mail.ParseAddress(strings.TrimSpace(sender.From))
+	if err != nil || strings.TrimSpace(fromAddress.Address) == "" {
+		return fmt.Errorf("smtp from address is invalid")
+	}
+	toAddresses := make([]string, 0, len(recipients))
+	toHeaders := make([]string, 0, len(recipients))
 	for _, recipient := range recipients {
 		recipient = strings.TrimSpace(recipient)
-		if recipient != "" {
-			cleaned = append(cleaned, recipient)
+		if recipient == "" {
+			continue
 		}
+		address, parseErr := mail.ParseAddress(recipient)
+		if parseErr != nil || strings.TrimSpace(address.Address) == "" {
+			return fmt.Errorf("smtp recipient address is invalid")
+		}
+		toAddresses = append(toAddresses, address.Address)
+		toHeaders = append(toHeaders, address.String())
 	}
-	if len(cleaned) == 0 {
+	if len(toAddresses) == 0 {
 		return fmt.Errorf("smtp recipients are empty")
 	}
 
-	addr := fmt.Sprintf("%s:%d", sender.Host, sender.Port)
+	addr := net.JoinHostPort(sender.Host, strconv.Itoa(sender.Port))
 	auth := smtp.PlainAuth("", sender.Username, sender.Password, sender.Host)
-	payload := buildSMTPMessage(sender.From, cleaned, title, message)
+	payload := buildSMTPMessage(fromAddress.String(), toHeaders, title, message)
 
+	var sendErr error
 	if sender.Port == 465 {
-		return sendSMTPTLS(addr, sender.Host, auth, sender.From, cleaned, payload)
+		sendErr = sendSMTPTLS(ctx, addr, sender.Host, auth, fromAddress.Address, toAddresses, payload)
+	} else {
+		sendErr = sendSMTPStartTLS(ctx, addr, sender.Host, auth, fromAddress.Address, toAddresses, payload)
 	}
-	return sendSMTPStartTLS(addr, sender.Host, auth, sender.From, cleaned, payload)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return sendErr
 }
 
 func buildSMTPMessage(from string, to []string, subject string, body string) []byte {
 	var builder strings.Builder
-	builder.WriteString("From: " + from + "\r\n")
-	builder.WriteString("To: " + strings.Join(to, ", ") + "\r\n")
-	builder.WriteString("Subject: " + sanitizeSMTPHeader(subject) + "\r\n")
+	builder.WriteString("From: " + sanitizeSMTPHeader(from) + "\r\n")
+	builder.WriteString("To: " + sanitizeSMTPHeader(strings.Join(to, ", ")) + "\r\n")
+	builder.WriteString("Subject: " + mime.QEncoding.Encode("UTF-8", sanitizeSMTPHeader(subject)) + "\r\n")
 	builder.WriteString("MIME-Version: 1.0\r\n")
 	builder.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
 	builder.WriteString("\r\n")
-	builder.WriteString(strings.ReplaceAll(body, "\n", "\r\n"))
+	normalizedBody := strings.ReplaceAll(body, "\r\n", "\n")
+	normalizedBody = strings.ReplaceAll(normalizedBody, "\r", "\n")
+	builder.WriteString(strings.ReplaceAll(normalizedBody, "\n", "\r\n"))
 	return []byte(builder.String())
 }
 
@@ -181,11 +205,12 @@ func sanitizeSMTPHeader(value string) string {
 	return strings.TrimSpace(value)
 }
 
-func sendSMTPStartTLS(addr, host string, auth smtp.Auth, from string, to []string, message []byte) error {
-	connection, err := net.DialTimeout("tcp", addr, 15*time.Second)
+func sendSMTPStartTLS(ctx context.Context, addr, host string, auth smtp.Auth, from string, to []string, message []byte) error {
+	connection, stopContextWatch, err := dialSMTPConnection(ctx, addr)
 	if err != nil {
 		return err
 	}
+	defer stopContextWatch()
 	defer connection.Close()
 
 	client, err := smtp.NewClient(connection, host)
@@ -194,17 +219,19 @@ func sendSMTPStartTLS(addr, host string, auth smtp.Auth, from string, to []strin
 	}
 	defer client.Close()
 
-	if ok, _ := client.Extension("STARTTLS"); ok {
-		tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
-		if err := client.StartTLS(tlsConfig); err != nil {
-			return err
-		}
+	if ok, _ := client.Extension("STARTTLS"); !ok {
+		return fmt.Errorf("smtp server does not support STARTTLS")
+	}
+	tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
+	if err := client.StartTLS(tlsConfig); err != nil {
+		return err
 	}
 	if auth != nil {
-		if ok, _ := client.Extension("AUTH"); ok {
-			if err := client.Auth(auth); err != nil {
-				return err
-			}
+		if ok, _ := client.Extension("AUTH"); !ok {
+			return fmt.Errorf("smtp server does not support authentication")
+		}
+		if err := client.Auth(auth); err != nil {
+			return err
 		}
 	}
 	if err := client.Mail(from); err != nil {
@@ -229,13 +256,18 @@ func sendSMTPStartTLS(addr, host string, auth smtp.Auth, from string, to []strin
 	return client.Quit()
 }
 
-func sendSMTPTLS(addr, host string, auth smtp.Auth, from string, to []string, message []byte) error {
+func sendSMTPTLS(ctx context.Context, addr, host string, auth smtp.Auth, from string, to []string, message []byte) error {
 	tlsConfig := &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12}
-	connection, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", addr, tlsConfig)
+	rawConnection, stopContextWatch, err := dialSMTPConnection(ctx, addr)
 	if err != nil {
 		return err
 	}
+	defer stopContextWatch()
+	connection := tls.Client(rawConnection, tlsConfig)
 	defer connection.Close()
+	if err := connection.HandshakeContext(ctx); err != nil {
+		return err
+	}
 
 	client, err := smtp.NewClient(connection, host)
 	if err != nil {
@@ -268,6 +300,26 @@ func sendSMTPTLS(addr, host string, auth smtp.Auth, from string, to []string, me
 		return err
 	}
 	return client.Quit()
+}
+
+func dialSMTPConnection(ctx context.Context, addr string) (net.Conn, func(), error) {
+	dialer := net.Dialer{Timeout: 15 * time.Second}
+	connection, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return nil, func() {}, err
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+		deadline = contextDeadline
+	}
+	if err := connection.SetDeadline(deadline); err != nil {
+		_ = connection.Close()
+		return nil, func() {}, err
+	}
+	stop := context.AfterFunc(ctx, func() {
+		_ = connection.SetDeadline(time.Now())
+	})
+	return connection, func() { _ = stop() }, nil
 }
 
 // Registry maps channel names to senders.

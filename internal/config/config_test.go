@@ -151,3 +151,81 @@ token = "old-gotify-secret"
 		t.Fatalf("gotify config = %#v", configuration)
 	}
 }
+
+func TestValidateNotificationConfigRejectsOutOfRangeSMTPPort(t *testing.T) {
+	for _, port := range []int{-1, 65536} {
+		err := config.ValidateNotificationConfig(config.NotificationConfigInput{
+			SMTP: config.SMTPConfigInput{Port: port},
+		})
+		if err == nil {
+			t.Fatalf("out-of-range SMTP port %d unexpectedly passed validation", port)
+		}
+	}
+}
+
+func TestUpdateNotificationConfigRollbackRestoresExactFile(t *testing.T) {
+	configPath := filepath.Join(t.TempDir(), "config.toml")
+	original := []byte(`[server]
+password = "admin-password"
+session_secret = "session-secret"
+
+[smtp]
+host = "smtp.old.example"
+port = 587
+username = "old-user"
+password = "old-secret"
+from = "old@example.com"
+to = "operator@example.com"
+`)
+	if err := os.WriteFile(configPath, original, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	updated, rollback, err := config.UpdateNotificationConfigWithRollback(
+		configPath,
+		config.NotificationConfigInput{SMTP: config.SMTPConfigInput{
+			Host:     "smtp.new.example",
+			Port:     465,
+			Username: "new-user",
+			Password: "new-secret",
+			From:     "new@example.com",
+			To:       "new-operator@example.com",
+		}},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ConfigPath != configPath || updated.SMTPHost != "smtp.new.example" {
+		t.Fatalf("updated config = %#v", updated)
+	}
+	if err := rollback(); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(restored) != string(original) {
+		t.Fatalf("restored config differs:\n%s", restored)
+	}
+}
+
+func TestValidateNotificationConfigRejectsInvalidSMTPAddresses(t *testing.T) {
+	for name, input := range map[string]config.NotificationConfigInput{
+		"from": {
+			SMTP: config.SMTPConfigInput{From: "sender@example.com\r\nBcc: hidden@example.com"},
+		},
+		"recipient": {
+			SMTP: config.SMTPConfigInput{To: "customer@example.com, broken address"},
+		},
+		"host": {
+			SMTP: config.SMTPConfigInput{Host: "smtp.example.com\ninvalid"},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := config.ValidateNotificationConfig(input); err == nil {
+				t.Fatal("invalid SMTP configuration was accepted")
+			}
+		})
+	}
+}

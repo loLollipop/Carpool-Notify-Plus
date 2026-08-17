@@ -188,7 +188,18 @@ func (service *SubscriptionService) UpdateAfterSalesCase(
 	if err := service.validateAfterSalesRefundAmount(caseID, refundAmountCents); err != nil {
 		return err
 	}
-	return service.Store.UpdateAfterSalesCase(caseID, refundAmountCents, input.Note)
+	if err := service.Store.UpdateAfterSalesCase(caseID, refundAmountCents, input.Note); err != nil {
+		switch {
+		case errors.Is(err, db.ErrAfterSalesProcessed):
+			return fmt.Errorf("该售后记录已经处理完成，不能再修改")
+		case errors.Is(err, db.ErrAfterSalesRefundExceedsPayment):
+			return fmt.Errorf("退款金额超过该账单剩余可退金额，请刷新后重试")
+		case errors.Is(err, sql.ErrNoRows):
+			return fmt.Errorf("售后记录不存在")
+		}
+		return err
+	}
+	return nil
 }
 
 func (service *SubscriptionService) SetAfterSalesCaseRefunded(caseID int64, refunded bool) error {
@@ -213,6 +224,9 @@ func (service *SubscriptionService) SetAfterSalesCaseRefunded(caseID int64, refu
 		}
 		if errors.Is(err, db.ErrAfterSalesOriginalSeatBusy) {
 			return fmt.Errorf("原车位已被其他订阅占用，无法撤销退款状态")
+		}
+		if errors.Is(err, db.ErrAfterSalesRefundExceedsPayment) {
+			return fmt.Errorf("退款金额超过该账单剩余可退金额，请刷新后重试")
 		}
 		return err
 	}

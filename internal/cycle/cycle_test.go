@@ -1,11 +1,18 @@
 package cycle_test
 
 import (
+        "math"
         "testing"
         "time"
 
         "carpool-notify/internal/cycle"
 )
+
+func TestFormatCentsHandlesMinimumInt64(t *testing.T) {
+        if got := cycle.FormatCents(math.MinInt64); got != "-92233720368547758.08" {
+                t.Fatalf("FormatCents(math.MinInt64) = %q", got)
+        }
+}
 
 func TestParseYuanToCents(t *testing.T) {
         cases := []struct {

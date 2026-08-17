@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"carpool-notify/internal/config"
 	"carpool-notify/internal/service"
@@ -26,6 +28,11 @@ type Server struct {
 	PasswordHash   []byte
 	// DistDir is the built SPA directory (web/dist); non-API routes fall back to its index.html.
 	DistDir string
+
+	configMu       sync.RWMutex
+	settingsPageMu sync.Mutex
+	loginMu        sync.Mutex
+	loginFailures  map[string]loginFailureState
 }
 
 // NewServer constructs a Server and hashes the login password.
@@ -53,10 +60,11 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 
 	var sandboxServer *Server
 	if server.SandboxService != nil {
+		configuration := server.currentConfig()
 		sandboxServer = &Server{
 			Service:     server.SandboxService,
 			SandboxMode: true,
-			Config:      server.Config,
+			Config:      configuration,
 		}
 		sandboxPublic := api.Group("/sandbox")
 		sandboxPublic.Use(server.requireSandboxAccess())
@@ -164,6 +172,13 @@ func (server *Server) getSession(context *gin.Context) {
 }
 
 func (server *Server) postLogin(context *gin.Context) {
+	clientIP := context.ClientIP()
+	now := time.Now().UTC()
+	if retryAfter := server.loginRetryAfter(clientIP, now); retryAfter > 0 {
+		respondLoginRateLimited(context, retryAfter)
+		return
+	}
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
 	var body struct {
 		Password string `json:"password"`
 	}
@@ -172,9 +187,11 @@ func (server *Server) postLogin(context *gin.Context) {
 		return
 	}
 	if err := bcrypt.CompareHashAndPassword(server.PasswordHash, []byte(body.Password)); err != nil {
+		server.recordLoginFailure(clientIP, now)
 		respondError(context, http.StatusUnauthorized, "密码错误")
 		return
 	}
+	server.clearLoginFailures(clientIP)
 	session := sessions.Default(context)
 	session.Set(sessionAuthKey, true)
 	if err := session.Save(); err != nil {
@@ -187,8 +204,24 @@ func (server *Server) postLogin(context *gin.Context) {
 func (server *Server) postLogout(context *gin.Context) {
 	session := sessions.Default(context)
 	session.Clear()
-	_ = session.Save()
+	if err := session.Save(); err != nil {
+		respondError(context, http.StatusInternalServerError, "会话清除失败")
+		return
+	}
 	respondOK(context, nil)
+}
+
+func (server *Server) currentConfig() config.Config {
+	server.configMu.RLock()
+	defer server.configMu.RUnlock()
+	return server.Config
+}
+
+func (server *Server) applyConfig(configuration config.Config) {
+	server.configMu.Lock()
+	server.Config = configuration
+	server.configMu.Unlock()
+	server.Service.ApplyConfig(configuration)
 }
 
 // registerSPA serves files from DistDir and falls back to index.html for app routes.

@@ -109,6 +109,31 @@ func TestPlusRentalRequiresCustomerName(t *testing.T) {
 	}
 }
 
+func TestPlusRentalCannotBeCopiedIntoTeamSeat(t *testing.T) {
+	subscriptionService := openTestService(t)
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "Team owner", "车位1")
+	plusID, err := subscriptionService.Create(service.CreateInput{
+		Name:           "Plus customer",
+		BusinessType:   model.SubscriptionBusinessPlus,
+		PriceYuan:      "68.00",
+		CostYuan:       "20.00",
+		CronExpr:       "interval:30d",
+		CustomerEmail:  "rented-plus@example.com",
+		CustomerWechat: "wx-customer",
+		BoardedAt:      "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := subscriptionService.Copy(plusID, seatIDs[0]); err == nil || !strings.Contains(err.Error(), "Plus 出租不能复制") {
+		t.Fatalf("copy error = %v, want Plus copy rejection", err)
+	}
+	if occupant, err := subscriptionService.Store.GetActiveSubscriptionBySeatID(seatIDs[0]); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("Team seat was occupied by rejected Plus copy: occupant=%#v err=%v", occupant, err)
+	}
+}
+
 func TestTeamSubscriptionStillRequiresAccount(t *testing.T) {
 	subscriptionService := openTestService(t)
 

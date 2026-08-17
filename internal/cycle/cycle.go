@@ -510,11 +510,14 @@ func ParseYuanToCents(raw string) (int64, error) {
 // FormatCents formats integer cents as a two-decimal yuan string.
 func FormatCents(cents int64) string {
         negative := cents < 0
+        magnitude := uint64(cents)
         if negative {
-                cents = -cents
+                // -(MinInt64) overflows int64. Converting via -(n+1)+1 keeps the
+                // full magnitude representable as uint64.
+                magnitude = uint64(-(cents + 1)) + 1
         }
-        whole := cents / 100
-        fraction := cents % 100
+        whole := magnitude / 100
+        fraction := magnitude % 100
         result := fmt.Sprintf("%d.%02d", whole, fraction)
         if negative {
                 return "-" + result

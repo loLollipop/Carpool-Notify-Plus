@@ -10,6 +10,7 @@ import (
 	"net/mail"
 	"sort"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -42,6 +43,8 @@ type SubscriptionService struct {
 	Clock          func() time.Time
 	MarketClient   MarketHTTPDoer
 	MarketPriceURL string
+
+	runtimeConfigMu sync.RWMutex
 }
 
 // NewNotifyRegistry builds senders from runtime configuration.
@@ -71,8 +74,20 @@ func NewNotifyRegistry(configuration config.Config) notify.Registry {
 
 // ApplyConfig refreshes runtime notification senders after config.toml changes.
 func (service *SubscriptionService) ApplyConfig(configuration config.Config) {
+	registry := NewNotifyRegistry(configuration)
+	service.runtimeConfigMu.Lock()
+	defer service.runtimeConfigMu.Unlock()
 	service.Config = configuration
-	service.Notify = NewNotifyRegistry(configuration)
+	service.Notify = registry
+}
+
+// runtimeConfigSnapshot returns one consistent configuration/sender pair.
+// Settings can be updated while the scheduler is running, so callers must not
+// read Config and Notify independently.
+func (service *SubscriptionService) runtimeConfigSnapshot() (config.Config, notify.Registry) {
+	service.runtimeConfigMu.RLock()
+	defer service.runtimeConfigMu.RUnlock()
+	return service.Config, service.Notify
 }
 
 func (service *SubscriptionService) now() time.Time {
@@ -389,23 +404,6 @@ func firstUnpaidDue(
 		candidate = next
 	}
 	return time.Time{}, fmt.Errorf("unable to find an unpaid billing period")
-}
-
-func channelDisplayLabels(channels []string) []string {
-	labels := make([]string, 0, len(channels))
-	for _, channel := range channels {
-		switch channel {
-		case model.ChannelGotify:
-			labels = append(labels, "Gotify")
-		case model.ChannelIYUU:
-			labels = append(labels, "IYUU")
-		case model.ChannelSMTP:
-			labels = append(labels, "SMTP")
-		default:
-			labels = append(labels, channel)
-		}
-	}
-	return labels
 }
 
 func scheduledNotificationLabels(subscription model.Subscription) []string {
@@ -783,6 +781,13 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 	if err := service.configureNextPrice(previous, &subscription, scheduleChanged); err != nil {
 		return err
 	}
+	previousBillAmount := billDefaultAmountCents(previous)
+	newBillAmount := billDefaultAmountCents(subscription)
+	previousBillCost := billDefaultCostCents(previous)
+	newBillCost := billDefaultCostCents(subscription)
+	financialsChanged := previousBillAmount != newBillAmount ||
+		previousBillCost != newBillCost ||
+		previous.IsResale != subscription.IsResale
 	var updateErr error
 	if scheduleChanged {
 		billCount, err := service.Store.CountBillsForSubscription(subscriptionID)
@@ -801,24 +806,32 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 			if err != nil {
 				return err
 			}
-			updateErr = service.Store.UpdateSubscriptionAndMoveInitialBill(subscription, oldDueDate, newDueDate)
+			updateErr = service.Store.UpdateSubscriptionAndMoveInitialBill(
+				subscription,
+				oldDueDate,
+				newDueDate,
+				newBillAmount,
+				newBillCost,
+			)
 		default:
 			return fmt.Errorf("该订阅已有多期账单，为保护历史收入，不能直接修改开始日期或计费周期")
 		}
+	} else if financialsChanged {
+		currentDueDate, err := currentPeriodBillDueDate(subscription, service.now())
+		if err != nil {
+			return err
+		}
+		updateErr = service.Store.UpdateSubscriptionAndSyncBill(
+			subscription,
+			currentDueDate,
+			newBillAmount,
+			newBillCost,
+		)
 	} else {
 		updateErr = service.Store.UpdateSubscription(subscription)
 	}
 	if updateErr != nil {
 		return publicSubscriptionMutationError(updateErr)
-	}
-	previousBillAmount := billDefaultAmountCents(previous)
-	newBillAmount := billDefaultAmountCents(subscription)
-	previousBillCost := billDefaultCostCents(previous)
-	newBillCost := billDefaultCostCents(subscription)
-	if previousBillAmount != newBillAmount || previousBillCost != newBillCost || previous.IsResale != subscription.IsResale {
-		if err := service.syncCurrentPeriodBillAmount(subscription); err != nil {
-			return err
-		}
 	}
 	return nil
 }
@@ -882,46 +895,18 @@ func (service *SubscriptionService) configureNextPrice(
 	return nil
 }
 
-// syncCurrentPeriodBillAmount updates the bill for the current period start when present.
-func (service *SubscriptionService) syncCurrentPeriodBillAmount(subscription model.Subscription) error {
+func currentPeriodBillDueDate(subscription model.Subscription, now time.Time) (string, error) {
 	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
 	if err != nil {
-		return nil
+		return "", err
 	}
-	lastDue, found := schedule.LastDue(service.now())
-	dueDate := ""
+	lastDue, found := schedule.LastDue(now)
 	if found {
-		dueDate = cycle.FormatDate(lastDue)
-	} else {
-		// A newly created subscription can have a paid first period whose due
-		// date is still in the future. Price/cost corrections must update that
-		// bill as well, otherwise the form and finance ledger disagree.
-		dueDate, err = initialBillDueDate(subscription)
-		if err != nil {
-			return nil
-		}
+		return cycle.FormatDate(lastDue), nil
 	}
-	bill, err := service.Store.GetBillByOccurrence(subscription.ID, dueDate)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil
-		}
-		return err
-	}
-	amountCents := billDefaultAmountCents(subscription)
-	costCents := billDefaultCostCents(subscription)
-	if bill.AmountCents == amountCents && bill.CostCents == costCents {
-		return nil
-	}
-	if err := service.Store.UpdateBillFinancials(bill.ID, amountCents, costCents, bill.Note); err != nil {
-		// An after-sales snapshot freezes the historical bill, but a completed
-		// reassignment may continue using the subscription for future periods.
-		if errors.Is(err, db.ErrBillHasAfterSalesCase) {
-			return nil
-		}
-		return err
-	}
-	return nil
+	// A newly created subscription can have a paid first period whose due date
+	// is still in the future. Price/cost corrections must target that bill too.
+	return initialBillDueDate(subscription)
 }
 
 // SoftDelete soft-deletes a subscription (legacy unrestricted helper).
@@ -1006,6 +991,9 @@ func (service *SubscriptionService) Copy(subscriptionID int64, targetSeatID int6
 	source, err := service.Store.GetSubscriptionIncludingArchived(subscriptionID)
 	if err != nil {
 		return 0, err
+	}
+	if isPlusSubscription(source) {
+		return 0, fmt.Errorf("Plus 出租不能复制到 Team 车位，请从仪表盘新建 Plus 出租")
 	}
 	if err := service.ensureNoPendingAfterSales(subscriptionID, "复制"); err != nil {
 		return 0, err
@@ -1481,14 +1469,22 @@ func (service *SubscriptionService) GetNotifyTemplate() (string, error) {
 
 // SaveNotifyTemplate validates and stores the global operator template.
 func (service *SubscriptionService) SaveNotifyTemplate(body string) error {
-	body = strings.TrimSpace(body)
-	if body == "" {
-		return fmt.Errorf("模板不能为空")
-	}
-	if _, err := template.New("notify").Parse(body); err != nil {
-		return fmt.Errorf("模板语法错误: %w", err)
+	body, err := validateNotifyTemplate(body)
+	if err != nil {
+		return err
 	}
 	return service.Store.SetSetting(model.SettingNotifyTemplate, body)
+}
+
+func validateNotifyTemplate(body string) (string, error) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "", fmt.Errorf("模板不能为空")
+	}
+	if _, err := template.New("notify").Parse(body); err != nil {
+		return "", fmt.Errorf("模板语法错误: %w", err)
+	}
+	return body, nil
 }
 
 // GetCustomerEmailTemplate returns the customer email template body.
@@ -1508,14 +1504,83 @@ func (service *SubscriptionService) GetCustomerEmailTemplate() (string, error) {
 
 // SaveCustomerEmailTemplate validates and stores the customer email template.
 func (service *SubscriptionService) SaveCustomerEmailTemplate(body string) error {
-	body = strings.TrimSpace(body)
-	if body == "" {
-		return fmt.Errorf("客户邮件模板不能为空")
-	}
-	if _, err := template.New("customer_email").Parse(body); err != nil {
-		return fmt.Errorf("客户邮件模板语法错误: %w", err)
+	body, err := validateCustomerEmailTemplate(body)
+	if err != nil {
+		return err
 	}
 	return service.Store.SetSetting(model.SettingCustomerEmailTemplate, body)
+}
+
+func validateCustomerEmailTemplate(body string) (string, error) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "", fmt.Errorf("客户邮件模板不能为空")
+	}
+	if _, err := template.New("customer_email").Parse(body); err != nil {
+		return "", fmt.Errorf("客户邮件模板语法错误: %w", err)
+	}
+	return body, nil
+}
+
+// ValidateSettingsPage checks the whole settings form before the first field is
+// persisted, preventing a later validation error from leaving a partial save.
+func (service *SubscriptionService) ValidateSettingsPage(
+	notifyTemplate string,
+	customerEmailTemplate string,
+	redeemPage *model.RedeemPageSettings,
+) error {
+	if _, err := validateNotifyTemplate(notifyTemplate); err != nil {
+		return err
+	}
+	if _, err := validateCustomerEmailTemplate(customerEmailTemplate); err != nil {
+		return err
+	}
+	if redeemPage != nil {
+		if _, err := normalizeRedeemPageSettings(*redeemPage); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SaveSettingsPage persists all database-backed fields from the settings page
+// in one SQLite transaction. Callers should validate external file-backed
+// notification configuration before invoking this method.
+func (service *SubscriptionService) SaveSettingsPage(
+	notifyTemplate string,
+	customerEmailTemplate string,
+	channels []string,
+	redeemPage *model.RedeemPageSettings,
+) error {
+	notifyBody, err := validateNotifyTemplate(notifyTemplate)
+	if err != nil {
+		return err
+	}
+	customerBody, err := validateCustomerEmailTemplate(customerEmailTemplate)
+	if err != nil {
+		return err
+	}
+	encodedChannels, err := json.Marshal(normalizeChannels(channels))
+	if err != nil {
+		return err
+	}
+	values := map[string]string{
+		model.SettingNotifyTemplate:        notifyBody,
+		model.SettingCustomerEmailTemplate: customerBody,
+		model.SettingEnabledChannels:       string(encodedChannels),
+	}
+	if redeemPage != nil {
+		normalized, err := normalizeRedeemPageSettings(*redeemPage)
+		if err != nil {
+			return err
+		}
+		encoded, err := json.Marshal(normalized)
+		if err != nil {
+			return err
+		}
+		values[model.SettingRedeemPageSettings] = string(encoded)
+	}
+	return service.Store.SetSettings(values)
 }
 
 // GetEnabledChannels returns the global notify channel selection.
@@ -1864,7 +1929,8 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 	if err := service.ensureNoPendingAfterSales(subscriptionID, "发送提醒"); err != nil {
 		return err
 	}
-	if !service.Config.SMTPConfigured() {
+	configuration, _ := service.runtimeConfigSnapshot()
+	if !configuration.SMTPConfigured() {
 		return fmt.Errorf("SMTP 未配置（需 host/port/from/username/password）")
 	}
 	dueAt, err := service.nextDueForTemplate(subscription)
@@ -1876,11 +1942,11 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 		return err
 	}
 	sender := notify.SMTPSender{
-		Host:     service.Config.SMTPHost,
-		Port:     service.Config.SMTPPort,
-		Username: service.Config.SMTPUsername,
-		Password: service.Config.SMTPPassword,
-		From:     service.Config.SMTPFrom,
+		Host:     configuration.SMTPHost,
+		Port:     configuration.SMTPPort,
+		Username: configuration.SMTPUsername,
+		Password: configuration.SMTPPassword,
+		From:     configuration.SMTPFrom,
 	}
 	title := customerEmailSubjectForDueDate(subscription, dueAt)
 	return sender.SendTo(ctx, []string{subscription.CustomerEmail}, title, message)
@@ -2075,9 +2141,10 @@ func (service *SubscriptionService) sendToEnabledChannels(ctx context.Context, t
 		return fmt.Errorf("请先在设置中启用至少一个通知渠道")
 	}
 
+	_, registry := service.runtimeConfigSnapshot()
 	var failures []string
 	for _, channel := range enabledChannels {
-		sender, ok := service.Notify.Get(channel)
+		sender, ok := registry.Get(channel)
 		if !ok {
 			failures = append(failures, channel+": not configured")
 			if subscriptionID > 0 {
@@ -2142,6 +2209,10 @@ func (service *SubscriptionService) ProcessDueNotifications(ctx context.Context)
 	groupIndex := map[string]int{}
 
 	for _, logEntry := range pendingLogs {
+		if notificationWindowExpired(logEntry, today) {
+			_ = service.Store.MarkNotificationCanceled(logEntry.ID)
+			continue
+		}
 		if !notificationSendDateMatches(logEntry, now, today) {
 			continue
 		}
@@ -2331,6 +2402,17 @@ func notificationSendDateMatches(logEntry model.NotificationLog, now time.Time, 
 	return !sendAt.After(now) && cycle.FormatDate(sendAt) == today
 }
 
+func notificationWindowExpired(logEntry model.NotificationLog, today string) bool {
+	dueAt, err := time.ParseInLocation("2006-01-02", logEntry.DueDate, cycle.Location)
+	if err != nil {
+		return true
+	}
+	if logEntry.Kind == model.NotificationKindPriceIncreaseNotice {
+		return today >= cycle.FormatDate(dueAt)
+	}
+	return cycle.FormatDate(cycle.SendAt(dueAt, logEntry.OffsetDays)) < today
+}
+
 func (service *SubscriptionService) attemptScheduledSend(ctx context.Context, channel string, logEntries []model.NotificationLog) error {
 	if channel == model.ChannelSMTP {
 		return service.attemptCustomerEmailSends(ctx, logEntries)
@@ -2339,7 +2421,8 @@ func (service *SubscriptionService) attemptScheduledSend(ctx context.Context, ch
 }
 
 func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Context, logEntries []model.NotificationLog) error {
-	sender, ok := service.Notify.Get(model.ChannelSMTP)
+	_, registry := service.runtimeConfigSnapshot()
+	sender, ok := registry.Get(model.ChannelSMTP)
 
 	var failures []string
 	for _, logEntry := range logEntries {
@@ -2445,7 +2528,8 @@ func sendCustomerSMTP(ctx context.Context, sender notify.Sender, recipient strin
 }
 
 func (service *SubscriptionService) attemptDigestSend(ctx context.Context, channel string, logEntries []model.NotificationLog) error {
-	sender, ok := service.Notify.Get(channel)
+	_, registry := service.runtimeConfigSnapshot()
+	sender, ok := registry.Get(channel)
 	if !ok {
 		for _, logEntry := range logEntries {
 			logEntry.AttemptCount = logEntry.AttemptCount + 1

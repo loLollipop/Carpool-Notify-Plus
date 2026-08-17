@@ -65,7 +65,15 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
-	router.Use(gin.Recovery(), gin.Logger())
+	if err := router.SetTrustedProxies([]string{"127.0.0.1", "::1"}); err != nil {
+		log.Fatalf("trusted proxies: %v", err)
+	}
+	router.Use(
+		handler.SecurityHeaders(),
+		handler.LimitRequestBody(2<<20),
+		handler.RequestLogger(),
+		gin.Recovery(),
+	)
 
 	sessionStore := cookie.NewStore([]byte(configuration.SessionSecret))
 	sessionStore.Options(sessions.Options{
@@ -87,6 +95,9 @@ func main() {
 		Addr:              configuration.ListenAddress,
 		Handler:           router,
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {

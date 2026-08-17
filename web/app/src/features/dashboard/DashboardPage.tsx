@@ -2,9 +2,11 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { Link } from "react-router-dom"
 import {
-  Area,
-  AreaChart,
+  Bar,
+  Cell,
   CartesianGrid,
+  ComposedChart,
+  Line,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
   XAxis,
@@ -12,11 +14,13 @@ import {
 } from "recharts"
 import {
   AlertTriangle,
+  ArrowDownRight,
   ArrowUpRight,
   CalendarClock,
   CheckCircle2,
   CreditCard,
   HandCoins,
+  Minus,
   Plus,
   Wallet,
 } from "lucide-react"
@@ -283,7 +287,7 @@ function KpiRow({
   )
 }
 
-// ---- Revenue trend (area) -------------------------------------------------------
+// ---- Revenue trend --------------------------------------------------------------
 
 function RevenueTrendCard({
   summary,
@@ -304,53 +308,112 @@ function RevenueTrendCard({
     refundCents: item.refund_cents,
     count: item.count,
   }))
+  const latestCents = data.at(-1)?.cents ?? 0
+  const previousCents = data.at(-2)?.cents
+  const changePercent = previousCents
+    ? ((latestCents - previousCents) / Math.abs(previousCents)) * 100
+    : null
+  const periodCents = data.reduce((total, item) => total + item.cents, 0)
+  const changeTone = changePercent === null || changePercent === 0
+    ? "text-muted-foreground"
+    : changePercent > 0
+      ? "text-success"
+      : "text-destructive"
+  const changeText = amountsHidden
+    ? VALUE_MASK
+    : changePercent === null
+      ? "—"
+      : `${changePercent > 0 ? "+" : ""}${changePercent.toFixed(1)}%`
 
   return (
     <ChartCard
       title={t("dash.trendTitle")}
       desc={t("dash.trendDesc")}
-      className={cn("h-full min-h-0", className)}
+      className={className}
       delay={delay}
     >
       {summary.bill_count === 0 ? (
         <ChartEmpty text={t("dash.trendEmpty")} />
       ) : (
-        <div className="min-h-[260px] flex-1">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-              <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="2 6" />
-              <XAxis
-                dataKey="label"
-                axisLine={{ stroke: "var(--border)" }}
-                tickLine={{ stroke: "var(--border)" }}
-                tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                dy={6}
-              />
-              <YAxis
-                width={64}
-                domain={["auto", "auto"]}
-                axisLine={{ stroke: "var(--border)" }}
-                tickLine={{ stroke: "var(--border)" }}
-                tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
-                tickFormatter={(value) => (amountsHidden ? AMOUNT_MASK : formatAxisCents(value))}
-              />
-              <RechartsTooltip
-                cursor={{ stroke: "var(--border)", strokeWidth: 1 }}
-                content={<ChartTooltip amountsHidden={amountsHidden} />}
-              />
-              <Area
-                type="monotone"
-                dataKey="cents"
-                stroke="var(--brand)"
-                strokeWidth={2}
-                fill="var(--brand)"
-                fillOpacity={0.08}
-                dot={false}
-                activeDot={{ r: 4, strokeWidth: 0 }}
-                {...CHART_ANIMATION}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+        <div data-testid="revenue-trend-card" className="flex min-h-[260px] flex-1 flex-col gap-4">
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-lg border bg-border sm:grid-cols-3">
+            <div className="min-w-0 bg-card px-3 py-3">
+              <p className="truncate text-[11px] font-medium text-muted-foreground">
+                {t("dash.trendCurrent")}
+              </p>
+              <p className="display-numeral mt-1 truncate text-lg leading-none">
+                {amountsHidden ? AMOUNT_MASK : formatCents(latestCents)}
+              </p>
+            </div>
+            <div className="min-w-0 bg-card px-3 py-3">
+              <p className="truncate text-[11px] font-medium text-muted-foreground">
+                {t("dash.trendChange")}
+              </p>
+              <div className={cn("mt-1 flex items-center gap-1", changeTone)}>
+                {changePercent === null || changePercent === 0 ? (
+                  <Minus className="size-3.5 shrink-0" />
+                ) : changePercent > 0 ? (
+                  <ArrowUpRight className="size-3.5 shrink-0" />
+                ) : (
+                  <ArrowDownRight className="size-3.5 shrink-0" />
+                )}
+                <span className="display-numeral truncate text-lg leading-none">{changeText}</span>
+              </div>
+            </div>
+            <div className="col-span-2 min-w-0 bg-card px-3 py-3 sm:col-span-1">
+              <p className="truncate text-[11px] font-medium text-muted-foreground">
+                {t("dash.trendPeriodTotal")}
+              </p>
+              <p className="display-numeral mt-1 truncate text-lg leading-none">
+                {amountsHidden ? AMOUNT_MASK : formatCents(periodCents)}
+              </p>
+            </div>
+          </div>
+
+          <div className="min-h-[180px] flex-1">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={data} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="2 6" />
+                <XAxis
+                  dataKey="label"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
+                  dy={6}
+                />
+                <YAxis
+                  width={64}
+                  domain={["auto", "auto"]}
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fontSize: 10, fill: "var(--muted-foreground)" }}
+                  tickFormatter={(value) => (amountsHidden ? AMOUNT_MASK : formatAxisCents(value))}
+                />
+                <RechartsTooltip
+                  cursor={{ fill: "var(--muted)", fillOpacity: 0.4 }}
+                  content={<ChartTooltip amountsHidden={amountsHidden} />}
+                />
+                <Bar dataKey="cents" maxBarSize={46} radius={[6, 6, 2, 2]} {...CHART_ANIMATION}>
+                  {data.map((item, index) => (
+                    <Cell
+                      key={`${item.label}-${index}`}
+                      fill={item.cents < 0 ? "var(--destructive)" : "var(--brand)"}
+                      fillOpacity={index === data.length - 1 ? 0.92 : 0.3}
+                    />
+                  ))}
+                </Bar>
+                <Line
+                  type="monotone"
+                  dataKey="cents"
+                  stroke="var(--brand)"
+                  strokeWidth={2}
+                  dot={{ r: 2.5, fill: "var(--card)", strokeWidth: 2 }}
+                  activeDot={{ r: 4, strokeWidth: 0 }}
+                  {...CHART_ANIMATION}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
         </div>
       )}
     </ChartCard>
@@ -637,15 +700,15 @@ function OperationsHealthCard({
   delay?: number
 }) {
   const { t } = useTranslation()
-  const toneClass: Record<HealthTone, string> = {
-    critical: "destructive",
-    warning: "warning",
-    success: "success",
-  }
   const iconClass: Record<HealthTone, string> = {
     critical: "bg-destructive/10 text-destructive",
     warning: "bg-warning/15 text-warning-foreground dark:text-warning",
     success: "bg-success/12 text-success",
+  }
+  const toneTextClass: Record<HealthTone, string> = {
+    critical: "text-destructive",
+    warning: "text-warning-foreground dark:text-warning",
+    success: "text-success",
   }
 
   const items = React.useMemo(
@@ -663,26 +726,50 @@ function OperationsHealthCard({
     : items.some((item) => item.tone === "warning")
       ? "warning"
       : "success"
+  const attentionItems = items.filter((item) => item.tone !== "success")
+  const healthyItems = items.filter((item) => item.tone === "success")
+  const healthPercent = Math.round((healthyItems.length / Math.max(items.length, 1)) * 100)
 
   return (
     <Card
-      className="h-full min-h-0 self-stretch gap-3 overflow-hidden p-4 animate-fade-up"
+      data-testid="operations-health-card"
+      className="min-h-max self-stretch gap-3 p-4 animate-fade-up"
       style={{ animationDelay: `${delay}ms` }}
     >
-      <div className="flex items-start justify-between gap-2">
-        <h2 className="panel-heading text-sm font-semibold">{t("dash.health.title")}</h2>
-        <span
-          className={cn(
-            "grid size-8 shrink-0 place-items-center rounded-lg",
-            iconClass[overallTone],
-          )}
-        >
-          {overallTone === "success" ? (
-            <CheckCircle2 className="size-4" />
-          ) : (
-            <AlertTriangle className="size-4" />
-          )}
-        </span>
+      <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2.5">
+        <div className="min-w-0">
+          <h2 className="panel-heading text-sm font-semibold">{t("dash.health.title")}</h2>
+          <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+            {attentionItems.length > 0
+              ? t("dash.health.attentionSummary", { count: attentionItems.length })
+              : t("dash.health.allHealthy")}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2.5">
+          <div className="text-right">
+            <div className={cn("display-numeral text-xl leading-none", toneTextClass[overallTone])}>
+              {healthPercent}%
+            </div>
+            <div className="mt-1 text-[10px] text-muted-foreground">
+              {t("dash.health.passedCount", { passed: healthyItems.length, total: items.length })}
+            </div>
+          </div>
+          <span
+            aria-hidden="true"
+            className="relative grid size-10 place-items-center rounded-full"
+            style={{
+              background: `conic-gradient(var(--${overallTone === "critical" ? "destructive" : overallTone === "warning" ? "warning" : "success"}) ${healthPercent}%, var(--muted) 0)`,
+            }}
+          >
+            <span className="grid size-7 place-items-center rounded-full bg-card">
+              {overallTone === "success" ? (
+                <CheckCircle2 className="size-3.5 text-success" />
+              ) : (
+                <AlertTriangle className={cn("size-3.5", overallTone === "critical" ? "text-destructive" : "text-warning")} />
+              )}
+            </span>
+          </span>
+        </div>
       </div>
 
       {pending ? (
@@ -696,53 +783,80 @@ function OperationsHealthCard({
           {t("common.loadFailed")}
         </div>
       ) : (
-        <div
-          className="grid min-h-0 flex-1 gap-2 overflow-y-auto pr-1"
-          style={{ gridTemplateRows: `repeat(${Math.max(items.length, 1)}, minmax(54px, 1fr))` }}
-        >
-          {items.map((item) => (
-            <div
-              key={item.key}
-              className={cn(
-                "flex min-h-0 items-center gap-3 rounded-md border border-l-2 bg-muted/25 px-3 py-2",
-                item.tone === "critical" && "border-l-destructive",
-                item.tone === "warning" && "border-l-gold",
-                item.tone === "success" && "border-l-success",
-              )}
-            >
-              <span
-                className={cn(
-                  "grid size-7 shrink-0 place-items-center rounded-md",
-                  iconClass[item.tone],
-                )}
-              >
-                {item.tone === "success" ? (
-                  <CheckCircle2 className="size-3.5" />
-                ) : (
-                  <AlertTriangle className="size-3.5" />
-                )}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span className="truncate text-sm font-medium">{item.title}</span>
-                  {item.count !== undefined ? (
-                    <Badge
-                      variant={toneClass[item.tone] as "destructive" | "warning" | "success"}
-                      className="font-normal"
-                    >
-                      {item.count}
-                    </Badge>
-                  ) : null}
-                </div>
-                <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{item.detail}</p>
+        <div className="flex flex-1 flex-col gap-3">
+          {attentionItems.length > 0 ? (
+            <section aria-labelledby="health-attention-title">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <h3 id="health-attention-title" className="text-xs font-semibold">
+                  {t("dash.health.attentionTitle")}
+                </h3>
+                <Badge variant={overallTone === "critical" ? "destructive" : "warning"} className="font-normal">
+                  {attentionItems.length}
+                </Badge>
               </div>
-              {item.to && item.actionLabel ? (
-                <Button variant="ghost" size="sm" asChild className="shrink-0">
-                  <Link to={item.to}>{item.actionLabel}</Link>
-                </Button>
-              ) : null}
-            </div>
-          ))}
+              <div className="grid gap-1.5">
+                {attentionItems.map((item) => {
+                  const content = (
+                    <>
+                      <span className={cn("grid size-7 shrink-0 place-items-center rounded-md", iconClass[item.tone])}>
+                        <AlertTriangle className="size-3.5" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-semibold">{item.title}</span>
+                        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground" title={item.detail}>
+                          {item.detail}
+                        </span>
+                      </span>
+                      {item.to ? <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" /> : null}
+                    </>
+                  )
+                  const itemClassName = cn(
+                    "flex min-h-12 items-center gap-2.5 rounded-md border border-l-2 bg-muted/20 px-2.5 py-1.5 transition-colors",
+                    item.tone === "critical" ? "border-l-destructive" : "border-l-gold",
+                    item.to && "hover:border-input hover:bg-muted/40",
+                  )
+
+                  return item.to ? (
+                    <Link
+                      key={item.key}
+                      to={item.to}
+                      aria-label={`${item.title}，${item.actionLabel ?? ""}`}
+                      className={itemClassName}
+                    >
+                      {content}
+                    </Link>
+                  ) : (
+                    <div key={item.key} className={itemClassName}>{content}</div>
+                  )
+                })}
+              </div>
+            </section>
+          ) : null}
+
+          {healthyItems.length > 0 ? (
+            <section aria-labelledby="health-passed-title" className="mt-auto">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <h3 id="health-passed-title" className="text-xs font-semibold">
+                  {t("dash.health.passedTitle")}
+                </h3>
+                <span className="text-[10px] text-muted-foreground">
+                  {t("dash.health.passedCount", { passed: healthyItems.length, total: items.length })}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {healthyItems.map((item) => (
+                  <div
+                    key={item.key}
+                    title={item.detail}
+                    className="flex min-w-0 items-center gap-2 rounded-md border border-success/20 bg-success/5 px-2.5 py-2"
+                  >
+                    <CheckCircle2 className="size-3.5 shrink-0 text-success" />
+                    <span className="truncate text-[11px] font-medium">{item.title}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
         </div>
       )}
     </Card>
@@ -781,7 +895,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="flex flex-col xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:overflow-hidden">
+    <div className="flex flex-col">
       <PageHeader
         title={t("dash.title")}
         titleAccessory={
@@ -818,7 +932,7 @@ export function DashboardPage() {
           </Button>
         </Card>
       ) : dashboard ? (
-        <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex flex-col">
           <KpiRow
             dashboard={dashboard}
             summary={summary}
@@ -827,7 +941,7 @@ export function DashboardPage() {
             amountsHidden={amountsHidden}
           />
 
-          <div className="grid min-h-0 flex-1 items-stretch gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+          <div className="grid items-stretch gap-4 xl:min-h-[420px] xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
             {summary ? (
               <RevenueTrendCard summary={summary} amountsHidden={amountsHidden} delay={100} />
             ) : null}

@@ -61,17 +61,15 @@ func (store *Store) BanAccountAndCreateAfterSalesCases(
 	var accountEmail string
 	var accountSpaceName string
 	var existingBannedAt string
-	var existingBanNote string
 	if err := transaction.QueryRow(`
 		SELECT COALESCE(name, ''), COALESCE(email, ''), COALESCE(space_name, ''),
-		       COALESCE(banned_at, ''), COALESCE(ban_note, '')
+		       COALESCE(banned_at, '')
 		FROM accounts
 		WHERE id = ?`, accountID).Scan(
 		&accountName,
 		&accountEmail,
 		&accountSpaceName,
 		&existingBannedAt,
-		&existingBanNote,
 	); err != nil {
 		return 0, err
 	}
@@ -80,7 +78,6 @@ func (store *Store) BanAccountAndCreateAfterSalesCases(
 	// the unique key remains stable and cannot create duplicate refund cases.
 	if strings.TrimSpace(existingBannedAt) != "" {
 		bannedDate = existingBannedAt
-		banNote = existingBanNote
 	} else {
 		if _, err := transaction.Exec(`
 			UPDATE accounts
@@ -210,7 +207,7 @@ func (store *Store) BanAccountAndCreateAfterSalesCases(
 			remainingDays = warrantyDays - usedDays
 			periodEnd = periodDay.AddDate(0, 0, warrantyDays).Format("2006-01-02")
 			// Integer-cent half-up rounding keeps the result deterministic.
-			refundAmountCents = (paidAmountCents*int64(remainingDays) + int64(warrantyDays/2)) / int64(warrantyDays)
+			refundAmountCents = proratedRefundCents(paidAmountCents, remainingDays, warrantyDays)
 			status = model.AfterSalesStatusPending
 			caseNote = ""
 		}
@@ -346,16 +343,34 @@ func (store *Store) CountPendingAfterSalesCasesBySubscription(subscriptionID int
 
 // UpdateAfterSalesCase updates the operator-adjustable refund and note fields.
 func (store *Store) UpdateAfterSalesCase(caseID int64, refundAmountCents int64, note string) error {
-	result, err := store.database.Exec(`
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	var status string
+	if err := transaction.QueryRow(
+		`SELECT status FROM after_sales_cases WHERE id = ?`,
+		caseID,
+	).Scan(&status); err != nil {
+		return err
+	}
+	if status != model.AfterSalesStatusPending && status != model.AfterSalesStatusReview {
+		return ErrAfterSalesProcessed
+	}
+	if err := ensureAfterSalesRefundWithinPayment(transaction, caseID, refundAmountCents); err != nil {
+		return err
+	}
+
+	result, err := transaction.Exec(`
 		UPDATE after_sales_cases
 		SET refund_amount_cents = ?, note = ?, updated_at = ?
-		WHERE id = ?
-		  AND (source <> ? OR status IN (?, ?))`,
+		WHERE id = ? AND status IN (?, ?)`,
 		refundAmountCents,
 		strings.TrimSpace(note),
 		formatTime(time.Now().UTC()),
 		caseID,
-		model.AfterSalesSourceCustomerCancellation,
 		model.AfterSalesStatusPending,
 		model.AfterSalesStatusReview,
 	)
@@ -367,9 +382,9 @@ func (store *Store) UpdateAfterSalesCase(caseID int64, refundAmountCents int64, 
 		return err
 	}
 	if rowsAffected == 0 {
-		return sql.ErrNoRows
+		return ErrAfterSalesProcessed
 	}
-	return nil
+	return transaction.Commit()
 }
 
 // SetAfterSalesCaseRefunded marks or unmarks one case as completed.
@@ -401,6 +416,11 @@ func (store *Store) SetAfterSalesCaseRefunded(caseID int64, refunded bool, proce
 		FROM after_sales_cases
 		WHERE id = ?`, caseID).Scan(&subscriptionID, &billID); err != nil {
 		return err
+	}
+	if refunded {
+		if err := ensureAfterSalesRefundWithinPayment(transaction, caseID, -1); err != nil {
+			return err
+		}
 	}
 
 	status := model.AfterSalesStatusPending
@@ -528,6 +548,69 @@ func (store *Store) SetAfterSalesCaseRefunded(caseID int64, refunded bool, proce
 	}
 
 	return transaction.Commit()
+}
+
+// ensureAfterSalesRefundWithinPayment protects the financial invariant inside
+// the same transaction that completes or edits a refund. proposedCents < 0
+// means use the amount currently stored on the target case.
+func ensureAfterSalesRefundWithinPayment(
+	transaction *sql.Tx,
+	caseID int64,
+	proposedCents int64,
+) error {
+	var billID int64
+	var paidAmountCents int64
+	var storedRefundCents int64
+	if err := transaction.QueryRow(`
+		SELECT bill_id, paid_amount_cents, refund_amount_cents
+		FROM after_sales_cases
+		WHERE id = ?`, caseID).Scan(
+		&billID,
+		&paidAmountCents,
+		&storedRefundCents,
+	); err != nil {
+		return err
+	}
+	if proposedCents < 0 {
+		proposedCents = storedRefundCents
+	}
+	if proposedCents < 0 {
+		return ErrAfterSalesRefundExceedsPayment
+	}
+	if billID <= 0 || paidAmountCents <= 0 {
+		return nil
+	}
+
+	var completedRefundCents int64
+	if err := transaction.QueryRow(`
+		SELECT COALESCE(SUM(refund_amount_cents), 0)
+		FROM after_sales_cases
+		WHERE bill_id = ? AND id <> ? AND status = ?`,
+		billID,
+		caseID,
+		model.AfterSalesStatusRefunded,
+	).Scan(&completedRefundCents); err != nil {
+		return err
+	}
+	if completedRefundCents > paidAmountCents ||
+		proposedCents > paidAmountCents-completedRefundCents {
+		return ErrAfterSalesRefundExceedsPayment
+	}
+	return nil
+}
+
+func proratedRefundCents(paidAmountCents int64, remainingDays int, periodDays int) int64 {
+	if paidAmountCents <= 0 || remainingDays <= 0 || periodDays <= 0 {
+		return 0
+	}
+	if remainingDays >= periodDays {
+		return paidAmountCents
+	}
+	period := int64(periodDays)
+	remaining := int64(remainingDays)
+	whole := (paidAmountCents / period) * remaining
+	remainder := paidAmountCents % period
+	return whole + (remainder*remaining+period/2)/period
 }
 
 // ReassignAfterSalesCase moves an affected active subscription to one free seat

@@ -3,6 +3,7 @@ package config
 import (
 	"flag"
 	"fmt"
+	"net/mail"
 	"os"
 	"strconv"
 	"strings"
@@ -122,6 +123,10 @@ type fileConfig struct {
 //  3. ./config.toml
 func Load() (Config, error) {
 	configPath := resolveConfigPath()
+	return loadConfig(configPath)
+}
+
+func loadConfig(configPath string) (Config, error) {
 
 	fileValues, err := loadTOMLFile(configPath)
 	if err != nil {
@@ -216,19 +221,37 @@ func (configuration Config) NotificationConfig() NotificationConfigView {
 // the effective runtime config. Secret fields are write-only: empty input keeps
 // the existing value on disk.
 func UpdateNotificationConfig(path string, input NotificationConfigInput) (Config, error) {
+	updated, _, err := UpdateNotificationConfigWithRollback(path, input)
+	return updated, err
+}
+
+// UpdateNotificationConfigWithRollback writes notification settings and
+// returns a compensating action for callers that also persist settings in
+// another data store. The rollback restores the exact previous file contents.
+func UpdateNotificationConfigWithRollback(
+	path string,
+	input NotificationConfigInput,
+) (Config, func() error, error) {
+	previousRaw, err := os.ReadFile(path)
+	if err != nil {
+		return Config{}, nil, fmt.Errorf("read config %s: %w", path, err)
+	}
+	previousMode := os.FileMode(0o600)
+	if info, statErr := os.Stat(path); statErr == nil {
+		previousMode = info.Mode().Perm()
+	}
 	fileValues, err := loadTOMLFile(path)
 	if err != nil {
-		return Config{}, err
+		return Config{}, nil, err
+	}
+	if err := ValidateNotificationConfig(input); err != nil {
+		return Config{}, nil, err
 	}
 
 	smtpPort := input.SMTP.Port
 	if smtpPort <= 0 {
 		smtpPort = 587
 	}
-	if smtpPort > 65535 {
-		return Config{}, fmt.Errorf("smtp port must be between 1 and 65535")
-	}
-
 	fileValues.SMTP.Host = strings.TrimSpace(input.SMTP.Host)
 	fileValues.SMTP.Port = smtpPort
 	fileValues.SMTP.Username = strings.TrimSpace(input.SMTP.Username)
@@ -248,9 +271,45 @@ func UpdateNotificationConfig(path string, input NotificationConfigInput) (Confi
 	}
 
 	if err := writeTOMLFile(path, fileValues); err != nil {
-		return Config{}, err
+		return Config{}, nil, err
 	}
-	return Load()
+	rollback := func() error {
+		return writeFileAtomically(path, previousRaw, previousMode)
+	}
+	updated, err := loadConfig(path)
+	if err != nil {
+		if rollbackErr := rollback(); rollbackErr != nil {
+			return Config{}, nil, fmt.Errorf("reload config: %v; restore previous config: %w", err, rollbackErr)
+		}
+		return Config{}, nil, err
+	}
+	return updated, rollback, nil
+}
+
+// ValidateNotificationConfig checks settings that would otherwise fail only
+// after the database-backed settings on the same page had already been saved.
+func ValidateNotificationConfig(input NotificationConfigInput) error {
+	if input.SMTP.Port < 0 || input.SMTP.Port > 65535 {
+		return fmt.Errorf("smtp port must be between 1 and 65535")
+	}
+	if strings.ContainsAny(input.SMTP.Host, "\r\n\t ") {
+		return fmt.Errorf("smtp host must not contain whitespace")
+	}
+	if rawFrom := strings.TrimSpace(input.SMTP.From); rawFrom != "" {
+		if _, err := mail.ParseAddress(rawFrom); err != nil {
+			return fmt.Errorf("smtp from address is invalid")
+		}
+	}
+	for _, rawRecipient := range strings.Split(input.SMTP.To, ",") {
+		rawRecipient = strings.TrimSpace(rawRecipient)
+		if rawRecipient == "" {
+			continue
+		}
+		if _, err := mail.ParseAddress(rawRecipient); err != nil {
+			return fmt.Errorf("smtp recipient address is invalid")
+		}
+	}
+	return nil
 }
 
 func resolveConfigPath() string {
@@ -297,6 +356,10 @@ func writeTOMLFile(path string, values fileConfig) error {
 	if info, err := os.Stat(path); err == nil {
 		mode = info.Mode().Perm()
 	}
+	return writeFileAtomically(path, raw, mode)
+}
+
+func writeFileAtomically(path string, raw []byte, mode os.FileMode) error {
 	tempPath := path + ".tmp"
 	if err := os.WriteFile(tempPath, raw, mode); err != nil {
 		return fmt.Errorf("write config temp: %w", err)

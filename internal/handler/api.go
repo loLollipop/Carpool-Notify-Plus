@@ -2,7 +2,9 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -248,6 +250,10 @@ type channelSettingDTO struct {
 }
 
 func (server *Server) getSettings(context *gin.Context) {
+	server.settingsPageMu.Lock()
+	defer server.settingsPageMu.Unlock()
+	configuration := server.currentConfig()
+
 	notifyTemplate, err := server.Service.GetNotifyTemplate()
 	if err != nil {
 		respondError(context, http.StatusInternalServerError, err.Error())
@@ -281,22 +287,22 @@ func (server *Server) getSettings(context *gin.Context) {
 			Key:                model.ChannelIYUU,
 			Label:              "IYUU",
 			Enabled:            isEnabled(model.ChannelIYUU),
-			Configured:         server.Config.IYUUConfigured(),
-			OperatorConfigured: server.Config.IYUUConfigured(),
+			Configured:         configuration.IYUUConfigured(),
+			OperatorConfigured: configuration.IYUUConfigured(),
 		},
 		{
 			Key:                model.ChannelSMTP,
 			Label:              "SMTP",
 			Enabled:            isEnabled(model.ChannelSMTP),
-			Configured:         server.Config.SMTPConfigured(),
-			OperatorConfigured: server.Config.SMTPOperatorConfigured(),
+			Configured:         configuration.SMTPConfigured(),
+			OperatorConfigured: configuration.SMTPOperatorConfigured(),
 		},
 		{
 			Key:                model.ChannelGotify,
 			Label:              "Gotify",
 			Enabled:            isEnabled(model.ChannelGotify),
-			Configured:         server.Config.GotifyConfigured(),
-			OperatorConfigured: server.Config.GotifyConfigured(),
+			Configured:         configuration.GotifyConfigured(),
+			OperatorConfigured: configuration.GotifyConfigured(),
 		},
 	}
 	respondOK(context, gin.H{
@@ -304,7 +310,7 @@ func (server *Server) getSettings(context *gin.Context) {
 		"customer_email_template": customerTemplate,
 		"enabled_channels":        enabledChannels,
 		"channels":                channels,
-		"notification_config":     server.Config.NotificationConfig(),
+		"notification_config":     configuration.NotificationConfig(),
 		"redeem_page":             redeemPageSettings,
 	})
 }
@@ -402,6 +408,9 @@ func (server *Server) getExport(context *gin.Context) {
 		return
 	}
 	filename := "carpool-export-" + cycle.Now().Format("20060102") + ".json"
+	context.Header("Cache-Control", "no-store")
+	context.Header("Pragma", "no-cache")
+	context.Header("X-Content-Type-Options", "nosniff")
 	context.Header("Content-Disposition", "attachment; filename="+filename)
 	context.Data(http.StatusOK, "application/json; charset=utf-8", encoded)
 }
@@ -693,7 +702,11 @@ func (server *Server) postCopySubscription(context *gin.Context) {
 	var request struct {
 		SeatID int64 `json:"seat_id"`
 	}
-	_ = context.ShouldBindJSON(&request)
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
+	if err := context.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
 	if request.SeatID == 0 {
 		// Prefer a free seat on the same account when the caller omits seat_id.
 		source, getErr := server.Service.Store.GetSubscriptionIncludingArchived(subscriptionID)
@@ -987,6 +1000,7 @@ func (server *Server) deleteBill(context *gin.Context) {
 // ---- Settings mutations ----------------------------------------------------------
 
 func (server *Server) putSettings(context *gin.Context) {
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 2<<20)
 	var request struct {
 		NotifyTemplate        string                          `json:"notify_template"`
 		CustomerEmailTemplate string                          `json:"customer_email_template"`
@@ -998,32 +1012,58 @@ func (server *Server) putSettings(context *gin.Context) {
 		respondError(context, http.StatusBadRequest, "无效的请求")
 		return
 	}
-	if err := server.Service.SaveNotifyTemplate(request.NotifyTemplate); err != nil {
+	server.settingsPageMu.Lock()
+	defer server.settingsPageMu.Unlock()
+	if err := server.Service.ValidateSettingsPage(
+		request.NotifyTemplate,
+		request.CustomerEmailTemplate,
+		request.RedeemPage,
+	); err != nil {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := server.Service.SaveCustomerEmailTemplate(request.CustomerEmailTemplate); err != nil {
-		respondError(context, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := server.Service.SaveEnabledChannels(request.Channels); err != nil {
-		respondError(context, http.StatusBadRequest, err.Error())
-		return
-	}
-	if request.RedeemPage != nil {
-		if err := server.Service.SaveRedeemPageSettings(*request.RedeemPage); err != nil {
+	if request.NotificationConfig != nil {
+		if err := config.ValidateNotificationConfig(*request.NotificationConfig); err != nil {
 			respondError(context, http.StatusBadRequest, err.Error())
 			return
 		}
 	}
+	var updatedConfig *config.Config
+	var rollbackConfig func() error
 	if request.NotificationConfig != nil {
-		updatedConfig, err := config.UpdateNotificationConfig(server.Config.ConfigPath, *request.NotificationConfig)
+		configuration := server.currentConfig()
+		updated, rollback, err := config.UpdateNotificationConfigWithRollback(
+			configuration.ConfigPath,
+			*request.NotificationConfig,
+		)
 		if err != nil {
 			respondError(context, http.StatusBadRequest, err.Error())
 			return
 		}
-		server.Config = updatedConfig
-		server.Service.ApplyConfig(updatedConfig)
+		updatedConfig = &updated
+		rollbackConfig = rollback
+	}
+	if err := server.Service.SaveSettingsPage(
+		request.NotifyTemplate,
+		request.CustomerEmailTemplate,
+		request.Channels,
+		request.RedeemPage,
+	); err != nil {
+		if rollbackConfig != nil {
+			if rollbackErr := rollbackConfig(); rollbackErr != nil {
+				respondError(
+					context,
+					http.StatusInternalServerError,
+					fmt.Sprintf("设置保存失败，并且通知配置回滚失败: %v", rollbackErr),
+				)
+				return
+			}
+		}
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	if updatedConfig != nil {
+		server.applyConfig(*updatedConfig)
 	}
 	respondOK(context, gin.H{"message": "设置已保存"})
 }
