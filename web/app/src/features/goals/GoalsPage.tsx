@@ -1362,7 +1362,6 @@ function RepricingAnalysisPanel({
                 </Badge>
               ) : null}
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">{t("goals.repricing.userAnalysisHint")}</p>
           </div>
           <Button variant="outline" size="sm" onClick={onOpenBulkPricing}>
             {t("goals.repricing.manageBatch")}
@@ -1391,6 +1390,11 @@ function RepricingAnalysisPanel({
                   key: "loyalty",
                   value: candidate.loyalty_score,
                   color: "var(--brand)",
+                },
+                {
+                  key: "priceWillingness",
+                  value: candidate.price_willingness_score,
+                  color: "var(--chart-2)",
                 },
                 {
                   key: "relationshipAsset",
@@ -1624,7 +1628,8 @@ function BulkPricingPanel({
   const [search, setSearch] = React.useState("")
   const [selected, setSelected] = React.useState<Set<number>>(() => new Set())
   const [nextPrice, setNextPrice] = React.useState("")
-  const [confirmOpen, setConfirmOpen] = React.useState(false)
+  const [pricingDialogOpen, setPricingDialogOpen] = React.useState(false)
+  const [pricingConfirming, setPricingConfirming] = React.useState(false)
   const [exemptionOpen, setExemptionOpen] = React.useState(false)
   const [exemptionReason, setExemptionReason] =
     React.useState<PricingExemptionReason>("relationship_investment")
@@ -1702,7 +1707,8 @@ function BulkPricingPanel({
       }),
     {
       onSuccess: () => {
-        setConfirmOpen(false)
+        setPricingDialogOpen(false)
+        setPricingConfirming(false)
         setSelected(new Set())
         setNextPrice("")
       },
@@ -1728,6 +1734,12 @@ function BulkPricingPanel({
 
   function toggleCandidate(candidate: PricingCandidate, checked: boolean) {
     if (!candidate.eligible) return
+    if (checked && selected.size === 0) {
+      if (nextPrice === "" && candidate.suggested_price_cents > candidate.current_price_cents) {
+        setNextPrice(inputYuan(candidate.suggested_price_cents))
+      }
+      setPricingDialogOpen(true)
+    }
     setSelected((current) => {
       const next = new Set(current)
       if (checked) next.add(candidate.subscription_id)
@@ -1737,6 +1749,19 @@ function BulkPricingPanel({
   }
 
   function toggleVisible(checked: boolean) {
+    if (checked && selected.size === 0 && visibleEligibleIDs.length > 0) {
+      const visibleCandidates = pageCandidates.filter((candidate) => candidate.eligible)
+      const visibleSuggestion = Math.min(
+        ...visibleCandidates.map((candidate) => candidate.suggested_price_cents),
+      )
+      const visibleHighestCurrent = Math.max(
+        ...visibleCandidates.map((candidate) => candidate.current_price_cents),
+      )
+      if (nextPrice === "" && visibleSuggestion > visibleHighestCurrent) {
+        setNextPrice(inputYuan(visibleSuggestion))
+      }
+      setPricingDialogOpen(true)
+    }
     setSelected((current) => {
       const next = new Set(current)
       for (const id of visibleEligibleIDs) {
@@ -1752,6 +1777,7 @@ function BulkPricingPanel({
     setFilter("recommended")
     setPage(1)
     setSelected(new Set(recommended.map((candidate) => candidate.subscription_id)))
+    setPricingDialogOpen(recommended.length > 0)
     const sharedSuggestion = recommended.length
       ? Math.min(...recommended.map((candidate) => candidate.suggested_price_cents))
       : 0
@@ -1761,6 +1787,13 @@ function BulkPricingPanel({
     if (!nextPrice && sharedSuggestion > highestCurrent) {
       setNextPrice(inputYuan(sharedSuggestion))
     }
+  }
+
+  function openPricingSettings() {
+    if (nextPrice === "" && canUseSharedSuggestion && sharedSuggestedPrice > 0) {
+      setNextPrice(inputYuan(sharedSuggestedPrice))
+    }
+    setPricingDialogOpen(true)
   }
 
   return (
@@ -1777,9 +1810,6 @@ function BulkPricingPanel({
                 {t("goals.recommendedCount", { count: recommendedCount })}
               </Badge>
             </div>
-            <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
-              {t("goals.bulkPricingDesc")}
-            </p>
           </div>
         </div>
         <Button
@@ -1979,91 +2009,165 @@ function BulkPricingPanel({
         </div>
       ) : null}
 
-      <div className="grid gap-4 border-t bg-muted/25 p-4 lg:grid-cols-[minmax(0,1fr)_minmax(260px,360px)_auto] lg:items-end">
-        <div>
+      <div className="flex flex-col gap-3 border-t bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <p className="text-sm font-semibold">
             {t("goals.selectedCount", { count: selectedCandidates.length })}
           </p>
-          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            {t("goals.currentPeriodProtected")}
-          </p>
           {selectedCandidates.length > 0 ? (
-            <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+            <p className="text-xs tabular-nums text-muted-foreground">
               {t("goals.selectedSafeCeiling", {
                 price: visibleYuan(selectedSafeCeiling, amountsHidden),
               })}
             </p>
           ) : null}
-          {selectedCandidates.length > 0 && !canExempt ? (
-            <p className="mt-1 text-xs text-warning">{t("goals.exemptionSelectionHint")}</p>
-          ) : null}
         </div>
-        <div className="grid gap-2">
-          <Label htmlFor="bulk-next-price">{t("goals.bulkNextPrice")}</Label>
-          <div className="flex gap-2">
-            <div className="relative min-w-0 flex-1">
-              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
-              <Input
-                id="bulk-next-price"
-                className="pl-7 tabular-nums"
-                value={nextPrice}
-                onChange={(event) => setNextPrice(event.target.value)}
-                inputMode="decimal"
-                placeholder={sharedSuggestedPrice > 0 ? inputYuan(sharedSuggestedPrice) : "0.00"}
-              />
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                if (canUseSharedSuggestion) setNextPrice(inputYuan(sharedSuggestedPrice))
-              }}
-              disabled={!canUseSharedSuggestion}
-            >
-              {t("goals.useMedian")}
-            </Button>
-          </div>
-          {hasNonIncrease ? (
-            <p className="text-xs text-destructive">{t("goals.nonIncreaseWarning")}</p>
-          ) : null}
-          {hasAboveSafeCap ? (
-            <p className="text-xs text-destructive">{t("goals.aboveSafeCapWarning")}</p>
-          ) : null}
-          {selectedCandidates.length > 1 && !canUseSharedSuggestion ? (
-            <p className="text-xs text-warning">{t("goals.splitBatchWarning")}</p>
-          ) : null}
-        </div>
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1">
-          <Button
-            variant="outline"
-            disabled={!canExempt || exemptionMutation.isPending}
-            onClick={() => setExemptionOpen(true)}
-          >
-            <ShieldCheck />
-            {t("goals.exemptCurrentRound")}
-          </Button>
-          <Button
-            disabled={!canSubmit || mutation.isPending}
-            onClick={() => setConfirmOpen(true)}
-          >
-            <SlidersHorizontal />
-            {t("goals.scheduleBulkPrice")}
-          </Button>
-        </div>
+        <Button
+          className="min-h-10 sm:min-h-9"
+          disabled={selectedCandidates.length === 0}
+          onClick={openPricingSettings}
+        >
+          <SlidersHorizontal />
+          {t("goals.openBulkSettings")}
+        </Button>
       </div>
 
-      <ConfirmDialog
-        open={confirmOpen}
-        onOpenChange={setConfirmOpen}
-        title={t("goals.bulkConfirmTitle")}
-        description={t("goals.bulkConfirmDesc", {
-          count: selectedCandidates.length,
-          price: `¥${nextPrice}`,
-        })}
-        actionLabel={t("goals.scheduleBulkPrice")}
-        pending={mutation.isPending}
-        onConfirm={() => mutation.mutate()}
-      />
+      <Dialog
+        open={pricingDialogOpen}
+        onOpenChange={(open) => {
+          setPricingDialogOpen(open)
+          if (!open) setPricingConfirming(false)
+        }}
+      >
+        <DialogContent aria-describedby={undefined} className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>
+              {pricingConfirming ? t("goals.bulkConfirmTitle") : t("goals.bulkDialogTitle")}
+            </DialogTitle>
+          </DialogHeader>
+
+          {pricingConfirming ? (
+            <div className="rounded-lg border bg-muted/25 p-4 text-sm leading-6">
+              {t("goals.bulkConfirmDesc", {
+                count: selectedCandidates.length,
+                price: `¥${nextPrice}`,
+              })}
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              <div className="rounded-lg border bg-muted/20 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold">
+                    {t("goals.selectedCount", { count: selectedCandidates.length })}
+                  </p>
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {t("goals.selectedSafeCeiling", {
+                      price: visibleYuan(selectedSafeCeiling, amountsHidden),
+                    })}
+                  </span>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {selectedCandidates.slice(0, 5).map((candidate) => (
+                    <Badge key={candidate.subscription_id} variant="outline">
+                      {candidate.name}
+                    </Badge>
+                  ))}
+                  {selectedCandidates.length > 5 ? (
+                    <Badge variant="secondary">
+                      {t("goals.moreSelected", { count: selectedCandidates.length - 5 })}
+                    </Badge>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="bulk-next-price">{t("goals.bulkNextPrice")}</Label>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <div className="relative min-w-0 flex-1">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                      ¥
+                    </span>
+                    <Input
+                      id="bulk-next-price"
+                      className="pl-7 tabular-nums"
+                      value={nextPrice}
+                      onChange={(event) => setNextPrice(event.target.value)}
+                      inputMode="decimal"
+                      autoComplete="off"
+                      placeholder={sharedSuggestedPrice > 0 ? inputYuan(sharedSuggestedPrice) : "0.00"}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      if (canUseSharedSuggestion) setNextPrice(inputYuan(sharedSuggestedPrice))
+                    }}
+                    disabled={!canUseSharedSuggestion}
+                  >
+                    {t("goals.useMedian")}
+                  </Button>
+                </div>
+                {hasNonIncrease ? (
+                  <p className="text-xs text-destructive">{t("goals.nonIncreaseWarning")}</p>
+                ) : null}
+                {hasAboveSafeCap ? (
+                  <p className="text-xs text-destructive">{t("goals.aboveSafeCapWarning")}</p>
+                ) : null}
+                {selectedCandidates.length > 1 && !canUseSharedSuggestion ? (
+                  <p className="text-xs text-warning">{t("goals.splitBatchWarning")}</p>
+                ) : null}
+                {selectedCandidates.length > 0 && !canExempt ? (
+                  <p className="text-xs text-warning">{t("goals.exemptionSelectionHint")}</p>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {pricingConfirming ? (
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setPricingConfirming(false)}
+                disabled={mutation.isPending}
+              >
+                {t("goals.backToSettings")}
+              </Button>
+              <Button disabled={mutation.isPending} onClick={() => mutation.mutate()}>
+                <SlidersHorizontal />
+                {mutation.isPending ? t("common.saving") : t("goals.scheduleBulkPrice")}
+              </Button>
+            </DialogFooter>
+          ) : (
+            <DialogFooter className="sm:justify-between">
+              <Button variant="ghost" onClick={() => setPricingDialogOpen(false)}>
+                {t("goals.continueSelecting")}
+              </Button>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                <Button
+                  variant="outline"
+                  className="border-warning/45 bg-warning/10 text-warning-foreground hover:bg-warning/15 hover:text-warning-foreground dark:text-warning"
+                  disabled={!canExempt || exemptionMutation.isPending}
+                  onClick={() => {
+                    setPricingDialogOpen(false)
+                    setExemptionOpen(true)
+                  }}
+                >
+                  <ShieldCheck />
+                  {t("goals.exemptCurrentRound")}
+                </Button>
+                <Button
+                  disabled={!canSubmit || mutation.isPending}
+                  onClick={() => setPricingConfirming(true)}
+                >
+                  <SlidersHorizontal />
+                  {t("goals.scheduleBulkPrice")}
+                </Button>
+              </div>
+            </DialogFooter>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={exemptionOpen} onOpenChange={setExemptionOpen}>
         <DialogContent aria-describedby={undefined} className="sm:max-w-lg">
@@ -2120,9 +2224,6 @@ function BulkPricingPanel({
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs leading-5 text-muted-foreground">
-                {t("goals.exemptionDialog.reviewHint")}
-              </p>
             </div>
             <div className="grid gap-2">
               <Label htmlFor="pricing-exemption-note">

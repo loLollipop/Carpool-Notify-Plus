@@ -695,6 +695,7 @@ export interface PricingCandidate {
   exemption_review_date: string
   exemption_reason_code: string
   loyalty_score: number
+  price_willingness_score: number
   relationship_asset_score: number
   price_pressure_score: number
   price_stable_days: number

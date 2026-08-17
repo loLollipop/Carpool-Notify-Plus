@@ -163,6 +163,7 @@ type PricingCandidate struct {
 	ExemptionReviewDate              string   `json:"exemption_review_date"`
 	ExemptionReasonCode              string   `json:"exemption_reason_code"`
 	LoyaltyScore                     int      `json:"loyalty_score"`
+	PriceWillingnessScore            int      `json:"price_willingness_score"`
 	RelationshipAssetScore           int      `json:"relationship_asset_score"`
 	PricePressureScore               int      `json:"price_pressure_score"`
 	PriceStableDays                  int      `json:"price_stable_days"`
@@ -373,6 +374,25 @@ func (service *SubscriptionService) GetGoalCenter() (GoalCenter, error) {
 
 func (service *SubscriptionService) RefreshMarketPrice() (MarketPriceView, error) {
 	return service.loadMarketPrice(true)
+}
+
+// MarketRefreshInterval is the maximum intended lifetime of a cached market
+// snapshot before a new network request is allowed.
+func MarketRefreshInterval() time.Duration {
+	return marketCacheTTL
+}
+
+// MarketRefreshCheckInterval keeps startup timing from extending a nearly
+// expired snapshot by another full cache lifetime. Each check is cheap database
+// work; network I/O still happens only after MarketRefreshInterval has elapsed.
+func MarketRefreshCheckInterval() time.Duration {
+	return time.Hour
+}
+
+// RefreshMarketPriceIfStale refreshes the market snapshot only when the shared
+// cache has expired. It is intended for background checks and startup catch-up.
+func (service *SubscriptionService) RefreshMarketPriceIfStale() (MarketPriceView, error) {
+	return service.loadMarketPrice(false)
 }
 
 func (service *SubscriptionService) buildGoalProgress(goal model.BusinessGoal, currentProfitCents int64) BusinessGoalProgress {
@@ -607,6 +627,9 @@ func (service *SubscriptionService) buildForecastScenario(goal BusinessGoalProgr
 }
 
 func (service *SubscriptionService) loadMarketPrice(force bool) (MarketPriceView, error) {
+	service.marketRefreshMu.Lock()
+	defer service.marketRefreshMu.Unlock()
+
 	latest, latestErr := service.Store.LatestMarketPriceSnapshot(marketProvider, marketProduct)
 	if latestErr != nil && latestErr != sql.ErrNoRows {
 		return MarketPriceView{SourceURL: marketSourcePageURL}, latestErr
@@ -1336,10 +1359,16 @@ func populateRepricingInsights(candidate *PricingCandidate) {
 				float64(candidate.CurrentPriceCents),
 		))
 	}
+	populatePricingDecisionScores(candidate)
 
 	candidate.AnalysisCodes = []string{
 		"relationship_" + candidate.RelationshipStage,
 		"market_" + candidate.MarketPosition,
+	}
+	if candidate.PriceWillingnessScore >= 70 {
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "proven_price_acceptance")
+	} else if candidate.MarketPosition == "below_low" && candidate.CustomerGroupSize <= 1 {
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "low_price_sensitivity")
 	}
 	if candidate.CustomerGroupSize > 1 {
 		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "multi_seat_customer")
@@ -1371,7 +1400,6 @@ func populateRepricingInsights(candidate *PricingCandidate) {
 	if candidate.PaidPeriodsAfterIncrease > 0 {
 		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "retained_after_increase")
 	}
-
 	marketScore := 0
 	switch candidate.MarketPosition {
 	case "below_low":
@@ -1399,17 +1427,22 @@ func populateRepricingInsights(candidate *PricingCandidate) {
 	case "medium":
 		candidate.ReadinessScore = minInt(candidate.ReadinessScore, 74)
 	}
-	populatePricingDecisionScores(candidate)
+	if candidate.MarketPosition == "below_low" &&
+		candidate.CustomerGroupSize <= 1 &&
+		candidate.AdjustmentRisk == "low" {
+		candidate.AdjustmentRisk = "medium"
+		candidate.ReadinessScore = minInt(candidate.ReadinessScore, 74)
+	}
 }
 
 // populatePricingDecisionScores keeps three concepts separate. Loyalty is
-// based only on observed customer behavior. Relationship asset measures the
-// operator's accumulated price stability and exemptions. Price pressure is the
-// opportunity cost of keeping an occupied seat below its viable market price.
-// This separation prevents an administrative concession from being mistaken
-// for proof that the customer will renew.
+// based primarily on observed customer behavior, with a bounded price-payment
+// signal. A high current price only helps after repeated paid periods; it cannot
+// turn a new customer into a loyal one. Relationship asset measures accumulated
+// price stability and exemptions. Price pressure is the opportunity cost of
+// keeping an occupied seat below its viable market price.
 func populatePricingDecisionScores(candidate *PricingCandidate) {
-	tenureScore := minInt(candidate.RelationshipDays, 365) * 25 / 365
+	tenureScore := minInt(candidate.RelationshipDays, 365) * 20 / 365
 	paidScore := minInt(candidate.PaidPeriodCount, 12) * 30 / 12
 	multiSeatScore := 0
 	switch {
@@ -1419,9 +1452,11 @@ func populatePricingDecisionScores(candidate *PricingCandidate) {
 		multiSeatScore = 10
 	}
 	postIncreaseScore := minInt(candidate.PaidPeriodsAfterIncrease, 3) * 5
-	serviceHealthScore := maxInt(15-minInt(candidate.AfterSalesCaseCount, 3)*5, 0)
+	serviceHealthScore := maxInt(10-minInt(candidate.AfterSalesCaseCount, 2)*5, 0)
+	candidate.PriceWillingnessScore = pricingWillingnessScore(*candidate)
 	candidate.LoyaltyScore = minInt(
-		tenureScore+paidScore+multiSeatScore+postIncreaseScore+serviceHealthScore,
+		tenureScore+paidScore+multiSeatScore+postIncreaseScore+
+			serviceHealthScore+candidate.PriceWillingnessScore/10,
 		100,
 	)
 
@@ -1448,6 +1483,35 @@ func populatePricingDecisionScores(candidate *PricingCandidate) {
 			deferralPressureScore+occupancyPressureScore,
 		100,
 	)
+}
+
+// pricingWillingnessScore converts the paid price into a small, evidence-gated
+// loyalty component. Market position supplies the price signal while paid
+// periods cap its influence. This models willingness to pay without assuming a
+// high-priced first order will necessarily renew.
+func pricingWillingnessScore(candidate PricingCandidate) int {
+	if candidate.PaidPeriodCount <= 0 {
+		return 0
+	}
+
+	baseScore := 0
+	switch candidate.MarketPosition {
+	case "above_high":
+		baseScore = 100
+	case "market_range":
+		baseScore = 70
+	case "below_median":
+		baseScore = 30
+	}
+
+	evidenceCap := 100
+	switch candidate.PaidPeriodCount {
+	case 1:
+		evidenceCap = 30
+	case 2:
+		evidenceCap = 70
+	}
+	return minInt(baseScore, evidenceCap)
 }
 
 type pricingBillHistory struct {

@@ -45,6 +45,7 @@ type SubscriptionService struct {
 	MarketPriceURL string
 
 	runtimeConfigMu sync.RWMutex
+	marketRefreshMu sync.Mutex
 }
 
 // NewNotifyRegistry builds senders from runtime configuration.

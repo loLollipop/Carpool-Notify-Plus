@@ -4,9 +4,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,6 +24,29 @@ func (failingMarketClient) Do(*http.Request) (*http.Response, error) {
 	return nil, errors.New("market unavailable in test")
 }
 
+type countingMarketClient struct {
+	calls atomic.Int32
+	delay time.Duration
+}
+
+func (client *countingMarketClient) Do(*http.Request) (*http.Response, error) {
+	client.calls.Add(1)
+	if client.delay > 0 {
+		time.Sleep(client.delay)
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(`{
+			"offers": [
+				{"sourceId":"a","sourceTitle":"ChatGPT Business 席位","price":110,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
+				{"sourceId":"b","sourceTitle":"ChatGPT Team 激活码","price":130,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
+				{"sourceId":"c","sourceTitle":"ChatGPT Business Slot","price":150,"currency":"CNY","status":"in_stock","effectiveStatus":"available"}
+			],
+			"generatedAt":"2026-08-15T04:00:00Z"
+		}`)),
+	}, nil
+}
+
 func openGoalTestService(t *testing.T) *SubscriptionService {
 	t.Helper()
 	store, err := db.Open(filepath.Join(t.TempDir(), "goal-test.db"))
@@ -33,6 +59,97 @@ func openGoalTestService(t *testing.T) *SubscriptionService {
 		Store:        store,
 		Clock:        func() time.Time { return now },
 		MarketClient: failingMarketClient{},
+	}
+}
+
+func TestMarketRefreshIsCachedConcurrentAndRefreshesAfterTTL(t *testing.T) {
+	store, err := db.Open(filepath.Join(t.TempDir(), "market-refresh-test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, cycle.Location)
+	client := &countingMarketClient{delay: 15 * time.Millisecond}
+	service := &SubscriptionService{
+		Store:        store,
+		Clock:        func() time.Time { return now },
+		MarketClient: client,
+	}
+
+	const workers = 8
+	var wait sync.WaitGroup
+	errorsByWorker := make(chan error, workers)
+	for index := 0; index < workers; index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			view, refreshErr := service.RefreshMarketPriceIfStale()
+			if refreshErr != nil {
+				errorsByWorker <- refreshErr
+				return
+			}
+			if !view.Available || view.Snapshot == nil {
+				errorsByWorker <- fmt.Errorf("market view unavailable: %#v", view)
+			}
+		}()
+	}
+	wait.Wait()
+	close(errorsByWorker)
+	for workerErr := range errorsByWorker {
+		t.Fatal(workerErr)
+	}
+	if calls := client.calls.Load(); calls != 1 {
+		t.Fatalf("concurrent refresh calls = %d, want 1", calls)
+	}
+	history, err := store.ListMarketPriceSnapshots(marketProvider, marketProduct, 10)
+	if err != nil || len(history) != 1 {
+		t.Fatalf("market history after concurrent refresh = %#v, err = %v", history, err)
+	}
+
+	if _, err := service.RefreshMarketPriceIfStale(); err != nil {
+		t.Fatal(err)
+	}
+	if calls := client.calls.Load(); calls != 1 {
+		t.Fatalf("fresh cache triggered another request: %d", calls)
+	}
+
+	now = now.Add(MarketRefreshInterval() + time.Minute)
+	if _, err := service.RefreshMarketPriceIfStale(); err != nil {
+		t.Fatal(err)
+	}
+	if calls := client.calls.Load(); calls != 2 {
+		t.Fatalf("expired cache requests = %d, want 2", calls)
+	}
+	history, err = store.ListMarketPriceSnapshots(marketProvider, marketProduct, 10)
+	if err != nil || len(history) != 2 {
+		t.Fatalf("market history after TTL refresh = %#v, err = %v", history, err)
+	}
+}
+
+func TestMarketRefreshFailureKeepsLatestSnapshot(t *testing.T) {
+	service := openGoalTestService(t)
+	latest := model.MarketPriceSnapshot{
+		Provider:         marketProvider,
+		Product:          marketProduct,
+		LowPriceCents:    11000,
+		MedianPriceCents: 13000,
+		HighPriceCents:   15000,
+		SampleCount:      8,
+		SourceUpdatedAt:  service.now().Add(-8 * time.Hour),
+		CreatedAt:        service.now().Add(-7 * time.Hour),
+	}
+	if _, err := service.Store.InsertMarketPriceSnapshot(latest); err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := service.RefreshMarketPriceIfStale()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !view.Available || !view.Stale || view.Snapshot == nil ||
+		view.Snapshot.MedianPriceCents != latest.MedianPriceCents || view.Warning == "" {
+		t.Fatalf("fallback market view = %#v", view)
 	}
 }
 
@@ -387,7 +504,7 @@ func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) 
 	if center.Repricing.RecommendedCount != 2 || center.Repricing.EligibleCount != 2 ||
 		center.Repricing.BelowMarketCount != 2 || center.Repricing.EstimatedMonthlyUpliftCents != 1476 ||
 		len(center.Repricing.Windows) != 5 || center.Repricing.Windows[0].Key != "ready" ||
-		center.Repricing.Windows[0].Count != 2 || center.Repricing.RiskSegments[0].Count != 2 ||
+		center.Repricing.Windows[0].Count != 2 || center.Repricing.RiskSegments[1].Count != 2 ||
 		center.Repricing.RelationshipSegments[2].Count != 2 {
 		t.Fatalf("repricing analysis = %#v", center.Repricing)
 	}
@@ -715,6 +832,62 @@ func TestRepricingAnalysisDoesNotCountBelowMedianProtectedUserAsFutureAction(t *
 	if analysis.BelowMarketCount != 1 || analysis.PipelineMonthlyUpliftCents != 0 ||
 		analysis.Windows[1].Count != 0 || analysis.Windows[2].Count != 0 {
 		t.Fatalf("below-median protected analysis = %#v", analysis)
+	}
+}
+
+func TestLoyaltyScoreUsesPaidPriceWithRenewalEvidence(t *testing.T) {
+	highPrice := PricingCandidate{
+		CurrentPriceCents:   16000,
+		PaidPeriodCount:     4,
+		RelationshipDays:    180,
+		PriceStableDays:     180,
+		CustomerGroupSize:   1,
+		MarketPosition:      "above_high",
+		BlockedCode:         "eligible",
+		Eligible:            true,
+		SuggestedPriceCents: 16000,
+	}
+	lowPrice := highPrice
+	lowPrice.CurrentPriceCents = 8000
+	lowPrice.MarketPosition = "below_low"
+	lowPrice.GapToMarketMedianCents = 5000
+	lowPrice.SuggestedPriceCents = 8600
+
+	populateRepricingInsights(&highPrice)
+	populateRepricingInsights(&lowPrice)
+
+	if highPrice.PriceWillingnessScore != 100 || lowPrice.PriceWillingnessScore != 0 {
+		t.Fatalf("price willingness high/low = %d/%d", highPrice.PriceWillingnessScore, lowPrice.PriceWillingnessScore)
+	}
+	if highPrice.LoyaltyScore <= lowPrice.LoyaltyScore {
+		t.Fatalf("price signal not reflected in loyalty: high=%d low=%d", highPrice.LoyaltyScore, lowPrice.LoyaltyScore)
+	}
+	if highPrice.AdjustmentRisk != "low" || lowPrice.AdjustmentRisk != "medium" {
+		t.Fatalf("price-sensitive risk high/low = %q/%q", highPrice.AdjustmentRisk, lowPrice.AdjustmentRisk)
+	}
+	if !strings.Contains(strings.Join(highPrice.AnalysisCodes, ","), "proven_price_acceptance") ||
+		!strings.Contains(strings.Join(lowPrice.AnalysisCodes, ","), "low_price_sensitivity") {
+		t.Fatalf("price analysis signals high=%#v low=%#v", highPrice.AnalysisCodes, lowPrice.AnalysisCodes)
+	}
+}
+
+func TestHighPriceNewCustomerIsNotTreatedAsLoyal(t *testing.T) {
+	candidate := PricingCandidate{
+		CurrentPriceCents: 16000,
+		PaidPeriodCount:   1,
+		RelationshipDays:  15,
+		PriceStableDays:   15,
+		CustomerGroupSize: 1,
+		MarketPosition:    "above_high",
+		BlockedCode:       "protection",
+	}
+	populateRepricingInsights(&candidate)
+
+	if candidate.PriceWillingnessScore > 30 || candidate.LoyaltyScore >= 40 {
+		t.Fatalf("new high-price customer was over-scored: %#v", candidate)
+	}
+	if candidate.LoyaltyScore < 0 || candidate.LoyaltyScore > 100 {
+		t.Fatalf("loyalty score outside bounds: %d", candidate.LoyaltyScore)
 	}
 }
 

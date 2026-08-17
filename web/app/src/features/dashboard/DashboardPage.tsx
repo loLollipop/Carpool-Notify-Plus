@@ -2,11 +2,10 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import { Link } from "react-router-dom"
 import {
-  Bar,
-  Cell,
+  Area,
+  AreaChart,
   CartesianGrid,
-  ComposedChart,
-  Line,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
   XAxis,
@@ -370,14 +369,27 @@ function RevenueTrendCard({
 
           <div className="min-h-[180px] flex-1">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={data} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}>
-                <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="2 6" />
+              <AreaChart data={data} margin={{ top: 12, right: 12, bottom: 0, left: 0 }}>
+                <defs>
+                  <linearGradient id="dashboard-revenue-fill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.28} />
+                    <stop offset="72%" stopColor="var(--chart-1)" stopOpacity={0.07} />
+                    <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0.01} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid
+                  vertical={false}
+                  stroke="var(--border)"
+                  strokeDasharray="2 7"
+                  strokeOpacity={0.82}
+                />
                 <XAxis
                   dataKey="label"
                   axisLine={false}
                   tickLine={false}
                   tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
                   dy={6}
+                  padding={{ left: 8, right: 8 }}
                 />
                 <YAxis
                   width={64}
@@ -388,28 +400,42 @@ function RevenueTrendCard({
                   tickFormatter={(value) => (amountsHidden ? AMOUNT_MASK : formatAxisCents(value))}
                 />
                 <RechartsTooltip
-                  cursor={{ fill: "var(--muted)", fillOpacity: 0.4 }}
+                  cursor={{
+                    stroke: "var(--chart-1)",
+                    strokeDasharray: "3 5",
+                    strokeOpacity: 0.28,
+                    strokeWidth: 1,
+                  }}
                   content={<ChartTooltip amountsHidden={amountsHidden} />}
                 />
-                <Bar dataKey="cents" maxBarSize={46} radius={[6, 6, 2, 2]} {...CHART_ANIMATION}>
-                  {data.map((item, index) => (
-                    <Cell
-                      key={`${item.label}-${index}`}
-                      fill={item.cents < 0 ? "var(--destructive)" : "var(--brand)"}
-                      fillOpacity={index === data.length - 1 ? 0.92 : 0.3}
-                    />
-                  ))}
-                </Bar>
-                <Line
+                <ReferenceLine
+                  y={0}
+                  stroke="var(--muted-foreground)"
+                  strokeOpacity={0.24}
+                  strokeWidth={1}
+                />
+                <Area
                   type="monotone"
                   dataKey="cents"
-                  stroke="var(--brand)"
-                  strokeWidth={2}
-                  dot={{ r: 2.5, fill: "var(--card)", strokeWidth: 2 }}
-                  activeDot={{ r: 4, strokeWidth: 0 }}
+                  baseValue={0}
+                  stroke="var(--chart-1)"
+                  strokeWidth={2.5}
+                  fill="url(#dashboard-revenue-fill)"
+                  dot={{
+                    r: 3,
+                    fill: "var(--card)",
+                    stroke: "var(--chart-1)",
+                    strokeWidth: 2,
+                  }}
+                  activeDot={{
+                    r: 5,
+                    fill: "var(--chart-1)",
+                    stroke: "var(--card)",
+                    strokeWidth: 3,
+                  }}
                   {...CHART_ANIMATION}
                 />
-              </ComposedChart>
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
