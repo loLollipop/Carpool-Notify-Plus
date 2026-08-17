@@ -33,9 +33,7 @@ import type {
   Dashboard,
   SubscriptionView,
 } from "@/api/types"
-import {
-  AmountPrivacyToggle,
-} from "@/components/amount-privacy-toggle"
+import { AmountPrivacyToggle } from "@/components/amount-privacy-toggle"
 import { NumberTicker } from "@/components/number-ticker"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
@@ -733,7 +731,7 @@ function OperationsHealthCard({
   return (
     <Card
       data-testid="operations-health-card"
-      className="min-h-max self-stretch gap-3 p-4 animate-fade-up"
+      className="h-full min-w-0 self-stretch gap-3 overflow-hidden p-4 animate-fade-up"
       style={{ animationDelay: `${delay}ms` }}
     >
       <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3 py-2.5">
@@ -801,17 +799,14 @@ function OperationsHealthCard({
                       <span className={cn("grid size-7 shrink-0 place-items-center rounded-md", iconClass[item.tone])}>
                         <AlertTriangle className="size-3.5" />
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-xs font-semibold">{item.title}</span>
-                        <span className="mt-0.5 block truncate text-[11px] text-muted-foreground" title={item.detail}>
-                          {item.detail}
-                        </span>
+                      <span className="min-w-0 flex-1 truncate text-xs font-semibold">
+                        {item.title}
                       </span>
                       {item.to ? <ArrowUpRight className="size-3.5 shrink-0 text-muted-foreground" /> : null}
                     </>
                   )
                   const itemClassName = cn(
-                    "flex min-h-12 items-center gap-2.5 rounded-md border border-l-2 bg-muted/20 px-2.5 py-1.5 transition-colors",
+                    "flex min-h-11 w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md border border-l-2 bg-muted/20 px-2.5 py-2 transition-colors",
                     item.tone === "critical" ? "border-l-destructive" : "border-l-gold",
                     item.to && "hover:border-input hover:bg-muted/40",
                   )
@@ -834,8 +829,11 @@ function OperationsHealthCard({
           ) : null}
 
           {healthyItems.length > 0 ? (
-            <section aria-labelledby="health-passed-title" className="mt-auto">
-              <div className="mb-1.5 flex items-center justify-between gap-2">
+            <section
+              aria-labelledby="health-passed-title"
+              className="flex min-h-0 flex-1 flex-col rounded-lg border bg-muted/10 p-2.5"
+            >
+              <div className="mb-2 flex items-center justify-between gap-2">
                 <h3 id="health-passed-title" className="text-xs font-semibold">
                   {t("dash.health.passedTitle")}
                 </h3>
@@ -843,15 +841,22 @@ function OperationsHealthCard({
                   {t("dash.health.passedCount", { passed: healthyItems.length, total: items.length })}
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-1.5">
-                {healthyItems.map((item) => (
+              <div className="grid min-h-0 flex-1 auto-rows-fr grid-cols-2 gap-1.5">
+                {healthyItems.map((item, index) => (
                   <div
                     key={item.key}
                     title={item.detail}
-                    className="flex min-w-0 items-center gap-2 rounded-md border border-success/20 bg-success/5 px-2.5 py-2"
+                    className="flex min-h-11 min-w-0 flex-col justify-between gap-3 rounded-md border border-success/20 bg-card/70 p-3"
                   >
-                    <CheckCircle2 className="size-3.5 shrink-0 text-success" />
-                    <span className="truncate text-[11px] font-medium">{item.title}</span>
+                    <span className="flex w-full items-start justify-between gap-2">
+                      <span className="grid size-7 shrink-0 place-items-center rounded-md bg-success/10 text-success">
+                        <CheckCircle2 className="size-3.5" />
+                      </span>
+                      <span className="font-mono text-[9px] font-semibold tracking-[0.08em] text-success/65">
+                        PASS {String(index + 1).padStart(2, "0")}
+                      </span>
+                    </span>
+                    <span className="truncate text-xs font-semibold">{item.title}</span>
                   </div>
                 ))}
               </div>
@@ -895,7 +900,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-col lg:min-h-[calc(100dvh-7rem)]">
       <PageHeader
         title={t("dash.title")}
         titleAccessory={
@@ -932,7 +937,7 @@ export function DashboardPage() {
           </Button>
         </Card>
       ) : dashboard ? (
-        <div className="flex flex-col">
+        <div className="flex min-h-0 flex-1 flex-col">
           <KpiRow
             dashboard={dashboard}
             summary={summary}
@@ -941,9 +946,14 @@ export function DashboardPage() {
             amountsHidden={amountsHidden}
           />
 
-          <div className="grid items-stretch gap-4 xl:min-h-[420px] xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
+          <div className="grid min-h-[420px] flex-1 items-stretch gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
             {summary ? (
-              <RevenueTrendCard summary={summary} amountsHidden={amountsHidden} delay={100} />
+              <RevenueTrendCard
+                summary={summary}
+                amountsHidden={amountsHidden}
+                className="h-full min-w-0 overflow-hidden"
+                delay={100}
+              />
             ) : null}
             <OperationsHealthCard
               dashboard={dashboard}
