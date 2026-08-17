@@ -203,7 +203,7 @@ function Metric({
         <Icon className="size-3.5 text-brand" />
         <span className="truncate">{label}</span>
       </div>
-      <div className="mt-1.5 truncate text-base font-semibold tabular-nums sm:text-lg">{value}</div>
+      <div className="display-numeral mt-2 truncate text-lg leading-none sm:text-xl">{value}</div>
       <p className="mt-0.5 hidden truncate text-[11px] text-muted-foreground sm:block">{detail}</p>
     </div>
   )
@@ -252,7 +252,7 @@ function ActiveGoalPanel({
           <div className="flex items-end justify-between gap-4">
             <div className="min-w-0">
               <p className="text-xs font-medium text-muted-foreground">{t("goals.earned")}</p>
-              <p className="mt-1 truncate text-2xl font-semibold tabular-nums sm:text-3xl">
+              <p className="display-numeral mt-2 truncate text-[30px] leading-none sm:text-[34px]">
                 {visibleYuan(data.earned_profit_cents, amountsHidden)}
               </p>
             </div>
@@ -475,6 +475,7 @@ function MarketPanel({
   const market = data.market
   const snapshot = market.snapshot
   const utilization = Math.min(100, Math.max(0, pricing.utilization_percent || 0))
+  const newSaleDiscount = Math.max(0, pricing.new_sale_discount_percent || 0)
   const benchmarkData = snapshot
     ? [
         {
@@ -574,7 +575,7 @@ function MarketPanel({
                       : "goals.suggestedRange",
                   )}
                 </p>
-                <p className="mt-0.5 truncate text-sm font-semibold tabular-nums text-brand">
+                <p className="display-numeral mt-1 truncate text-base leading-none text-brand">
                   {visibleYuan(pricing.suggested_low_price_cents, amountsHidden)}
                   {pricing.suggested_low_price_cents !== pricing.suggested_high_price_cents ? (
                     <>
@@ -582,6 +583,11 @@ function MarketPanel({
                       {visibleYuan(pricing.suggested_high_price_cents, amountsHidden)}
                     </>
                   ) : null}
+                </p>
+                <p className="mt-1.5 line-clamp-2 text-[9px] leading-3.5 text-muted-foreground">
+                  {newSaleDiscount > 0
+                    ? t("goals.newSaleAdvantage", { value: newSaleDiscount })
+                    : t("goals.newSaleMarginFloor")}
                 </p>
               </div>
             ) : null}
@@ -667,7 +673,7 @@ function RepricingMetric({
           {icon}
         </span>
       </div>
-      <p className="mt-3 text-2xl font-semibold tabular-nums tracking-tight">{value}</p>
+      <p className="display-numeral mt-4 text-[28px] leading-none">{value}</p>
       <p className="mt-1 min-h-8 text-[11px] leading-4 text-muted-foreground">
         {hint}
       </p>
@@ -682,7 +688,30 @@ type SegmentChartDatum = {
   color: string
 }
 
-function SegmentChartCard({
+function segmentTotal(data: SegmentChartDatum[]) {
+  return data.reduce((total, item) => total + item.count, 0)
+}
+
+function segmentPercent(count: number, total: number) {
+  return total > 0 ? Math.round((count / total) * 100) : 0
+}
+
+function segmentAriaLabel(data: SegmentChartDatum[], total: number) {
+  return data
+    .map((item) => `${item.label} ${item.count}, ${segmentPercent(item.count, total)}%`)
+    .join("; ")
+}
+
+function SegmentCardHeader({ title, hint }: { title: string; hint: string }) {
+  return (
+    <div className="border-b px-4 py-3">
+      <h2 className="text-sm font-semibold">{title}</h2>
+      <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{hint}</p>
+    </div>
+  )
+}
+
+function RelationshipJourneyCard({
   title,
   hint,
   data,
@@ -692,49 +721,175 @@ function SegmentChartCard({
   data: SegmentChartDatum[]
 }) {
   const { t } = useTranslation()
+  const total = segmentTotal(data)
   return (
     <Card className="gap-0 overflow-hidden p-0 shadow-card">
-      <div className="border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">{title}</h2>
-        <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{hint}</p>
+      <SegmentCardHeader title={title} hint={hint} />
+      <div
+        className="relative grid min-h-[172px] grid-cols-4 gap-1 px-3 py-5"
+        role="img"
+        aria-label={segmentAriaLabel(data, total)}
+      >
+        <div
+          className="pointer-events-none absolute left-[12.5%] right-[12.5%] top-[37px] h-px bg-gradient-to-r from-warning via-brand to-success opacity-45"
+          aria-hidden="true"
+        />
+        {data.map((item, index) => {
+          const percent = segmentPercent(item.count, total)
+          return (
+            <div key={item.key} className="relative flex min-w-0 flex-col items-center text-center">
+              <span
+                className="relative z-10 grid size-8 place-items-center rounded-full border bg-card text-[10px] font-semibold"
+                style={{
+                  borderColor: item.color,
+                  color: item.color,
+                  boxShadow:
+                    item.count > 0
+                      ? `0 0 0 4px color-mix(in oklab, ${item.color} 11%, transparent)`
+                      : undefined,
+                }}
+                aria-hidden="true"
+              >
+                0{index + 1}
+              </span>
+              <p className="display-numeral mt-4 text-[24px] leading-none">{item.count}</p>
+              <p className="mt-2 truncate text-[11px] font-medium">{item.label}</p>
+              <p className="mt-1 text-[9px] text-muted-foreground">
+                {t("goals.repricing.shareValue", { value: percent })}
+              </p>
+            </div>
+          )
+        })}
       </div>
-      <div className="h-[172px] px-3 py-3">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={data} layout="vertical" margin={{ top: 0, right: 16, left: 4, bottom: 0 }}>
-            <CartesianGrid stroke="var(--border)" strokeDasharray="3 5" horizontal={false} />
-            <XAxis
-              type="number"
-              allowDecimals={false}
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "var(--muted-foreground)", fontSize: 9 }}
-            />
-            <YAxis
-              type="category"
-              dataKey="label"
-              width={62}
-              axisLine={false}
-              tickLine={false}
-              tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
-            />
-            <ChartTooltip
-              cursor={{ fill: "color-mix(in oklab, var(--brand) 6%, transparent)" }}
-              formatter={(value) => [t("goals.repricing.people", { count: Number(value ?? 0) }), ""]}
-              contentStyle={{
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                background: "var(--popover)",
-                color: "var(--popover-foreground)",
-                fontSize: 11,
-              }}
-            />
-            <Bar dataKey="count" maxBarSize={16} radius={[0, 5, 5, 0]}>
-              {data.map((item) => (
-                <Cell key={item.key} fill={item.color} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+    </Card>
+  )
+}
+
+function PriceSpectrumCard({
+  title,
+  hint,
+  data,
+}: {
+  title: string
+  hint: string
+  data: SegmentChartDatum[]
+}) {
+  const { t } = useTranslation()
+  const total = segmentTotal(data)
+  return (
+    <Card className="gap-0 overflow-hidden p-0 shadow-card">
+      <SegmentCardHeader title={title} hint={hint} />
+      <div className="min-h-[172px] px-4 py-4">
+        <div
+          className="flex h-4 overflow-hidden rounded-full bg-muted ring-1 ring-border/70 ring-inset"
+          role="img"
+          aria-label={segmentAriaLabel(data, total)}
+        >
+          {data.map((item) =>
+            item.count > 0 ? (
+              <span
+                key={item.key}
+                className="h-full min-w-1 transition-[width] duration-500"
+                style={{
+                  width: `${(item.count / Math.max(total, 1)) * 100}%`,
+                  background: item.color,
+                }}
+                title={`${item.label}: ${item.count}`}
+              />
+            ) : null,
+          )}
+        </div>
+        <div className="mt-1.5 flex justify-between text-[9px] text-muted-foreground">
+          <span>{t("goals.repricing.priceSpectrumLow")}</span>
+          <span>{t("goals.repricing.priceSpectrumHigh")}</span>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2">
+          {data.map((item) => (
+            <div key={item.key} className="flex min-w-0 items-center gap-2">
+              <span className="size-2 shrink-0 rounded-full" style={{ background: item.color }} />
+              <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+                {item.label}
+              </span>
+              <span className="text-[11px] font-semibold tabular-nums">
+                {item.count}
+                <span className="ml-1 text-[9px] font-normal text-muted-foreground">
+                  {segmentPercent(item.count, total)}%
+                </span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+function riskConicGradient(data: SegmentChartDatum[], total: number) {
+  if (total <= 0) return "var(--muted)"
+  let cursor = 0
+  const stops = data
+    .filter((item) => item.count > 0)
+    .map((item) => {
+      const start = cursor
+      cursor += (item.count / total) * 360
+      return `${item.color} ${start}deg ${cursor}deg`
+    })
+  return `conic-gradient(from -90deg, ${stops.join(", ")})`
+}
+
+function RiskOrbitCard({
+  title,
+  hint,
+  data,
+}: {
+  title: string
+  hint: string
+  data: SegmentChartDatum[]
+}) {
+  const { t } = useTranslation()
+  const total = segmentTotal(data)
+  return (
+    <Card className="gap-0 overflow-hidden p-0 shadow-card">
+      <SegmentCardHeader title={title} hint={hint} />
+      <div className="grid min-h-[172px] grid-cols-[124px_minmax(0,1fr)] items-center gap-3 px-4 py-3">
+        <div
+          className="relative grid size-[112px] place-items-center rounded-full"
+          style={{ background: riskConicGradient(data, total) }}
+          role="img"
+          aria-label={segmentAriaLabel(data, total)}
+        >
+          <span className="absolute inset-[12px] rounded-full border bg-card shadow-inner" />
+          <div className="relative text-center">
+            <p className="display-numeral text-[26px] leading-none">{total}</p>
+            <p className="mt-1 text-[9px] text-muted-foreground">
+              {t("goals.repricing.riskTotal")}
+            </p>
+          </div>
+        </div>
+        <div className="space-y-2.5">
+          {data.map((item) => (
+            <div key={item.key}>
+              <div className="flex items-center justify-between gap-2 text-[10px]">
+                <span className="flex min-w-0 items-center gap-2 text-muted-foreground">
+                  <span className="size-2 shrink-0 rounded-full" style={{ background: item.color }} />
+                  <span className="truncate">{item.label}</span>
+                </span>
+                <span className="font-semibold tabular-nums">
+                  {item.count} · {segmentPercent(item.count, total)}%
+                </span>
+              </div>
+              <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full transition-[width] duration-500"
+                  style={{
+                    width: `${segmentPercent(item.count, total)}%`,
+                    background: item.color,
+                  }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     </Card>
   )
@@ -833,17 +988,17 @@ function RepricingAnalysisPanel({
       </div>
 
       <div className="grid items-stretch gap-4 lg:grid-cols-3">
-        <SegmentChartCard
+        <RelationshipJourneyCard
           title={t("goals.repricing.relationshipTitle")}
           hint={t("goals.repricing.relationshipHint")}
           data={relationshipData}
         />
-        <SegmentChartCard
+        <PriceSpectrumCard
           title={t("goals.repricing.pricePositionTitle")}
           hint={t("goals.repricing.pricePositionHint")}
           data={priceData}
         />
-        <SegmentChartCard
+        <RiskOrbitCard
           title={t("goals.repricing.riskTitle")}
           hint={t("goals.repricing.riskHint")}
           data={riskData}
@@ -886,8 +1041,11 @@ function RepricingAnalysisPanel({
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">{candidate.name}</p>
-                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                      {candidate.account_name || "-"} · {candidate.seat_name || "-"}
+                    <p
+                      className="mt-0.5 truncate text-[11px] text-muted-foreground"
+                      title={candidate.customer_email || undefined}
+                    >
+                      {candidate.customer_email || "-"}
                     </p>
                   </div>
                   <div className="min-w-0">

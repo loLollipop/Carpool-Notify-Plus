@@ -645,6 +645,7 @@ export interface PricingRecommendation {
   seat_used: number
   seat_available: number
   utilization_percent: number
+  new_sale_discount_percent: number
 }
 
 export interface PricingCandidate {

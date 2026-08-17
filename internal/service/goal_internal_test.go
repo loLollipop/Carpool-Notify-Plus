@@ -644,7 +644,9 @@ func TestPricingRecommendationRespectsUtilizationBeforeRaisingPrice(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if lowAdvice.Action != "fill" || lowAdvice.UtilizationPercent != 40 {
+	if lowAdvice.Action != "fill" || lowAdvice.UtilizationPercent != 40 ||
+		lowAdvice.SuggestedLowPriceCents != 12000 || lowAdvice.SuggestedHighPriceCents != 13000 ||
+		lowAdvice.NewSaleDiscountPercent != 7 {
 		t.Fatalf("low-utilization advice = %#v", lowAdvice)
 	}
 
@@ -655,7 +657,8 @@ func TestPricingRecommendationRespectsUtilizationBeforeRaisingPrice(t *testing.T
 		t.Fatal(err)
 	}
 	if highAdvice.Action != "raise" || highAdvice.UtilizationPercent != 90 ||
-		highAdvice.SuggestedLowPriceCents != 13000 || highAdvice.SuggestedHighPriceCents != 14000 {
+		highAdvice.SuggestedLowPriceCents != 12600 || highAdvice.SuggestedHighPriceCents != 13500 ||
+		highAdvice.NewSaleDiscountPercent != 3 {
 		t.Fatalf("high-utilization advice = %#v", highAdvice)
 	}
 }
@@ -672,8 +675,27 @@ func TestPricingRecommendationDoesNotCollapseCurrentMarketRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if advice.Action != "raise" || advice.SuggestedLowPriceCents != 13133 || advice.SuggestedHighPriceCents != 13390 {
+	if advice.Action != "raise" || advice.SuggestedLowPriceCents != 12600 ||
+		advice.SuggestedHighPriceCents != 12900 || advice.NewSaleDiscountPercent != 3 {
 		t.Fatalf("current-market new-sale range = %#v", advice)
+	}
+}
+
+func TestAttractiveNewSaleRangePreservesMarginFloor(t *testing.T) {
+	for utilization, want := range map[int]int64{0: 7, 69: 7, 70: 5, 84: 5, 85: 3, 100: 3} {
+		if got := newSaleDiscountPercent(utilization); got != want {
+			t.Fatalf("discount at %d%% utilization = %d, want %d", utilization, got, want)
+		}
+	}
+
+	low, high, discountApplied := attractiveNewSaleRange(13000, 14000, 13850, 7)
+	if low != 13900 || high != 13900 || discountApplied {
+		t.Fatalf("margin-constrained range = %d/%d, discountApplied = %t", low, high, discountApplied)
+	}
+
+	low, high, discountApplied = attractiveNewSaleRange(13100, 13200, 10000, 3)
+	if low != 12500 || high != 12800 || !discountApplied {
+		t.Fatalf("minimum-width attractive range = %d/%d, discountApplied = %t", low, high, discountApplied)
 	}
 }
 

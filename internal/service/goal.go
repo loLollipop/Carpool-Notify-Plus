@@ -39,6 +39,10 @@ const (
 	maximumRepricingIncreaseCents    = int64(1000)
 	marketRenewalDiscountPercent     = 5
 	minimumPriceIncreaseNoticeDays   = 30
+	newSaleFillDiscountPercent       = int64(7)
+	newSaleBalancedDiscountPercent   = int64(5)
+	newSaleScarceDiscountPercent     = int64(3)
+	minimumNewSaleRangeCents         = int64(300)
 )
 
 // MarketHTTPDoer makes the external market client replaceable in tests.
@@ -109,6 +113,7 @@ type PricingRecommendation struct {
 	SeatUsed                 int      `json:"seat_used"`
 	SeatAvailable            int      `json:"seat_available"`
 	UtilizationPercent       int      `json:"utilization_percent"`
+	NewSaleDiscountPercent   int      `json:"new_sale_discount_percent"`
 }
 
 // PricingCandidate exposes one active Team customer for market comparison and
@@ -806,35 +811,37 @@ func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.M
 	marketLow := snapshot.LowPriceCents
 	marketMedian := snapshot.MedianPriceCents
 	marketHigh := snapshot.HighPriceCents
-	competitiveUpper := marketMedian
-	if competitiveUpper <= marketLow && marketHigh > marketLow {
-		competitiveUpper = marketHigh
-	}
 	minimumHealthyPrice := seatCostFloorCents * 120 / 100
+	discountPercent := newSaleDiscountPercent(utilizationPercent)
+	suggestedLow, suggestedHigh, discountApplied := attractiveNewSaleRange(
+		marketLow,
+		marketMedian,
+		minimumHealthyPrice,
+		discountPercent,
+	)
+	recommendation.SuggestedLowPriceCents = suggestedLow
+	recommendation.SuggestedHighPriceCents = suggestedHigh
+	if discountApplied {
+		recommendation.NewSaleDiscountPercent = int(discountPercent)
+	}
 	switch {
 	case utilizationPercent < 70:
 		recommendation.Action = "fill"
 		recommendation.ReasonCodes = []string{"low_utilization", "protect_occupancy"}
-		recommendation.SuggestedLowPriceCents = maxInt64(minimumHealthyPrice, minInt64(internalMedian, marketLow))
-		recommendation.SuggestedHighPriceCents = maxInt64(
-			recommendation.SuggestedLowPriceCents,
-			minInt64(maxInt64(internalMedian, marketLow), competitiveUpper),
-		)
 	case utilizationPercent >= 85 && internalMedian < marketLow*95/100:
 		recommendation.Action = "raise"
 		recommendation.ReasonCodes = []string{"high_utilization", "below_market"}
-		recommendation.SuggestedLowPriceCents = maxInt64(minimumHealthyPrice, marketLow)
-		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, competitiveUpper)
 	case utilizationPercent < 85 && internalMedian > marketHigh*110/100:
 		recommendation.Action = "lower_test"
 		recommendation.ReasonCodes = []string{"above_market", "available_seats"}
-		recommendation.SuggestedLowPriceCents = maxInt64(minimumHealthyPrice, marketLow)
-		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, competitiveUpper)
 	default:
 		recommendation.Action = "hold"
 		recommendation.ReasonCodes = []string{"price_in_range", "stable_utilization"}
-		recommendation.SuggestedLowPriceCents = maxInt64(minimumHealthyPrice, marketLow)
-		recommendation.SuggestedHighPriceCents = maxInt64(recommendation.SuggestedLowPriceCents, competitiveUpper)
+	}
+	if discountApplied {
+		recommendation.ReasonCodes = append(recommendation.ReasonCodes, "new_sale_advantage")
+	} else {
+		recommendation.ReasonCodes = append(recommendation.ReasonCodes, "margin_floor_limits_discount")
 	}
 	return recommendation, nil
 }
@@ -1311,6 +1318,56 @@ func attractiveRenewalPriceCents(marketMedianCents int64) int64 {
 		return 0
 	}
 	return marketMedianCents * (100 - marketRenewalDiscountPercent) / 100
+}
+
+func newSaleDiscountPercent(utilizationPercent int) int64 {
+	switch {
+	case utilizationPercent < 70:
+		return newSaleFillDiscountPercent
+	case utilizationPercent < 85:
+		return newSaleBalancedDiscountPercent
+	default:
+		return newSaleScarceDiscountPercent
+	}
+}
+
+// attractiveNewSaleRange keeps a deliberate acquisition advantage against
+// both the lower and typical market references. The advantage narrows as
+// utilization rises, while the rounded healthy floor prevents discounts from
+// turning a new order unprofitable.
+func attractiveNewSaleRange(
+	marketLowCents int64,
+	marketMedianCents int64,
+	minimumHealthyPriceCents int64,
+	discountPercent int64,
+) (int64, int64, bool) {
+	healthyFloor := roundPriceUpToYuan(minimumHealthyPriceCents)
+	discountedLow := roundPriceDownToYuan(marketLowCents * (100 - discountPercent) / 100)
+	discountedHigh := roundPriceDownToYuan(marketMedianCents * (100 - discountPercent) / 100)
+	if discountedHigh < discountedLow {
+		discountedHigh = discountedLow
+	}
+
+	suggestedLow := maxInt64(healthyFloor, discountedLow)
+	suggestedHigh := maxInt64(suggestedLow, discountedHigh)
+	if suggestedHigh > healthyFloor && suggestedHigh-suggestedLow < minimumNewSaleRangeCents {
+		suggestedLow = maxInt64(healthyFloor, suggestedHigh-minimumNewSaleRangeCents)
+	}
+	return suggestedLow, suggestedHigh, healthyFloor <= discountedHigh
+}
+
+func roundPriceDownToYuan(cents int64) int64 {
+	if cents <= 0 {
+		return 0
+	}
+	return cents / 100 * 100
+}
+
+func roundPriceUpToYuan(cents int64) int64 {
+	if cents <= 0 {
+		return 0
+	}
+	return divideRoundUp(cents, 100) * 100
 }
 
 func maximumGradualPriceCents(currentPriceCents int64) int64 {
