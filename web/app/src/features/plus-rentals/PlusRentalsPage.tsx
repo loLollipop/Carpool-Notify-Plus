@@ -408,7 +408,6 @@ export function PlusRentalsPage() {
   const safePage = Math.min(page, pageCount)
   const pageStart = (safePage - 1) * RENTALS_PER_PAGE
   const paged = filtered.slice(pageStart, pageStart + RENTALS_PER_PAGE)
-  const pageEnd = pageStart + paged.length
 
   const setDialogVisibility = (open: boolean) => {
     setDialogOpen(open)
@@ -562,9 +561,6 @@ export function PlusRentalsPage() {
                 {t("cards.pageStatus", {
                   page: maskValue(amountsHidden, safePage),
                   pageCount: maskValue(amountsHidden, pageCount),
-                  start: maskValue(amountsHidden, pageStart + 1),
-                  end: maskValue(amountsHidden, pageEnd),
-                  total: maskValue(amountsHidden, filtered.length),
                 })}
               </span>
               <div className="flex items-center gap-1.5">

@@ -368,7 +368,6 @@ function AmountDistributionCard({
   const safePage = Math.min(page, pageCount)
   const pageStartIndex = (safePage - 1) * AMOUNT_ITEMS_PER_PAGE
   const pagedData = data.slice(pageStartIndex, pageStartIndex + AMOUNT_ITEMS_PER_PAGE)
-  const pageEndIndex = pageStartIndex + pagedData.length
   const chartHeight = Math.max(128, pagedData.length * 40)
 
   return (
@@ -455,11 +454,7 @@ function AmountDistributionCard({
           </div>
 
           {pageCount > 1 ? (
-            <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
-              <span className="tabular-nums">
-                {maskValue(amountsHidden, pageStartIndex + 1)}-
-                {maskValue(amountsHidden, pageEndIndex)} / {maskValue(amountsHidden, data.length)}
-              </span>
+            <div className="flex items-center justify-end border-t pt-3 text-xs text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <Button
                   type="button"
@@ -518,7 +513,6 @@ function AccountDonutCard({
   const safePage = Math.min(page, pageCount)
   const pageStartIndex = (safePage - 1) * ACCOUNT_ITEMS_PER_PAGE
   const pagedData = data.slice(pageStartIndex, pageStartIndex + ACCOUNT_ITEMS_PER_PAGE)
-  const pageEndIndex = pageStartIndex + pagedData.length
 
   React.useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -583,11 +577,7 @@ function AccountDonutCard({
             </ul>
           </div>
           {pageCount > 1 ? (
-            <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
-              <span className="tabular-nums">
-                {maskValue(amountsHidden, pageStartIndex + 1)}-
-                {maskValue(amountsHidden, pageEndIndex)} / {maskValue(amountsHidden, data.length)}
-              </span>
+            <div className="flex items-center justify-end border-t pt-3 text-xs text-muted-foreground">
               <div className="flex items-center gap-1.5">
                 <Button
                   type="button"
@@ -753,7 +743,6 @@ export function BillsPage() {
   const safePage = Math.min(page, pageCount)
   const pageStartIndex = (safePage - 1) * BILLS_PER_PAGE
   const pagedBills = filteredBills.slice(pageStartIndex, pageStartIndex + BILLS_PER_PAGE)
-  const pageEndIndex = pageStartIndex + pagedBills.length
 
   return (
     <>
@@ -1014,9 +1003,6 @@ export function BillsPage() {
                     {t("bills.pageStatus", {
                       page: maskValue(amountsHidden, safePage),
                       pageCount: maskValue(amountsHidden, pageCount),
-                      start: maskValue(amountsHidden, pageStartIndex + 1),
-                      end: maskValue(amountsHidden, pageEndIndex),
-                      total: maskValue(amountsHidden, filteredBills.length),
                     })}
                   </span>
                   <div className="flex items-center gap-1.5">
@@ -1049,9 +1035,6 @@ export function BillsPage() {
                     {t("bills.pageStatus", {
                       page: maskValue(amountsHidden, safePage),
                       pageCount: maskValue(amountsHidden, pageCount),
-                      start: maskValue(amountsHidden, pageStartIndex + 1),
-                      end: maskValue(amountsHidden, pageEndIndex),
-                      total: maskValue(amountsHidden, filteredBills.length),
                     })}
                   </span>
                   <div className="flex items-center gap-1.5">

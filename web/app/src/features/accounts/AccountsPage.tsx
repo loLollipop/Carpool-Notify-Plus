@@ -533,7 +533,6 @@ export function AccountsPage() {
   const safePage = Math.min(page, pageCount)
   const pageStartIndex = (safePage - 1) * ACCOUNTS_PER_PAGE
   const pagedAccounts = filteredAccounts.slice(pageStartIndex, pageStartIndex + ACCOUNTS_PER_PAGE)
-  const pageEndIndex = pageStartIndex + pagedAccounts.length
 
   React.useEffect(() => {
     const query = search.trim().toLowerCase()
@@ -860,9 +859,6 @@ export function AccountsPage() {
               {t("accounts.pageStatus", {
                 page: safePage,
                 pageCount,
-                start: pageStartIndex + 1,
-                end: pageEndIndex,
-                total: filteredAccounts.length,
               })}
             </span>
             {pageCount > 1 ? (
@@ -896,9 +892,6 @@ export function AccountsPage() {
                 {t("accounts.pageStatus", {
                   page: safePage,
                   pageCount,
-                  start: pageStartIndex + 1,
-                  end: pageEndIndex,
-                  total: filteredAccounts.length,
                 })}
               </span>
               <div className="flex items-center gap-1.5">

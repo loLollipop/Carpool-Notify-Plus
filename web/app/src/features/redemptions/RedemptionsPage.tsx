@@ -181,7 +181,6 @@ function RedemptionCodeManager() {
   const safePage = Math.min(page, pageCount)
   const pageStart = (safePage - 1) * CODE_PAGE_SIZE
   const paged = codes.slice(pageStart, pageStart + CODE_PAGE_SIZE)
-  const pageEnd = pageStart + paged.length
   const parsedCount = Number(count)
   const countValid = Number.isInteger(parsedCount) && parsedCount >= 1 && parsedCount <= 20
 
@@ -373,7 +372,7 @@ function RedemptionCodeManager() {
           {pageCount > 1 ? (
             <div className="flex flex-col items-center justify-between gap-3 p-5 pt-4 text-xs text-muted-foreground sm:flex-row">
               <span>
-                第 {safePage} / {pageCount} 页 · {pageStart + 1}-{pageEnd} / {codes.length} 个
+                第 {safePage} / {pageCount} 页
               </span>
               <div className="flex items-center gap-1.5">
                 <Button
@@ -771,7 +770,6 @@ export function RedemptionsPage() {
   const safePage = Math.min(page, pageCount)
   const pageStart = (safePage - 1) * APPLICATIONS_PER_PAGE
   const paged = filtered.slice(pageStart, pageStart + APPLICATIONS_PER_PAGE)
-  const pageEnd = pageStart + paged.length
   const pendingCount = redemptionsQuery.data?.pending_count ?? 0
 
   const updateSearch = (value: string) => {
@@ -893,8 +891,7 @@ export function RedemptionsPage() {
               {pageCount > 1 ? (
                 <div className="flex flex-col items-center justify-between gap-3 border-t pt-4 text-xs text-muted-foreground sm:flex-row">
                   <span>
-                    第 {safePage} / {pageCount} 页 · {pageStart + 1}-{pageEnd} /{" "}
-                    {filtered.length} 条
+                    第 {safePage} / {pageCount} 页
                   </span>
                   <div className="flex items-center gap-1.5">
                     <Button

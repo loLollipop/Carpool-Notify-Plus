@@ -504,7 +504,6 @@ export function CardsPage() {
   const safePage = Math.min(currentPage, pageCount)
   const pageStartIndex = (safePage - 1) * USERS_PER_PAGE
   const pagedViews = filteredViews.slice(pageStartIndex, pageStartIndex + USERS_PER_PAGE)
-  const pageEndIndex = pageStartIndex + pagedViews.length
 
   const teamPendingMonthCount = (calendar?.occurrences ?? []).filter(
     (occurrence) => occurrence.business_type !== "plus" && !occurrence.paid,
@@ -623,9 +622,6 @@ export function CardsPage() {
                 {t("cards.pageStatus", {
                   page: safePage,
                   pageCount,
-                  start: pageStartIndex + 1,
-                  end: pageEndIndex,
-                  total: filteredViews.length,
                 })}
               </span>
               <div className="flex items-center gap-1.5">

@@ -1559,9 +1559,6 @@ function RepricingAnalysisPanel({
               {t("goals.repricing.profilePageStatus", {
                 page: currentProfilePage,
                 pageCount: profilePageCount,
-                start: profilePageStart + 1,
-                end: Math.min(profilePageStart + profilePageSize, queue.length),
-                total: queue.length,
               })}
             </p>
             <div className="flex items-center gap-2">
@@ -1981,9 +1978,6 @@ function BulkPricingPanel({
             {t("goals.pageStatus", {
               page: currentPage,
               pageCount,
-              start: pageStart + 1,
-              end: Math.min(pageStart + pricingPageSize, filtered.length),
-              total: filtered.length,
             })}
           </p>
           <div className="flex items-center gap-2">

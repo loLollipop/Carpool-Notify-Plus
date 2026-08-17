@@ -683,7 +683,7 @@ export function AfterSalesPage() {
           </Card>
 
           <div className="flex items-center justify-between border-t pt-3 text-xs text-muted-foreground">
-            <span>{t("afterSales.pageStatus", { page: safePage, pages: pageCount, total: filteredCases.length })}</span>
+            <span>{t("afterSales.pageStatus", { page: safePage, pages: pageCount })}</span>
             <div className="flex items-center gap-1.5">
               <Button variant="outline" size="icon-sm" disabled={safePage <= 1} onClick={() => setPage(safePage - 1)}>
                 <ChevronLeft />
