@@ -679,7 +679,7 @@ export interface PricingCandidate {
   suggested_monthly_uplift_cents: number
   scheduled_monthly_uplift_cents: number
   monthly_revenue_cents: number
-  customer_tier: "premium" | "stable" | "nurture" | "repair"
+  customer_tier: "core" | "mainstay" | "optimize"
   relationship_stage: "new" | "developing" | "established" | "loyal"
   adjustment_risk: "low" | "medium" | "high"
   readiness_score: number
@@ -703,7 +703,7 @@ export interface RepricingSegment {
 }
 
 export interface CustomerTierSummary {
-  key: "premium" | "stable" | "nurture" | "repair"
+  key: "core" | "mainstay" | "optimize"
   count: number
   monthly_revenue_cents: number
   revenue_share_percent: number

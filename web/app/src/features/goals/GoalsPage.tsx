@@ -7,6 +7,8 @@ import {
   Cell,
   ComposedChart,
   Line,
+  Pie,
+  PieChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip as ChartTooltip,
@@ -691,24 +693,26 @@ type SegmentChartDatum = {
 
 type CustomerTierKey = PricingCandidate["customer_tier"]
 
-const customerTierOrder: CustomerTierKey[] = ["premium", "stable", "nurture", "repair"]
+const customerTierOrder: CustomerTierKey[] = ["core", "mainstay", "optimize"]
 
 const customerTierVisuals = {
-  premium: {
-    color: "var(--brand)",
-    badge: "brand",
+  core: {
+    color: "var(--chart-1)",
+    badgeClass: "border-transparent bg-chart-1/12 text-chart-1",
+    labelClass: "text-chart-1",
+    rankClass: "border-chart-1/25 bg-chart-1/10 text-chart-1",
   },
-  stable: {
-    color: "var(--success)",
-    badge: "success",
+  mainstay: {
+    color: "var(--chart-2)",
+    badgeClass: "border-transparent bg-chart-2/12 text-chart-2",
+    labelClass: "text-chart-2",
+    rankClass: "border-chart-2/25 bg-chart-2/10 text-chart-2",
   },
-  nurture: {
+  optimize: {
     color: "var(--warning)",
-    badge: "warning",
-  },
-  repair: {
-    color: "var(--destructive)",
-    badge: "destructive",
+    badgeClass: "border-transparent bg-warning/15 text-warning-foreground dark:text-warning",
+    labelClass: "text-warning-foreground dark:text-warning",
+    rankClass: "border-warning/30 bg-warning/10 text-warning-foreground dark:text-warning",
   },
 } as const
 
@@ -763,13 +767,17 @@ function CustomerTierPanel({
       },
   )
   const total = orderedTiers.reduce((sum, tier) => sum + tier.count, 0)
-  const chartData = [...orderedTiers].reverse().map((tier) => ({
+  const chartData = orderedTiers.map((tier) => ({
     ...tier,
     label: t(`goals.repricing.customerTier.${tier.key}.label`),
-    revenueShare: tier.revenue_share_percent,
-    averagePrice: tier.count > 0 ? tier.average_price_cents : null,
     color: customerTierVisuals[tier.key].color,
   }))
+  const chartAriaLabel = chartData
+    .map(
+      (tier) =>
+        `${tier.label}: ${tier.revenue_share_percent}%, ${t("goals.repricing.customerTier.people", { count: tier.count })}`,
+    )
+    .join("; ")
 
   return (
     <Card className="gap-0 overflow-hidden p-0 shadow-card">
@@ -787,115 +795,127 @@ function CustomerTierPanel({
         ) : null}
       </div>
 
-      <div className="grid xl:grid-cols-[minmax(0,1.08fr)_minmax(520px,0.92fr)]">
+      <div className="grid xl:grid-cols-[minmax(0,0.95fr)_minmax(520px,1.05fr)]">
         <div className="min-w-0 border-b p-4 xl:border-b-0 xl:border-r">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <h3 className="text-xs font-semibold">
-                {t("goals.repricing.customerTier.chartTitle")}
-              </h3>
-              <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
-                {t("goals.repricing.customerTier.chartHint")}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-3 text-[9px] font-medium text-muted-foreground">
-              <span className="flex items-center gap-1.5">
-                <span className="size-2.5 rounded-sm bg-success" />
-                {t("goals.repricing.customerTier.chartRevenue")}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-0.5 w-4 rounded-full bg-brand" />
-                {t("goals.repricing.customerTier.chartPrice")}
-              </span>
-            </div>
+          <div>
+            <h3 className="text-xs font-semibold">
+              {t("goals.repricing.customerTier.chartTitle")}
+            </h3>
+            <p className="mt-1 text-[10px] leading-4 text-muted-foreground">
+              {t("goals.repricing.customerTier.chartHint")}
+            </p>
           </div>
           {total > 0 ? (
-            <div className="mt-3 h-[238px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={chartData} margin={{ top: 12, right: 0, left: -8, bottom: 0 }}>
-                  <CartesianGrid
-                    stroke="var(--border)"
-                    strokeDasharray="3 5"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="label"
-                    axisLine={false}
-                    tickLine={false}
-                    interval={0}
-                    tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
-                  />
-                  <YAxis
-                    yAxisId="share"
-                    axisLine={false}
-                    tickLine={false}
-                    width={38}
-                    tick={{ fill: "var(--muted-foreground)", fontSize: 9 }}
-                    tickFormatter={(value: number) => `${value}%`}
-                  />
-                  <YAxis
-                    yAxisId="price"
-                    orientation="right"
-                    axisLine={false}
-                    tickLine={false}
-                    width={48}
-                    tick={{ fill: "var(--muted-foreground)", fontSize: 9 }}
-                    tickFormatter={(value: number) =>
-                      amountsHidden ? "*" : `¥${Math.round(value / 100)}`
-                    }
-                  />
-                  <ChartTooltip
-                    cursor={{ fill: "color-mix(in oklab, var(--brand) 6%, transparent)" }}
-                    formatter={(value, name) =>
-                      name === "averagePrice"
-                        ? [
-                            visibleYuan(Number(value ?? 0), amountsHidden),
-                            t("goals.repricing.customerTier.averagePrice"),
-                          ]
-                        : [
-                            `${Number(value ?? 0)}%`,
-                            t("goals.repricing.customerTier.revenueShare"),
-                          ]
-                    }
-                    labelFormatter={(label) => String(label)}
-                    contentStyle={{
-                      border: "1px solid var(--border)",
-                      borderRadius: 8,
-                      background: "var(--popover)",
-                      color: "var(--popover-foreground)",
-                      fontSize: 11,
-                      boxShadow: "var(--shadow-card)",
-                    }}
-                  />
-                  <Bar
-                    yAxisId="share"
-                    dataKey="revenueShare"
-                    maxBarSize={42}
-                    radius={[8, 8, 3, 3]}
-                  >
-                    {chartData.map((tier) => (
-                      <Cell
-                        key={tier.key}
-                        fill={tier.color}
-                        fillOpacity={activeTier === "all" || activeTier === tier.key ? 0.92 : 0.2}
-                      />
-                    ))}
-                  </Bar>
-                  <Line
-                    yAxisId="price"
-                    type="monotone"
-                    dataKey="averagePrice"
-                    stroke="var(--brand)"
-                    strokeWidth={2.5}
-                    connectNulls={false}
-                    dot={{ r: 3, fill: "var(--card)", strokeWidth: 2.25 }}
-                    activeDot={{ r: 4.5, fill: "var(--card)", strokeWidth: 2.25 }}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
+            <div className="mt-3 grid min-h-[286px] items-center gap-2 sm:grid-cols-[238px_minmax(0,1fr)]">
+              <div
+                className="relative h-[238px] min-w-0"
+                role="img"
+                aria-label={chartAriaLabel}
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={chartData}
+                      dataKey="monthly_revenue_cents"
+                      nameKey="label"
+                      cx="50%"
+                      cy="50%"
+                      startAngle={90}
+                      endAngle={-270}
+                      innerRadius={70}
+                      outerRadius={100}
+                      paddingAngle={3}
+                      cornerRadius={6}
+                      stroke="var(--card)"
+                      strokeWidth={3}
+                    >
+                      {chartData.map((tier) => (
+                        <Cell
+                          key={tier.key}
+                          fill={tier.color}
+                          fillOpacity={activeTier === "all" || activeTier === tier.key ? 0.95 : 0.18}
+                        />
+                      ))}
+                    </Pie>
+                    <ChartTooltip
+                      formatter={(value) => [
+                        visibleYuan(Number(value ?? 0), amountsHidden),
+                        t("goals.repricing.customerTier.monthlyRevenue"),
+                      ]}
+                      contentStyle={{
+                        border: "1px solid var(--border)",
+                        borderRadius: 8,
+                        background: "var(--popover)",
+                        color: "var(--popover-foreground)",
+                        fontSize: 11,
+                        boxShadow: "var(--shadow-card)",
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="pointer-events-none absolute inset-0 grid place-content-center text-center">
+                  <span className="text-[10px] font-medium text-muted-foreground">
+                    {t("goals.repricing.customerTier.totalCustomers")}
+                  </span>
+                  <span className="display-numeral mt-1 text-[30px] leading-none">{total}</span>
+                  <span className="mt-1 text-[9px] text-muted-foreground">
+                    {t("goals.repricing.customerTier.allTiers")}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid gap-2">
+                {chartData.map((tier) => {
+                  const visual = customerTierVisuals[tier.key]
+                  const isActive = activeTier === tier.key
+                  return (
+                    <button
+                      key={tier.key}
+                      type="button"
+                      className={cn(
+                        "rounded-lg border bg-card/70 p-2.5 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-brand/35 focus-visible:ring-2 focus-visible:ring-brand",
+                        isActive && "border-brand/45 bg-brand/[0.045] shadow-card",
+                      )}
+                      aria-pressed={isActive}
+                      onClick={() => onTierChange(isActive ? "all" : tier.key)}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className={cn("font-mono text-[9px] font-bold", visual.labelClass)}>
+                            {t(`goals.repricing.customerTier.${tier.key}.grade`)}
+                          </span>
+                          <span className="truncate text-[11px] font-semibold">{tier.label}</span>
+                        </span>
+                        <span className="text-sm font-semibold tabular-nums">
+                          {tier.revenue_share_percent}%
+                        </span>
+                      </div>
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                        <span
+                          className="block h-full rounded-full transition-[width,opacity] duration-500"
+                          style={{
+                            width: `${tier.revenue_share_percent}%`,
+                            backgroundColor: visual.color,
+                            opacity: activeTier === "all" || isActive ? 1 : 0.3,
+                          }}
+                        />
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-2 text-[9px] text-muted-foreground">
+                        <span>{t("goals.repricing.customerTier.people", { count: tier.count })}</span>
+                        <span className="tabular-nums">
+                          {t("goals.repricing.customerTier.averagePrice")}{" "}
+                          {tier.count > 0
+                            ? visibleYuan(tier.average_price_cents, amountsHidden)
+                            : "-"}
+                        </span>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           ) : (
-            <div className="grid h-[238px] place-items-center text-center">
+            <div className="grid h-[286px] place-items-center text-center">
               <p className="text-xs text-muted-foreground">
                 {t("goals.repricing.customerTier.empty")}
               </p>
@@ -903,7 +923,7 @@ function CustomerTierPanel({
           )}
         </div>
 
-        <div className="grid gap-2 bg-muted/15 p-3 sm:grid-cols-2">
+        <div className="grid auto-rows-fr gap-2 bg-muted/15 p-3">
           {orderedTiers.map((tier) => {
             const visual = customerTierVisuals[tier.key]
             const isActive = activeTier === tier.key
@@ -924,43 +944,62 @@ function CustomerTierPanel({
                 aria-pressed={isActive}
                 onClick={() => onTierChange(isActive ? "all" : tier.key)}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <Badge variant={visual.badge}>
-                    {t(`goals.repricing.customerTier.${tier.key}.label`)}
-                  </Badge>
-                  <span className="display-numeral text-[22px] leading-none">{tier.count}</span>
-                </div>
-                <div className="mt-3 flex items-end justify-between gap-3">
-                  <div>
-                    <p className="text-[9px] text-muted-foreground">
-                      {t("goals.repricing.customerTier.revenueShare")}
-                    </p>
-                    <p className="mt-0.5 text-sm font-semibold tabular-nums">
-                      {tier.revenue_share_percent}%
-                    </p>
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className={cn("grid size-10 shrink-0 place-items-center rounded-lg border font-mono text-xs font-bold", visual.rankClass)}>
+                    {t(`goals.repricing.customerTier.${tier.key}.grade`)}
+                  </span>
+                  <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-[minmax(0,1fr)_220px]">
+                    <div className="min-w-0">
+                      <Badge variant="outline" className={visual.badgeClass}>
+                        {t(`goals.repricing.customerTier.${tier.key}.label`)}
+                      </Badge>
+                      <p className="mt-2 text-[10px] leading-4 text-muted-foreground">
+                        {t(`goals.repricing.customerTier.${tier.key}.strategy`)}
+                      </p>
+                      <div className="mt-2 flex min-h-5 flex-wrap gap-1.5">
+                        {tier.recommended_count > 0 ? (
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-[9px] font-medium text-muted-foreground">
+                            {t("goals.repricing.customerTier.recommended", {
+                              count: tier.recommended_count,
+                            })}
+                          </span>
+                        ) : null}
+                        {tier.scheduled_count > 0 ? (
+                          <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[9px] font-medium text-brand">
+                            {t("goals.repricing.customerTier.scheduled", {
+                              count: tier.scheduled_count,
+                            })}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 self-center rounded-md bg-muted/30 p-2.5">
+                      <div>
+                        <p className="text-[8px] text-muted-foreground">
+                          {t("goals.repricing.customerTier.customerCount")}
+                        </p>
+                        <p className="display-numeral mt-1 text-lg leading-none">{tier.count}</p>
+                      </div>
+                      <div>
+                        <p className="text-[8px] text-muted-foreground">
+                          {t("goals.repricing.customerTier.revenueShare")}
+                        </p>
+                        <p className="mt-1 text-sm font-semibold tabular-nums">
+                          {tier.revenue_share_percent}%
+                        </p>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[8px] text-muted-foreground">
+                          {t("goals.repricing.customerTier.averagePrice")}
+                        </p>
+                        <p className="mt-1 truncate text-[11px] font-semibold tabular-nums" title={priceRange}>
+                          {tier.count > 0
+                            ? visibleYuan(tier.average_price_cents, amountsHidden)
+                            : "-"}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <p className="truncate text-right text-[10px] font-medium tabular-nums" title={priceRange}>
-                    {priceRange}
-                  </p>
-                </div>
-                <p className="mt-2 min-h-12 text-[10px] leading-4 text-muted-foreground">
-                  {t(`goals.repricing.customerTier.${tier.key}.strategy`)}
-                </p>
-                <div className="mt-2 flex min-h-5 flex-wrap gap-1.5">
-                  {tier.recommended_count > 0 ? (
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-[9px] font-medium text-muted-foreground">
-                      {t("goals.repricing.customerTier.recommended", {
-                        count: tier.recommended_count,
-                      })}
-                    </span>
-                  ) : null}
-                  {tier.scheduled_count > 0 ? (
-                    <span className="rounded-full bg-brand/10 px-2 py-0.5 text-[9px] font-medium text-brand">
-                      {t("goals.repricing.customerTier.scheduled", {
-                        count: tier.scheduled_count,
-                      })}
-                    </span>
-                  ) : null}
                 </div>
               </button>
             )
@@ -1283,7 +1322,10 @@ function RepricingAnalysisPanel({
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-sm font-semibold">{t("goals.repricing.userAnalysisTitle")}</h2>
               {activeTier !== "all" ? (
-                <Badge variant={customerTierVisuals[activeTier].badge}>
+                <Badge
+                  variant="outline"
+                  className={customerTierVisuals[activeTier].badgeClass}
+                >
                   {t(`goals.repricing.customerTier.${activeTier}.label`)}
                 </Badge>
               ) : null}
@@ -1335,7 +1377,10 @@ function RepricingAnalysisPanel({
                       <Badge variant={riskVariant}>
                         {t(`goals.repricing.risk.${candidate.adjustment_risk}`)}
                       </Badge>
-                      <Badge variant={customerTierVisuals[candidate.customer_tier].badge}>
+                      <Badge
+                        variant="outline"
+                        className={customerTierVisuals[candidate.customer_tier].badgeClass}
+                      >
                         {t(`goals.repricing.customerTier.${candidate.customer_tier}.label`)}
                       </Badge>
                     </div>

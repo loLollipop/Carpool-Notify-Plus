@@ -1057,7 +1057,7 @@ func (service *SubscriptionService) buildPricingCandidates(
 
 // assignCustomerTiers uses the internal price distribution instead of fixed
 // currency thresholds, so the segmentation stays meaningful as the business
-// and market move. Equal-price datasets are kept in the stable tier rather
+// and market move. Equal-price datasets are kept in the mainstay tier rather
 // than inventing artificial high- and low-value customers.
 func assignCustomerTiers(candidates []PricingCandidate) {
 	if len(candidates) == 0 {
@@ -1072,24 +1072,21 @@ func assignCustomerTiers(candidates []PricingCandidate) {
 	})
 	if prices[0] == prices[len(prices)-1] {
 		for index := range candidates {
-			candidates[index].CustomerTier = "stable"
+			candidates[index].CustomerTier = "mainstay"
 		}
 		return
 	}
 
-	lowerQuartile := percentileCents(prices, 0.25)
-	median := percentileCents(prices, 0.5)
-	upperQuartile := percentileCents(prices, 0.75)
+	lowerThird := percentileCents(prices, 1.0/3.0)
+	upperThird := percentileCents(prices, 2.0/3.0)
 	for index := range candidates {
 		switch price := candidates[index].CurrentPriceCents; {
-		case price >= upperQuartile:
-			candidates[index].CustomerTier = "premium"
-		case price >= median:
-			candidates[index].CustomerTier = "stable"
-		case price > lowerQuartile:
-			candidates[index].CustomerTier = "nurture"
+		case price >= upperThird:
+			candidates[index].CustomerTier = "core"
+		case price >= lowerThird:
+			candidates[index].CustomerTier = "mainstay"
 		default:
-			candidates[index].CustomerTier = "repair"
+			candidates[index].CustomerTier = "optimize"
 		}
 	}
 }
@@ -1284,10 +1281,9 @@ func buildRepricingAnalysis(candidates []PricingCandidate, now time.Time) Repric
 			{Key: "unavailable"},
 		},
 		CustomerTiers: []CustomerTierSummary{
-			{Key: "premium"},
-			{Key: "stable"},
-			{Key: "nurture"},
-			{Key: "repair"},
+			{Key: "core"},
+			{Key: "mainstay"},
+			{Key: "optimize"},
 		},
 	}
 	relationshipIndexes := segmentIndexes(analysis.RelationshipSegments)
