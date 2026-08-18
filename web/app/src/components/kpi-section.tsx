@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next"
-import { BellRing, CircleDot, Layers, LogOut } from "lucide-react"
+import { BellRing, CheckCircle2, CircleDot, Layers, LogOut } from "lucide-react"
 
 import type { Dashboard } from "@/api/types"
 import { cn } from "@/lib/utils"
@@ -24,11 +24,12 @@ function KpiCard({
   onClick?: () => void
   delay?: number
   hintTone?: "success"
-  tone: "brand" | "gold" | "neutral" | "success"
+  tone: "brand" | "cyan" | "gold" | "neutral" | "success"
 }) {
   const Component = onClick ? "button" : "article"
   const toneClass = {
     brand: "bg-brand/10 text-brand",
+    cyan: "bg-cyan/10 text-cyan",
     gold: "bg-gold/12 text-gold",
     neutral: "bg-muted text-muted-foreground",
     success: "bg-success/10 text-success",
@@ -71,10 +72,15 @@ function KpiCard({
   )
 }
 
-export function KpiSectionSkeleton() {
+export function KpiSectionSkeleton({ count = 4 }: { count?: 4 | 5 }) {
   return (
-    <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {Array.from({ length: 4 }).map((_, index) => (
+    <div
+      className={cn(
+        "mb-6 grid grid-cols-2 gap-3",
+        count === 5 ? "lg:grid-cols-3 xl:grid-cols-5" : "lg:grid-cols-4",
+      )}
+    >
+      {Array.from({ length: count }).map((_, index) => (
         <Skeleton key={index} className="h-[118px] rounded-xl" />
       ))}
     </div>
@@ -85,19 +91,30 @@ export function KpiSection({
   dashboard,
   pendingCount,
   pendingMode = "unpaid",
+  renewedCount,
   onFilterAll,
   onFilterPending,
+  onFilterRenewed,
 }: {
   dashboard: Dashboard
   pendingCount: number
   pendingMode?: "unpaid" | "monthDue"
+  renewedCount?: number
   onFilterAll?: () => void
   onFilterPending?: () => void
+  onFilterRenewed?: () => void
 }) {
   const { t } = useTranslation()
+  const showsRenewed = renewedCount !== undefined
 
   return (
-    <section aria-label="数据统计" className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <section
+      aria-label="数据统计"
+      className={cn(
+        "mb-6 grid grid-cols-2 gap-3",
+        showsRenewed ? "lg:grid-cols-3 xl:grid-cols-5" : "lg:grid-cols-4",
+      )}
+    >
       <KpiCard
         label={t("dashboard.subscriptions")}
         value={dashboard.subscription_count}
@@ -119,13 +136,24 @@ export function KpiSection({
         onClick={onFilterPending}
         delay={60}
       />
+      {showsRenewed ? (
+        <KpiCard
+          label={t("dashboard.monthRenewed")}
+          value={renewedCount}
+          hint={t("dashboard.monthRenewedHint")}
+          icon={<CheckCircle2 className="size-4" />}
+          tone="cyan"
+          onClick={onFilterRenewed}
+          delay={120}
+        />
+      ) : null}
       <KpiCard
         label={t("dashboard.archived")}
         value={dashboard.archived_count}
         hint={t("dashboard.archivedHint")}
         icon={<LogOut className="size-4" />}
         tone="neutral"
-        delay={120}
+        delay={showsRenewed ? 180 : 120}
       />
       <KpiCard
         label={t("dashboard.notifySuccess")}
@@ -134,7 +162,7 @@ export function KpiSection({
         hintTone={dashboard.notify_failed_30d === 0 ? "success" : undefined}
         icon={<BellRing className="size-4" />}
         tone="success"
-        delay={180}
+        delay={showsRenewed ? 240 : 180}
       />
     </section>
   )

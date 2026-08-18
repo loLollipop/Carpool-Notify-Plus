@@ -16,7 +16,7 @@ import {
 import { archiveSubscription } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
 import { useCalendar, useDashboard, useSubscriptions } from "@/api/queries"
-import type { SubscriptionView } from "@/api/types"
+import type { CalendarOccurrence, SubscriptionView } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DueStatusBadge } from "@/components/due-status-badge"
 import { KpiSection, KpiSectionSkeleton } from "@/components/kpi-section"
@@ -62,6 +62,13 @@ function normalizeCardsFilter(value: string | null): CardsFilter {
     return value
   }
   return "all"
+}
+
+function isTeamRenewalOccurrence(occurrence: CalendarOccurrence) {
+  return (
+    occurrence.business_type !== "plus" &&
+    (!occurrence.boarded_at || occurrence.due_date > occurrence.boarded_at)
+  )
 }
 
 function MetaCell({ label, children }: { label: string; children: React.ReactNode }) {
@@ -435,20 +442,31 @@ export function CardsPage() {
     })
   }
 
-  const paidBySubscription = React.useMemo(() => {
-    const map = new Map<number, boolean>()
-    const month = calendar?.month_value
+  const teamRenewalStats = React.useMemo(() => {
+    const pendingSubscriptionIds = new Set<number>()
+    const paidSubscriptionIds = new Set<number>()
     for (const occurrence of calendar?.occurrences ?? []) {
-      if (month && occurrence.due_date.slice(0, 7) !== month) continue
-      // Paid filter follows the calendar focus row; future unpaid rows are handled separately.
-      map.set(occurrence.subscription_id, occurrence.paid)
-    }
-    for (const occurrence of calendar?.paid_in_month_occurrences ?? []) {
-      if (!map.has(occurrence.subscription_id)) {
-        map.set(occurrence.subscription_id, true)
+      if (!isTeamRenewalOccurrence(occurrence)) continue
+      if (occurrence.paid) {
+        paidSubscriptionIds.add(occurrence.subscription_id)
+      } else {
+        pendingSubscriptionIds.add(occurrence.subscription_id)
       }
     }
-    return map
+    for (const occurrence of calendar?.paid_in_month_occurrences ?? []) {
+      if (!isTeamRenewalOccurrence(occurrence)) continue
+      paidSubscriptionIds.add(occurrence.subscription_id)
+    }
+    const renewedSubscriptionIds = new Set(
+      [...paidSubscriptionIds].filter(
+        (subscriptionId) => !pendingSubscriptionIds.has(subscriptionId),
+      ),
+    )
+    return {
+      pendingCount: pendingSubscriptionIds.size,
+      renewedCount: renewedSubscriptionIds.size,
+      renewedSubscriptionIds,
+    }
   }, [calendar])
 
   const filteredViews = React.useMemo(() => {
@@ -467,7 +485,9 @@ export function CardsPage() {
         (view) => !view.cancellation_pending && view.days_remaining <= 0,
       )
     } else if (filter === "paid") {
-      pool = activeViews.filter((view) => paidBySubscription.get(view.subscription.id) === true)
+      pool = activeViews.filter((view) =>
+        teamRenewalStats.renewedSubscriptionIds.has(view.subscription.id),
+      )
     } else {
       pool = activeViews
     }
@@ -505,8 +525,8 @@ export function CardsPage() {
     archivedViews,
     filter,
     focusedSubscriptionId,
-    paidBySubscription,
     search,
+    teamRenewalStats.renewedSubscriptionIds,
   ])
 
   const pageCount = Math.max(1, Math.ceil(filteredViews.length / USERS_PER_PAGE))
@@ -514,9 +534,6 @@ export function CardsPage() {
   const pageStartIndex = (safePage - 1) * USERS_PER_PAGE
   const pagedViews = filteredViews.slice(pageStartIndex, pageStartIndex + USERS_PER_PAGE)
 
-  const teamPendingMonthCount = (calendar?.occurrences ?? []).filter(
-    (occurrence) => occurrence.business_type !== "plus" && !occurrence.paid,
-  ).length
   const teamDashboard = dashboardQuery.data
     ? {
         ...dashboardQuery.data,
@@ -575,11 +592,13 @@ export function CardsPage() {
       {teamDashboard ? (
         <KpiSection
           dashboard={teamDashboard}
-          pendingCount={teamPendingMonthCount}
+          pendingCount={teamRenewalStats.pendingCount}
           pendingMode="monthDue"
+          renewedCount={teamRenewalStats.renewedCount}
+          onFilterRenewed={() => updateFilter("paid")}
         />
       ) : (
-        <KpiSectionSkeleton />
+        <KpiSectionSkeleton count={5} />
       )}
 
       {subscriptionsQuery.isPending ? (
