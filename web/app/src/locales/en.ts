@@ -471,7 +471,9 @@ export default {
         selected: "{{count}} customers selected",
         recordDelivered: "Record delivered benefit",
         historyTitle: "Benefit delivery history",
+        historyCount: "{{count}} manually delivered records",
         historyEmpty: "No benefit has been recorded yet",
+        perceivedValue: "Perceived value {{value}}",
         outcome: {
           pending: "Pending",
           renewed: "Renewed",

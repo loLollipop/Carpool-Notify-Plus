@@ -471,7 +471,9 @@ export default {
         selected: "已选择 {{count}} 位客户",
         recordDelivered: "登记已发福利",
         historyTitle: "福利发放记录",
+        historyCount: "共 {{count}} 条人工发放记录",
         historyEmpty: "还没有福利登记记录",
+        perceivedValue: "感知价值 {{value}}",
         outcome: {
           pending: "待观察",
           renewed: "已续费",

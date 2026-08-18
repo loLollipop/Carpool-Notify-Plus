@@ -53,6 +53,7 @@ import type {
   BusinessGoal,
   BusinessGoalInput,
   BulkPricingExemptionInput,
+  CustomerBenefitView,
   CustomerTierSummary,
   CustomerBenefitCandidate,
   CustomerBenefitType,
@@ -2439,6 +2440,127 @@ const careStatusBadge = {
   blocked: "destructive",
 } as const
 
+function CustomerBenefitHistoryDialog({
+  open,
+  onOpenChange,
+  history,
+  amountsHidden,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  history: CustomerBenefitView[]
+  amountsHidden: boolean
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        aria-describedby={undefined}
+        className="flex max-h-[85dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
+      >
+        <DialogHeader className="border-b bg-muted/20 px-6 py-5">
+          <div className="flex items-center gap-3 pr-8">
+            <span className="grid size-10 shrink-0 place-items-center rounded-lg border border-brand/15 bg-brand/10 text-brand">
+              <History className="size-4.5" />
+            </span>
+            <div className="min-w-0">
+              <DialogTitle>{t("goals.care.historyTitle")}</DialogTitle>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("goals.care.historyCount", { count: history.length })}
+              </p>
+            </div>
+          </div>
+        </DialogHeader>
+
+        {history.length > 0 ? (
+          <div className="min-h-0 flex-1 divide-y overflow-y-auto">
+            {history.map((benefit) => {
+              const contact =
+                benefit.customer_email_snapshot || benefit.customer_wechat_snapshot || "-"
+              return (
+                <article
+                  key={benefit.id}
+                  className="grid gap-3 px-6 py-4 transition-colors hover:bg-muted/20 sm:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)_auto] sm:items-center"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold" title={contact}>
+                      {contact}
+                    </p>
+                    {benefit.customer_wechat_snapshot &&
+                    benefit.customer_wechat_snapshot !== contact ? (
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        {benefit.customer_wechat_snapshot}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium" title={benefit.benefit_name}>
+                      {benefit.benefit_name}
+                    </p>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                      <Badge variant="outline" className="font-normal">
+                        {t(`goals.care.benefitType.${benefit.benefit_type}`)}
+                      </Badge>
+                      <span className="text-[11px] tabular-nums text-muted-foreground">
+                        {benefit.benefit_date}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 sm:flex-col sm:items-end">
+                    <Badge
+                      variant={
+                        benefit.outcome === "renewed"
+                          ? "success"
+                          : benefit.outcome === "not_renewed"
+                            ? "destructive"
+                            : "secondary"
+                      }
+                    >
+                      {t(`goals.care.outcome.${benefit.outcome}`)}
+                    </Badge>
+                    <div className="text-right text-[11px] leading-5 text-muted-foreground">
+                      <p className="tabular-nums">
+                        {t("goals.care.costValue", {
+                          value: visibleYuan(benefit.actual_cost_cents, amountsHidden),
+                        })}
+                      </p>
+                      <p className="tabular-nums">
+                        {t("goals.care.perceivedValue", {
+                          value: visibleYuan(benefit.perceived_value_cents, amountsHidden),
+                        })}
+                      </p>
+                    </div>
+                  </div>
+
+                  {benefit.note ? (
+                    <p className="rounded-md bg-muted/45 px-3 py-2 text-xs leading-5 whitespace-pre-wrap text-muted-foreground sm:col-span-3">
+                      {benefit.note}
+                    </p>
+                  ) : null}
+                </article>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="grid min-h-64 place-items-center p-8 text-center">
+            <div>
+              <span className="mx-auto grid size-11 place-items-center rounded-full bg-muted text-muted-foreground">
+                <History className="size-5" />
+              </span>
+              <p className="mt-3 text-sm text-muted-foreground">
+                {t("goals.care.historyEmpty")}
+              </p>
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function CustomerCarePanel({
   data,
   amountsHidden,
@@ -2455,6 +2577,7 @@ function CustomerCarePanel({
   const [page, setPage] = React.useState(1)
   const [selected, setSelected] = React.useState<Set<number>>(() => new Set())
   const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [historyOpen, setHistoryOpen] = React.useState(false)
   const [benefitType, setBenefitType] = React.useState<CustomerBenefitType>("loyalty_care")
   const [benefitName, setBenefitName] = React.useState("")
   const [actualCost, setActualCost] = React.useState("")
@@ -2603,8 +2726,7 @@ function CustomerCarePanel({
         ))}
       </div>
 
-      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <section className="overflow-hidden rounded-lg border bg-card shadow-card">
+      <section className="overflow-hidden rounded-lg border bg-card shadow-card">
           <div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-3">
               <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
@@ -2622,15 +2744,24 @@ function CustomerCarePanel({
                 </p>
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={selectRecommended}
-              disabled={care.summary.recommended_count === 0}
-            >
-              <Gift />
-              {t("goals.care.selectRecommended")}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setHistoryOpen(true)}>
+                <History />
+                {t("goals.care.historyTitle")}
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground">
+                  {history.length}
+                </span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={selectRecommended}
+                disabled={care.summary.recommended_count === 0}
+              >
+                <Gift />
+                {t("goals.care.selectRecommended")}
+              </Button>
+            </div>
           </div>
 
           <div className="grid gap-3 border-b bg-muted/20 p-4 lg:grid-cols-[minmax(220px,1fr)_180px]">
@@ -2800,61 +2931,14 @@ function CustomerCarePanel({
               {t("goals.care.recordDelivered")}
             </Button>
           </div>
-        </section>
+      </section>
 
-        <section className="overflow-hidden rounded-lg border bg-card shadow-card xl:sticky xl:top-4">
-          <div className="flex items-center gap-2 border-b px-4 py-3.5">
-            <History className="size-4 text-brand" />
-            <h2 className="text-sm font-semibold">{t("goals.care.historyTitle")}</h2>
-          </div>
-          {history.length > 0 ? (
-            <div className="max-h-[620px] divide-y overflow-y-auto">
-              {history.slice(0, 30).map((benefit) => {
-                const contact =
-                  benefit.customer_email_snapshot || benefit.customer_wechat_snapshot || "-"
-                return (
-                  <div key={benefit.id} className="p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium">{contact}</p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {benefit.benefit_name}
-                        </p>
-                      </div>
-                      <Badge
-                        variant={
-                          benefit.outcome === "renewed"
-                            ? "success"
-                            : benefit.outcome === "not_renewed"
-                              ? "destructive"
-                              : "secondary"
-                        }
-                      >
-                        {t(`goals.care.outcome.${benefit.outcome}`)}
-                      </Badge>
-                    </div>
-                    <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
-                      <span>{benefit.benefit_date}</span>
-                      <span className="tabular-nums">
-                        {t("goals.care.costValue", {
-                          value: visibleYuan(benefit.actual_cost_cents, amountsHidden),
-                        })}
-                      </span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="grid min-h-48 place-items-center p-6 text-center">
-              <div>
-                <History className="mx-auto size-5 text-muted-foreground" />
-                <p className="mt-2 text-sm text-muted-foreground">{t("goals.care.historyEmpty")}</p>
-              </div>
-            </div>
-          )}
-        </section>
-      </div>
+      <CustomerBenefitHistoryDialog
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        history={history}
+        amountsHidden={amountsHidden}
+      />
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent aria-describedby={undefined} className="sm:max-w-xl">
