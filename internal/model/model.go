@@ -36,6 +36,12 @@ const (
 	BusinessGoalStatusActive    = "active"
 	BusinessGoalStatusCompleted = "completed"
 
+	CustomerBenefitTypeRenewalMilestone = "renewal_milestone"
+	CustomerBenefitTypeLoyaltyCare      = "loyalty_care"
+	CustomerBenefitTypePriceIncrease    = "price_increase_thanks"
+	CustomerBenefitTypeServiceRecovery  = "service_recovery"
+	CustomerBenefitTypeManual           = "manual"
+
 	// SubscriptionTypeOther is a legacy default for the deprecated subscription_type column.
 	// New code uses AccountName for display; this remains for migration/export compatibility.
 	SubscriptionTypeOther = "其它"
@@ -221,6 +227,30 @@ type PricingExemption struct {
 	ReviewCycles              int       `json:"review_cycles"`
 	PriceCentsSnapshot        int64     `json:"price_cents_snapshot"`
 	MarketMedianCentsSnapshot int64     `json:"market_median_cents_snapshot"`
+	CreatedAt                 time.Time `json:"created_at"`
+}
+
+// CustomerBenefit is one manually delivered customer-care benefit. Financial
+// cost and decision-time snapshots are immutable so later retention analysis
+// does not accidentally use today's price or customer tier for an old action.
+type CustomerBenefit struct {
+	ID                        int64     `json:"id"`
+	BatchID                   string    `json:"batch_id"`
+	SubscriptionID            int64     `json:"subscription_id"`
+	BenefitType               string    `json:"benefit_type"`
+	BenefitName               string    `json:"benefit_name"`
+	ActualCostCents           int64     `json:"actual_cost_cents"`
+	PerceivedValueCents       int64     `json:"perceived_value_cents"`
+	BenefitDate               string    `json:"benefit_date"`
+	NextDueDateSnapshot       string    `json:"next_due_date_snapshot"`
+	CustomerEmailSnapshot     string    `json:"customer_email_snapshot"`
+	CustomerWechatSnapshot    string    `json:"customer_wechat_snapshot"`
+	CustomerTierSnapshot      string    `json:"customer_tier_snapshot"`
+	CustomerGroupSizeSnapshot int       `json:"customer_group_size_snapshot"`
+	CurrentPriceCentsSnapshot int64     `json:"current_price_cents_snapshot"`
+	RenewalCountSnapshot      int       `json:"renewal_count_snapshot"`
+	RecommendationCode        string    `json:"recommendation_code"`
+	Note                      string    `json:"note"`
 	CreatedAt                 time.Time `json:"created_at"`
 }
 
@@ -435,6 +465,7 @@ type ExportPayload struct {
 	RedeemPageSettings    RedeemPageSettings   `json:"redeem_page_settings"`
 	Accounts              []ExportAccount      `json:"accounts"`
 	Subscriptions         []ExportSubscription `json:"subscriptions"`
+	CustomerBenefits      []CustomerBenefit    `json:"customer_benefits"`
 }
 
 // ExportAccount is one account with seats in an export file.

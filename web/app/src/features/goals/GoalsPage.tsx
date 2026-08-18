@@ -17,10 +17,15 @@ import {
 } from "recharts"
 import {
   ArrowRight,
+  BrainCircuit,
   CalendarClock,
   CheckCircle2,
   CircleGauge,
+  Clock3,
   ExternalLink,
+  Gift,
+  HeartHandshake,
+  History,
   Pencil,
   Plus,
   RefreshCw,
@@ -37,6 +42,7 @@ import {
   completeBusinessGoal,
   createBusinessGoal,
   exemptGoalBulkPricing,
+  recordGoalCustomerBenefits,
   refreshGoalMarket,
   scheduleGoalBulkNextPrice,
   updateBusinessGoal,
@@ -48,9 +54,12 @@ import type {
   BusinessGoalInput,
   BulkPricingExemptionInput,
   CustomerTierSummary,
+  CustomerBenefitCandidate,
+  CustomerBenefitType,
   ForecastScenario,
   GoalCenter,
   PricingCandidate,
+  RecordCustomerBenefitsInput,
 } from "@/api/types"
 import { AmountPrivacyToggle } from "@/components/amount-privacy-toggle"
 import { ConfirmDialog } from "@/components/confirm-dialog"
@@ -103,6 +112,18 @@ function visibleYuan(cents: number, hidden: boolean) {
 
 function inputYuan(cents: number) {
   return (cents / 100).toFixed(2)
+}
+
+function shanghaiToday() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date())
+  const value = (type: "year" | "month" | "day") =>
+    parts.find((part) => part.type === type)?.value ?? ""
+  return `${value("year")}-${value("month")}-${value("day")}`
 }
 
 function GoalDialog({
@@ -1304,7 +1325,7 @@ function RepricingAnalysisPanel({
           value={t("goals.repricing.daysValue", { count: analysis.average_relationship_days })}
           hint={t("goals.repricing.averageRelationshipHint", {
             periods: (analysis.average_paid_periods ?? 0).toFixed(1),
-            loyalty: analysis.average_loyalty_score ?? 0,
+            repeats: analysis.repeat_subscription_count ?? 0,
           })}
         />
         <RepricingMetric
@@ -1368,6 +1389,21 @@ function RepricingAnalysisPanel({
             <ArrowRight />
           </Button>
         </div>
+        {analysis.total_count > 0 ? (
+          <div className="flex items-center gap-2 border-b bg-muted/25 px-5 py-2 text-[11px] text-muted-foreground">
+            <ShieldCheck className="size-3.5 shrink-0 text-brand" />
+            <span>
+              {analysis.repeat_subscription_count === 0
+                ? t("goals.repricing.evidenceNotice.firstCycleOnly", {
+                    count: analysis.first_cycle_subscription_count,
+                  })
+                : t("goals.repricing.evidenceNotice.repeatObserved", {
+                    repeat: analysis.repeat_subscription_count,
+                    increased: analysis.increased_price_accepted_count,
+                  })}
+            </span>
+          </div>
+        ) : null}
         {visibleQueue.length > 0 ? (
           <div className="divide-y">
             {visibleQueue.map((candidate) => {
@@ -1385,28 +1421,7 @@ function RepricingAnalysisPanel({
                   : candidate.adjustment_risk === "medium"
                     ? "warning"
                     : "destructive"
-              const decisionScores = [
-                {
-                  key: "loyalty",
-                  value: candidate.loyalty_score,
-                  color: "var(--brand)",
-                },
-                {
-                  key: "priceWillingness",
-                  value: candidate.price_willingness_score,
-                  color: "var(--chart-2)",
-                },
-                {
-                  key: "relationshipAsset",
-                  value: candidate.relationship_asset_score,
-                  color: "var(--success)",
-                },
-                {
-                  key: "pricePressure",
-                  value: candidate.price_pressure_score,
-                  color: "var(--warning)",
-                },
-              ] as const
+              const verifiedPriceIndex = candidate.verified_price_index
               return (
                 <div
                   key={candidate.subscription_id}
@@ -1472,31 +1487,70 @@ function RepricingAnalysisPanel({
                             : t("goals.repricing.nearTypical")}
                       </span>
                     </div>
-                    <div className="mt-2 space-y-1.5">
-                      {decisionScores.map((score) => {
-                        const value = Math.max(0, Math.min(score.value, 100))
-                        return (
+                    <div className="mt-2 space-y-1.5 text-[9px] text-muted-foreground">
+                      <div className="grid grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-1.5">
+                        <span>{t("goals.repricing.score.renewalEvidence")}</span>
+                        <span className="col-span-2 text-right tabular-nums text-foreground/80">
+                          {t("goals.repricing.renewalEvidenceValue", {
+                            count: candidate.renewal_count,
+                            level: t(
+                              `goals.repricing.renewalEvidence.${candidate.renewal_evidence}`,
+                            ),
+                          })}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-[4rem_minmax(0,1fr)_2rem] items-center gap-1.5">
+                        <span title={t("goals.repricing.verifiedPriceIndexHint")}>
+                          {t("goals.repricing.score.verifiedPrice")}
+                        </span>
+                        <div
+                          className="h-1 overflow-hidden rounded-full bg-muted"
+                          aria-label={
+                            verifiedPriceIndex === null
+                              ? t("goals.repricing.verifiedPriceUnavailable")
+                              : t("goals.repricing.verifiedPriceIndexValue", {
+                                  value: verifiedPriceIndex,
+                                })
+                          }
+                        >
                           <div
-                            key={score.key}
-                            className="grid grid-cols-[3.25rem_minmax(0,1fr)_1.5rem] items-center gap-1.5 text-[9px] text-muted-foreground"
-                          >
-                            <span>{t(`goals.repricing.score.${score.key}`)}</span>
-                            <div
-                              className="h-1 overflow-hidden rounded-full bg-muted"
-                              aria-label={t("goals.repricing.scoreValue", {
-                                label: t(`goals.repricing.score.${score.key}`),
-                                value,
-                              })}
-                            >
-                              <div
-                                className="h-full rounded-full"
-                                style={{ width: `${value}%`, background: score.color }}
-                              />
-                            </div>
-                            <span className="text-right tabular-nums">{value}</span>
-                          </div>
-                        )
-                      })}
+                            className="h-full rounded-full bg-[var(--chart-2)]"
+                            style={{
+                              width: `${Math.max(0, Math.min(verifiedPriceIndex ?? 0, 100))}%`,
+                            }}
+                          />
+                        </div>
+                        <span className="text-right tabular-nums">
+                          {verifiedPriceIndex ?? "--"}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-1.5">
+                        <span>{t("goals.repricing.score.priceStability")}</span>
+                        <span className="col-span-2 text-right tabular-nums text-foreground/80">
+                          {t("goals.repricing.priceStableDaysValue", {
+                            value: candidate.price_stable_days,
+                          })}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-[4rem_minmax(0,1fr)_2rem] items-center gap-1.5">
+                        <span>{t("goals.repricing.score.pricePressure")}</span>
+                        <div
+                          className="h-1 overflow-hidden rounded-full bg-muted"
+                          aria-label={t("goals.repricing.pricePressureValue", {
+                            value: candidate.price_pressure_score,
+                          })}
+                        >
+                          <div
+                            className="h-full rounded-full bg-warning"
+                            style={{
+                              width: `${Math.max(0, Math.min(candidate.price_pressure_score, 100))}%`,
+                            }}
+                          />
+                        </div>
+                        <span className="text-right tabular-nums">
+                          {candidate.price_pressure_score}
+                        </span>
+                      </div>
                     </div>
                   </div>
                   <div className="min-w-0">
@@ -2255,6 +2309,694 @@ function BulkPricingPanel({
   )
 }
 
+const customerCarePageSize = 8
+
+function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
+  const { t } = useTranslation()
+  const prediction = data.customer_care.prediction
+  const models = prediction.models ?? []
+  const hasEstimate = prediction.estimated_renewal_percent !== null
+
+  return (
+    <section className="overflow-hidden rounded-lg border bg-card shadow-card">
+      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(220px,0.65fr)_minmax(0,1.35fr)] lg:items-center">
+        <div>
+          <div className="flex items-center gap-2 text-brand">
+            <BrainCircuit className="size-4" />
+            <p className="text-xs font-semibold uppercase tracking-[0.16em]">
+              {t("goals.care.prediction.eyebrow")}
+            </p>
+          </div>
+          {hasEstimate ? (
+            <div className="mt-3">
+              <div className="flex items-end gap-2">
+                <span className="text-3xl font-semibold tracking-tight tabular-nums">
+                  {prediction.estimated_renewal_percent}%
+                </span>
+                <span className="pb-1 text-xs text-muted-foreground">
+                  {t("goals.care.prediction.posterior")}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("goals.care.prediction.range", {
+                  low: prediction.estimate_low_percent,
+                  high: prediction.estimate_high_percent,
+                })}
+              </p>
+            </div>
+          ) : (
+            <div className="mt-3">
+              <p className="text-lg font-semibold">{t("goals.care.prediction.evidenceOnly")}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {t("goals.care.prediction.evidenceOnlyHint", {
+                  first: prediction.first_cycle_subscription_count,
+                  repeat: prediction.repeat_subscription_count,
+                })}
+              </p>
+            </div>
+          )}
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Badge variant="outline">
+              {t("goals.care.prediction.outcomes", {
+                count: prediction.renewal_outcome_count,
+              })}
+            </Badge>
+            <Badge variant="success">
+              {t("goals.care.prediction.renewals", {
+                count: prediction.renewal_success_count,
+              })}
+            </Badge>
+            <Badge variant="secondary">
+              {t("goals.care.prediction.churns", {
+                count: prediction.churn_outcome_count,
+              })}
+            </Badge>
+          </div>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          {models.map((model) => {
+            const progress = Math.min(
+              100,
+              Math.round((model.current_samples / Math.max(model.required_samples, 1)) * 100),
+            )
+            return (
+              <div key={model.key} className="rounded-md border bg-muted/15 p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold">
+                      {t(`goals.care.prediction.model.${model.key}`)}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {t(`goals.care.prediction.detail.${model.detail_code}`)}
+                    </p>
+                  </div>
+                  <Badge
+                    variant={
+                      model.status === "ready"
+                        ? "success"
+                        : model.status === "needs_control"
+                          ? "warning"
+                          : "secondary"
+                    }
+                  >
+                    {t(`goals.care.prediction.status.${model.status}`)}
+                  </Badge>
+                </div>
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className={cn(
+                      "h-full rounded-full",
+                      model.status === "ready" ? "bg-success" : "bg-brand",
+                    )}
+                    style={{ width: `${progress}%` }}
+                  />
+                </div>
+                <p className="mt-1.5 text-right text-[10px] tabular-nums text-muted-foreground">
+                  {model.current_samples} / {model.required_samples}
+                </p>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+type CustomerCareFilter =
+  | "recommended"
+  | "upcoming"
+  | "observing"
+  | "all"
+
+const careStatusBadge = {
+  recommended: "success",
+  upcoming: "brand",
+  observe: "secondary",
+  cooldown: "warning",
+  hold: "outline",
+  blocked: "destructive",
+} as const
+
+function CustomerCarePanel({
+  data,
+  amountsHidden,
+}: {
+  data: GoalCenter
+  amountsHidden: boolean
+}) {
+  const { t } = useTranslation()
+  const care = data.customer_care
+  const candidates = React.useMemo(() => care.candidates ?? [], [care.candidates])
+  const history = care.history ?? []
+  const [search, setSearch] = React.useState("")
+  const [filter, setFilter] = React.useState<CustomerCareFilter>("all")
+  const [page, setPage] = React.useState(1)
+  const [selected, setSelected] = React.useState<Set<number>>(() => new Set())
+  const [dialogOpen, setDialogOpen] = React.useState(false)
+  const [benefitType, setBenefitType] = React.useState<CustomerBenefitType>("loyalty_care")
+  const [benefitName, setBenefitName] = React.useState("")
+  const [actualCost, setActualCost] = React.useState("")
+  const [perceivedValue, setPerceivedValue] = React.useState("")
+  const [benefitDate, setBenefitDate] = React.useState(shanghaiToday)
+  const [note, setNote] = React.useState("")
+
+  const mutation = useAppMutation(
+    (input: RecordCustomerBenefitsInput) => recordGoalCustomerBenefits(input),
+    {
+      onSuccess: () => {
+        setDialogOpen(false)
+        setSelected(new Set())
+      },
+    },
+  )
+
+  const validSelected = React.useMemo(() => {
+    const selectableIDs = new Set(
+      candidates.filter((candidate) => candidate.selectable).map((candidate) => candidate.subscription_id),
+    )
+    return new Set([...selected].filter((id) => selectableIDs.has(id)))
+  }, [candidates, selected])
+  const selectedCandidates = React.useMemo(
+    () => candidates.filter((candidate) => validSelected.has(candidate.subscription_id)),
+    [candidates, validSelected],
+  )
+  const filtered = React.useMemo(() => {
+    const term = search.trim().toLowerCase()
+    return candidates.filter((candidate) => {
+      if (filter === "recommended" && !candidate.recommended) return false
+      if (filter === "upcoming" && candidate.status !== "upcoming") return false
+      if (
+        filter === "observing" &&
+        !["observe", "cooldown", "hold", "blocked"].includes(candidate.status)
+      ) {
+        return false
+      }
+      if (!term) return true
+      return [candidate.display_name, candidate.customer_email, candidate.customer_wechat]
+        .join(" ")
+        .toLowerCase()
+        .includes(term)
+    })
+  }, [candidates, filter, search])
+  const pageCount = Math.max(1, Math.ceil(filtered.length / customerCarePageSize))
+  const currentPage = Math.min(page, pageCount)
+  const pageCandidates = filtered.slice(
+    (currentPage - 1) * customerCarePageSize,
+    currentPage * customerCarePageSize,
+  )
+  const visibleSelectableIDs = pageCandidates
+    .filter((candidate) => candidate.selectable)
+    .map((candidate) => candidate.subscription_id)
+  const allVisibleSelected =
+    visibleSelectableIDs.length > 0 &&
+    visibleSelectableIDs.every((id) => validSelected.has(id))
+  const someVisibleSelected = visibleSelectableIDs.some((id) => validSelected.has(id))
+
+  function toggleCandidate(candidate: CustomerBenefitCandidate, checked: boolean) {
+    setSelected((current) => {
+      const next = new Set(current)
+      if (checked) next.add(candidate.subscription_id)
+      else next.delete(candidate.subscription_id)
+      return next
+    })
+  }
+
+  function toggleVisible(checked: boolean) {
+    setSelected((current) => {
+      const next = new Set(current)
+      for (const id of visibleSelectableIDs) {
+        if (checked) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  }
+
+  function selectRecommended() {
+    setSelected(
+      new Set(
+        candidates
+          .filter((candidate) => candidate.recommended && candidate.selectable)
+          .map((candidate) => candidate.subscription_id),
+      ),
+    )
+    setFilter("recommended")
+    setPage(1)
+  }
+
+  function openBenefitDialog() {
+    const suggestedTypes = new Set(
+      selectedCandidates.map((candidate) => candidate.suggested_benefit_type),
+    )
+    const suggestedType =
+      suggestedTypes.size === 1 ? [...suggestedTypes][0] : "manual"
+    setBenefitType(suggestedType)
+    setBenefitName(t(`goals.care.defaultBenefitName.${suggestedType}`))
+    setActualCost("")
+    setPerceivedValue("")
+    setBenefitDate(shanghaiToday())
+    setNote("")
+    setDialogOpen(true)
+  }
+
+  const summaryItems = [
+    {
+      key: "recommended",
+      value: care.summary.recommended_count,
+      icon: Gift,
+    },
+    {
+      key: "upcoming",
+      value: care.summary.upcoming_count,
+      icon: Clock3,
+    },
+    {
+      key: "cost",
+      value: visibleYuan(care.summary.total_actual_cost_cents, amountsHidden),
+      icon: WalletCards,
+    },
+    {
+      key: "observed",
+      value: `${care.summary.renewed_after_benefit_count}/${care.summary.evaluated_benefit_count}`,
+      icon: HeartHandshake,
+    },
+  ] as const
+
+  return (
+    <div className="space-y-3">
+      <PredictionReadinessPanel data={data} />
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {summaryItems.map((item) => (
+          <Card key={item.key} className="gap-2 p-4">
+            <div className="flex items-center justify-between text-muted-foreground">
+              <span className="text-xs font-medium">{t(`goals.care.metric.${item.key}`)}</span>
+              <item.icon className="size-4" />
+            </div>
+            <p className="text-xl font-semibold tracking-tight tabular-nums">{item.value}</p>
+            <p className="text-[11px] text-muted-foreground">
+              {t(`goals.care.metricHint.${item.key}`)}
+            </p>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid items-start gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="overflow-hidden rounded-lg border bg-card shadow-card">
+          <div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+                <HeartHandshake className="size-4" />
+              </span>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-sm font-semibold">{t("goals.care.candidateTitle")}</h2>
+                  <Badge variant="brand">
+                    {t("goals.care.customerCount", { count: care.summary.customer_count })}
+                  </Badge>
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {t("goals.care.candidateHint")}
+                </p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={selectRecommended}
+              disabled={care.summary.recommended_count === 0}
+            >
+              <Gift />
+              {t("goals.care.selectRecommended")}
+            </Button>
+          </div>
+
+          <div className="grid gap-3 border-b bg-muted/20 p-4 lg:grid-cols-[minmax(220px,1fr)_180px]">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="pl-9"
+                value={search}
+                onChange={(event) => {
+                  setSearch(event.target.value)
+                  setPage(1)
+                }}
+                placeholder={t("goals.care.search")}
+              />
+            </div>
+            <Select
+              value={filter}
+              onValueChange={(value) => {
+                setFilter(value as CustomerCareFilter)
+                setPage(1)
+              }}
+            >
+              <SelectTrigger aria-label={t("goals.care.filterLabel")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="recommended">{t("goals.care.filter.recommended")}</SelectItem>
+                <SelectItem value="upcoming">{t("goals.care.filter.upcoming")}</SelectItem>
+                <SelectItem value="observing">{t("goals.care.filter.observing")}</SelectItem>
+                <SelectItem value="all">{t("goals.care.filter.all")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {filtered.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                      onCheckedChange={(checked) => toggleVisible(checked === true)}
+                      disabled={visibleSelectableIDs.length === 0}
+                      aria-label={t("goals.selectVisible")}
+                    />
+                  </TableHead>
+                  <TableHead>{t("goals.care.customer")}</TableHead>
+                  <TableHead>{t("goals.care.value")}</TableHead>
+                  <TableHead>{t("goals.care.evidence")}</TableHead>
+                  <TableHead>{t("goals.care.timing")}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {pageCandidates.map((candidate) => (
+                  <TableRow
+                    key={candidate.subscription_id}
+                    data-state={validSelected.has(candidate.subscription_id) ? "selected" : undefined}
+                    className={!candidate.selectable ? "opacity-60" : undefined}
+                  >
+                    <TableCell>
+                      <Checkbox
+                        checked={validSelected.has(candidate.subscription_id)}
+                        onCheckedChange={(checked) => toggleCandidate(candidate, checked === true)}
+                        disabled={!candidate.selectable}
+                        aria-label={t("goals.selectCustomer", { name: candidate.display_name })}
+                      />
+                    </TableCell>
+                    <TableCell className="min-w-52 whitespace-normal">
+                      <p className="font-medium">{candidate.display_name}</p>
+                      {candidate.customer_wechat && candidate.customer_wechat !== candidate.display_name ? (
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {candidate.customer_wechat}
+                        </p>
+                      ) : null}
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        <Badge variant="outline">
+                          {t(`goals.repricing.customerTier.${candidate.customer_tier}.label`)}
+                        </Badge>
+                        {candidate.seat_count > 1 ? (
+                          <Badge variant="brand">
+                            {t("goals.care.seats", { count: candidate.seat_count })}
+                          </Badge>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                    <TableCell className="tabular-nums">
+                      <p className="font-semibold">
+                        {visibleYuan(candidate.monthly_revenue_cents, amountsHidden)}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        {t("goals.care.monthlyValue")}
+                      </p>
+                    </TableCell>
+                    <TableCell className="min-w-32 whitespace-normal">
+                      <p className="text-xs">
+                        {t("goals.care.renewalEvidence", { count: candidate.renewal_count })}
+                      </p>
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        {t("goals.care.relationshipDays", { count: candidate.relationship_days })}
+                      </p>
+                    </TableCell>
+                    <TableCell className="min-w-48 whitespace-normal">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <Badge variant={careStatusBadge[candidate.status]}>
+                          {t(`goals.care.status.${candidate.status}`)}
+                        </Badge>
+                        {candidate.recommended_date ? (
+                          <span className="text-xs tabular-nums text-muted-foreground">
+                            {candidate.recommended_date}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
+                        {t(`goals.care.reason.${candidate.reason_code}`)}
+                      </p>
+                      {candidate.last_benefit_date ? (
+                        <p className="mt-1 text-[10px] text-muted-foreground">
+                          {t("goals.care.lastBenefit", { date: candidate.last_benefit_date })}
+                        </p>
+                      ) : null}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="grid min-h-40 place-items-center p-6 text-center">
+              <div>
+                <Gift className="mx-auto size-5 text-muted-foreground" />
+                <p className="mt-2 text-sm font-medium">{t("goals.care.empty")}</p>
+              </div>
+            </div>
+          )}
+
+          {filtered.length > customerCarePageSize ? (
+            <div className="flex items-center justify-between border-t bg-muted/10 px-4 py-2.5">
+              <p className="text-xs tabular-nums text-muted-foreground">
+                {t("goals.pageStatus", { page: currentPage, pageCount })}
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage <= 1}
+                  onClick={() => setPage(Math.max(1, currentPage - 1))}
+                >
+                  {t("goals.prevPage")}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={currentPage >= pageCount}
+                  onClick={() => setPage(Math.min(pageCount, currentPage + 1))}
+                >
+                  {t("goals.nextPage")}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="flex flex-col gap-3 border-t bg-muted/20 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold">
+              {t("goals.care.selected", { count: selectedCandidates.length })}
+            </p>
+            <Button disabled={selectedCandidates.length === 0} onClick={openBenefitDialog}>
+              <Gift />
+              {t("goals.care.recordDelivered")}
+            </Button>
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-lg border bg-card shadow-card xl:sticky xl:top-4">
+          <div className="flex items-center gap-2 border-b px-4 py-3.5">
+            <History className="size-4 text-brand" />
+            <h2 className="text-sm font-semibold">{t("goals.care.historyTitle")}</h2>
+          </div>
+          {history.length > 0 ? (
+            <div className="max-h-[620px] divide-y overflow-y-auto">
+              {history.slice(0, 30).map((benefit) => {
+                const contact =
+                  benefit.customer_email_snapshot || benefit.customer_wechat_snapshot || "-"
+                return (
+                  <div key={benefit.id} className="p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">{contact}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {benefit.benefit_name}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={
+                          benefit.outcome === "renewed"
+                            ? "success"
+                            : benefit.outcome === "not_renewed"
+                              ? "destructive"
+                              : "secondary"
+                        }
+                      >
+                        {t(`goals.care.outcome.${benefit.outcome}`)}
+                      </Badge>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between text-[11px] text-muted-foreground">
+                      <span>{benefit.benefit_date}</span>
+                      <span className="tabular-nums">
+                        {t("goals.care.costValue", {
+                          value: visibleYuan(benefit.actual_cost_cents, amountsHidden),
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="grid min-h-48 place-items-center p-6 text-center">
+              <div>
+                <History className="mx-auto size-5 text-muted-foreground" />
+                <p className="mt-2 text-sm text-muted-foreground">{t("goals.care.historyEmpty")}</p>
+              </div>
+            </div>
+          )}
+        </section>
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent aria-describedby={undefined} className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>{t("goals.care.dialog.title")}</DialogTitle>
+          </DialogHeader>
+          <form
+            className="grid gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              mutation.mutate({
+                subscription_ids: selectedCandidates.map((candidate) => candidate.subscription_id),
+                benefit_type: benefitType,
+                benefit_name: benefitName,
+                actual_cost_yuan: actualCost,
+                perceived_value_yuan: perceivedValue,
+                benefit_date: benefitDate,
+                note,
+              })
+            }}
+          >
+            <div className="rounded-md border bg-muted/25 p-3 text-xs leading-5 text-muted-foreground">
+              {t("goals.care.dialog.summary", { count: selectedCandidates.length })}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="benefit-type">{t("goals.care.dialog.type")}</Label>
+                <Select
+                  value={benefitType}
+                  onValueChange={(value) => {
+                    const nextType = value as CustomerBenefitType
+                    setBenefitType(nextType)
+                    setBenefitName(t(`goals.care.defaultBenefitName.${nextType}`))
+                  }}
+                >
+                  <SelectTrigger id="benefit-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(
+                      [
+                        "renewal_milestone",
+                        "loyalty_care",
+                        "price_increase_thanks",
+                        "service_recovery",
+                        "manual",
+                      ] as CustomerBenefitType[]
+                    ).map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {t(`goals.care.benefitType.${type}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="benefit-date">{t("goals.care.dialog.date")}</Label>
+                <Input
+                  id="benefit-date"
+                  type="date"
+                  max={shanghaiToday()}
+                  value={benefitDate}
+                  onChange={(event) => setBenefitDate(event.target.value)}
+                  required
+                />
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="benefit-name">{t("goals.care.dialog.name")}</Label>
+              <Input
+                id="benefit-name"
+                value={benefitName}
+                onChange={(event) => setBenefitName(event.target.value)}
+                placeholder={t("goals.care.dialog.namePlaceholder")}
+                required
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label htmlFor="benefit-cost">{t("goals.care.dialog.actualCost")}</Label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
+                  <Input
+                    id="benefit-cost"
+                    className="pl-7 tabular-nums"
+                    inputMode="decimal"
+                    value={actualCost}
+                    onChange={(event) => setActualCost(event.target.value)}
+                    placeholder="0.00"
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {t("goals.care.dialog.actualCostHint")}
+                </p>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="benefit-value">{t("goals.care.dialog.perceivedValue")}</Label>
+                <div className="relative">
+                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
+                  <Input
+                    id="benefit-value"
+                    className="pl-7 tabular-nums"
+                    inputMode="decimal"
+                    value={perceivedValue}
+                    onChange={(event) => setPerceivedValue(event.target.value)}
+                    placeholder="0.00"
+                  />
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {t("goals.care.dialog.perceivedValueHint")}
+                </p>
+              </div>
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="benefit-note">{t("goals.care.dialog.note")}</Label>
+              <Textarea
+                id="benefit-note"
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder={t("goals.care.dialog.notePlaceholder")}
+                rows={3}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
+                {t("common.cancel")}
+              </Button>
+              <Button
+                type="submit"
+                disabled={mutation.isPending || selectedCandidates.length === 0 || !benefitName.trim()}
+              >
+                <Gift />
+                {mutation.isPending ? t("common.saving") : t("goals.care.dialog.confirm")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
 function GoalHistory({ data, amountsHidden }: { data: GoalCenter; amountsHidden: boolean }) {
   const { t } = useTranslation()
   const history = data.history ?? []
@@ -2324,6 +3066,7 @@ export function GoalsPage() {
       .reduce((total, window) => total + window.count, recommendedPricingCount) ??
     recommendedPricingCount
   const hasGoalHistory = (query.data?.history?.length ?? 0) > 0
+  const recommendedCareCount = query.data?.customer_care?.summary.recommended_count ?? 0
 
   return (
     <div className="space-y-4 pb-4">
@@ -2371,7 +3114,7 @@ export function GoalsPage() {
 
           <Tabs value={workspaceTab} onValueChange={setWorkspaceTab} className="gap-3">
             <TabsList
-              className="grid h-11 w-full grid-cols-3 bg-muted/70 p-1 sm:w-fit sm:min-w-[520px]"
+              className="grid h-11 w-full grid-cols-4 bg-muted/70 p-1 sm:w-fit sm:min-w-[700px]"
               aria-label={t("goals.workspaceNav")}
             >
               <TabsTrigger value="overview" className="h-9 px-3 text-xs sm:px-4 sm:text-sm">
@@ -2393,6 +3136,15 @@ export function GoalsPage() {
                 {recommendedPricingCount > 0 ? (
                   <span className="rounded-full bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-warning-foreground">
                     {recommendedPricingCount}
+                  </span>
+                ) : null}
+              </TabsTrigger>
+              <TabsTrigger value="care" className="h-9 px-2 text-xs sm:px-4 sm:text-sm">
+                <HeartHandshake />
+                {t("goals.careTab")}
+                {recommendedCareCount > 0 ? (
+                  <span className="rounded-full bg-success/12 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-success">
+                    {recommendedCareCount}
                   </span>
                 ) : null}
               </TabsTrigger>
@@ -2455,6 +3207,14 @@ export function GoalsPage() {
               className="mt-0 data-[state=inactive]:hidden animate-fade-in"
             >
               <BulkPricingPanel data={query.data} amountsHidden={amountsHidden} />
+            </TabsContent>
+
+            <TabsContent
+              value="care"
+              forceMount
+              className="mt-0 data-[state=inactive]:hidden animate-fade-in"
+            >
+              <CustomerCarePanel data={query.data} amountsHidden={amountsHidden} />
             </TabsContent>
           </Tabs>
         </>

@@ -664,6 +664,7 @@ export interface PricingCandidate {
   suggested_price_cents: number
   max_increase_price_cents: number
   paid_period_count: number
+  last_paid_date: string
   relationship_days: number
   last_price_increase_date: string
   blocked_code:
@@ -694,9 +695,10 @@ export interface PricingCandidate {
   last_exempted_at: string
   exemption_review_date: string
   exemption_reason_code: string
-  loyalty_score: number
-  price_willingness_score: number
-  relationship_asset_score: number
+  renewal_count: number
+  renewal_evidence: "unpaid" | "initial" | "renewed" | "increase_accepted"
+  verified_price_cents: number
+  verified_price_index: number | null
   price_pressure_score: number
   price_stable_days: number
   paid_periods_after_increase: number
@@ -744,14 +746,116 @@ export interface RepricingAnalysis {
   windows: RepricingWindow[] | null
   average_relationship_days: number
   average_paid_periods: number
-  average_loyalty_score: number
-  average_relationship_asset_score: number
   average_price_pressure_score: number
+  first_cycle_subscription_count: number
+  repeat_subscription_count: number
+  repeat_customer_count: number
+  increased_price_accepted_count: number
   active_exemption_count: number
   relationship_segments: RepricingSegment[] | null
   risk_segments: RepricingSegment[] | null
   price_segments: RepricingSegment[] | null
   customer_tiers: CustomerTierSummary[] | null
+}
+
+export type CustomerBenefitType =
+  | "renewal_milestone"
+  | "loyalty_care"
+  | "price_increase_thanks"
+  | "service_recovery"
+  | "manual"
+
+export interface CustomerBenefitCandidate {
+  subscription_id: number
+  customer_email: string
+  customer_wechat: string
+  display_name: string
+  customer_tier: "core" | "mainstay" | "optimize"
+  seat_count: number
+  monthly_revenue_cents: number
+  renewal_count: number
+  relationship_days: number
+  next_due_date: string
+  last_paid_date: string
+  last_benefit_date: string
+  next_eligible_date: string
+  recommended_date: string
+  reason_code:
+    | "manual_review"
+    | "service_in_progress"
+    | "service_recovery"
+    | "first_cycle_observe"
+    | "benefit_cooldown"
+    | "increase_accepted"
+    | "optimize_no_subsidy"
+    | "first_renewal"
+    | "core_retention"
+    | "repeat_retention"
+  suggested_benefit_type: CustomerBenefitType
+  status: "recommended" | "upcoming" | "observe" | "cooldown" | "hold" | "blocked"
+  recommended: boolean
+  selectable: boolean
+}
+
+export interface CustomerBenefitView {
+  id: number
+  batch_id: string
+  subscription_id: number
+  benefit_type: CustomerBenefitType
+  benefit_name: string
+  actual_cost_cents: number
+  perceived_value_cents: number
+  benefit_date: string
+  next_due_date_snapshot: string
+  customer_email_snapshot: string
+  customer_wechat_snapshot: string
+  customer_tier_snapshot: string
+  customer_group_size_snapshot: number
+  current_price_cents_snapshot: number
+  renewal_count_snapshot: number
+  recommendation_code: string
+  note: string
+  created_at: string
+  outcome: "pending" | "renewed" | "not_renewed"
+}
+
+export interface CustomerCareSummary {
+  customer_count: number
+  recommended_count: number
+  upcoming_count: number
+  benefit_count: number
+  total_actual_cost_cents: number
+  total_perceived_value_cents: number
+  evaluated_benefit_count: number
+  renewed_after_benefit_count: number
+}
+
+export interface ForecastModelReadiness {
+  key: "beta_binomial" | "discrete_survival" | "bg_nbd" | "uplift"
+  status: "collecting" | "ready" | "needs_control"
+  current_samples: number
+  required_samples: number
+  detail_code: string
+}
+
+export interface PredictionReadiness {
+  active_model: "evidence_only" | "beta_binomial"
+  renewal_outcome_count: number
+  renewal_success_count: number
+  churn_outcome_count: number
+  first_cycle_subscription_count: number
+  repeat_subscription_count: number
+  estimated_renewal_percent: number | null
+  estimate_low_percent: number | null
+  estimate_high_percent: number | null
+  models: ForecastModelReadiness[] | null
+}
+
+export interface CustomerCareCenter {
+  summary: CustomerCareSummary
+  candidates: CustomerBenefitCandidate[] | null
+  history: CustomerBenefitView[] | null
+  prediction: PredictionReadiness
 }
 
 export interface GoalCenter {
@@ -763,6 +867,7 @@ export interface GoalCenter {
   pricing: PricingRecommendation
   pricing_candidates: PricingCandidate[] | null
   repricing_analysis: RepricingAnalysis
+  customer_care: CustomerCareCenter
 }
 
 export interface BusinessGoalInput {
@@ -784,6 +889,16 @@ export interface BulkPricingExemptionInput {
     | "price_observation"
     | "relationship_investment"
     | "manual"
+  note: string
+}
+
+export interface RecordCustomerBenefitsInput {
+  subscription_ids: number[]
+  benefit_type: CustomerBenefitType
+  benefit_name: string
+  actual_cost_yuan: string
+  perceived_value_yuan: string
+  benefit_date: string
   note: string
 }
 

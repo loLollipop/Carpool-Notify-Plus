@@ -179,6 +179,42 @@ func (server *Server) postGoalBulkPricingExemption(context *gin.Context) {
 	})
 }
 
+type recordCustomerBenefitsRequest struct {
+	SubscriptionIDs    []int64 `json:"subscription_ids"`
+	BenefitType        string  `json:"benefit_type"`
+	BenefitName        string  `json:"benefit_name"`
+	ActualCostYuan     string  `json:"actual_cost_yuan"`
+	PerceivedValueYuan string  `json:"perceived_value_yuan"`
+	BenefitDate        string  `json:"benefit_date"`
+	Note               string  `json:"note"`
+}
+
+func (server *Server) postGoalCustomerBenefits(context *gin.Context) {
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 32<<10)
+	var request recordCustomerBenefitsRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的客户福利登记内容")
+		return
+	}
+	recorded, err := server.Service.RecordCustomerBenefits(service.RecordCustomerBenefitsInput{
+		SubscriptionIDs:    request.SubscriptionIDs,
+		BenefitType:        request.BenefitType,
+		BenefitName:        request.BenefitName,
+		ActualCostYuan:     request.ActualCostYuan,
+		PerceivedValueYuan: request.PerceivedValueYuan,
+		BenefitDate:        request.BenefitDate,
+		Note:               request.Note,
+	})
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{
+		"message":        fmt.Sprintf("已登记 %d 位客户的福利发放记录", recorded),
+		"recorded_count": recorded,
+	})
+}
+
 func (server *Server) getSubscriptions(context *gin.Context) {
 	views, err := server.Service.ListView()
 	if err != nil {

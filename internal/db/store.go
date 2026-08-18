@@ -38,6 +38,7 @@ var (
 	ErrCancellationPending               = errors.New("subscription cancellation already pending")
 	ErrCancellationCaseConflict          = errors.New("subscription already has an after-sales case for this date")
 	ErrCancellationNotReassignable       = errors.New("cancellation case cannot be reassigned")
+	ErrCustomerBenefitAlreadyRecorded    = errors.New("customer benefit already recorded")
 	ErrAfterSalesOriginalSeatBusy        = errors.New("original after-sales seat is occupied")
 	ErrReplacementAccountBanned          = errors.New("replacement account is banned")
 	ErrReplacementSeatUnavailable        = errors.New("replacement seat unavailable")
@@ -258,6 +259,33 @@ func (store *Store) migrate() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_pricing_exemptions_subscription
 			ON pricing_exemptions(subscription_id, created_at DESC, id DESC);`,
+		`CREATE TABLE IF NOT EXISTS customer_benefits (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			batch_id TEXT NOT NULL,
+			subscription_id INTEGER NOT NULL,
+			benefit_type TEXT NOT NULL,
+			benefit_name TEXT NOT NULL,
+			actual_cost_cents INTEGER NOT NULL DEFAULT 0 CHECK(actual_cost_cents >= 0),
+			perceived_value_cents INTEGER NOT NULL DEFAULT 0 CHECK(perceived_value_cents >= 0),
+			benefit_date TEXT NOT NULL,
+			next_due_date_snapshot TEXT NOT NULL DEFAULT '',
+			customer_email_snapshot TEXT NOT NULL DEFAULT '',
+			customer_wechat_snapshot TEXT NOT NULL DEFAULT '',
+			customer_tier_snapshot TEXT NOT NULL DEFAULT '',
+			customer_group_size_snapshot INTEGER NOT NULL DEFAULT 1 CHECK(customer_group_size_snapshot >= 1),
+			current_price_cents_snapshot INTEGER NOT NULL DEFAULT 0 CHECK(current_price_cents_snapshot >= 0),
+			renewal_count_snapshot INTEGER NOT NULL DEFAULT 0 CHECK(renewal_count_snapshot >= 0),
+			recommendation_code TEXT NOT NULL DEFAULT '',
+			note TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			FOREIGN KEY(subscription_id) REFERENCES subscriptions(id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_customer_benefits_subscription
+			ON customer_benefits(subscription_id, benefit_date DESC, id DESC);`,
+		`CREATE INDEX IF NOT EXISTS idx_customer_benefits_date
+			ON customer_benefits(benefit_date DESC, id DESC);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_benefits_delivery
+			ON customer_benefits(subscription_id, benefit_date, benefit_type, benefit_name);`,
 		`CREATE TABLE IF NOT EXISTS redemption_applications (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			tracking_token TEXT NOT NULL UNIQUE,
@@ -2505,6 +2533,7 @@ func (store *Store) ResetBusinessData() error {
 		"notification_log",
 		"bills",
 		"paid_due_occurrences",
+		"customer_benefits",
 		"pricing_exemptions",
 		"subscriptions",
 		"seats",

@@ -26,6 +26,7 @@ import type {
   RedemptionRejectInput,
   RedemptionStatus,
   RedemptionSubmitInput,
+  RecordCustomerBenefitsInput,
   SandboxStatus,
   Settings,
   SettingsInput,
@@ -204,6 +205,13 @@ export function scheduleGoalBulkNextPrice(input: BulkNextPriceInput) {
 
 export function exemptGoalBulkPricing(input: BulkPricingExemptionInput) {
   return api<MessageResult & { updated_count: number }>("/api/goals/pricing/bulk-exempt", {
+    method: "POST",
+    body: input,
+  })
+}
+
+export function recordGoalCustomerBenefits(input: RecordCustomerBenefitsInput) {
+  return api<MessageResult & { recorded_count: number }>("/api/goals/customer-benefits", {
     method: "POST",
     body: input,
   })

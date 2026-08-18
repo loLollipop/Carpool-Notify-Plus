@@ -835,59 +835,106 @@ func TestRepricingAnalysisDoesNotCountBelowMedianProtectedUserAsFutureAction(t *
 	}
 }
 
-func TestLoyaltyScoreUsesPaidPriceWithRenewalEvidence(t *testing.T) {
-	highPrice := PricingCandidate{
-		CurrentPriceCents:   16000,
-		PaidPeriodCount:     4,
-		RelationshipDays:    180,
-		PriceStableDays:     180,
-		CustomerGroupSize:   1,
-		MarketPosition:      "above_high",
-		BlockedCode:         "eligible",
-		Eligible:            true,
-		SuggestedPriceCents: 16000,
+func TestPricingEvidenceSeparatesPaidPriceFromRenewalBehavior(t *testing.T) {
+	highFirstOrder := PricingCandidate{
+		CurrentPriceCents:      16000,
+		VerifiedPriceCents:     16000,
+		PaidPeriodCount:        1,
+		RelationshipDays:       15,
+		PriceStableDays:        15,
+		CustomerGroupSize:      1,
+		MarketPosition:         "above_high",
+		GapToMarketMedianCents: -3000,
+		BlockedCode:            "protection",
+		SuggestedPriceCents:    16000,
 	}
-	lowPrice := highPrice
-	lowPrice.CurrentPriceCents = 8000
-	lowPrice.MarketPosition = "below_low"
-	lowPrice.GapToMarketMedianCents = 5000
-	lowPrice.SuggestedPriceCents = 8600
+	lowRepeated := PricingCandidate{
+		CurrentPriceCents:      8500,
+		VerifiedPriceCents:     8500,
+		PaidPeriodCount:        4,
+		RelationshipDays:       180,
+		PriceStableDays:        180,
+		CustomerGroupSize:      1,
+		MarketPosition:         "below_low",
+		GapToMarketMedianCents: 4890,
+		SuggestedPriceCents:    9180,
+		BlockedCode:            "eligible",
+		Eligible:               true,
+	}
 
-	populateRepricingInsights(&highPrice)
-	populateRepricingInsights(&lowPrice)
+	populateRepricingInsights(&highFirstOrder)
+	populateRepricingInsights(&lowRepeated)
 
-	if highPrice.PriceWillingnessScore != 100 || lowPrice.PriceWillingnessScore != 0 {
-		t.Fatalf("price willingness high/low = %d/%d", highPrice.PriceWillingnessScore, lowPrice.PriceWillingnessScore)
+	if highFirstOrder.RenewalEvidence != "initial" || highFirstOrder.RenewalCount != 0 ||
+		highFirstOrder.VerifiedPriceIndex == nil || *highFirstOrder.VerifiedPriceIndex != 123 {
+		t.Fatalf("high first-order evidence = %#v", highFirstOrder)
 	}
-	if highPrice.LoyaltyScore <= lowPrice.LoyaltyScore {
-		t.Fatalf("price signal not reflected in loyalty: high=%d low=%d", highPrice.LoyaltyScore, lowPrice.LoyaltyScore)
+	if lowRepeated.RenewalEvidence != "renewed" || lowRepeated.RenewalCount != 3 ||
+		lowRepeated.VerifiedPriceIndex == nil || *lowRepeated.VerifiedPriceIndex != 63 {
+		t.Fatalf("low repeated evidence = %#v", lowRepeated)
 	}
-	if highPrice.AdjustmentRisk != "low" || lowPrice.AdjustmentRisk != "medium" {
-		t.Fatalf("price-sensitive risk high/low = %q/%q", highPrice.AdjustmentRisk, lowPrice.AdjustmentRisk)
-	}
-	if !strings.Contains(strings.Join(highPrice.AnalysisCodes, ","), "proven_price_acceptance") ||
-		!strings.Contains(strings.Join(lowPrice.AnalysisCodes, ","), "low_price_sensitivity") {
-		t.Fatalf("price analysis signals high=%#v low=%#v", highPrice.AnalysisCodes, lowPrice.AnalysisCodes)
+	if strings.Contains(strings.Join(highFirstOrder.AnalysisCodes, ","), "proven_price_acceptance") ||
+		!strings.Contains(strings.Join(highFirstOrder.AnalysisCodes, ","), "first_cycle_only") ||
+		!strings.Contains(strings.Join(lowRepeated.AnalysisCodes, ","), "low_price_entry") {
+		t.Fatalf("pricing evidence signals high=%#v low=%#v", highFirstOrder.AnalysisCodes, lowRepeated.AnalysisCodes)
 	}
 }
 
-func TestHighPriceNewCustomerIsNotTreatedAsLoyal(t *testing.T) {
-	candidate := PricingCandidate{
-		CurrentPriceCents: 16000,
-		PaidPeriodCount:   1,
-		RelationshipDays:  15,
-		PriceStableDays:   15,
-		CustomerGroupSize: 1,
-		MarketPosition:    "above_high",
-		BlockedCode:       "protection",
+func TestPaidIncreaseIsCountedAsObservedAcceptance(t *testing.T) {
+	histories := summarizePricingBillHistories([]model.Bill{
+		{ID: 1, SubscriptionID: 7, DueDate: "2026-05-01", AmountCents: 9000},
+		{ID: 2, SubscriptionID: 7, DueDate: "2026-06-01", AmountCents: 9500},
+	}, nil)
+	history := histories[7]
+	if history.PaidPeriodCount != 2 || history.LastPaidPriceCents != 9500 ||
+		history.LastIncreaseDate != "2026-06-01" || history.PaidPeriodsAfterIncrease != 1 {
+		t.Fatalf("paid increase evidence = %#v", history)
 	}
-	populateRepricingInsights(&candidate)
 
-	if candidate.PriceWillingnessScore > 30 || candidate.LoyaltyScore >= 40 {
-		t.Fatalf("new high-price customer was over-scored: %#v", candidate)
+	candidate := PricingCandidate{
+		CurrentPriceCents:        9500,
+		VerifiedPriceCents:       history.LastPaidPriceCents,
+		PaidPeriodCount:          history.PaidPeriodCount,
+		PaidPeriodsAfterIncrease: history.PaidPeriodsAfterIncrease,
+		MarketPosition:           "below_median",
+		GapToMarketMedianCents:   2500,
 	}
-	if candidate.LoyaltyScore < 0 || candidate.LoyaltyScore > 100 {
-		t.Fatalf("loyalty score outside bounds: %d", candidate.LoyaltyScore)
+	populatePricingEvidence(&candidate)
+	if candidate.RenewalEvidence != "increase_accepted" || candidate.RenewalCount != 1 ||
+		candidate.VerifiedPriceIndex == nil || *candidate.VerifiedPriceIndex != 79 {
+		t.Fatalf("increase acceptance candidate = %#v", candidate)
+	}
+}
+
+func TestFirstCyclePriceEvidenceIsMonotonicAndPressureDoesNotSaturate(t *testing.T) {
+	tests := []struct {
+		priceCents        int64
+		wantPaidIndex     int
+		wantPricePressure int
+	}{
+		{priceCents: 8500, wantPaidIndex: 63, wantPricePressure: 74},
+		{priceCents: 9000, wantPaidIndex: 67, wantPricePressure: 66},
+		{priceCents: 9500, wantPaidIndex: 71, wantPricePressure: 58},
+	}
+	const marketMedianCents = int64(13390)
+	for _, test := range tests {
+		candidate := PricingCandidate{
+			CurrentPriceCents:      test.priceCents,
+			VerifiedPriceCents:     test.priceCents,
+			PaidPeriodCount:        1,
+			RelationshipDays:       20,
+			PriceStableDays:        20,
+			CustomerGroupSize:      1,
+			MarketPosition:         "below_low",
+			GapToMarketMedianCents: marketMedianCents - test.priceCents,
+			BlockedCode:            "protection",
+		}
+		populateRepricingInsights(&candidate)
+		if candidate.RenewalEvidence != "initial" || candidate.RenewalCount != 0 ||
+			candidate.VerifiedPriceIndex == nil || *candidate.VerifiedPriceIndex != test.wantPaidIndex ||
+			candidate.PricePressureScore != test.wantPricePressure {
+			t.Fatalf("first-cycle price %d evidence = %#v", test.priceCents, candidate)
+		}
 	}
 }
 
@@ -1322,7 +1369,6 @@ func TestBulkPricingExemptionIsAtomicBlocksCurrentRoundAndReentersLater(t *testi
 	active := activeCandidates[0]
 	if active.Eligible || active.Recommended || active.BlockedCode != "exempted" ||
 		active.NextReviewDate != "2026-09-14" || active.ExemptionCount != 1 ||
-		active.RelationshipAssetScore <= before.RelationshipAssetScore ||
 		active.PricePressureScore <= before.PricePressureScore {
 		t.Fatalf("active exemption candidate = %#v, before = %#v", active, before)
 	}
@@ -1369,8 +1415,7 @@ func TestBulkPricingExemptionIsAtomicBlocksCurrentRoundAndReentersLater(t *testi
 	}
 	repeated := repeatedCandidates[0]
 	if repeated.ExemptionCount != 2 || repeated.ExemptionReviewDate != "2026-10-14" ||
-		repeated.RelationshipAssetScore <= active.RelationshipAssetScore ||
-		repeated.PricePressureScore < active.PricePressureScore {
+		repeated.PricePressureScore <= active.PricePressureScore {
 		t.Fatalf("repeated exemption scores = %#v, first = %#v", repeated, active)
 	}
 	if err := laterService.Store.ResetBusinessData(); err != nil {

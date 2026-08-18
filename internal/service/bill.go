@@ -136,6 +136,13 @@ func (service *SubscriptionService) ListBillsPage() (BillsPage, error) {
 	for _, account := range accounts {
 		accountCostCents += account.TotalCostCents
 	}
+	benefits, err := service.Store.ListCustomerBenefits()
+	if err != nil {
+		return BillsPage{}, err
+	}
+	for _, benefit := range benefits {
+		accountCostCents += benefit.ActualCostCents
+	}
 
 	return BillsPage{
 		Bills:   views,

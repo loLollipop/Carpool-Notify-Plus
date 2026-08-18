@@ -140,6 +140,7 @@ type PricingCandidate struct {
 	SuggestedPriceCents              int64    `json:"suggested_price_cents"`
 	MaxIncreasePriceCents            int64    `json:"max_increase_price_cents"`
 	PaidPeriodCount                  int      `json:"paid_period_count"`
+	LastPaidDate                     string   `json:"last_paid_date"`
 	RelationshipDays                 int      `json:"relationship_days"`
 	LastPriceIncreaseDate            string   `json:"last_price_increase_date"`
 	BlockedCode                      string   `json:"blocked_code"`
@@ -162,9 +163,10 @@ type PricingCandidate struct {
 	LastExemptedAt                   string   `json:"last_exempted_at"`
 	ExemptionReviewDate              string   `json:"exemption_review_date"`
 	ExemptionReasonCode              string   `json:"exemption_reason_code"`
-	LoyaltyScore                     int      `json:"loyalty_score"`
-	PriceWillingnessScore            int      `json:"price_willingness_score"`
-	RelationshipAssetScore           int      `json:"relationship_asset_score"`
+	RenewalCount                     int      `json:"renewal_count"`
+	RenewalEvidence                  string   `json:"renewal_evidence"`
+	VerifiedPriceCents               int64    `json:"verified_price_cents"`
+	VerifiedPriceIndex               *int     `json:"verified_price_index"`
 	PricePressureScore               int      `json:"price_pressure_score"`
 	PriceStableDays                  int      `json:"price_stable_days"`
 	PaidPeriodsAfterIncrease         int      `json:"paid_periods_after_increase"`
@@ -216,9 +218,10 @@ type RepricingAnalysis struct {
 	Windows                     []RepricingWindow     `json:"windows"`
 	AverageRelationshipDays     int                   `json:"average_relationship_days"`
 	AveragePaidPeriods          float64               `json:"average_paid_periods"`
-	AverageLoyaltyScore         int                   `json:"average_loyalty_score"`
-	AverageRelationshipAsset    int                   `json:"average_relationship_asset_score"`
 	AveragePricePressure        int                   `json:"average_price_pressure_score"`
+	FirstCycleSubscriptionCount int                   `json:"first_cycle_subscription_count"`
+	RepeatSubscriptionCount     int                   `json:"repeat_subscription_count"`
+	IncreasedPriceAcceptedCount int                   `json:"increased_price_accepted_count"`
 	ActiveExemptionCount        int                   `json:"active_exemption_count"`
 	RelationshipSegments        []RepricingSegment    `json:"relationship_segments"`
 	RiskSegments                []RepricingSegment    `json:"risk_segments"`
@@ -247,6 +250,7 @@ type GoalCenter struct {
 	Pricing    PricingRecommendation `json:"pricing"`
 	Candidates []PricingCandidate    `json:"pricing_candidates"`
 	Repricing  RepricingAnalysis     `json:"repricing_analysis"`
+	Care       CustomerCareCenter    `json:"customer_care"`
 }
 
 func (service *SubscriptionService) CreateBusinessGoal(input BusinessGoalInput) (int64, error) {
@@ -369,6 +373,10 @@ func (service *SubscriptionService) GetGoalCenter() (GoalCenter, error) {
 		return GoalCenter{}, err
 	}
 	center.Repricing = buildRepricingAnalysis(center.Candidates, service.now())
+	center.Care, err = service.buildCustomerCare(center.Candidates)
+	if err != nil {
+		return GoalCenter{}, err
+	}
 	return center, nil
 }
 
@@ -498,6 +506,15 @@ func (service *SubscriptionService) buildProfitTrend(monthCount int) ([]ProfitMo
 		}
 		if index, exists := monthIndex[key]; exists {
 			months[index].CostCents += record.AmountCents
+		}
+	}
+	benefits, err := service.Store.ListCustomerBenefits()
+	if err != nil {
+		return nil, err
+	}
+	for _, benefit := range benefits {
+		if index, exists := monthIndex[monthFromDate(benefit.BenefitDate)]; exists {
+			months[index].CostCents += benefit.ActualCostCents
 		}
 	}
 
@@ -1012,8 +1029,10 @@ func (service *SubscriptionService) buildPricingCandidates(
 		}
 		history := billHistories[subscription.ID]
 		candidate.PaidPeriodCount = history.PaidPeriodCount
+		candidate.LastPaidDate = history.LastPaidDueDate
 		candidate.LastPriceIncreaseDate = history.LastIncreaseDate
 		candidate.PaidPeriodsAfterIncrease = history.PaidPeriodsAfterIncrease
+		candidate.VerifiedPriceCents = history.LastPaidPriceCents
 		candidate.RelationshipDays = subscriptionRelationshipDays(subscription, service.now())
 		candidate.PriceStableDays = candidate.RelationshipDays
 		if history.LastIncreaseDate != "" {
@@ -1359,16 +1378,25 @@ func populateRepricingInsights(candidate *PricingCandidate) {
 				float64(candidate.CurrentPriceCents),
 		))
 	}
-	populatePricingDecisionScores(candidate)
+	populatePricingEvidence(candidate)
 
-	candidate.AnalysisCodes = []string{
-		"relationship_" + candidate.RelationshipStage,
-		"market_" + candidate.MarketPosition,
+	candidate.AnalysisCodes = []string{"relationship_" + candidate.RelationshipStage}
+	switch candidate.RenewalEvidence {
+	case "unpaid":
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "payment_unverified")
+	case "initial":
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "first_cycle_only")
+	case "renewed":
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "renewal_observed")
+	case "increase_accepted":
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "retained_after_increase")
 	}
-	if candidate.PriceWillingnessScore >= 70 {
+	candidate.AnalysisCodes = append(candidate.AnalysisCodes, "market_"+candidate.MarketPosition)
+	if (candidate.RenewalCount >= 2 || candidate.PaidPeriodsAfterIncrease > 0) &&
+		candidate.VerifiedPriceIndex != nil && *candidate.VerifiedPriceIndex >= 70 {
 		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "proven_price_acceptance")
 	} else if candidate.MarketPosition == "below_low" && candidate.CustomerGroupSize <= 1 {
-		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "low_price_sensitivity")
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "low_price_entry")
 	}
 	if candidate.CustomerGroupSize > 1 {
 		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "multi_seat_customer")
@@ -1396,9 +1424,6 @@ func populateRepricingInsights(candidate *PricingCandidate) {
 	}
 	if candidate.ExemptionCount > 1 {
 		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "repeated_exemption_cost")
-	}
-	if candidate.PaidPeriodsAfterIncrease > 0 {
-		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "retained_after_increase")
 	}
 	marketScore := 0
 	switch candidate.MarketPosition {
@@ -1435,89 +1460,55 @@ func populateRepricingInsights(candidate *PricingCandidate) {
 	}
 }
 
-// populatePricingDecisionScores keeps three concepts separate. Loyalty is
-// based primarily on observed customer behavior, with a bounded price-payment
-// signal. A high current price only helps after repeated paid periods; it cannot
-// turn a new customer into a loyal one. Relationship asset measures accumulated
-// price stability and exemptions. Price pressure is the opportunity cost of
-// keeping an occupied seat below its viable market price.
-func populatePricingDecisionScores(candidate *PricingCandidate) {
-	tenureScore := minInt(candidate.RelationshipDays, 365) * 20 / 365
-	paidScore := minInt(candidate.PaidPeriodCount, 12) * 30 / 12
-	multiSeatScore := 0
+// populatePricingEvidence deliberately avoids estimating willingness-to-pay or
+// renewal probability from a first order. Repeat-purchase models treat the
+// first transaction as acquisition and start their frequency signal at the
+// second paid period. Until that evidence exists, the API exposes facts: the
+// latest price actually paid, its market-relative index, and an evidence stage.
+func populatePricingEvidence(candidate *PricingCandidate) {
+	candidate.RenewalCount = maxInt(candidate.PaidPeriodCount-1, 0)
 	switch {
-	case candidate.CustomerGroupSize >= 3:
-		multiSeatScore = 15
-	case candidate.CustomerGroupSize == 2:
-		multiSeatScore = 10
+	case candidate.PaidPeriodCount <= 0:
+		candidate.RenewalEvidence = "unpaid"
+	case candidate.PaidPeriodsAfterIncrease > 0:
+		candidate.RenewalEvidence = "increase_accepted"
+	case candidate.RenewalCount > 0:
+		candidate.RenewalEvidence = "renewed"
+	default:
+		candidate.RenewalEvidence = "initial"
 	}
-	postIncreaseScore := minInt(candidate.PaidPeriodsAfterIncrease, 3) * 5
-	serviceHealthScore := maxInt(10-minInt(candidate.AfterSalesCaseCount, 2)*5, 0)
-	candidate.PriceWillingnessScore = pricingWillingnessScore(*candidate)
-	candidate.LoyaltyScore = minInt(
-		tenureScore+paidScore+multiSeatScore+postIncreaseScore+
-			serviceHealthScore+candidate.PriceWillingnessScore/10,
-		100,
-	)
+	candidate.VerifiedPriceIndex = verifiedPriceIndex(*candidate)
 
-	priceStabilityScore := minInt(candidate.PriceStableDays, 365) * 60 / 365
-	concessionScore := minInt(candidate.ExemptionCount, 4) * 10
-	candidate.RelationshipAssetScore = minInt(priceStabilityScore+concessionScore, 100)
-
-	marketPressureScore := 0
-	switch candidate.MarketPosition {
-	case "below_low":
-		marketPressureScore = 35
-	case "below_median":
-		marketPressureScore = 20
-	}
-	gapPressureScore := minInt(maxInt(candidate.PriceGapPercent, 0), 25)
-	upliftPressureScore := minInt(maxInt(candidate.SuggestedIncreasePct, 0)*3, 24)
-	deferralPressureScore := minInt(candidate.ExemptionCount, 3) * 8
-	occupancyPressureScore := 0
-	if candidate.CustomerTier == "optimize" && candidate.CustomerGroupSize <= 1 {
-		occupancyPressureScore = 10
-	}
-	candidate.PricePressureScore = minInt(
-		marketPressureScore+gapPressureScore+upliftPressureScore+
-			deferralPressureScore+occupancyPressureScore,
-		100,
-	)
+	// This is an operating opportunity-cost index, not a churn prediction.
+	// The market gap is counted once; the previous formula counted the same gap
+	// through three correlated terms and forced most low-price users to 94.
+	gapPressureScore := minInt(maxInt(candidate.PriceGapPercent, 0)*2, 80)
+	deferralPressureScore := minInt(candidate.ExemptionCount, 4) * 5
+	candidate.PricePressureScore = minInt(gapPressureScore+deferralPressureScore, 100)
 }
 
-// pricingWillingnessScore converts the paid price into a small, evidence-gated
-// loyalty component. Market position supplies the price signal while paid
-// periods cap its influence. This models willingness to pay without assuming a
-// high-priced first order will necessarily renew.
-func pricingWillingnessScore(candidate PricingCandidate) int {
-	if candidate.PaidPeriodCount <= 0 {
-		return 0
+// verifiedPriceIndex reports the latest price actually paid relative to the
+// current market median (market median = 100). A nil value means either the
+// customer has not paid or the market sample is unavailable. It is a price
+// benchmark, never a probability or a claim about an untested higher price.
+func verifiedPriceIndex(candidate PricingCandidate) *int {
+	marketMedianCents := candidate.CurrentPriceCents + candidate.GapToMarketMedianCents
+	if candidate.PaidPeriodCount <= 0 || candidate.VerifiedPriceCents <= 0 ||
+		candidate.MarketPosition == "unavailable" || marketMedianCents <= 0 {
+		return nil
 	}
-
-	baseScore := 0
-	switch candidate.MarketPosition {
-	case "above_high":
-		baseScore = 100
-	case "market_range":
-		baseScore = 70
-	case "below_median":
-		baseScore = 30
-	}
-
-	evidenceCap := 100
-	switch candidate.PaidPeriodCount {
-	case 1:
-		evidenceCap = 30
-	case 2:
-		evidenceCap = 70
-	}
-	return minInt(baseScore, evidenceCap)
+	index := maxInt(int(math.Round(
+		float64(candidate.VerifiedPriceCents)*100/float64(marketMedianCents),
+	)), 0)
+	return &index
 }
 
 type pricingBillHistory struct {
 	PaidPeriodCount          int
 	LastIncreaseDate         string
 	PaidPeriodsAfterIncrease int
+	LastPaidPriceCents       int64
+	LastPaidDueDate          string
 }
 
 func summarizePricingBillHistories(
@@ -1539,7 +1530,11 @@ func summarizePricingBillHistories(
 			}
 			return subscriptionBills[left].PaidAt.Before(subscriptionBills[right].PaidAt)
 		})
-		history := pricingBillHistory{PaidPeriodCount: len(subscriptionBills)}
+		history := pricingBillHistory{
+			PaidPeriodCount:    len(subscriptionBills),
+			LastPaidPriceCents: subscriptionBills[len(subscriptionBills)-1].AmountCents,
+			LastPaidDueDate:    subscriptionBills[len(subscriptionBills)-1].DueDate,
+		}
 		lastIncreaseIndex := -1
 		for index := 1; index < len(subscriptionBills); index++ {
 			if subscriptionBills[index].AmountCents > subscriptionBills[index-1].AmountCents {
@@ -1548,7 +1543,9 @@ func summarizePricingBillHistories(
 			}
 		}
 		if lastIncreaseIndex >= 0 {
-			history.PaidPeriodsAfterIncrease = len(subscriptionBills) - lastIncreaseIndex - 1
+			// The bill on which the higher price takes effect is already a paid
+			// acceptance outcome and must be included in the evidence count.
+			history.PaidPeriodsAfterIncrease = len(subscriptionBills) - lastIncreaseIndex
 		}
 		histories[subscriptionID] = history
 	}
@@ -1653,8 +1650,6 @@ func buildRepricingAnalysis(candidates []PricingCandidate, now time.Time) Repric
 	today := cycle.StartOfDay(now)
 	totalRelationshipDays := 0
 	totalPaidPeriods := 0
-	totalLoyaltyScore := 0
-	totalRelationshipAssetScore := 0
 	totalPricePressureScore := 0
 	for candidateIndex, candidate := range candidates {
 		customerGroupID := candidate.CustomerGroupID
@@ -1665,9 +1660,15 @@ func buildRepricingAnalysis(candidates []PricingCandidate, now time.Time) Repric
 		analysis.TotalCount++
 		totalRelationshipDays += candidate.RelationshipDays
 		totalPaidPeriods += candidate.PaidPeriodCount
-		totalLoyaltyScore += candidate.LoyaltyScore
-		totalRelationshipAssetScore += candidate.RelationshipAssetScore
 		totalPricePressureScore += candidate.PricePressureScore
+		if candidate.RenewalCount > 0 {
+			analysis.RepeatSubscriptionCount++
+		} else if candidate.PaidPeriodCount > 0 {
+			analysis.FirstCycleSubscriptionCount++
+		}
+		if candidate.PaidPeriodsAfterIncrease > 0 {
+			analysis.IncreasedPriceAcceptedCount++
+		}
 		if candidate.BlockedCode == "exempted" {
 			analysis.ActiveExemptionCount++
 		}
@@ -1752,12 +1753,6 @@ func buildRepricingAnalysis(candidates []PricingCandidate, now time.Time) Repric
 		analysis.AveragePaidPeriods = math.Round(
 			float64(totalPaidPeriods)/float64(analysis.TotalCount)*10,
 		) / 10
-		analysis.AverageLoyaltyScore = int(math.Round(
-			float64(totalLoyaltyScore) / float64(analysis.TotalCount),
-		))
-		analysis.AverageRelationshipAsset = int(math.Round(
-			float64(totalRelationshipAssetScore) / float64(analysis.TotalCount),
-		))
 		analysis.AveragePricePressure = int(math.Round(
 			float64(totalPricePressureScore) / float64(analysis.TotalCount),
 		))
