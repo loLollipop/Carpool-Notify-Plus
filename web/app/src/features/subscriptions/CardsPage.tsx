@@ -73,6 +73,14 @@ function MetaCell({ label, children }: { label: string; children: React.ReactNod
   )
 }
 
+function cardRemark(remark: string) {
+  return remark
+    .split(/\r?\n/)
+    .filter((line) => !/^兑换码\s*[：:]/.test(line.trim()))
+    .join("\n")
+    .trim()
+}
+
 function CustomerContactRow({
   email,
   wechat,
@@ -165,6 +173,7 @@ function SubscriptionCard({
   const { t } = useTranslation()
   const subscription = view.subscription
   const plusRental = subscription.business_type === "plus"
+  const visibleRemark = cardRemark(subscription.remark)
   const archived = subscription.archived_at !== null
   const cancellationPending = view.cancellation_pending
   const displayedCostYuan = view.allocated_cost_yuan || view.cost_yuan
@@ -205,9 +214,9 @@ function SubscriptionCard({
               ) : null}
             </div>
           ) : null}
-          {subscription.remark ? (
+          {visibleRemark ? (
             <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">
-              {subscription.remark}
+              {visibleRemark}
             </p>
           ) : null}
           <CustomerContactRow

@@ -525,11 +525,13 @@ function InvitePanel({
       <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
         <div className="grid gap-2">
           <Label>计费周期</Label>
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="计费周期">
             {CYCLE_PRESETS.map((preset) => (
               <Button
                 key={preset.cron}
                 type="button"
+                role="radio"
+                aria-checked={cronExpr === preset.cron}
                 variant={cronExpr === preset.cron ? "secondary" : "outline"}
                 size="sm"
                 onClick={() => setCronExpr(preset.cron)}
@@ -538,11 +540,6 @@ function InvitePanel({
               </Button>
             ))}
           </div>
-          <Input
-            className="font-mono"
-            value={cronExpr}
-            onChange={(event) => setCronExpr(event.target.value)}
-          />
         </div>
 
         <div className="grid gap-2">
