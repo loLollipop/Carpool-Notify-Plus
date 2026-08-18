@@ -148,11 +148,21 @@ type PricingCandidate struct {
 	SuggestedMonthlyUplift           int64    `json:"suggested_monthly_uplift_cents"`
 	ScheduledMonthlyUplift           int64    `json:"scheduled_monthly_uplift_cents"`
 	MonthlyRevenueCents              int64    `json:"monthly_revenue_cents"`
-	CustomerGroupID                  int64    `json:"-"`
+	CustomerGroupID                  int64    `json:"customer_group_id"`
 	CustomerGroupSize                int      `json:"customer_group_size"`
 	CustomerGroupMonthlyRevenueCents int64    `json:"customer_group_monthly_revenue_cents"`
 	CustomerTier                     string   `json:"customer_tier"`
 	RelationshipStage                string   `json:"relationship_stage"`
+	CustomerQualityScore             int      `json:"customer_quality_score"`
+	RelationshipScore                int      `json:"relationship_score"`
+	LoyaltyScore                     int      `json:"loyalty_score"`
+	ContactStrengthScore             int      `json:"contact_strength_score"`
+	RelationshipHealthScore          int      `json:"relationship_health_score"`
+	RelationshipLevel                string   `json:"relationship_level"`
+	RelationshipProfileConfidence    string   `json:"relationship_profile_confidence"`
+	PrimaryRelationshipTask          string   `json:"primary_relationship_task"`
+	NeedsContactFollowup             bool     `json:"needs_contact_followup"`
+	RelationshipSignalCodes          []string `json:"relationship_signal_codes"`
 	AdjustmentRisk                   string   `json:"adjustment_risk"`
 	ReadinessScore                   int      `json:"readiness_score"`
 	PriceGapPercent                  int      `json:"price_gap_percent"`
@@ -1338,6 +1348,219 @@ func finalizePricingCandidates(
 			candidate.SuggestedPriceCents > candidate.CurrentPriceCents
 		populateRepricingInsights(candidate)
 	}
+	populateCustomerRelationshipProfiles(candidates)
+}
+
+// populateCustomerRelationshipProfiles builds an observable-behavior index,
+// not a psychological diagnosis or a renewal probability. It follows three
+// operating rules: judge customers by accumulated behavior, separate the
+// current relationship stage from the next management task, and lower model
+// confidence when the evidence window is short. Scores are copied to every
+// seat in a merged customer group so the UI can render one coherent profile.
+func populateCustomerRelationshipProfiles(candidates []PricingCandidate) {
+	type relationshipGroup struct {
+		indexes                  []int
+		tier                     string
+		groupSize                int
+		relationshipDays         int
+		paidPeriods              int
+		renewals                 int
+		paidPeriodsAfterIncrease int
+		afterSalesCases          int
+		exemptions               int
+		hasEmail                 bool
+		hasWechat                bool
+		serviceAtRisk            bool
+	}
+
+	groups := make(map[int64]*relationshipGroup)
+	for index := range candidates {
+		candidate := candidates[index]
+		groupID := candidate.CustomerGroupID
+		if groupID == 0 {
+			groupID = candidate.SubscriptionID
+		}
+		if groupID == 0 {
+			groupID = -int64(index + 1)
+		}
+		group := groups[groupID]
+		if group == nil {
+			group = &relationshipGroup{}
+			groups[groupID] = group
+		}
+		group.indexes = append(group.indexes, index)
+		if customerTierRank(candidate.CustomerTier) > customerTierRank(group.tier) {
+			group.tier = candidate.CustomerTier
+		}
+		group.groupSize = maxInt(group.groupSize, candidate.CustomerGroupSize)
+		group.relationshipDays = maxInt(group.relationshipDays, candidate.RelationshipDays)
+		group.paidPeriods = maxInt(group.paidPeriods, candidate.PaidPeriodCount)
+		group.renewals = maxInt(group.renewals, candidate.RenewalCount)
+		group.paidPeriodsAfterIncrease = maxInt(
+			group.paidPeriodsAfterIncrease,
+			candidate.PaidPeriodsAfterIncrease,
+		)
+		group.afterSalesCases += candidate.AfterSalesCaseCount
+		group.exemptions += candidate.ExemptionCount
+		group.hasEmail = group.hasEmail || normalizeCustomerIdentity(candidate.CustomerEmail) != ""
+		group.hasWechat = group.hasWechat || normalizeCustomerIdentity(candidate.CustomerWechat) != ""
+		switch candidate.BlockedCode {
+		case "after_sales", "after_sales_recovery":
+			group.serviceAtRisk = true
+		}
+	}
+
+	for _, group := range groups {
+		if group.groupSize <= 0 {
+			group.groupSize = len(group.indexes)
+		}
+
+		qualityScore := 40
+		switch group.tier {
+		case "core":
+			qualityScore = 60
+		case "mainstay":
+			qualityScore = 48
+		case "optimize":
+			qualityScore = 35
+		}
+		qualityScore += minInt(group.paidPeriods, 5) * 4
+		qualityScore += minInt(maxInt(group.groupSize-1, 0), 3) * 7
+		if group.paidPeriods == 0 {
+			qualityScore -= 10
+		}
+		qualityScore = clampRelationshipScore(qualityScore)
+
+		relationshipScore := minInt(group.relationshipDays, 180) * 30 / 180
+		relationshipScore += minInt(group.paidPeriods, 6) * 30 / 6
+		if group.hasWechat {
+			relationshipScore += 20
+		}
+		relationshipScore += minInt(maxInt(group.groupSize-1, 0), 2) * 5
+		relationshipScore += minInt(group.exemptions, 2) * 5
+		relationshipScore = clampRelationshipScore(relationshipScore)
+
+		loyaltyScore := 10
+		loyaltyScore += minInt(group.renewals, 4) * 12
+		loyaltyScore += minInt(group.relationshipDays, 180) * 17 / 180
+		loyaltyScore += minInt(maxInt(group.groupSize-1, 0), 2) * 7
+		if group.hasWechat {
+			loyaltyScore += 6
+		}
+		if group.paidPeriodsAfterIncrease > 0 {
+			loyaltyScore += 10
+		}
+		if group.paidPeriods == 0 {
+			loyaltyScore = minInt(loyaltyScore, 15)
+		}
+		loyaltyScore = clampRelationshipScore(loyaltyScore)
+
+		contactScore := 0
+		if group.hasEmail {
+			contactScore += 20
+		}
+		if group.hasWechat {
+			contactScore += 55
+		}
+		contactScore += minInt(group.renewals, 4) * 10 / 4
+		contactScore += minInt(maxInt(group.groupSize-1, 0), 2) * 15 / 2
+		contactScore = clampRelationshipScore(contactScore)
+
+		healthScore := (qualityScore*25 + relationshipScore*30 + loyaltyScore*30 + contactScore*15) / 100
+		// An unresolved service event affects the present relationship health and
+		// trust-repair priority. It must not rewrite the customer's historical
+		// loyalty or customer-quality evidence as if the customer caused the issue.
+		if group.serviceAtRisk {
+			healthScore -= 12
+		}
+		healthScore = clampRelationshipScore(healthScore)
+		level := "fragile"
+		switch {
+		case healthScore >= 80:
+			level = "trusted"
+		case healthScore >= 60:
+			level = "stable"
+		case healthScore >= 45:
+			level = "developing"
+		}
+		confidence := "low"
+		switch {
+		case group.paidPeriods >= 4 && group.relationshipDays >= 120:
+			confidence = "high"
+		case group.paidPeriods >= 2 && group.relationshipDays >= 45:
+			confidence = "medium"
+		}
+
+		task := "strengthen_habit"
+		switch {
+		case group.serviceAtRisk:
+			task = "repair_trust"
+		case !group.hasWechat:
+			task = "complete_contact"
+		case group.renewals == 0:
+			task = "observe_first_renewal"
+		case group.tier == "core" || group.groupSize > 1:
+			task = "protect_key_account"
+		case level == "stable" || level == "trusted":
+			task = "maintain_low_frequency"
+		}
+
+		signals := make([]string, 0, 8)
+		if !group.hasWechat {
+			signals = append(signals, "wechat_missing")
+		}
+		if group.groupSize > 1 {
+			signals = append(signals, "multi_seat")
+		}
+		if group.renewals == 0 {
+			signals = append(signals, "first_cycle")
+		} else if group.renewals >= 2 {
+			signals = append(signals, "repeat_renewal")
+		}
+		if group.relationshipDays >= 180 {
+			signals = append(signals, "long_relationship")
+		}
+		if group.paidPeriodsAfterIncrease > 0 {
+			signals = append(signals, "price_change_retained")
+		}
+		if group.serviceAtRisk || group.afterSalesCases > 0 {
+			signals = append(signals, "service_history")
+		}
+		if group.exemptions > 0 {
+			signals = append(signals, "relationship_investment")
+		}
+
+		for _, index := range group.indexes {
+			candidate := &candidates[index]
+			candidate.CustomerQualityScore = qualityScore
+			candidate.RelationshipScore = relationshipScore
+			candidate.LoyaltyScore = loyaltyScore
+			candidate.ContactStrengthScore = contactScore
+			candidate.RelationshipHealthScore = healthScore
+			candidate.RelationshipLevel = level
+			candidate.RelationshipProfileConfidence = confidence
+			candidate.PrimaryRelationshipTask = task
+			candidate.NeedsContactFollowup = !group.hasWechat
+			candidate.RelationshipSignalCodes = append([]string(nil), signals...)
+		}
+	}
+}
+
+func customerTierRank(tier string) int {
+	switch tier {
+	case "core":
+		return 3
+	case "mainstay":
+		return 2
+	case "optimize":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func clampRelationshipScore(score int) int {
+	return minInt(maxInt(score, 0), 100)
 }
 
 func populateRepricingInsights(candidate *PricingCandidate) {

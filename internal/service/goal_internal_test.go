@@ -880,6 +880,90 @@ func TestPricingEvidenceSeparatesPaidPriceFromRenewalBehavior(t *testing.T) {
 	}
 }
 
+func TestRelationshipProfileUsesBehaviorAndTreatsMissingWechatAsRiskNotVerdict(t *testing.T) {
+	candidates := []PricingCandidate{
+		{
+			SubscriptionID:         1,
+			CustomerEmail:          "new@example.com",
+			CustomerWechat:         "new-contact",
+			CustomerTier:           "core",
+			CustomerGroupSize:      1,
+			PaidPeriodCount:        1,
+			RelationshipDays:       20,
+			BlockedCode:            "protection",
+			MarketPosition:         "market_range",
+			CurrentPriceCents:      12000,
+			VerifiedPriceCents:     12000,
+			GapToMarketMedianCents: 0,
+		},
+		{
+			SubscriptionID:     2,
+			CustomerEmail:      "loyal@example.com",
+			CustomerTier:       "mainstay",
+			CustomerGroupSize:  1,
+			PaidPeriodCount:    6,
+			RelationshipDays:   240,
+			BlockedCode:        "eligible",
+			MarketPosition:     "market_range",
+			CurrentPriceCents:  9000,
+			VerifiedPriceCents: 9000,
+		},
+		{
+			SubscriptionID:     3,
+			CustomerEmail:      "service@example.com",
+			CustomerTier:       "mainstay",
+			CustomerGroupSize:  1,
+			PaidPeriodCount:    3,
+			RelationshipDays:   100,
+			BlockedCode:        "after_sales",
+			MarketPosition:     "market_range",
+			CurrentPriceCents:  9000,
+			VerifiedPriceCents: 9000,
+		},
+		{
+			SubscriptionID:     4,
+			CustomerEmail:      "healthy@example.com",
+			CustomerTier:       "mainstay",
+			CustomerGroupSize:  1,
+			PaidPeriodCount:    3,
+			RelationshipDays:   100,
+			BlockedCode:        "eligible",
+			MarketPosition:     "market_range",
+			CurrentPriceCents:  9000,
+			VerifiedPriceCents: 9000,
+		},
+	}
+	for index := range candidates {
+		populateRepricingInsights(&candidates[index])
+	}
+	populateCustomerRelationshipProfiles(candidates)
+
+	newCustomer := candidates[0]
+	loyalWithoutWechat := candidates[1]
+	serviceRecovery := candidates[2]
+	healthyPeer := candidates[3]
+	if newCustomer.RelationshipProfileConfidence != "low" ||
+		newCustomer.PrimaryRelationshipTask != "observe_first_renewal" ||
+		newCustomer.NeedsContactFollowup {
+		t.Fatalf("new connected customer profile = %#v", newCustomer)
+	}
+	if !loyalWithoutWechat.NeedsContactFollowup ||
+		loyalWithoutWechat.PrimaryRelationshipTask != "complete_contact" ||
+		loyalWithoutWechat.ContactStrengthScore >= newCustomer.ContactStrengthScore ||
+		loyalWithoutWechat.LoyaltyScore <= newCustomer.LoyaltyScore ||
+		loyalWithoutWechat.RelationshipLevel != "stable" ||
+		loyalWithoutWechat.RelationshipProfileConfidence != "high" {
+		t.Fatalf("loyal customer without WeChat profile = %#v", loyalWithoutWechat)
+	}
+	if serviceRecovery.PrimaryRelationshipTask != "repair_trust" ||
+		!strings.Contains(strings.Join(serviceRecovery.RelationshipSignalCodes, ","), "service_history") ||
+		serviceRecovery.CustomerQualityScore != healthyPeer.CustomerQualityScore ||
+		serviceRecovery.LoyaltyScore != healthyPeer.LoyaltyScore ||
+		serviceRecovery.RelationshipHealthScore >= healthyPeer.RelationshipHealthScore {
+		t.Fatalf("service recovery profile = %#v", serviceRecovery)
+	}
+}
+
 func TestPaidIncreaseIsCountedAsObservedAcceptance(t *testing.T) {
 	histories := summarizePricingBillHistories([]model.Bill{
 		{ID: 1, SubscriptionID: 7, DueDate: "2026-05-01", AmountCents: 9000},

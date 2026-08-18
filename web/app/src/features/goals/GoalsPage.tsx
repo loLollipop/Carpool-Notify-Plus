@@ -26,6 +26,7 @@ import {
   Gift,
   HeartHandshake,
   History,
+  MessageCircle,
   Pencil,
   Plus,
   RefreshCw,
@@ -1233,6 +1234,123 @@ function RiskOrbitCard({
   )
 }
 
+const relationshipMetricColors = {
+  customerQuality: "var(--brand)",
+  relationship: "var(--success)",
+  loyalty: "var(--warning)",
+  contact: "var(--chart-2)",
+} as const
+
+function relationshipRadarPoints(values: number[], scale = 1) {
+  const center = 56
+  const radius = 40 * scale
+  return values
+    .map((value, index) => {
+      const angle = -Math.PI / 2 + index * (Math.PI / 2)
+      const distance = radius * Math.max(0, Math.min(value, 100)) / 100
+      return `${center + Math.cos(angle) * distance},${center + Math.sin(angle) * distance}`
+    })
+    .join(" ")
+}
+
+function RelationshipRadar({ candidate }: { candidate: PricingCandidate }) {
+  const { t } = useTranslation()
+  const metrics = [
+    {
+      key: "customerQuality",
+      value: candidate.customer_quality_score,
+      color: relationshipMetricColors.customerQuality,
+    },
+    {
+      key: "relationship",
+      value: candidate.relationship_score,
+      color: relationshipMetricColors.relationship,
+    },
+    {
+      key: "loyalty",
+      value: candidate.loyalty_score,
+      color: relationshipMetricColors.loyalty,
+    },
+    {
+      key: "contact",
+      value: candidate.contact_strength_score,
+      color: relationshipMetricColors.contact,
+    },
+  ] as const
+  const values = metrics.map((metric) => metric.value)
+
+  return (
+    <div className="flex items-center gap-4">
+      <svg
+        viewBox="0 0 112 112"
+        className="size-24 shrink-0 overflow-visible"
+        role="img"
+        aria-label={t("goals.repricing.profileScoreAria", {
+          quality: candidate.customer_quality_score,
+          relationship: candidate.relationship_score,
+          loyalty: candidate.loyalty_score,
+          contact: candidate.contact_strength_score,
+        })}
+      >
+        {[0.25, 0.5, 0.75, 1].map((scale) => (
+          <polygon
+            key={scale}
+            points={relationshipRadarPoints([100, 100, 100, 100], scale)}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={scale === 1 ? 1 : 0.7}
+            className="text-border"
+          />
+        ))}
+        <line x1="56" y1="16" x2="56" y2="96" className="stroke-border" strokeWidth="0.7" />
+        <line x1="16" y1="56" x2="96" y2="56" className="stroke-border" strokeWidth="0.7" />
+        <polygon
+          points={relationshipRadarPoints(values)}
+          fill="color-mix(in oklab, var(--brand) 22%, transparent)"
+          stroke="var(--brand)"
+          strokeWidth="2"
+          strokeLinejoin="round"
+        />
+        {values.map((value, index) => {
+          const angle = -Math.PI / 2 + index * (Math.PI / 2)
+          const distance = 40 * Math.max(0, Math.min(value, 100)) / 100
+          return (
+            <circle
+              key={metrics[index].key}
+              cx={56 + Math.cos(angle) * distance}
+              cy={56 + Math.sin(angle) * distance}
+              r="2.75"
+              fill={metrics[index].color}
+              stroke="var(--card)"
+              strokeWidth="1.5"
+            />
+          )
+        })}
+      </svg>
+
+      <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-2">
+        {metrics.map((metric) => (
+          <div key={metric.key} className="min-w-0">
+            <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+              <span className="flex min-w-0 items-center gap-1.5">
+                <span className="size-1.5 shrink-0 rounded-full" style={{ background: metric.color }} />
+                <span className="truncate">{t(`goals.repricing.score.${metric.key}`)}</span>
+              </span>
+              <span className="font-semibold tabular-nums text-foreground">{metric.value}</span>
+            </div>
+            <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full rounded-full"
+                style={{ width: `${metric.value}%`, background: metric.color }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function RepricingAnalysisPanel({
   data,
   amountsHidden,
@@ -1248,21 +1366,33 @@ function RepricingAnalysisPanel({
   const [activeTier, setActiveTier] = React.useState<CustomerTierKey | "all">("all")
   const [profilePage, setProfilePage] = React.useState(1)
   const profilePageSize = 6
-  const queue = React.useMemo(
-    () =>
-      candidates
-        .filter((candidate) => activeTier === "all" || candidate.customer_tier === activeTier)
-        .sort((left, right) => {
-          if (left.recommended !== right.recommended) return left.recommended ? -1 : 1
-          if (left.readiness_score !== right.readiness_score) {
-            return right.readiness_score - left.readiness_score
-          }
-          return (left.next_review_date || "9999-12-31").localeCompare(
-            right.next_review_date || "9999-12-31",
-          )
-        }),
-    [activeTier, candidates],
-  )
+  const queue = React.useMemo(() => {
+    const grouped = new Map<number, PricingCandidate>()
+    for (const candidate of candidates) {
+      if (activeTier !== "all" && candidate.customer_tier !== activeTier) continue
+      const groupID = candidate.customer_group_id || candidate.subscription_id
+      const current = grouped.get(groupID)
+      if (!current) {
+        grouped.set(groupID, { ...candidate })
+        continue
+      }
+      if (!current.customer_email && candidate.customer_email) {
+        current.customer_email = candidate.customer_email
+      }
+      if (!current.customer_wechat && candidate.customer_wechat) {
+        current.customer_wechat = candidate.customer_wechat
+      }
+    }
+    return [...grouped.values()].sort((left, right) => {
+      if (left.needs_contact_followup !== right.needs_contact_followup) {
+        return left.needs_contact_followup ? -1 : 1
+      }
+      if (left.relationship_health_score !== right.relationship_health_score) {
+        return left.relationship_health_score - right.relationship_health_score
+      }
+      return right.customer_quality_score - left.customer_quality_score
+    })
+  }, [activeTier, candidates])
   const profilePageCount = Math.max(1, Math.ceil(queue.length / profilePageSize))
   const currentProfilePage = Math.min(profilePage, profilePageCount)
   const profilePageStart = (currentProfilePage - 1) * profilePageSize
@@ -1392,59 +1522,42 @@ function RepricingAnalysisPanel({
         </div>
         {analysis.total_count > 0 ? (
           <div className="flex items-center gap-2 border-b bg-muted/25 px-5 py-2 text-[11px] text-muted-foreground">
-            <ShieldCheck className="size-3.5 shrink-0 text-brand" />
-            <span>
-              {analysis.repeat_subscription_count === 0
-                ? t("goals.repricing.evidenceNotice.firstCycleOnly", {
-                    count: analysis.first_cycle_subscription_count,
-                  })
-                : t("goals.repricing.evidenceNotice.repeatObserved", {
-                    repeat: analysis.repeat_subscription_count,
-                    increased: analysis.increased_price_accepted_count,
-                  })}
-            </span>
+            <BrainCircuit className="size-3.5 shrink-0 text-brand" />
+            <span>{t("goals.repricing.profileNotice")}</span>
           </div>
         ) : null}
         {visibleQueue.length > 0 ? (
           <div className="divide-y">
             {visibleQueue.map((candidate) => {
-              const targetPrice = candidate.next_price_cents ?? candidate.suggested_price_cents
-              const decisionKey = candidate.recommended
-                ? "adjust_now"
-                : candidate.next_price_cents !== null
-                  ? "scheduled"
-                  : candidate.blocked_code === "eligible"
-                    ? "hold"
-                    : candidate.blocked_code
-              const riskVariant =
-                candidate.adjustment_risk === "low"
+              const customerLabel = candidate.customer_email || candidate.name
+              const relationshipVariant =
+                candidate.relationship_level === "trusted" || candidate.relationship_level === "stable"
                   ? "success"
-                  : candidate.adjustment_risk === "medium"
-                    ? "warning"
-                    : "destructive"
-              const verifiedPriceIndex = candidate.verified_price_index
+                  : candidate.relationship_level === "developing"
+                    ? "brand"
+                    : "warning"
+              const confidenceVariant =
+                candidate.relationship_profile_confidence === "high"
+                  ? "success"
+                  : candidate.relationship_profile_confidence === "medium"
+                    ? "secondary"
+                    : "outline"
               return (
                 <div
-                  key={candidate.subscription_id}
-                  className="grid gap-3 px-5 py-3 lg:grid-cols-[minmax(0,1.05fr)_minmax(150px,0.8fr)_minmax(160px,0.85fr)_minmax(210px,1.1fr)] lg:items-center"
+                  key={candidate.customer_group_id || candidate.subscription_id}
+                  className="grid gap-5 px-5 py-4 xl:grid-cols-[minmax(210px,0.8fr)_minmax(350px,1.35fr)_minmax(250px,1fr)] xl:items-center"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{candidate.name}</p>
+                    <p className="truncate text-sm font-semibold" title={customerLabel}>
+                      {customerLabel}
+                    </p>
                     <p
                       className="mt-0.5 truncate text-[11px] text-muted-foreground"
-                      title={candidate.customer_email || undefined}
+                      title={candidate.name || undefined}
                     >
-                      {candidate.customer_email || "-"}
+                      {candidate.name !== customerLabel ? candidate.name : candidate.account_name}
                     </p>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <Badge variant="outline">
-                        {t(`goals.repricing.relationship.${candidate.relationship_stage}`)}
-                      </Badge>
-                      <Badge variant={riskVariant}>
-                        {t(`goals.repricing.risk.${candidate.adjustment_risk}`)}
-                      </Badge>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <Badge
                         variant="outline"
                         className={customerTierVisuals[candidate.customer_tier].badgeClass}
@@ -1458,146 +1571,58 @@ function RepricingAnalysisPanel({
                           })}
                         </Badge>
                       ) : null}
-                      {candidate.exemption_count > 0 ? (
-                        <Badge variant="outline">
-                          {t("goals.repricing.exemptionCount", {
-                            count: candidate.exemption_count,
-                          })}
+                    </div>
+                    <div className="mt-2.5">
+                      {candidate.needs_contact_followup ? (
+                        <Badge variant="warning" className="font-normal">
+                          <MessageCircle />
+                          {t("goals.repricing.contactMissing")}
                         </Badge>
-                      ) : null}
-                    </div>
-                    <p className="mt-1.5 text-[11px] tabular-nums text-muted-foreground">
-                      {t("goals.relationshipStatus", {
-                        days: candidate.relationship_days,
-                        periods: candidate.paid_period_count,
-                      })}
-                    </p>
-                  </div>
-                  <div className="min-w-0">
-                    <div className="flex items-center justify-between gap-2 text-xs">
-                      <span className="font-medium tabular-nums">
-                        {visibleYuan(candidate.current_price_cents, amountsHidden)}
-                      </span>
-                      <span className="text-muted-foreground">
-                        {candidate.price_gap_percent > 0
-                          ? t("goals.repricing.belowTypicalPercent", { value: candidate.price_gap_percent })
-                          : candidate.price_gap_percent < 0
-                            ? t("goals.repricing.aboveTypicalPercent", {
-                                value: Math.abs(candidate.price_gap_percent),
-                              })
-                            : t("goals.repricing.nearTypical")}
-                      </span>
-                    </div>
-                    <div className="mt-2 space-y-1.5 text-[9px] text-muted-foreground">
-                      <div className="grid grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-1.5">
-                        <span>{t("goals.repricing.score.renewalEvidence")}</span>
-                        <span className="col-span-2 text-right tabular-nums text-foreground/80">
-                          {t("goals.repricing.renewalEvidenceValue", {
-                            count: candidate.renewal_count,
-                            level: t(
-                              `goals.repricing.renewalEvidence.${candidate.renewal_evidence}`,
-                            ),
-                          })}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-[4rem_minmax(0,1fr)_2rem] items-center gap-1.5">
-                        <span title={t("goals.repricing.verifiedPriceIndexHint")}>
-                          {t("goals.repricing.score.verifiedPrice")}
-                        </span>
-                        <div
-                          className="h-1 overflow-hidden rounded-full bg-muted"
-                          aria-label={
-                            verifiedPriceIndex === null
-                              ? t("goals.repricing.verifiedPriceUnavailable")
-                              : t("goals.repricing.verifiedPriceIndexValue", {
-                                  value: verifiedPriceIndex,
-                                })
-                          }
-                        >
-                          <div
-                            className="h-full rounded-full bg-[var(--chart-2)]"
-                            style={{
-                              width: `${Math.max(0, Math.min(verifiedPriceIndex ?? 0, 100))}%`,
-                            }}
-                          />
-                        </div>
-                        <span className="text-right tabular-nums">
-                          {verifiedPriceIndex ?? "--"}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-[4rem_minmax(0,1fr)_auto] items-center gap-1.5">
-                        <span>{t("goals.repricing.score.priceStability")}</span>
-                        <span className="col-span-2 text-right tabular-nums text-foreground/80">
-                          {t("goals.repricing.priceStableDaysValue", {
-                            value: candidate.price_stable_days,
-                          })}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-[4rem_minmax(0,1fr)_2rem] items-center gap-1.5">
-                        <span>{t("goals.repricing.score.pricePressure")}</span>
-                        <div
-                          className="h-1 overflow-hidden rounded-full bg-muted"
-                          aria-label={t("goals.repricing.pricePressureValue", {
-                            value: candidate.price_pressure_score,
-                          })}
-                        >
-                          <div
-                            className="h-full rounded-full bg-warning"
-                            style={{
-                              width: `${Math.max(0, Math.min(candidate.price_pressure_score, 100))}%`,
-                            }}
-                          />
-                        </div>
-                        <span className="text-right tabular-nums">
-                          {candidate.price_pressure_score}
-                        </span>
-                      </div>
+                      ) : (
+                        <p className="flex items-center gap-1.5 truncate text-[11px] text-muted-foreground">
+                          <MessageCircle className="size-3.5 shrink-0 text-success" />
+                          <span className="truncate">{candidate.customer_wechat}</span>
+                        </p>
+                      )}
                     </div>
                   </div>
+
+                  <RelationshipRadar candidate={candidate} />
+
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <Badge
-                        variant={
-                          candidate.recommended
-                            ? "success"
-                            : candidate.next_price_cents !== null
-                              ? "brand"
-                              : "secondary"
-                        }
-                      >
-                        {t(`goals.repricing.decision.${decisionKey}`)}
+                      <Badge variant={relationshipVariant}>
+                        {t(`goals.repricing.relationshipLevel.${candidate.relationship_level}`)}
                       </Badge>
-                      {candidate.recommended && targetPrice > candidate.current_price_cents ? (
-                        <span className="text-[11px] font-medium tabular-nums text-brand">
-                          {visibleYuan(candidate.current_price_cents, amountsHidden)} →{" "}
-                          {visibleYuan(targetPrice, amountsHidden)}
-                          {candidate.suggested_increase_percent > 0
-                            ? ` (+${candidate.suggested_increase_percent}%)`
-                            : ""}
-                        </span>
-                      ) : null}
-                    </div>
-                    <p className="mt-1.5 line-clamp-2 text-[11px] leading-4 text-muted-foreground">
-                      {(candidate.analysis_codes ?? [])
-                        .slice(0, 3)
-                        .map((code) => t(`goals.repricing.signal.${code}`))
-                        .join(" · ")}
-                    </p>
-                    {candidate.next_review_date ? (
-                      <p className="mt-1 text-[10px] tabular-nums text-muted-foreground">
-                        {t("goals.repricing.reviewOn", { date: candidate.next_review_date })}
-                      </p>
-                    ) : null}
-                    {candidate.blocked_code === "exempted" &&
-                    candidate.exemption_reason_code ? (
-                      <p className="mt-1 text-[10px] text-success">
-                        {t("goals.repricing.exemptionReason", {
-                          reason: t(
-                            `goals.exemptionDialog.reasons.${candidate.exemption_reason_code}`,
-                          ),
+                      <Badge variant={confidenceVariant} className="font-normal">
+                        {t(`goals.repricing.profileConfidence.${candidate.relationship_profile_confidence}`)}
+                      </Badge>
+                      <span className="ml-auto text-xs font-semibold tabular-nums text-brand">
+                        {t("goals.repricing.profileOverall", {
+                          value: candidate.relationship_health_score,
                         })}
+                      </span>
+                    </div>
+
+                    <div className="mt-2.5 rounded-md border border-brand/10 bg-brand/[0.045] px-3 py-2.5">
+                      <p className="text-[10px] font-medium text-muted-foreground">
+                        {t("goals.repricing.primaryTaskTitle")}
                       </p>
-                    ) : null}
+                      <p className="mt-0.5 text-xs font-semibold text-foreground">
+                        {t(`goals.repricing.primaryTask.${candidate.primary_relationship_task}`)}
+                      </p>
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {(candidate.relationship_signal_codes ?? []).slice(0, 3).map((code) => (
+                        <span
+                          key={code}
+                          className="rounded-sm bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                        >
+                          {t(`goals.repricing.relationshipSignal.${code}`)}
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 </div>
               )

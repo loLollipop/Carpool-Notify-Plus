@@ -683,8 +683,25 @@ export interface PricingCandidate {
   monthly_revenue_cents: number
   customer_group_size: number
   customer_group_monthly_revenue_cents: number
+  customer_group_id: number
   customer_tier: "core" | "mainstay" | "optimize"
   relationship_stage: "new" | "developing" | "established" | "loyal"
+  customer_quality_score: number
+  relationship_score: number
+  loyalty_score: number
+  contact_strength_score: number
+  relationship_health_score: number
+  relationship_level: "fragile" | "developing" | "stable" | "trusted"
+  relationship_profile_confidence: "low" | "medium" | "high"
+  primary_relationship_task:
+    | "repair_trust"
+    | "complete_contact"
+    | "observe_first_renewal"
+    | "protect_key_account"
+    | "maintain_low_frequency"
+    | "strengthen_habit"
+  needs_contact_followup: boolean
+  relationship_signal_codes: string[] | null
   adjustment_risk: "low" | "medium" | "high"
   readiness_score: number
   price_gap_percent: number
