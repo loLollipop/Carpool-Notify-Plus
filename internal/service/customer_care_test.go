@@ -133,7 +133,7 @@ func TestCustomerCareMergesMultiSeatIdentityAndStartsCooldown(t *testing.T) {
 	}
 	candidate := care.Candidates[0]
 	if candidate.SeatCount != 2 || candidate.RenewalCount != 1 || !candidate.Recommended ||
-		candidate.ReasonCode != "first_renewal" {
+		candidate.ReasonCode != "first_renewal" || candidate.CurrentCycleValueCents != 20000 {
 		t.Fatalf("merged care candidate = %#v", candidate)
 	}
 

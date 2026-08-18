@@ -150,6 +150,7 @@ type PricingCandidate struct {
 	MonthlyRevenueCents              int64    `json:"monthly_revenue_cents"`
 	CustomerGroupID                  int64    `json:"customer_group_id"`
 	CustomerGroupSize                int      `json:"customer_group_size"`
+	CustomerGroupCurrentPriceCents   int64    `json:"customer_group_current_price_cents"`
 	CustomerGroupMonthlyRevenueCents int64    `json:"customer_group_monthly_revenue_cents"`
 	CustomerTier                     string   `json:"customer_tier"`
 	RelationshipStage                string   `json:"relationship_stage"`
@@ -1241,6 +1242,7 @@ func assignCustomerTiers(candidates []PricingCandidate) {
 	values := make([]int64, 0, len(groups))
 	for root, memberIndexes := range groups {
 		var monthlyRevenueCents int64
+		var currentPriceCents int64
 		groupID := int64(0)
 		for _, index := range memberIndexes {
 			candidateValue := candidates[index].MonthlyRevenueCents
@@ -1248,6 +1250,7 @@ func assignCustomerTiers(candidates []PricingCandidate) {
 				candidateValue = candidates[index].CurrentPriceCents
 			}
 			monthlyRevenueCents += candidateValue
+			currentPriceCents += maxInt64(candidates[index].CurrentPriceCents, 0)
 			if subscriptionID := candidates[index].SubscriptionID; subscriptionID > 0 &&
 				(groupID == 0 || subscriptionID < groupID) {
 				groupID = subscriptionID
@@ -1261,6 +1264,7 @@ func assignCustomerTiers(candidates []PricingCandidate) {
 		for _, index := range memberIndexes {
 			candidates[index].CustomerGroupID = groupID
 			candidates[index].CustomerGroupSize = len(memberIndexes)
+			candidates[index].CustomerGroupCurrentPriceCents = currentPriceCents
 			candidates[index].CustomerGroupMonthlyRevenueCents = monthlyRevenueCents
 		}
 	}

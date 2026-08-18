@@ -30,25 +30,25 @@ const (
 )
 
 type CustomerBenefitCandidate struct {
-	SubscriptionID       int64  `json:"subscription_id"`
-	CustomerEmail        string `json:"customer_email"`
-	CustomerWechat       string `json:"customer_wechat"`
-	DisplayName          string `json:"display_name"`
-	CustomerTier         string `json:"customer_tier"`
-	SeatCount            int    `json:"seat_count"`
-	MonthlyRevenueCents  int64  `json:"monthly_revenue_cents"`
-	RenewalCount         int    `json:"renewal_count"`
-	RelationshipDays     int    `json:"relationship_days"`
-	NextDueDate          string `json:"next_due_date"`
-	LastPaidDate         string `json:"last_paid_date"`
-	LastBenefitDate      string `json:"last_benefit_date"`
-	NextEligibleDate     string `json:"next_eligible_date"`
-	RecommendedDate      string `json:"recommended_date"`
-	ReasonCode           string `json:"reason_code"`
-	SuggestedBenefitType string `json:"suggested_benefit_type"`
-	Status               string `json:"status"`
-	Recommended          bool   `json:"recommended"`
-	Selectable           bool   `json:"selectable"`
+	SubscriptionID         int64  `json:"subscription_id"`
+	CustomerEmail          string `json:"customer_email"`
+	CustomerWechat         string `json:"customer_wechat"`
+	DisplayName            string `json:"display_name"`
+	CustomerTier           string `json:"customer_tier"`
+	SeatCount              int    `json:"seat_count"`
+	CurrentCycleValueCents int64  `json:"current_cycle_value_cents"`
+	RenewalCount           int    `json:"renewal_count"`
+	RelationshipDays       int    `json:"relationship_days"`
+	NextDueDate            string `json:"next_due_date"`
+	LastPaidDate           string `json:"last_paid_date"`
+	LastBenefitDate        string `json:"last_benefit_date"`
+	NextEligibleDate       string `json:"next_eligible_date"`
+	RecommendedDate        string `json:"recommended_date"`
+	ReasonCode             string `json:"reason_code"`
+	SuggestedBenefitType   string `json:"suggested_benefit_type"`
+	Status                 string `json:"status"`
+	Recommended            bool   `json:"recommended"`
+	Selectable             bool   `json:"selectable"`
 }
 
 type CustomerBenefitView struct {
@@ -256,20 +256,22 @@ func buildCustomerBenefitCandidate(
 ) CustomerBenefitCandidate {
 	representative := group.Members[0]
 	candidate := CustomerBenefitCandidate{
-		SubscriptionID:       representative.SubscriptionID,
-		CustomerEmail:        representative.CustomerEmail,
-		CustomerWechat:       representative.CustomerWechat,
-		DisplayName:          representative.Name,
-		CustomerTier:         representative.CustomerTier,
-		SeatCount:            len(group.Members),
-		MonthlyRevenueCents:  representative.CustomerGroupMonthlyRevenueCents,
-		Selectable:           true,
-		Status:               "hold",
-		ReasonCode:           "manual_review",
-		SuggestedBenefitType: model.CustomerBenefitTypeManual,
+		SubscriptionID:         representative.SubscriptionID,
+		CustomerEmail:          representative.CustomerEmail,
+		CustomerWechat:         representative.CustomerWechat,
+		DisplayName:            representative.Name,
+		CustomerTier:           representative.CustomerTier,
+		SeatCount:              len(group.Members),
+		CurrentCycleValueCents: representative.CustomerGroupCurrentPriceCents,
+		Selectable:             true,
+		Status:                 "hold",
+		ReasonCode:             "manual_review",
+		SuggestedBenefitType:   model.CustomerBenefitTypeManual,
 	}
-	if candidate.MonthlyRevenueCents <= 0 {
-		candidate.MonthlyRevenueCents = representative.MonthlyRevenueCents
+	if candidate.CurrentCycleValueCents <= 0 {
+		for _, member := range group.Members {
+			candidate.CurrentCycleValueCents += maxInt64(member.CurrentPriceCents, 0)
+		}
 	}
 	for _, member := range group.Members {
 		if candidate.CustomerEmail == "" && member.CustomerEmail != "" {
@@ -482,8 +484,8 @@ func sortCustomerBenefitCandidates(candidates []CustomerBenefitCandidate) {
 		if leftOrder != rightOrder {
 			return leftOrder < rightOrder
 		}
-		if candidates[left].MonthlyRevenueCents != candidates[right].MonthlyRevenueCents {
-			return candidates[left].MonthlyRevenueCents > candidates[right].MonthlyRevenueCents
+		if candidates[left].CurrentCycleValueCents != candidates[right].CurrentCycleValueCents {
+			return candidates[left].CurrentCycleValueCents > candidates[right].CurrentCycleValueCents
 		}
 		return candidates[left].SubscriptionID < candidates[right].SubscriptionID
 	})

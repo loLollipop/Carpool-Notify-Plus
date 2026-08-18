@@ -1585,6 +1585,30 @@ function RepricingAnalysisPanel({
                         </p>
                       )}
                     </div>
+                    <div className="mt-3 inline-flex max-w-full items-center gap-2.5 rounded-md border border-brand/15 bg-brand/[0.055] px-2.5 py-2 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--brand)_8%,transparent)]">
+                      <span
+                        aria-hidden="true"
+                        className="grid size-7 shrink-0 place-items-center rounded-sm bg-brand/12 font-mono text-sm font-bold text-brand"
+                      >
+                        {candidate.customer_group_size > 1 ? "Σ" : "◆"}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate font-mono text-sm font-semibold tabular-nums tracking-tight text-foreground">
+                          {visibleYuan(candidate.customer_group_current_price_cents, amountsHidden)}
+                          <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                            {t("goals.repricing.profilePriceSuffix")}
+                          </span>
+                        </p>
+                        <p className="truncate text-[10px] text-muted-foreground">
+                          {t(
+                            candidate.customer_group_size > 1
+                              ? "goals.repricing.profilePriceGroup"
+                              : "goals.repricing.profilePriceSingle",
+                            { count: candidate.customer_group_size },
+                          )}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
                   <RelationshipRadar candidate={candidate} />
@@ -2874,10 +2898,10 @@ function CustomerCarePanel({
                     </TableCell>
                     <TableCell className="tabular-nums">
                       <p className="font-semibold">
-                        {visibleYuan(candidate.monthly_revenue_cents, amountsHidden)}
+                        {visibleYuan(candidate.current_cycle_value_cents, amountsHidden)}
                       </p>
                       <p className="mt-0.5 text-[11px] text-muted-foreground">
-                        {t("goals.care.monthlyValue")}
+                        {t("goals.care.currentCycleValue")}
                       </p>
                     </TableCell>
                     <TableCell className="min-w-32 whitespace-normal">

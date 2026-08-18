@@ -1284,6 +1284,7 @@ func TestAssignCustomerTiersMergesMultiSeatCustomersTransitively(t *testing.T) {
 	for index := 0; index < 3; index++ {
 		if candidates[index].CustomerGroupID != candidates[0].CustomerGroupID ||
 			candidates[index].CustomerGroupSize != 3 || candidates[index].CustomerTier != "core" ||
+			candidates[index].CustomerGroupCurrentPriceCents != 12000 ||
 			candidates[index].CustomerGroupMonthlyRevenueCents != 12000 {
 			t.Fatalf("transitive customer member %d = %#v", index, candidates[index])
 		}

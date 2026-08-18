@@ -682,6 +682,7 @@ export interface PricingCandidate {
   scheduled_monthly_uplift_cents: number
   monthly_revenue_cents: number
   customer_group_size: number
+  customer_group_current_price_cents: number
   customer_group_monthly_revenue_cents: number
   customer_group_id: number
   customer_tier: "core" | "mainstay" | "optimize"
@@ -789,7 +790,7 @@ export interface CustomerBenefitCandidate {
   display_name: string
   customer_tier: "core" | "mainstay" | "optimize"
   seat_count: number
-  monthly_revenue_cents: number
+  current_cycle_value_cents: number
   renewal_count: number
   relationship_days: number
   next_due_date: string
