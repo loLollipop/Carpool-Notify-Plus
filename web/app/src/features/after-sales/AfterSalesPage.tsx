@@ -28,6 +28,10 @@ import { useAccountOptions, useAfterSales } from "@/api/queries"
 import type { AfterSalesCaseView, AfterSalesStatus } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { PageHeader } from "@/components/page-header"
+import {
+  StatDetailDialog,
+  type StatDetailState,
+} from "@/components/stat-detail-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -427,6 +431,7 @@ export function AfterSalesPage() {
   const [editTarget, setEditTarget] = React.useState<AfterSalesCaseView | null>(null)
   const [reassignTarget, setReassignTarget] = React.useState<AfterSalesCaseView | null>(null)
   const [refundTarget, setRefundTarget] = React.useState<AfterSalesCaseView | null>(null)
+  const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
 
   const toggleRefundMutation = useAppMutation(
     (input: { id: number; refunded: boolean }) => setAfterSalesRefunded(input.id, input.refunded),
@@ -434,6 +439,10 @@ export function AfterSalesPage() {
   )
 
   const allCases = React.useMemo(() => query.data?.cases ?? [], [query.data?.cases])
+  const summaryCases = React.useMemo(
+    () => query.data?.summary_cases ?? allCases,
+    [allCases, query.data?.summary_cases],
+  )
   const filteredCases = React.useMemo(() => {
     const needle = search.trim().toLowerCase()
     return allCases.filter((view) => {
@@ -465,6 +474,33 @@ export function AfterSalesPage() {
   const pagedCases = filteredCases.slice(start, start + CASES_PER_PAGE)
   const summary = query.data?.summary
 
+  const openStatDetail = (key: "affected" | "pending" | "reassigned" | "refunded") => {
+    const source = key === "affected"
+      ? summaryCases
+      : key === "pending"
+        ? summaryCases.filter((view) => view.case.status === "pending" || view.case.status === "review")
+        : summaryCases.filter((view) => view.case.status === key)
+    const title = key === "affected"
+      ? t("afterSales.kpiAffected")
+      : key === "pending"
+        ? t("afterSales.kpiPending")
+        : key === "reassigned"
+          ? t("afterSales.kpiReassigned")
+          : t("afterSales.kpiRefunded")
+    setStatDetail({
+      title,
+      items: source.map((view) => ({
+        id: view.case.id,
+        title: view.case.customer_email || view.case.customer_wechat || `#${view.case.id}`,
+        subtitle: view.case.customer_wechat || view.case.account_name,
+        meta: [view.case.account_email, view.case.period_end, view.status_label],
+        value: key === "refunded" ? `¥${view.refund_amount_yuan}` : `¥${view.paid_amount_yuan}`,
+        valueTone: key === "refunded" ? "danger" : key === "reassigned" ? "success" : "default",
+        searchText: `${view.case.replacement_account_name} ${view.case.note}`,
+      })),
+    })
+  }
+
   return (
     <div className="flex flex-col xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:overflow-hidden">
       <PageHeader
@@ -490,6 +526,7 @@ export function AfterSalesPage() {
         <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
           {[
             {
+              key: "affected" as const,
               label: t("afterSales.kpiAffected"),
               value: summary?.total_count ?? 0,
               hint: t("afterSales.kpiAffectedHint"),
@@ -497,6 +534,7 @@ export function AfterSalesPage() {
               tone: "bg-brand/10 text-brand",
             },
             {
+              key: "pending" as const,
               label: t("afterSales.kpiPending"),
               value: (summary?.pending_count ?? 0) + (summary?.review_count ?? 0),
               hint: t("afterSales.kpiPendingHint", { review: summary?.review_count ?? 0 }),
@@ -504,6 +542,7 @@ export function AfterSalesPage() {
               tone: "bg-destructive/10 text-destructive",
             },
             {
+              key: "reassigned" as const,
               label: t("afterSales.kpiReassigned"),
               value: summary?.reassigned_count ?? 0,
               hint: t("afterSales.kpiReassignedHint"),
@@ -511,6 +550,7 @@ export function AfterSalesPage() {
               tone: "bg-brand/10 text-brand",
             },
             {
+              key: "refunded" as const,
               label: t("afterSales.kpiRefunded"),
               value: `¥${summary?.refunded_amount_yuan ?? "0.00"}`,
               hint: t("afterSales.kpiRefundedHint", { count: summary?.refunded_count ?? 0 }),
@@ -518,8 +558,14 @@ export function AfterSalesPage() {
               tone: "bg-success/10 text-success",
             },
           ].map((item) => (
-            <Card key={item.label} className="gap-0 p-4">
-              <div className="flex items-start justify-between gap-3">
+            <Card key={item.label} className="group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift">
+              <button
+                type="button"
+                onClick={() => openStatDetail(item.key)}
+                aria-label={item.label}
+                className="w-full p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-inset"
+              >
+                <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-xs text-muted-foreground">{item.label}</div>
                   <div className="mt-3 truncate text-2xl font-semibold tabular-nums">{item.value}</div>
@@ -528,7 +574,9 @@ export function AfterSalesPage() {
                 <span className={cn("grid size-9 shrink-0 place-items-center rounded-md", item.tone)}>
                   <item.icon className="size-4" />
                 </span>
-              </div>
+                </div>
+                <span className="absolute inset-x-0 bottom-0 h-0.5 origin-left scale-x-0 bg-brand transition-transform duration-300 group-hover:scale-x-100 group-focus-within:scale-x-100" />
+              </button>
             </Card>
           ))}
         </div>
@@ -709,6 +757,13 @@ export function AfterSalesPage() {
         onOpenChange={(open) => {
           if (!open) setReassignTarget(null)
         }}
+      />
+      <StatDetailDialog
+        open={statDetail !== null}
+        onOpenChange={(open) => {
+          if (!open) setStatDetail(null)
+        }}
+        detail={statDetail}
       />
       <ConfirmDialog
         open={refundTarget !== null}

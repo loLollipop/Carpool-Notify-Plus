@@ -27,6 +27,7 @@ import {
 import { useAccounts, useBills, useCalendar, useDashboard, useSubscriptions } from "@/api/queries"
 import type {
   AccountView,
+  BillView,
   BillsSummary,
   CalendarMonth,
   Dashboard,
@@ -35,6 +36,11 @@ import type {
 import { AmountPrivacyToggle } from "@/components/amount-privacy-toggle"
 import { NumberTicker } from "@/components/number-ticker"
 import { PageHeader } from "@/components/page-header"
+import {
+  StatDetailDialog,
+  type StatDetailItem,
+  type StatDetailState,
+} from "@/components/stat-detail-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -163,6 +169,7 @@ function KpiCard({
   tone,
   delay,
   amountsHidden,
+  onClick,
 }: {
   label: string
   value: string | number
@@ -171,6 +178,7 @@ function KpiCard({
   tone: KpiTone
   delay: number
   amountsHidden: boolean
+  onClick: () => void
 }) {
   const toneClass: Record<KpiTone, string> = {
     brand: "bg-brand/10 text-brand",
@@ -180,10 +188,15 @@ function KpiCard({
   }
   return (
     <Card
-      className="group relative min-h-[112px] gap-0 overflow-hidden p-4 transition-[border-color,box-shadow] duration-200 animate-fade-up hover:border-input hover:shadow-lift"
+      className="group relative min-h-[112px] gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] duration-200 animate-fade-up hover:border-input hover:bg-accent/25 hover:shadow-lift"
       style={{ animationDelay: `${delay}ms` }}
     >
-      <div className="flex min-w-0 items-start gap-3">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        className="flex w-full min-w-0 items-start gap-3 p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-inset"
+      >
         <span
           className={cn(
             "grid size-10 shrink-0 place-items-center rounded-md transition-colors duration-200",
@@ -199,7 +212,8 @@ function KpiCard({
           </div>
           <div className="mt-2 line-clamp-2 text-[11px] leading-4 text-muted-foreground">{hint}</div>
         </div>
-      </div>
+        <span className="absolute inset-x-0 bottom-0 h-0.5 origin-left scale-x-0 bg-brand transition-transform duration-300 group-hover:scale-x-100 group-focus-within:scale-x-100" />
+      </button>
     </Card>
   )
 }
@@ -210,12 +224,14 @@ function KpiRow({
   accountCount,
   calendar,
   amountsHidden,
+  onOpenDetail,
 }: {
   dashboard: Dashboard
   summary: BillsSummary | undefined
   accountCount: number
   calendar: CalendarMonth | undefined
   amountsHidden: boolean
+  onOpenDetail: (key: "revenue" | "profit" | "refund" | "cost" | "pending") => void
 }) {
   const { t } = useTranslation()
 
@@ -232,6 +248,7 @@ function KpiRow({
         tone="brand"
         delay={0}
         amountsHidden={amountsHidden}
+        onClick={() => onOpenDetail("revenue")}
       />
       <KpiCard
         label={t("dash.kpiProfit")}
@@ -245,6 +262,7 @@ function KpiRow({
         tone="success"
         delay={70}
         amountsHidden={amountsHidden}
+        onClick={() => onOpenDetail("profit")}
       />
       <KpiCard
         label={t("dash.kpiRefund")}
@@ -256,6 +274,7 @@ function KpiRow({
         tone="violet"
         delay={140}
         amountsHidden={amountsHidden}
+        onClick={() => onOpenDetail("refund")}
       />
       <KpiCard
         label={t("dash.kpiAccountCost")}
@@ -268,6 +287,7 @@ function KpiRow({
         tone="gold"
         delay={210}
         amountsHidden={amountsHidden}
+        onClick={() => onOpenDetail("cost")}
       />
       <KpiCard
         label={t("dash.kpiPendingMonth")}
@@ -279,6 +299,7 @@ function KpiRow({
         tone="violet"
         delay={280}
         amountsHidden={amountsHidden}
+        onClick={() => onOpenDetail("pending")}
       />
     </section>
   )
@@ -907,6 +928,7 @@ export function DashboardPage() {
 
   const [plusDialogOpen, setPlusDialogOpen] = React.useState(false)
   const [teamDialogOpen, setTeamDialogOpen] = React.useState(false)
+  const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
 
   const isPending = dashboardQuery.isPending || billsQuery.isPending || calendarQuery.isPending
   const isError = dashboardQuery.isError || billsQuery.isError || calendarQuery.isError
@@ -923,6 +945,144 @@ export function DashboardPage() {
     void calendarQuery.refetch()
     void subscriptionsQuery.refetch()
     void accountsQuery.refetch()
+  }
+
+  const openStatDetail = (key: "revenue" | "profit" | "refund" | "cost" | "pending") => {
+    if (!dashboard) return
+    const bills = billsQuery.data?.bills ?? []
+    const refundDetails = billsQuery.data?.summary.refund_details ?? []
+    const visibleAmount = (yuan: string) => maskAmount(amountsHidden, `¥${yuan}`)
+    const billItem = (bill: BillView, value: React.ReactNode): StatDetailItem => ({
+      id: `bill:${bill.id}`,
+      title: bill.customer_email || bill.subscription_name,
+      subtitle: bill.customer_wechat || bill.subscription_name,
+      meta: [bill.account_name, bill.seat_name, bill.due_date, bill.paid_at_label],
+      value,
+      searchText: `${bill.subscription_name} ${bill.account_email}`,
+    })
+    const refundItem = (refund: (typeof refundDetails)[number], negative = false): StatDetailItem => ({
+      id: `refund:${refund.id}`,
+      title: refund.customer_email || refund.customer_wechat || refund.account_name || `#${refund.id}`,
+      subtitle: refund.customer_wechat || refund.account_name,
+      meta: [refund.processed_at_label, refund.period_end, refund.note],
+      value: maskAmount(amountsHidden, `${negative ? "-" : ""}¥${refund.amount_yuan}`),
+      valueTone: "danger",
+      searchText: `${refund.account_name} ${refund.business_type}`,
+    })
+
+    if (key === "pending") {
+      const pending = (calendarQuery.data?.occurrences ?? []).filter((item) => !item.paid)
+      setStatDetail({
+        title: t("dash.kpiPendingMonth"),
+        items: pending.map((item) => ({
+          id: `${item.subscription_id}:${item.due_date}`,
+          title: item.customer_email || item.name,
+          subtitle: item.customer_wechat || item.account_name,
+          meta: [item.account_name, item.seat_name, item.due_date],
+          value: visibleAmount(item.price_yuan),
+          valueTone: "warning",
+        })),
+      })
+      return
+    }
+
+    if (key === "cost") {
+      const accountItems: StatDetailItem[] = (accountsQuery.data ?? [])
+        .filter((view) => view.account.total_cost_cents > 0)
+        .map((view) => ({
+          id: `account:${view.account.id}`,
+          title: view.account.email || view.account.name,
+          subtitle: view.account.space_name || view.account.name,
+          meta: [t("dash.detailAccountCost"), view.account.remark],
+          value: maskAmount(amountsHidden, formatCents(view.account.total_cost_cents)),
+          valueTone: "warning",
+        }))
+      const plusItems: StatDetailItem[] = bills
+        .filter((bill) => bill.business_type === "plus" && bill.cost_cents > 0)
+        .map((bill) => ({
+          ...billItem(bill, maskAmount(amountsHidden, formatCents(bill.cost_cents))),
+          id: `plus-cost:${bill.id}`,
+          valueTone: "warning",
+        }))
+      const knownCostCents = (accountsQuery.data ?? []).reduce(
+        (sum, view) => sum + view.account.total_cost_cents,
+        0,
+      ) + bills
+        .filter((bill) => bill.business_type === "plus")
+        .reduce((sum, bill) => sum + bill.cost_cents, 0)
+      const totalCostCents = Math.round(Number.parseFloat(dashboard.total_cost_yuan || "0") * 100)
+      const benefitCostCents = Math.max(0, totalCostCents - knownCostCents)
+      const benefitItems: StatDetailItem[] = benefitCostCents > 0 ? [{
+        id: "benefit-cost",
+        title: t("dash.detailBenefitCost"),
+        subtitle: t("dash.detailBenefitCostHint"),
+        value: maskAmount(amountsHidden, formatCents(benefitCostCents)),
+        valueTone: "warning",
+      }] : []
+      setStatDetail({
+        title: t("dash.kpiAccountCost"),
+        description: t("dash.detailCostHint"),
+        items: [...accountItems, ...plusItems, ...benefitItems],
+      })
+      return
+    }
+
+    if (key === "refund") {
+      setStatDetail({
+        title: t("dash.kpiRefund"),
+        items: refundDetails
+          .filter((refund) => refund.amount_cents > 0)
+          .map((refund) => refundItem(refund)),
+      })
+      return
+    }
+
+    if (key === "profit") {
+      const plusBills = bills.filter((bill) => bill.business_type === "plus")
+      const teamNetCents = bills
+        .filter((bill) => bill.business_type !== "plus")
+        .reduce((sum, bill) => sum + bill.net_amount_cents, 0)
+      const plusItems: StatDetailItem[] = plusBills.map((bill) => ({
+        ...billItem(
+          bill,
+          maskAmount(amountsHidden, formatCents(bill.net_amount_cents - bill.cost_cents)),
+        ),
+        valueTone: "success",
+      }))
+      const teamAndBenefitCostCents = Math.max(
+        0,
+        Math.round(Number.parseFloat(dashboard.total_cost_yuan) * 100) -
+          plusBills.reduce((sum, bill) => sum + bill.cost_cents, 0),
+      )
+      const teamProfitCents = teamNetCents - teamAndBenefitCostCents
+      setStatDetail({
+        title: t("dash.kpiProfit"),
+        description: t("dash.detailProfitHint"),
+        items: [
+          {
+            id: "team-profit",
+            title: t("dash.detailTeamProfit"),
+            subtitle: t("dash.detailTeamProfitHint"),
+            value: maskAmount(amountsHidden, formatCents(teamProfitCents)),
+            valueTone: "success",
+          },
+          ...plusItems,
+          ...refundDetails
+            .filter((refund) => refund.bill_id <= 0)
+            .map((refund) => refundItem(refund, true)),
+        ],
+      })
+      return
+    }
+
+    const items: StatDetailItem[] = bills.map((bill) => ({
+      ...billItem(bill, visibleAmount(bill.amount_yuan)),
+      valueTone: "default",
+    }))
+    setStatDetail({
+      title: t("dash.kpiRevenue"),
+      items,
+    })
   }
 
   return (
@@ -970,6 +1130,7 @@ export function DashboardPage() {
             accountCount={accountsQuery.data?.length ?? dashboard.accounts?.length ?? 0}
             calendar={calendarQuery.data}
             amountsHidden={amountsHidden}
+            onOpenDetail={openStatDetail}
           />
 
           <div className="grid min-h-[420px] flex-1 items-stretch gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
@@ -995,6 +1156,13 @@ export function DashboardPage() {
 
       <PlusRentalDialog open={plusDialogOpen} onOpenChange={setPlusDialogOpen} prefill={null} />
       <SubscriptionDialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen} prefill={null} />
+      <StatDetailDialog
+        open={statDetail !== null}
+        onOpenChange={(open) => {
+          if (!open) setStatDetail(null)
+        }}
+        detail={statDetail}
+      />
     </div>
   )
 }

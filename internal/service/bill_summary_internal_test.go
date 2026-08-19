@@ -13,6 +13,7 @@ func TestBillsSummaryUsesDueDateMonthForBackfilledPayment(t *testing.T) {
 		{
 			SubscriptionID:   1,
 			SubscriptionName: "backfilled",
+			CustomerEmail:    "customer@example.com",
 			AccountName:      "account",
 			DueDate:          "2026-07-20",
 			AmountCents:      9000,
@@ -22,6 +23,9 @@ func TestBillsSummaryUsesDueDateMonthForBackfilledPayment(t *testing.T) {
 
 	if summary.ThisMonthCount != 0 || summary.ThisMonthAmountYuan != "0.00" {
 		t.Fatalf("august received = count %d amount %s, want 0 / 0.00", summary.ThisMonthCount, summary.ThisMonthAmountYuan)
+	}
+	if len(summary.AmountBySubscription) != 1 || summary.AmountBySubscription[0].CustomerEmail != "customer@example.com" {
+		t.Fatalf("subscription customer email = %#v, want customer@example.com", summary.AmountBySubscription)
 	}
 
 	var july MonthAmountBar
@@ -55,6 +59,42 @@ func TestBillsSummaryDoesNotDoubleCountLegacyTeamBillCost(t *testing.T) {
 	}
 	if summary.TotalProfitCents != 4500 || summary.TotalProfitYuan != "45.00" {
 		t.Fatalf("total profit = %d/%s, want 4500/45.00", summary.TotalProfitCents, summary.TotalProfitYuan)
+	}
+}
+
+func TestBillsSummaryExposesUnlinkedRefundForDetailReconciliation(t *testing.T) {
+	processedAt := time.Date(2026, time.August, 3, 12, 30, 0, 0, cycle.Location)
+	summary := buildBillsSummaryWithRefunds([]BillView{
+		{
+			ID:               7,
+			SubscriptionID:   1,
+			SubscriptionName: "customer",
+			BusinessType:     model.SubscriptionBusinessTeam,
+			DueDate:          "2026-07-20",
+			AmountCents:      3000,
+		},
+	}, []model.AfterSalesCase{
+		{
+			ID:                9,
+			BillID:            0,
+			SubscriptionID:    1,
+			BusinessType:      model.SubscriptionBusinessTeam,
+			CustomerEmail:     "customer@example.com",
+			RefundAmountCents: 1000,
+			Status:            model.AfterSalesStatusRefunded,
+			ProcessedAt:       &processedAt,
+		},
+	}, 0, processedAt)
+
+	if summary.TotalRefundYuan != "10.00" || summary.ThisMonthNetAmountYuan != "-10.00" {
+		t.Fatalf("refund summary = total %s month net %s, want 10.00 / -10.00", summary.TotalRefundYuan, summary.ThisMonthNetAmountYuan)
+	}
+	if len(summary.RefundDetails) != 1 {
+		t.Fatalf("refund details = %#v, want one row", summary.RefundDetails)
+	}
+	detail := summary.RefundDetails[0]
+	if detail.BillID != 0 || detail.CustomerEmail != "customer@example.com" || detail.ProcessedMonth != "2026-08" || detail.AmountCents != 1000 {
+		t.Fatalf("refund detail = %#v, want unlinked August customer refund", detail)
 	}
 }
 

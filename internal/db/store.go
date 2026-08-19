@@ -3689,6 +3689,44 @@ func (store *Store) CountNotificationsByStatusSince(status string, since time.Ti
 	return count, err
 }
 
+// ListNotificationActivitySince returns completed scheduled notification rows
+// for active subscriptions. The result uses the same scope as the dashboard
+// success/failure counters so UI detail rows always reconcile with the KPIs.
+func (store *Store) ListNotificationActivitySince(since time.Time) ([]model.NotificationLog, error) {
+	rows, err := store.database.Query(`
+		SELECT log.id, log.subscription_id, log.due_date, log.offset_days, log.channel,
+		       log.status, log.attempt_count, log.next_retry_at, log.last_error,
+		       log.kind, log.created_at, log.updated_at
+		FROM notification_log AS log
+		INNER JOIN subscriptions AS subscription ON subscription.id = log.subscription_id
+		WHERE subscription.deleted_at IS NULL
+		  AND subscription.archived_at IS NULL
+		  AND log.kind IN (?, ?)
+		  AND log.status IN (?, ?)
+		  AND log.updated_at >= ?
+		ORDER BY log.updated_at DESC, log.id DESC`,
+		model.NotificationKindScheduled,
+		model.NotificationKindPriceIncreaseNotice,
+		model.NotificationStatusSuccess,
+		model.NotificationStatusFailed,
+		formatTime(since.UTC()),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	activities := make([]model.NotificationLog, 0)
+	for rows.Next() {
+		activity, err := scanNotificationLog(rows)
+		if err != nil {
+			return nil, err
+		}
+		activities = append(activities, activity)
+	}
+	return activities, rows.Err()
+}
+
 // LatestErrorsBySubscription returns the latest error message per active subscription.
 func (store *Store) LatestErrorsBySubscription() (map[int64]string, error) {
 	rows, err := store.database.Query(`

@@ -78,8 +78,28 @@ type BillsSummary struct {
 	AverageAmountYuan      string             `json:"average_amount_yuan"`
 	AmountBySubscription   []AmountBar        `json:"amount_by_subscription"`
 	Accounts               []AccountBreakdown `json:"accounts"`
+	RefundDetails          []RefundDetail     `json:"refund_details"`
 	MonthlyTrend           []MonthAmountBar   `json:"monthly_trend"`
 	MaxMonthCents          int64              `json:"max_month_cents"`
+}
+
+// RefundDetail is one completed refund row used to reconcile statistic
+// dialogs with the financial summary, including manually entered refunds that
+// are not linked to a bill.
+type RefundDetail struct {
+	ID               int64  `json:"id"`
+	BillID           int64  `json:"bill_id"`
+	SubscriptionID   int64  `json:"subscription_id"`
+	BusinessType     string `json:"business_type"`
+	CustomerEmail    string `json:"customer_email"`
+	CustomerWechat   string `json:"customer_wechat"`
+	AccountName      string `json:"account_name"`
+	PeriodEnd        string `json:"period_end"`
+	ProcessedMonth   string `json:"processed_month"`
+	ProcessedAtLabel string `json:"processed_at_label"`
+	AmountCents      int64  `json:"amount_cents"`
+	AmountYuan       string `json:"amount_yuan"`
+	Note             string `json:"note"`
 }
 
 // MonthAmountBar is one month bucket in the bills trend chart.
@@ -306,6 +326,7 @@ func buildBillsSummaryWithRefunds(
 
 	subscriptionTotals := map[int64]*AmountBar{}
 	accountTotals := map[string]*accountAmountBucket{}
+	refundDetails := make([]RefundDetail, 0)
 	monthTotals := map[string]struct {
 		count       int
 		grossCents  int64
@@ -352,6 +373,7 @@ func buildBillsSummaryWithRefunds(
 			bar = &AmountBar{
 				SubscriptionID: view.SubscriptionID,
 				Name:           view.SubscriptionName,
+				CustomerEmail:  view.CustomerEmail,
 				AccountName:    view.AccountName,
 			}
 			subscriptionTotals[view.SubscriptionID] = bar
@@ -385,10 +407,27 @@ func buildBillsSummaryWithRefunds(
 			continue
 		}
 		totalRefundCents += caseItem.RefundAmountCents
+		detail := RefundDetail{
+			ID:             caseItem.ID,
+			BillID:         caseItem.BillID,
+			SubscriptionID: caseItem.SubscriptionID,
+			BusinessType:   caseItem.BusinessType,
+			CustomerEmail:  caseItem.CustomerEmail,
+			CustomerWechat: caseItem.CustomerWechat,
+			AccountName:    caseItem.AccountName,
+			PeriodEnd:      caseItem.PeriodEnd,
+			AmountCents:    caseItem.RefundAmountCents,
+			AmountYuan:     cycle.FormatCents(caseItem.RefundAmountCents),
+			Note:           caseItem.Note,
+		}
 		if caseItem.ProcessedAt == nil {
+			refundDetails = append(refundDetails, detail)
 			continue
 		}
 		monthKey := caseItem.ProcessedAt.In(cycle.Location).Format("2006-01")
+		detail.ProcessedMonth = monthKey
+		detail.ProcessedAtLabel = caseItem.ProcessedAt.In(cycle.Location).Format("2006-01-02 15:04")
+		refundDetails = append(refundDetails, detail)
 		bucket := monthTotals[monthKey]
 		bucket.refundCents += caseItem.RefundAmountCents
 		monthTotals[monthKey] = bucket
@@ -503,6 +542,7 @@ func buildBillsSummaryWithRefunds(
 		AverageAmountYuan:      averageYuan,
 		AmountBySubscription:   amountBars,
 		Accounts:               accounts,
+		RefundDetails:          refundDetails,
 		MonthlyTrend:           monthlyTrend,
 		MaxMonthCents:          maxMonthCents,
 	}

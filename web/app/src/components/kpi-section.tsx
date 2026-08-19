@@ -7,6 +7,8 @@ import { NumberTicker } from "@/components/number-ticker"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 
+export type KpiDetailKey = "subscriptions" | "pending" | "renewed" | "archived" | "notifications"
+
 function KpiCard({
   label,
   value,
@@ -95,6 +97,7 @@ export function KpiSection({
   onFilterAll,
   onFilterPending,
   onFilterRenewed,
+  onOpenDetail,
 }: {
   dashboard: Dashboard
   pendingCount: number
@@ -103,6 +106,7 @@ export function KpiSection({
   onFilterAll?: () => void
   onFilterPending?: () => void
   onFilterRenewed?: () => void
+  onOpenDetail: (key: KpiDetailKey) => void
 }) {
   const { t } = useTranslation()
   const showsRenewed = renewedCount !== undefined
@@ -121,7 +125,10 @@ export function KpiSection({
         hint={t("dashboard.subscriptionsHint", { accounts: dashboard.accounts?.length ?? 0 })}
         icon={<Layers className="size-4" />}
         tone="brand"
-        onClick={onFilterAll}
+        onClick={() => {
+          onFilterAll?.()
+          onOpenDetail("subscriptions")
+        }}
         delay={0}
       />
       <KpiCard
@@ -133,7 +140,10 @@ export function KpiSection({
         )}
         icon={<CircleDot className="size-4" />}
         tone="gold"
-        onClick={onFilterPending}
+        onClick={() => {
+          onFilterPending?.()
+          onOpenDetail("pending")
+        }}
         delay={60}
       />
       {showsRenewed ? (
@@ -143,7 +153,10 @@ export function KpiSection({
           hint={t("dashboard.monthRenewedHint")}
           icon={<CheckCircle2 className="size-4" />}
           tone="cyan"
-          onClick={onFilterRenewed}
+          onClick={() => {
+            onFilterRenewed?.()
+            onOpenDetail("renewed")
+          }}
           delay={120}
         />
       ) : null}
@@ -153,6 +166,7 @@ export function KpiSection({
         hint={t("dashboard.archivedHint")}
         icon={<LogOut className="size-4" />}
         tone="neutral"
+        onClick={() => onOpenDetail("archived")}
         delay={showsRenewed ? 180 : 120}
       />
       <KpiCard
@@ -162,6 +176,7 @@ export function KpiSection({
         hintTone={dashboard.notify_failed_30d === 0 ? "success" : undefined}
         icon={<BellRing className="size-4" />}
         tone="success"
+        onClick={() => onOpenDetail("notifications")}
         delay={showsRenewed ? 240 : 180}
       />
     </section>

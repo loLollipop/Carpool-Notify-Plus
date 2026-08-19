@@ -185,6 +185,7 @@ export interface CalendarMonth {
 export interface AmountBar {
   subscription_id: number
   name: string
+  customer_email: string
   account_name: string
   amount_yuan: string
   amount_cents: number
@@ -215,6 +216,7 @@ export interface Dashboard {
   profit_margin_percent: string
   notify_success_30d: number
   notify_failed_30d: number
+  notification_activity_30d: NotificationActivity[] | null
   amount_by_subscription: AmountBar[] | null
   accounts: AccountBreakdown[] | null
 }
@@ -350,6 +352,7 @@ export interface AfterSalesSummary {
 
 export interface AfterSalesPage {
   cases: AfterSalesCaseView[]
+  summary_cases: AfterSalesCaseView[]
   summary: AfterSalesSummary
 }
 
@@ -448,8 +451,25 @@ export interface BillsSummary {
   average_amount_yuan: string
   amount_by_subscription: AmountBar[] | null
   accounts: AccountBreakdown[] | null
+  refund_details: RefundDetail[] | null
   monthly_trend: MonthAmountBar[]
   max_month_cents: number
+}
+
+export interface RefundDetail {
+  id: number
+  bill_id: number
+  subscription_id: number
+  business_type: SubscriptionBusinessType
+  customer_email: string
+  customer_wechat: string
+  account_name: string
+  period_end: string
+  processed_month: string
+  processed_at_label: string
+  amount_cents: number
+  amount_yuan: string
+  note: string
 }
 
 export interface ChannelSetting {
@@ -521,6 +541,19 @@ export interface ReminderPreview {
   current_price_yuan?: string
   next_price_yuan?: string
   next_price_effective_due_date?: string
+}
+
+export interface NotificationActivity {
+  id: number
+  subscription_id: number
+  subscription_name: string
+  customer_email: string
+  customer_wechat: string
+  due_date: string
+  channel: string
+  status: "success" | "failed"
+  updated_at_label: string
+  last_error: string
 }
 
 export interface SubscriptionInput {

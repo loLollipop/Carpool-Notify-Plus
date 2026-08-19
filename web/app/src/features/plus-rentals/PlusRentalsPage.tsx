@@ -29,6 +29,10 @@ import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DueStatusBadge } from "@/components/due-status-badge"
 import { NumberTicker } from "@/components/number-ticker"
 import { PageHeader } from "@/components/page-header"
+import {
+  StatDetailDialog,
+  type StatDetailState,
+} from "@/components/stat-detail-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -297,12 +301,14 @@ function SummaryCard({
   hint,
   icon,
   tone,
+  onClick,
 }: {
   label: string
   value: string | number
   hint: string
   icon: React.ReactNode
   tone: "brand" | "success" | "gold" | "neutral"
+  onClick: () => void
 }) {
   const toneClass = {
     brand: "bg-brand/10 text-brand",
@@ -311,15 +317,23 @@ function SummaryCard({
     neutral: "bg-muted text-muted-foreground",
   }[tone]
   return (
-    <Card className="gap-0 p-4">
-      <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
-        {label}
-        <span className={cn("grid size-8 place-items-center rounded-lg", toneClass)}>{icon}</span>
-      </div>
-      <div className="display-numeral mt-3 text-[30px] leading-none">
-        <NumberTicker value={value} />
-      </div>
-      <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>
+    <Card className="group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        className="w-full p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-inset"
+      >
+        <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+          {label}
+          <span className={cn("grid size-8 place-items-center rounded-lg", toneClass)}>{icon}</span>
+        </div>
+        <div className="display-numeral mt-3 text-[30px] leading-none">
+          <NumberTicker value={value} />
+        </div>
+        <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>
+        <span className="absolute inset-x-0 bottom-0 h-0.5 origin-left scale-x-0 bg-brand transition-transform duration-300 group-hover:scale-x-100 group-focus-within:scale-x-100" />
+      </button>
     </Card>
   )
 }
@@ -342,6 +356,7 @@ export function PlusRentalsPage() {
   const [renewTarget, setRenewTarget] = React.useState<DuePaidTarget | null>(null)
   const [archiveTarget, setArchiveTarget] = React.useState<SubscriptionView | null>(null)
   const [completeTarget, setCompleteTarget] = React.useState<SubscriptionView | null>(null)
+  const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
   const [cancellationResult, setCancellationResult] = React.useState<{
     caseId: number
     expiresAtLabel: string
@@ -370,6 +385,30 @@ export function PlusRentalsPage() {
   const rentCents = active.reduce((sum, view) => sum + view.subscription.price_per_person_cents, 0)
   const costCents = active.reduce((sum, view) => sum + view.subscription.cost_cents, 0)
   const profitCents = rentCents - costCents
+
+  const openStatDetail = (key: "active" | "due" | "rent" | "profit") => {
+    const source = key === "due" ? dueSoon : active
+    const title = key === "active"
+      ? t("plusRentals.activeCount")
+      : key === "due"
+        ? t("plusRentals.dueSoonCount")
+        : key === "rent"
+          ? t("plusRentals.currentRent")
+          : t("plusRentals.currentProfit")
+    setStatDetail({
+      title,
+      items: source.map((view) => ({
+        id: view.subscription.id,
+        title: view.subscription.customer_email || view.subscription.name,
+        subtitle: view.subscription.customer_wechat || view.subscription.name,
+        meta: [view.next_due_date, view.cycle_desc, view.subscription.remark],
+        value: key === "profit"
+          ? maskAmount(amountsHidden, `¥${view.profit_yuan}`)
+          : maskAmount(amountsHidden, `¥${view.price_yuan}`),
+        valueTone: key === "profit" ? "success" : key === "due" ? "warning" : "default",
+      })),
+    })
+  }
 
   const nextCancellationExpiry = React.useMemo(() => {
     const expiries = active
@@ -453,6 +492,7 @@ export function PlusRentalsPage() {
           hint={t("plusRentals.activeHint")}
           icon={<UserRoundCheck className="size-4" />}
           tone="brand"
+          onClick={() => openStatDetail("active")}
         />
         <SummaryCard
           label={t("plusRentals.dueSoonCount")}
@@ -460,6 +500,7 @@ export function PlusRentalsPage() {
           hint={t("plusRentals.dueSoonHint")}
           icon={<TimerReset className="size-4" />}
           tone="gold"
+          onClick={() => openStatDetail("due")}
         />
         <SummaryCard
           label={t("plusRentals.currentRent")}
@@ -467,6 +508,7 @@ export function PlusRentalsPage() {
           hint={t("plusRentals.currentRentHint")}
           icon={<CircleDollarSign className="size-4" />}
           tone="neutral"
+          onClick={() => openStatDetail("rent")}
         />
         <SummaryCard
           label={t("plusRentals.currentProfit")}
@@ -474,6 +516,7 @@ export function PlusRentalsPage() {
           hint={t("plusRentals.currentProfitHint", { cost: maskAmount(amountsHidden, formatYuan(costCents)) })}
           icon={<TrendingUp className="size-4" />}
           tone="success"
+          onClick={() => openStatDetail("profit")}
         />
       </div>
 
@@ -589,6 +632,13 @@ export function PlusRentalsPage() {
       )}
 
       <PlusRentalDialog open={dialogOpen} onOpenChange={setDialogVisibility} prefill={editing} />
+      <StatDetailDialog
+        open={statDetail !== null}
+        onOpenChange={(open) => {
+          if (!open) setStatDetail(null)
+        }}
+        detail={statDetail}
+      />
       <DuePaidDialog
         open={renewTarget !== null}
         onOpenChange={(open) => {

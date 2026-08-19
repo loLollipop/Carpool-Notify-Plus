@@ -66,6 +66,10 @@ import type {
 import { AmountPrivacyToggle } from "@/components/amount-privacy-toggle"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { PageHeader } from "@/components/page-header"
+import {
+  StatDetailDialog,
+  type StatDetailState,
+} from "@/components/stat-detail-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -220,21 +224,31 @@ function Metric({
   value,
   detail,
   icon: Icon,
+  onClick,
 }: {
   label: string
   value: React.ReactNode
   detail: string
   icon: React.ComponentType<{ className?: string }>
+  onClick?: () => void
 }) {
+  const Component = onClick ? "button" : "div"
   return (
-    <div className="min-w-0 border-l border-border/70 px-3 py-3.5 first:border-l-0 sm:px-4">
+    <Component
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      className={cn(
+        "min-w-0 border-l border-border/70 px-3 py-3.5 text-left first:border-l-0 sm:px-4",
+        onClick && "outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-inset",
+      )}
+    >
       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <Icon className="size-3.5 text-brand" />
         <span className="truncate">{label}</span>
       </div>
       <div className="display-numeral mt-2 truncate text-lg leading-none sm:text-xl">{value}</div>
       <p className="mt-0.5 hidden truncate text-[11px] text-muted-foreground sm:block">{detail}</p>
-    </div>
+    </Component>
   )
 }
 
@@ -253,6 +267,40 @@ function ActiveGoalPanel({
 }) {
   const { t } = useTranslation()
   const progress = Math.max(0, Math.min(100, data.progress_percent))
+  const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
+
+  const openGoalDetail = (key: "remaining" | "monthly" | "date") => {
+    if (key === "remaining") {
+      setStatDetail({
+        title: t("goals.remaining"),
+        items: [
+          { id: "earned", title: t("goals.earned"), value: visibleYuan(data.earned_profit_cents, amountsHidden), valueTone: "success" },
+          { id: "target", title: t("goals.targetProfit"), value: visibleYuan(data.goal.target_profit_cents, amountsHidden) },
+          { id: "remaining", title: t("goals.remaining"), value: visibleYuan(data.remaining_profit_cents, amountsHidden), valueTone: "warning" },
+        ],
+      })
+      return
+    }
+    const scenarios = forecast
+      ? [
+          ["conservative", forecast.conservative],
+          ["baseline", forecast.baseline],
+          ["optimistic", forecast.optimistic],
+        ] as const
+      : []
+    setStatDetail({
+      title: key === "monthly" ? t("goals.futureMonthly") : t("goals.estimatedDate"),
+      items: scenarios.map(([scenarioKey, scenario]) => ({
+        id: scenarioKey,
+        title: t(`goals.${scenarioKey}`),
+        subtitle: scenario.projected_date || t("goals.forecastUnavailable"),
+        value: key === "monthly"
+          ? visibleYuan(scenario.monthly_profit_cents, amountsHidden)
+          : scenario.projected_date || "-",
+        valueTone: scenarioKey === "baseline" ? "success" : "default",
+      })),
+    })
+  }
 
   return (
     <section className="overflow-hidden rounded-lg border bg-card shadow-card animate-fade-up">
@@ -309,21 +357,31 @@ function ActiveGoalPanel({
             value={visibleYuan(data.remaining_profit_cents, amountsHidden)}
             detail={t("goals.forecastBasisShort")}
             icon={WalletCards}
+            onClick={() => openGoalDetail("remaining")}
           />
           <Metric
             label={t("goals.futureMonthly")}
             value={visibleYuan(forecast?.baseline.monthly_profit_cents ?? 0, amountsHidden)}
             detail={t("goals.activeRecurring", { count: forecast?.active_recurring_count ?? 0 })}
             icon={TrendingUp}
+            onClick={() => openGoalDetail("monthly")}
           />
           <Metric
             label={t("goals.estimatedDate")}
             value={forecast?.baseline.projected_date || "-"}
             detail={t("goals.autoCalculated")}
             icon={CalendarClock}
+            onClick={() => openGoalDetail("date")}
           />
         </div>
       </div>
+      <StatDetailDialog
+        open={statDetail !== null}
+        onOpenChange={(open) => {
+          if (!open) setStatDetail(null)
+        }}
+        detail={statDetail}
+      />
     </section>
   )
 }
@@ -688,14 +746,21 @@ function RepricingMetric({
   label,
   value,
   hint,
+  onClick,
 }: {
   icon: React.ReactNode
   label: string
   value: React.ReactNode
   hint: string
+  onClick: () => void
 }) {
   return (
-    <div className="rounded-lg border bg-card p-4 shadow-card">
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className="group relative rounded-lg border bg-card p-4 text-left shadow-card outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45"
+    >
       <div className="flex items-center justify-between gap-3">
         <p className="text-xs font-medium text-muted-foreground">{label}</p>
         <span className="grid size-8 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
@@ -706,7 +771,8 @@ function RepricingMetric({
       <p className="mt-1 min-h-8 text-[11px] leading-4 text-muted-foreground">
         {hint}
       </p>
-    </div>
+      <span className="absolute inset-x-0 bottom-0 h-0.5 origin-left scale-x-0 bg-brand transition-transform duration-300 group-hover:scale-x-100 group-focus-visible:scale-x-100" />
+    </button>
   )
 }
 
@@ -1365,6 +1431,7 @@ function RepricingAnalysisPanel({
   const candidates = React.useMemo(() => data.pricing_candidates ?? [], [data.pricing_candidates])
   const [activeTier, setActiveTier] = React.useState<CustomerTierKey | "all">("all")
   const [profilePage, setProfilePage] = React.useState(1)
+  const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
   const profilePageSize = 6
   const queue = React.useMemo(() => {
     const grouped = new Map<number, PricingCandidate>()
@@ -1441,6 +1508,43 @@ function RepricingAnalysisPanel({
   const protectedUsers =
     (analysis.risk_segments ?? []).find((segment) => segment.key === "high")?.count ?? 0
 
+  const openAnalysisDetail = (key: "users" | "relationship" | "protected" | "batch") => {
+    let source = candidates
+    if (key === "users") {
+      const grouped = new Map<number, PricingCandidate>()
+      for (const candidate of candidates) {
+        const groupID = candidate.customer_group_id || candidate.subscription_id
+        if (!grouped.has(groupID)) grouped.set(groupID, candidate)
+      }
+      source = [...grouped.values()]
+    }
+    if (key === "protected") source = source.filter((candidate) => candidate.adjustment_risk === "high")
+    if (key === "batch") source = source.filter((candidate) => candidate.recommended)
+    const title = key === "users"
+      ? t("goals.repricing.analyzedUsers")
+      : key === "relationship"
+        ? t("goals.repricing.averageRelationship")
+        : key === "protected"
+          ? t("goals.repricing.protectedUsers")
+          : t("goals.repricing.nextBatch")
+    setStatDetail({
+      title,
+      items: source.map((candidate) => ({
+        id: key === "users"
+          ? candidate.customer_group_id || candidate.subscription_id
+          : candidate.subscription_id,
+        title: candidate.customer_email || candidate.customer_wechat || candidate.name,
+        subtitle: candidate.customer_wechat || candidate.account_name,
+        meta: [candidate.account_name, candidate.seat_name, candidate.next_due_date],
+        value: key === "relationship"
+          ? t("goals.repricing.daysValue", { count: candidate.relationship_days })
+          : visibleYuan(candidate.customer_group_monthly_revenue_cents || candidate.monthly_revenue_cents, amountsHidden),
+        valueTone: key === "protected" ? "warning" : key === "batch" ? "success" : "default",
+        searchText: `${candidate.relationship_level} ${candidate.customer_tier}`,
+      })),
+    })
+  }
+
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1449,6 +1553,7 @@ function RepricingAnalysisPanel({
           label={t("goals.repricing.analyzedUsers")}
           value={analysis.customer_count ?? analysis.total_count}
           hint={t("goals.repricing.analyzedUsersHint", { seats: analysis.total_count })}
+          onClick={() => openAnalysisDetail("users")}
         />
         <RepricingMetric
           icon={<CalendarClock className="size-4" />}
@@ -1458,6 +1563,7 @@ function RepricingAnalysisPanel({
             periods: (analysis.average_paid_periods ?? 0).toFixed(1),
             repeats: analysis.repeat_subscription_count ?? 0,
           })}
+          onClick={() => openAnalysisDetail("relationship")}
         />
         <RepricingMetric
           icon={<ShieldCheck className="size-4" />}
@@ -1466,12 +1572,14 @@ function RepricingAnalysisPanel({
           hint={t("goals.repricing.protectedUsersHint", {
             exemptions: analysis.active_exemption_count ?? 0,
           })}
+          onClick={() => openAnalysisDetail("protected")}
         />
         <RepricingMetric
           icon={<CheckCircle2 className="size-4" />}
           label={t("goals.repricing.nextBatch")}
           value={analysis.recommended_count}
           hint={t("goals.repricing.nextBatchMetricHint")}
+          onClick={() => openAnalysisDetail("batch")}
         />
       </div>
 
@@ -1480,6 +1588,13 @@ function RepricingAnalysisPanel({
         amountsHidden={amountsHidden}
         activeTier={activeTier}
         onTierChange={handleTierChange}
+      />
+      <StatDetailDialog
+        open={statDetail !== null}
+        onOpenChange={(open) => {
+          if (!open) setStatDetail(null)
+        }}
+        detail={statDetail}
       />
 
       <div className="grid items-stretch gap-4 lg:grid-cols-3">
@@ -2647,6 +2762,7 @@ function CustomerCarePanel({
   const [selected, setSelected] = React.useState<Set<number>>(() => new Set())
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [historyOpen, setHistoryOpen] = React.useState(false)
+  const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
   const [benefitType, setBenefitType] = React.useState<CustomerBenefitType>("loyalty_care")
   const [benefitName, setBenefitName] = React.useState("")
   const [actualCost, setActualCost] = React.useState("")
@@ -2776,13 +2892,59 @@ function CustomerCarePanel({
     },
   ] as const
 
+  const openCareDetail = (key: typeof summaryItems[number]["key"]) => {
+    if (key === "cost" || key === "observed") {
+      const source = key === "cost"
+        ? history.filter((benefit) => benefit.actual_cost_cents > 0)
+        : history.filter((benefit) => benefit.outcome !== "pending")
+      setStatDetail({
+        title: t(`goals.care.metric.${key}`),
+        items: source.map((benefit) => ({
+          id: benefit.id,
+          title: benefit.customer_email_snapshot || benefit.customer_wechat_snapshot || benefit.benefit_name,
+          subtitle: benefit.customer_wechat_snapshot || benefit.benefit_name,
+          meta: [benefit.benefit_date, t(`goals.care.benefitType.${benefit.benefit_type}`), benefit.note],
+          value: key === "cost"
+            ? visibleYuan(benefit.actual_cost_cents, amountsHidden)
+            : t(`goals.care.outcome.${benefit.outcome}`),
+          valueTone: key === "cost"
+            ? "warning"
+            : benefit.outcome === "renewed"
+              ? "success"
+              : "danger",
+        })),
+      })
+      return
+    }
+    const source = key === "recommended"
+      ? candidates.filter((candidate) => candidate.recommended)
+      : candidates.filter((candidate) => candidate.status === "upcoming")
+    setStatDetail({
+      title: t(`goals.care.metric.${key}`),
+      items: source.map((candidate) => ({
+        id: candidate.subscription_id,
+        title: candidate.customer_email || candidate.customer_wechat || candidate.display_name,
+        subtitle: candidate.customer_wechat || candidate.display_name,
+        meta: [candidate.recommended_date, candidate.next_due_date, t(`goals.care.reason.${candidate.reason_code}`)],
+        value: visibleYuan(candidate.current_cycle_value_cents, amountsHidden),
+        valueTone: key === "recommended" ? "success" : "warning",
+      })),
+    })
+  }
+
   return (
     <div className="space-y-3">
       <PredictionReadinessPanel data={data} />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {summaryItems.map((item) => (
-          <Card key={item.key} className="gap-2 p-4">
+          <Card key={item.key} className="group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift">
+            <button
+              type="button"
+              onClick={() => openCareDetail(item.key)}
+              aria-label={t(`goals.care.metric.${item.key}`)}
+              className="w-full p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-inset"
+            >
             <div className="flex items-center justify-between text-muted-foreground">
               <span className="text-xs font-medium">{t(`goals.care.metric.${item.key}`)}</span>
               <item.icon className="size-4" />
@@ -2791,6 +2953,8 @@ function CustomerCarePanel({
             <p className="text-[11px] text-muted-foreground">
               {t(`goals.care.metricHint.${item.key}`)}
             </p>
+            <span className="absolute inset-x-0 bottom-0 h-0.5 origin-left scale-x-0 bg-brand transition-transform duration-300 group-hover:scale-x-100 group-focus-within:scale-x-100" />
+            </button>
           </Card>
         ))}
       </div>
@@ -3146,6 +3310,13 @@ function CustomerCarePanel({
           </form>
         </DialogContent>
       </Dialog>
+      <StatDetailDialog
+        open={statDetail !== null}
+        onOpenChange={(open) => {
+          if (!open) setStatDetail(null)
+        }}
+        detail={statDetail}
+      />
     </div>
   )
 }

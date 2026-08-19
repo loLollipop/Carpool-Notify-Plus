@@ -39,6 +39,11 @@ import {
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { NumberTicker } from "@/components/number-ticker"
 import { PageHeader } from "@/components/page-header"
+import {
+  StatDetailDialog,
+  type StatDetailItem,
+  type StatDetailState,
+} from "@/components/stat-detail-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -191,6 +196,7 @@ function KpiCard({
   icon,
   delay,
   tone,
+  onClick,
 }: {
   label: string
   value: string | number
@@ -198,6 +204,7 @@ function KpiCard({
   icon: React.ReactNode
   delay: number
   tone: "brand" | "success" | "gold"
+  onClick: () => void
 }) {
   const toneClass = {
     brand: "bg-brand/10 text-brand",
@@ -206,17 +213,25 @@ function KpiCard({
   }[tone]
   return (
     <Card
-      className="group relative gap-0 overflow-hidden p-5 transition-[border-color,background-color] duration-200 animate-fade-up hover:border-input hover:bg-accent/25"
+      className="group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] duration-200 animate-fade-up hover:border-input hover:bg-accent/25 hover:shadow-lift"
       style={{ animationDelay: `${delay}ms` }}
     >
-      <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
-        <span>{label}</span>
-        <span className={cn("grid size-8 place-items-center rounded-md", toneClass)}>{icon}</span>
-      </div>
-      <div className="display-numeral mt-4 text-[27px] leading-none">
-        <NumberTicker value={value} />
-      </div>
-      <div className="mt-2.5 text-xs text-muted-foreground">{hint}</div>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        className="w-full p-5 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-inset"
+      >
+        <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+          <span>{label}</span>
+          <span className={cn("grid size-8 place-items-center rounded-md", toneClass)}>{icon}</span>
+        </div>
+        <div className="display-numeral mt-4 text-[27px] leading-none">
+          <NumberTicker value={value} />
+        </div>
+        <div className="mt-2.5 text-xs text-muted-foreground">{hint}</div>
+        <span className="absolute inset-x-0 bottom-0 h-0.5 origin-left scale-x-0 bg-brand transition-transform duration-300 group-hover:scale-x-100 group-focus-within:scale-x-100" />
+      </button>
     </Card>
   )
 }
@@ -350,7 +365,7 @@ function AmountDistributionCard({
     if (mode === "subscription") {
       return (summary.amount_by_subscription ?? []).map((bar) => ({
         key: `subscription:${bar.subscription_id}`,
-        name: bar.name,
+        name: bar.customer_email || bar.name,
         cents: bar.amount_cents,
         yuan: bar.amount_yuan,
       }))
@@ -699,6 +714,7 @@ export function BillsPage() {
   const [editingBill, setEditingBill] = React.useState<BillView | null>(null)
   const [viewingBill, setViewingBill] = React.useState<BillView | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<BillView | null>(null)
+  const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
   const [search, setSearch] = React.useState("")
   const [typeFilter, setTypeFilter] = React.useState<BillBusinessFilter>("all")
   const [page, setPage] = React.useState(1)
@@ -744,6 +760,119 @@ export function BillsPage() {
   const pageStartIndex = (safePage - 1) * BILLS_PER_PAGE
   const pagedBills = filteredBills.slice(pageStartIndex, pageStartIndex + BILLS_PER_PAGE)
 
+  const openStatDetail = React.useCallback((key: "total" | "refund" | "net" | "cost" | "profit" | "month" | "count" | "active") => {
+    if (!summary) return
+    const identify = (bill: BillView) => bill.customer_email || bill.subscription_name
+    const baseItem = (bill: BillView, value?: React.ReactNode): StatDetailItem => ({
+      id: `bill:${bill.id}`,
+      title: identify(bill),
+      subtitle: bill.customer_wechat || bill.subscription_name,
+      meta: [bill.account_name, bill.seat_name, bill.due_date, bill.paid_at_label],
+      value,
+      searchText: `${bill.subscription_name} ${bill.account_email} ${bill.account_space_name}`,
+    })
+    const visibleAmount = (yuan: string) => maskAmount(amountsHidden, `¥${yuan}`)
+    const refundDetails = summary.refund_details ?? []
+    const refundItem = (refund: (typeof refundDetails)[number], negative = false): StatDetailItem => ({
+      id: `refund:${refund.id}`,
+      title: refund.customer_email || refund.customer_wechat || refund.account_name || `#${refund.id}`,
+      subtitle: refund.customer_wechat || refund.account_name,
+      meta: [refund.processed_at_label, refund.period_end, refund.note],
+      value: maskAmount(amountsHidden, `${negative ? "-" : ""}¥${refund.amount_yuan}`),
+      valueTone: "danger",
+      searchText: `${refund.account_name} ${refund.business_type}`,
+    })
+    let items: StatDetailItem[]
+    let title: string
+
+    if (key === "total" || key === "count") {
+      title = key === "total" ? t("bills.kpiTotal") : t("bills.kpiCount")
+      items = bills.map((bill) => baseItem(bill, visibleAmount(bill.amount_yuan)))
+    } else if (key === "refund") {
+      title = t("bills.kpiRefund")
+      items = refundDetails.filter((refund) => refund.amount_cents > 0).map((refund) => refundItem(refund))
+    } else if (key === "net") {
+      title = t("bills.kpiNet")
+      items = [
+        ...bills.map((bill) => ({
+          ...baseItem(bill, visibleAmount(bill.net_amount_yuan)),
+          valueTone: "success" as const,
+        })),
+        ...refundDetails.filter((refund) => refund.bill_id <= 0).map((refund) => refundItem(refund, true)),
+      ]
+    } else if (key === "cost") {
+      title = t("bills.kpiCost")
+      const plusCostCents = bills
+        .filter((bill) => bill.business_type === "plus")
+        .reduce((sum, bill) => sum + bill.cost_cents, 0)
+      const sharedCostCents = Math.max(0, summary.total_cost_cents - plusCostCents)
+      items = bills
+        .filter((bill) => bill.business_type === "plus" && bill.cost_cents > 0)
+        .map((bill) => ({ ...baseItem(bill, visibleAmount(bill.cost_yuan)), valueTone: "warning" }))
+      if (sharedCostCents > 0) {
+        items.unshift({
+          id: "shared-cost",
+          title: t("bills.detailSharedCost"),
+          subtitle: t("bills.detailSharedCostHint"),
+          value: maskAmount(amountsHidden, formatCents(sharedCostCents)),
+          valueTone: "warning",
+        })
+      }
+    } else if (key === "profit") {
+      title = t("bills.kpiProfit")
+      const plusBills = bills.filter((bill) => bill.business_type === "plus")
+      const teamNetCents = bills
+        .filter((bill) => bill.business_type !== "plus")
+        .reduce((sum, bill) => sum + bill.net_amount_cents, 0)
+      const plusCostCents = plusBills.reduce((sum, bill) => sum + bill.cost_cents, 0)
+      const sharedCostCents = Math.max(0, summary.total_cost_cents - plusCostCents)
+      items = [
+        {
+          id: "team-profit",
+          title: t("bills.detailTeamProfit"),
+          subtitle: t("bills.detailTeamProfitHint"),
+          value: maskAmount(amountsHidden, formatCents(teamNetCents - sharedCostCents)),
+          valueTone: "success",
+        },
+        ...plusBills.map((bill) => ({
+          ...baseItem(
+            bill,
+            maskAmount(amountsHidden, formatCents(bill.net_amount_cents - bill.cost_cents)),
+          ),
+          valueTone: "success" as const,
+        })),
+        ...refundDetails.filter((refund) => refund.bill_id <= 0).map((refund) => refundItem(refund, true)),
+      ]
+    } else if (key === "month") {
+      title = t("bills.kpiThisMonth")
+      const monthKey = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Asia/Shanghai",
+        year: "numeric",
+        month: "2-digit",
+      }).format(new Date()).slice(0, 7)
+      items = [
+        ...bills
+          .filter((bill) => bill.due_date.startsWith(monthKey))
+          .map((bill) => ({
+            ...baseItem(bill, visibleAmount(bill.amount_yuan)),
+            valueTone: "success" as const,
+          })),
+        ...refundDetails
+          .filter((refund) => refund.processed_month === monthKey && refund.amount_cents > 0)
+          .map((refund) => refundItem(refund, true)),
+      ]
+    } else {
+      title = t("bills.kpiActive")
+      const unique = new Map<number, BillView>()
+      for (const bill of bills) {
+        if (!bill.archived && !unique.has(bill.subscription_id)) unique.set(bill.subscription_id, bill)
+      }
+      items = [...unique.values()].map((bill) => baseItem(bill, visibleAmount(bill.price_yuan)))
+    }
+
+    setStatDetail({ title, description: t("bills.detailDialogHint"), items })
+  }, [amountsHidden, bills, summary, t])
+
   return (
     <>
       <PageHeader
@@ -780,6 +909,7 @@ export function BillsPage() {
               icon={<Wallet className="size-4" />}
               delay={0}
               tone="brand"
+              onClick={() => openStatDetail("total")}
             />
             <KpiCard
               label={t("bills.kpiRefund")}
@@ -788,6 +918,7 @@ export function BillsPage() {
               icon={<HandCoins className="size-4" />}
               delay={40}
               tone="gold"
+              onClick={() => openStatDetail("refund")}
             />
             <KpiCard
               label={t("bills.kpiNet")}
@@ -796,6 +927,7 @@ export function BillsPage() {
               icon={<BadgeDollarSign className="size-4" />}
               delay={80}
               tone="success"
+              onClick={() => openStatDetail("net")}
             />
             <KpiCard
               label={t("bills.kpiCost")}
@@ -804,6 +936,7 @@ export function BillsPage() {
               icon={<ReceiptText className="size-4" />}
               delay={120}
               tone="gold"
+              onClick={() => openStatDetail("cost")}
             />
             <KpiCard
               label={t("bills.kpiProfit")}
@@ -812,6 +945,7 @@ export function BillsPage() {
               icon={<TrendingUp className="size-4" />}
               delay={160}
               tone="success"
+              onClick={() => openStatDetail("profit")}
             />
             <KpiCard
               label={t("bills.kpiThisMonth")}
@@ -823,6 +957,7 @@ export function BillsPage() {
               icon={<CalendarDays className="size-4" />}
               delay={200}
               tone="brand"
+              onClick={() => openStatDetail("month")}
             />
             <KpiCard
               label={t("bills.kpiCount")}
@@ -833,6 +968,7 @@ export function BillsPage() {
               icon={<Hash className="size-4" />}
               delay={240}
               tone="brand"
+              onClick={() => openStatDetail("count")}
             />
             <KpiCard
               label={t("bills.kpiActive")}
@@ -841,6 +977,7 @@ export function BillsPage() {
               icon={<CircleDot className="size-4" />}
               delay={280}
               tone="brand"
+              onClick={() => openStatDetail("active")}
             />
           </section>
 
@@ -1078,6 +1215,13 @@ export function BillsPage() {
         }}
         bill={viewingBill}
         amountsHidden={amountsHidden}
+      />
+      <StatDetailDialog
+        open={statDetail !== null}
+        onOpenChange={(open) => {
+          if (!open) setStatDetail(null)
+        }}
+        detail={statDetail}
       />
       <ConfirmDialog
         open={deleteTarget !== null}

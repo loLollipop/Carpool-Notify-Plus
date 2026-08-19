@@ -39,6 +39,10 @@ import type {
 } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { PageHeader } from "@/components/page-header"
+import {
+  StatDetailDialog,
+  type StatDetailState,
+} from "@/components/stat-detail-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -173,6 +177,7 @@ function RedemptionCodeManager() {
   const [note, setNote] = React.useState("")
   const [page, setPage] = React.useState(1)
   const [deleteTarget, setDeleteTarget] = React.useState<RedemptionCodeView | null>(null)
+  const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
   const codesQuery = useRedemptionCodes()
 
   const codes = codesQuery.data?.codes ?? EMPTY_CODES
@@ -183,6 +188,22 @@ function RedemptionCodeManager() {
   const paged = codes.slice(pageStart, pageStart + CODE_PAGE_SIZE)
   const parsedCount = Number(count)
   const countValid = Number.isInteger(parsedCount) && parsedCount >= 1 && parsedCount <= 20
+
+  const openCodeDetail = (status: RedemptionCodeStatusValue) => {
+    const source = codes.filter((view) => view.code.status === status)
+    const title = status === "unused" ? "可用兑换码" : status === "used" ? "已使用" : "已停用"
+    setStatDetail({
+      title,
+      items: source.map((view) => ({
+        id: view.code.id,
+        title: view.code.code,
+        subtitle: view.application_email || view.code.note,
+        meta: [view.created_at_label, view.used_at_label, view.code.note],
+        value: view.status_label,
+        valueTone: status === "unused" ? "success" : status === "disabled" ? "warning" : "default",
+      })),
+    })
+  }
 
   const generateMutation = useAppMutation(
     () =>
@@ -246,24 +267,24 @@ function RedemptionCodeManager() {
       </div>
 
       <div className="grid gap-3 border-b bg-muted/25 p-5 sm:grid-cols-3">
-        <div className="relative overflow-hidden rounded-md border bg-card p-4">
+        <button type="button" onClick={() => openCodeDetail("unused")} className="relative overflow-hidden rounded-md border bg-card p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45">
           <div className="text-xs text-muted-foreground">可用兑换码</div>
           <div className="mt-2 text-2xl font-semibold text-success tabular-nums">
             {codesQuery.data?.available_count ?? 0}
           </div>
-        </div>
-        <div className="relative overflow-hidden rounded-md border bg-card p-4">
+        </button>
+        <button type="button" onClick={() => openCodeDetail("used")} className="relative overflow-hidden rounded-md border bg-card p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45">
           <div className="text-xs text-muted-foreground">已使用</div>
           <div className="mt-2 text-2xl font-semibold text-brand tabular-nums">
             {codesQuery.data?.used_count ?? 0}
           </div>
-        </div>
-        <div className="relative overflow-hidden rounded-md border bg-card p-4">
+        </button>
+        <button type="button" onClick={() => openCodeDetail("disabled")} className="relative overflow-hidden rounded-md border bg-card p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45">
           <div className="text-xs text-muted-foreground">已停用</div>
           <div className="mt-2 text-2xl font-semibold text-coral tabular-nums">
             {codesQuery.data?.disabled_count ?? 0}
           </div>
-        </div>
+        </button>
       </div>
 
       {codesQuery.isPending ? (
@@ -420,6 +441,13 @@ function RedemptionCodeManager() {
           deleteMutation.mutate(targetCode.id)
         }
       }}
+    />
+    <StatDetailDialog
+      open={statDetail !== null}
+      onOpenChange={(open) => {
+        if (!open) setStatDetail(null)
+      }}
+      detail={statDetail}
     />
     </div>
   )
@@ -735,7 +763,8 @@ export function RedemptionsPage() {
   const [filter, setFilter] = React.useState<RedemptionFilter>("pending")
   const [search, setSearch] = React.useState("")
   const [page, setPage] = React.useState(1)
-  const redemptionsQuery = useRedemptions(filter)
+  const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
+  const redemptionsQuery = useRedemptions("all")
   const accountOptionsQuery = useAccountOptions(0, true)
 
   const seats = React.useMemo(
@@ -746,8 +775,11 @@ export function RedemptionsPage() {
   const redemptions = redemptionsQuery.data?.redemptions ?? EMPTY_REDEMPTIONS
   const filtered = React.useMemo(() => {
     const query = search.trim().toLowerCase()
-    if (!query) return redemptions
-    return redemptions.filter((view) =>
+    const byStatus = filter === "all"
+      ? redemptions
+      : redemptions.filter((view) => view.application.status === filter)
+    if (!query) return byStatus
+    return byStatus.filter((view) =>
       [
         view.application.customer_email,
         view.application.customer_contact,
@@ -761,7 +793,7 @@ export function RedemptionsPage() {
         view.subscription_name,
       ].some((field) => field?.toLowerCase().includes(query)),
     )
-  }, [redemptions, search])
+  }, [filter, redemptions, search])
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / APPLICATIONS_PER_PAGE))
   const safePage = Math.min(page, pageCount)
@@ -777,6 +809,40 @@ export function RedemptionsPage() {
   const updateFilter = (value: RedemptionFilter) => {
     setFilter(value)
     setPage(1)
+  }
+
+  const applicationItems = (source: RedemptionApplicationView[]) => source.map((view) => ({
+    id: view.application.id,
+    title: view.application.customer_email,
+    subtitle: view.application.customer_contact || view.application.redeem_code,
+    meta: [view.created_at_label, view.account_name, view.seat_name, view.application.operator_note],
+    value: view.application.status === "pending" ? "待处理" : view.application.status === "invited" ? "已邀请" : "已驳回",
+    valueTone: view.application.status === "pending" ? "warning" as const : view.application.status === "invited" ? "success" as const : "danger" as const,
+    searchText: `${view.subscription_name} ${view.application.request_note}`,
+  }))
+
+  const openApplicationDetail = (key: "pending" | "seats" | "filtered") => {
+    if (key === "seats") {
+      setStatDetail({
+        title: "可用空位",
+        items: seats.map(({ account, seat }) => ({
+          id: seat.id,
+          title: account.email || account.name,
+          subtitle: account.space_name || account.name,
+          meta: [seat.name, account.remark],
+          value: "可分配",
+          valueTone: "success",
+        })),
+      })
+      return
+    }
+    const source = key === "pending"
+      ? redemptions.filter((view) => view.application.status === "pending")
+      : filtered
+    setStatDetail({
+      title: key === "pending" ? "待处理申请" : "当前筛选",
+      items: applicationItems(source),
+    })
   }
 
   return (
@@ -831,27 +897,27 @@ export function RedemptionsPage() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="relative overflow-hidden rounded-lg border bg-card p-4">
+            <button type="button" onClick={() => openApplicationDetail("pending")} className="relative overflow-hidden rounded-lg border bg-card p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45">
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <Clock3 className="size-3.5" />
                 待处理
               </div>
               <div className="mt-2 text-2xl font-semibold text-gold tabular-nums">{pendingCount}</div>
-            </div>
-            <div className="relative overflow-hidden rounded-lg border bg-card p-4">
+            </button>
+            <button type="button" onClick={() => openApplicationDetail("seats")} className="relative overflow-hidden rounded-lg border bg-card p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45">
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <TicketCheck className="size-3.5" />
                 可用空位
               </div>
               <div className="mt-2 text-2xl font-semibold text-success tabular-nums">{seats.length}</div>
-            </div>
-            <div className="relative overflow-hidden rounded-lg border bg-card p-4">
+            </button>
+            <button type="button" onClick={() => openApplicationDetail("filtered")} className="relative overflow-hidden rounded-lg border bg-card p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45">
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <CalendarClock className="size-3.5" />
                 当前筛选
               </div>
               <div className="mt-2 text-2xl font-semibold text-brand tabular-nums">{filtered.length}</div>
-            </div>
+            </button>
           </div>
 
           {redemptionsQuery.isPending ? (
@@ -920,6 +986,13 @@ export function RedemptionsPage() {
           <RedemptionCodeManager />
         </TabsContent>
       </Tabs>
+      <StatDetailDialog
+        open={statDetail !== null}
+        onOpenChange={(open) => {
+          if (!open) setStatDetail(null)
+        }}
+        detail={statDetail}
+      />
     </div>
   )
 }

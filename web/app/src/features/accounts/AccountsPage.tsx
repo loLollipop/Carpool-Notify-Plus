@@ -21,6 +21,10 @@ import { useAccounts } from "@/api/queries"
 import type { AccountView } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { PageHeader } from "@/components/page-header"
+import {
+  StatDetailDialog,
+  type StatDetailState,
+} from "@/components/stat-detail-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -452,6 +456,7 @@ export function AccountsPage() {
   const [subscriptionPrefill, setSubscriptionPrefill] = React.useState<SubscriptionPrefill | null>(null)
   const [search, setSearch] = React.useState("")
   const [statsFilter, setStatsFilter] = React.useState<AccountStatsFilter>("all")
+  const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
   const [page, setPage] = React.useState(1)
 
   const deleteMutation = useAppMutation((id: number) => deleteAccount(id), {
@@ -508,6 +513,42 @@ export function AccountsPage() {
     )
     setSearch("")
     setPage(1)
+    const selectedAccounts = accounts.filter((view) => {
+      if (nextFilter === "all") return true
+      if (nextFilter === "renewal") return renewalDates.has(view.account.id)
+      if (nextFilter === "banned") return Boolean(view.account.banned_at)
+      if (nextFilter === "full") return !view.account.banned_at && view.is_full
+      return !view.account.banned_at && view.seat_used < view.seat_total
+    })
+    const title = nextFilter === "all"
+      ? t("accounts.statsTotal")
+      : nextFilter === "renewal"
+        ? t("accounts.statsRenewal")
+        : nextFilter === "banned"
+          ? t("accounts.statusBanned")
+          : nextFilter === "full"
+            ? t("accounts.statusFull")
+            : t("accounts.statusFree")
+    setStatDetail({
+      title,
+      items: selectedAccounts.map((view) => ({
+        id: view.account.id,
+        title: `${view.account.id} · ${view.account.email || view.account.name}`,
+        subtitle: view.account.email && view.account.email !== view.account.name
+          ? view.account.name
+          : view.account.space_name,
+        meta: [
+          view.account.space_name,
+          renewalDates.get(view.account.id),
+          view.account.banned_at ? t("accounts.statusBanned") : view.is_full
+            ? t("accounts.statusFull")
+            : t("accounts.statusOpen"),
+        ],
+        value: `${view.seat_used}/${view.seat_total}`,
+        valueTone: view.account.banned_at || view.is_full ? "danger" : "success",
+        searchText: view.account.remark,
+      })),
+    })
   }
 
   const filteredAccounts = React.useMemo(() => {
@@ -955,6 +996,13 @@ export function AccountsPage() {
         open={subscriptionDialogOpen}
         onOpenChange={setSubscriptionDialogOpen}
         prefill={subscriptionPrefill}
+      />
+      <StatDetailDialog
+        open={statDetail !== null}
+        onOpenChange={(open) => {
+          if (!open) setStatDetail(null)
+        }}
+        detail={statDetail}
       />
       <ConfirmDialog
         open={deleteTarget !== null}

@@ -49,8 +49,9 @@ type AfterSalesSummary struct {
 }
 
 type AfterSalesPage struct {
-	Cases   []AfterSalesCaseView `json:"cases"`
-	Summary AfterSalesSummary    `json:"summary"`
+	Cases        []AfterSalesCaseView `json:"cases"`
+	SummaryCases []AfterSalesCaseView `json:"summary_cases"`
+	Summary      AfterSalesSummary    `json:"summary"`
 }
 
 type UpdateAfterSalesCaseInput struct {
@@ -138,25 +139,17 @@ func (service *SubscriptionService) ListAfterSalesPage() (AfterSalesPage, error)
 	if err != nil {
 		return AfterSalesPage{}, err
 	}
-	page := AfterSalesPage{Cases: make([]AfterSalesCaseView, 0, len(cases))}
+	page := AfterSalesPage{
+		Cases:        make([]AfterSalesCaseView, 0, len(cases)),
+		SummaryCases: make([]AfterSalesCaseView, 0, len(allCases)),
+	}
 	for _, caseItem := range cases {
-		view := AfterSalesCaseView{
-			Case:             caseItem,
-			PaidAmountYuan:   cycle.FormatCents(caseItem.PaidAmountCents),
-			RefundAmountYuan: cycle.FormatCents(caseItem.RefundAmountCents),
-			StatusLabel:      afterSalesStatusLabel(caseItem.Status),
-		}
-		if caseItem.ProcessedAt != nil {
-			view.ProcessedAtLabel = caseItem.ProcessedAt.In(cycle.Location).Format("2006-01-02 15:04")
-		}
-		if caseItem.ExpiresAt != nil {
-			view.ExpiresAtLabel = caseItem.ExpiresAt.In(cycle.Location).Format("2006-01-02 15:04")
-		}
-		page.Cases = append(page.Cases, view)
+		page.Cases = append(page.Cases, buildAfterSalesCaseView(caseItem))
 	}
 	// Completed rows leave the working list after 24 hours, but the KPI cards
 	// are historical operational/financial totals and must not silently reset.
 	for _, caseItem := range allCases {
+		page.SummaryCases = append(page.SummaryCases, buildAfterSalesCaseView(caseItem))
 		page.Summary.TotalCount++
 		switch caseItem.Status {
 		case model.AfterSalesStatusRefunded:
@@ -175,6 +168,22 @@ func (service *SubscriptionService) ListAfterSalesPage() (AfterSalesPage, error)
 	page.Summary.PendingRefundYuan = cycle.FormatCents(page.Summary.PendingRefundCents)
 	page.Summary.RefundedAmountYuan = cycle.FormatCents(page.Summary.RefundedAmountCents)
 	return page, nil
+}
+
+func buildAfterSalesCaseView(caseItem model.AfterSalesCase) AfterSalesCaseView {
+	view := AfterSalesCaseView{
+		Case:             caseItem,
+		PaidAmountYuan:   cycle.FormatCents(caseItem.PaidAmountCents),
+		RefundAmountYuan: cycle.FormatCents(caseItem.RefundAmountCents),
+		StatusLabel:      afterSalesStatusLabel(caseItem.Status),
+	}
+	if caseItem.ProcessedAt != nil {
+		view.ProcessedAtLabel = caseItem.ProcessedAt.In(cycle.Location).Format("2006-01-02 15:04")
+	}
+	if caseItem.ExpiresAt != nil {
+		view.ExpiresAtLabel = caseItem.ExpiresAt.In(cycle.Location).Format("2006-01-02 15:04")
+	}
+	return view
 }
 
 func (service *SubscriptionService) UpdateAfterSalesCase(

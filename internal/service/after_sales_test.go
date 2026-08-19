@@ -638,6 +638,9 @@ func TestCompletedAfterSalesCaseLeavesPageAfter24HoursButKeepsRefundAccounting(t
 	if page.Summary.TotalCount != 1 || page.Summary.RefundedCount != 1 || page.Summary.RefundedAmountCents != refundCents {
 		t.Fatalf("historical after-sales summary was lost: %#v", page.Summary)
 	}
+	if len(page.SummaryCases) != 1 || page.SummaryCases[0].Case.ID != caseID {
+		t.Fatalf("historical statistic detail was lost: %#v", page.SummaryCases)
+	}
 	stored, err := subscriptionService.Store.GetAfterSalesCase(caseID)
 	if err != nil {
 		t.Fatal(err)

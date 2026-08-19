@@ -285,7 +285,11 @@ func (server *Server) getAfterSales(context *gin.Context) {
 		respondError(context, http.StatusInternalServerError, err.Error())
 		return
 	}
-	respondOK(context, gin.H{"cases": page.Cases, "summary": page.Summary})
+	respondOK(context, gin.H{
+		"cases":         page.Cases,
+		"summary_cases": page.SummaryCases,
+		"summary":       page.Summary,
+	})
 }
 
 func (server *Server) getAccountOptions(context *gin.Context) {

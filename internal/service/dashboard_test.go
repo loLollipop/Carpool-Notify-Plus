@@ -570,6 +570,7 @@ func TestComputeDashboardAggregatesByAccount(t *testing.T) {
 	}
 	subscriptionID, err := subscriptionService.Create(service.CreateInput{
 		Name:             "Netflix 共享",
+		CustomerEmail:    "customer@example.com",
 		PriceYuan:        "12.50",
 		CostYuan:         "10.00",
 		CronExpr:         "0 0 * * 1",
@@ -583,6 +584,19 @@ func TestComputeDashboardAggregatesByAccount(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := subscriptionService.TestNotify(context.Background(), subscriptionID); err != nil {
+		t.Fatal(err)
+	}
+	activityLog, err := subscriptionService.Store.UpsertPendingNotification(
+		subscriptionID,
+		"2026-07-13",
+		0,
+		model.ChannelGotify,
+		model.NotificationKindScheduled,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.Store.MarkNotificationSuccess(activityLog.ID, 1); err != nil {
 		t.Fatal(err)
 	}
 	if err := subscriptionService.Store.SetDuePaid(firstSubscriptionID, "2026-07-15", true, 3500); err != nil {
@@ -612,8 +626,11 @@ func TestComputeDashboardAggregatesByAccount(t *testing.T) {
 	if dashboard.ProfitMarginPercent != "36.8%" {
 		t.Fatalf("ProfitMarginPercent = %q, want %q", dashboard.ProfitMarginPercent, "36.8%")
 	}
-	if dashboard.NotifySuccess30d != 0 {
-		t.Fatalf("NotifySuccess30d = %d, want 0 test notifications excluded", dashboard.NotifySuccess30d)
+	if dashboard.NotifySuccess30d != 1 {
+		t.Fatalf("NotifySuccess30d = %d, want 1 scheduled notification", dashboard.NotifySuccess30d)
+	}
+	if len(dashboard.NotificationActivity) != 1 || dashboard.NotificationActivity[0].CustomerEmail != "customer@example.com" {
+		t.Fatalf("NotificationActivity = %#v, want one customer activity", dashboard.NotificationActivity)
 	}
 	if len(dashboard.Accounts) != 2 {
 		t.Fatalf("Accounts len = %d, want 2", len(dashboard.Accounts))

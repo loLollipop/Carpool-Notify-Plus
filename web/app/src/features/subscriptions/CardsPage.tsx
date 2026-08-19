@@ -19,8 +19,16 @@ import { useCalendar, useDashboard, useSubscriptions } from "@/api/queries"
 import type { CalendarOccurrence, SubscriptionView } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DueStatusBadge } from "@/components/due-status-badge"
-import { KpiSection, KpiSectionSkeleton } from "@/components/kpi-section"
+import {
+  KpiSection,
+  KpiSectionSkeleton,
+  type KpiDetailKey,
+} from "@/components/kpi-section"
 import { PageHeader } from "@/components/page-header"
+import {
+  StatDetailDialog,
+  type StatDetailState,
+} from "@/components/stat-detail-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -349,6 +357,7 @@ export function CardsPage() {
   const [editing, setEditing] = React.useState<SubscriptionPrefill | null>(null)
   const [duePaidTarget, setDuePaidTarget] = React.useState<DuePaidTarget | null>(null)
   const [reminderId, setReminderId] = React.useState<number | null>(null)
+  const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
   const [archiveTarget, setArchiveTarget] = React.useState<{
     id: number
     name: string
@@ -465,6 +474,7 @@ export function CardsPage() {
     return {
       pendingCount: pendingSubscriptionIds.size,
       renewedCount: renewedSubscriptionIds.size,
+      pendingSubscriptionIds,
       renewedSubscriptionIds,
     }
   }, [calendar])
@@ -534,12 +544,19 @@ export function CardsPage() {
   const pageStartIndex = (safePage - 1) * USERS_PER_PAGE
   const pagedViews = filteredViews.slice(pageStartIndex, pageStartIndex + USERS_PER_PAGE)
 
+  const teamSubscriptionIDs = new Set(activeViews.map((view) => view.subscription.id))
+  const teamNotificationActivity = (dashboardQuery.data?.notification_activity_30d ?? [])
+    .filter((item) => teamSubscriptionIDs.has(item.subscription_id))
+
   const teamDashboard = dashboardQuery.data
     ? {
         ...dashboardQuery.data,
         subscription_count: activeViews.length,
         active_count: activeViews.length,
         archived_count: archivedViews.length,
+        notify_success_30d: teamNotificationActivity.filter((item) => item.status === "success").length,
+        notify_failed_30d: teamNotificationActivity.filter((item) => item.status === "failed").length,
+        notification_activity_30d: teamNotificationActivity,
         accounts: (dashboardQuery.data.accounts ?? []).filter(
           (account) => account.account_name !== "Plus 出租",
         ),
@@ -555,6 +572,50 @@ export function CardsPage() {
       next.set("page", String(nextPage))
     }
     setSearchParams(next, { replace: true })
+  }
+
+  const openStatDetail = (key: KpiDetailKey) => {
+    if (!teamDashboard) return
+    if (key === "notifications") {
+      setStatDetail({
+        title: t("dashboard.notifyActivity"),
+        items: (teamDashboard.notification_activity_30d ?? []).map((item) => ({
+          id: item.id,
+          title: item.customer_email || item.subscription_name,
+          subtitle: item.customer_wechat || item.subscription_name,
+          meta: [item.channel, item.due_date, item.updated_at_label, item.last_error],
+          value: item.status === "success" ? t("common.success") : t("common.failed"),
+          valueTone: item.status === "success" ? "success" : "danger",
+        })),
+      })
+      return
+    }
+    const source = key === "subscriptions"
+      ? activeViews
+      : key === "pending"
+        ? activeViews.filter((view) => teamRenewalStats.pendingSubscriptionIds.has(view.subscription.id))
+        : key === "renewed"
+          ? activeViews.filter((view) => teamRenewalStats.renewedSubscriptionIds.has(view.subscription.id))
+          : archivedViews
+    const title = key === "subscriptions"
+      ? t("dashboard.subscriptions")
+      : key === "pending"
+        ? t("dashboard.monthDue")
+        : key === "renewed"
+          ? t("dashboard.monthRenewed")
+          : t("dashboard.archived")
+    setStatDetail({
+      title,
+      items: source.map((view) => ({
+        id: view.subscription.id,
+        title: view.subscription.customer_email || view.subscription.name,
+        subtitle: view.subscription.customer_wechat || view.account_name,
+        meta: [view.account_name, view.seat_name, view.next_due_date, view.cycle_desc],
+        value: `¥${view.price_yuan}`,
+        valueTone: key === "pending" ? "warning" : key === "renewed" ? "success" : "default",
+        searchText: view.subscription.remark,
+      })),
+    })
   }
 
   return (
@@ -596,6 +657,7 @@ export function CardsPage() {
           pendingMode="monthDue"
           renewedCount={teamRenewalStats.renewedCount}
           onFilterRenewed={() => updateFilter("paid")}
+          onOpenDetail={openStatDetail}
         />
       ) : (
         <KpiSectionSkeleton count={5} />
@@ -691,6 +753,13 @@ export function CardsPage() {
           if (!open) setReminderId(null)
         }}
         subscriptionId={reminderId}
+      />
+      <StatDetailDialog
+        open={statDetail !== null}
+        onOpenChange={(open) => {
+          if (!open) setStatDetail(null)
+        }}
+        detail={statDetail}
       />
       <ConfirmDialog
         open={archiveTarget !== null}

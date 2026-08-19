@@ -516,13 +516,35 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 
 	now := service.now()
 	since := now.AddDate(0, 0, -30)
-	successCount, err := service.Store.CountNotificationsByStatusSince(model.NotificationStatusSuccess, since)
+	notificationLogs, err := service.Store.ListNotificationActivitySince(since)
 	if err != nil {
 		return Dashboard{}, err
 	}
-	failedCount, err := service.Store.CountNotificationsByStatusSince(model.NotificationStatusFailed, since)
-	if err != nil {
-		return Dashboard{}, err
+	successCount := 0
+	failedCount := 0
+	notificationActivity := make([]NotificationActivity, 0, len(notificationLogs))
+	for _, logEntry := range notificationLogs {
+		subscription, exists := subscriptionsByID[logEntry.SubscriptionID]
+		if !exists {
+			continue
+		}
+		if logEntry.Status == model.NotificationStatusSuccess {
+			successCount++
+		} else if logEntry.Status == model.NotificationStatusFailed {
+			failedCount++
+		}
+		notificationActivity = append(notificationActivity, NotificationActivity{
+			ID:               logEntry.ID,
+			SubscriptionID:   logEntry.SubscriptionID,
+			SubscriptionName: subscription.Name,
+			CustomerEmail:    subscription.CustomerEmail,
+			CustomerWechat:   subscription.CustomerWechat,
+			DueDate:          logEntry.DueDate,
+			Channel:          logEntry.Channel,
+			Status:           logEntry.Status,
+			UpdatedAtLabel:   logEntry.UpdatedAt.In(cycle.Location).Format("2006-01-02 15:04"),
+			LastError:        logEntry.LastError,
+		})
 	}
 
 	amountBars := make([]AmountBar, 0, len(subscriptions))
@@ -534,6 +556,7 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		amountBars = append(amountBars, AmountBar{
 			SubscriptionID: subscription.ID,
 			Name:           subscription.Name,
+			CustomerEmail:  subscription.CustomerEmail,
 			AccountName:    accountName,
 			AmountYuan:     cycle.FormatCents(amountCents),
 			AmountCents:    amountCents,
@@ -618,6 +641,7 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		ProfitMarginPercent:  profitMarginPercent,
 		NotifySuccess30d:     successCount,
 		NotifyFailed30d:      failedCount,
+		NotificationActivity: notificationActivity,
 		AmountBySubscription: amountBars,
 		Accounts:             accounts,
 	}, nil
@@ -651,29 +675,45 @@ type CreateInput struct {
 
 // Dashboard is the home-page statistics model (wide KPI + charts).
 type Dashboard struct {
-	SubscriptionCount    int                `json:"subscription_count"`
-	ActiveCount          int                `json:"active_count"`
-	ArchivedCount        int                `json:"archived_count"`
-	TotalAmountYuan      string             `json:"total_amount_yuan"`
-	TotalRefundCents     int64              `json:"total_refund_cents"`
-	TotalRefundYuan      string             `json:"total_refund_yuan"`
-	NetRevenueCents      int64              `json:"net_revenue_cents"`
-	NetRevenueYuan       string             `json:"net_revenue_yuan"`
-	TotalCostYuan        string             `json:"total_cost_yuan"`
-	TotalProfitYuan      string             `json:"total_profit_yuan"`
-	TotalProfitCents     int64              `json:"total_profit_cents"`
-	TotalAgencyFeeYuan   string             `json:"total_agency_fee_yuan"`
-	ProfitMarginPercent  string             `json:"profit_margin_percent"`
-	NotifySuccess30d     int                `json:"notify_success_30d"`
-	NotifyFailed30d      int                `json:"notify_failed_30d"`
-	AmountBySubscription []AmountBar        `json:"amount_by_subscription"`
-	Accounts             []AccountBreakdown `json:"accounts"`
+	SubscriptionCount    int                    `json:"subscription_count"`
+	ActiveCount          int                    `json:"active_count"`
+	ArchivedCount        int                    `json:"archived_count"`
+	TotalAmountYuan      string                 `json:"total_amount_yuan"`
+	TotalRefundCents     int64                  `json:"total_refund_cents"`
+	TotalRefundYuan      string                 `json:"total_refund_yuan"`
+	NetRevenueCents      int64                  `json:"net_revenue_cents"`
+	NetRevenueYuan       string                 `json:"net_revenue_yuan"`
+	TotalCostYuan        string                 `json:"total_cost_yuan"`
+	TotalProfitYuan      string                 `json:"total_profit_yuan"`
+	TotalProfitCents     int64                  `json:"total_profit_cents"`
+	TotalAgencyFeeYuan   string                 `json:"total_agency_fee_yuan"`
+	ProfitMarginPercent  string                 `json:"profit_margin_percent"`
+	NotifySuccess30d     int                    `json:"notify_success_30d"`
+	NotifyFailed30d      int                    `json:"notify_failed_30d"`
+	NotificationActivity []NotificationActivity `json:"notification_activity_30d"`
+	AmountBySubscription []AmountBar            `json:"amount_by_subscription"`
+	Accounts             []AccountBreakdown     `json:"accounts"`
+}
+
+// NotificationActivity is one recent completed scheduled notification.
+type NotificationActivity struct {
+	ID               int64  `json:"id"`
+	SubscriptionID   int64  `json:"subscription_id"`
+	SubscriptionName string `json:"subscription_name"`
+	CustomerEmail    string `json:"customer_email"`
+	CustomerWechat   string `json:"customer_wechat"`
+	DueDate          string `json:"due_date"`
+	Channel          string `json:"channel"`
+	Status           string `json:"status"`
+	UpdatedAtLabel   string `json:"updated_at_label"`
+	LastError        string `json:"last_error"`
 }
 
 // AmountBar is one row in the amount distribution chart.
 type AmountBar struct {
 	SubscriptionID int64  `json:"subscription_id"`
 	Name           string `json:"name"`
+	CustomerEmail  string `json:"customer_email"`
 	AccountName    string `json:"account_name"`
 	AmountYuan     string `json:"amount_yuan"`
 	AmountCents    int64  `json:"amount_cents"`

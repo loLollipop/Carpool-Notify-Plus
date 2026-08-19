@@ -105,8 +105,13 @@ export function fetchAccounts() {
 export function fetchAfterSales() {
   return api<{
     cases: AfterSalesCaseView[] | null
+    summary_cases: AfterSalesCaseView[] | null
     summary: AfterSalesSummary
-  }>("/api/after-sales").then((r) => ({ cases: r.cases ?? [], summary: r.summary }))
+  }>("/api/after-sales").then((r) => ({
+    cases: r.cases ?? [],
+    summary_cases: r.summary_cases ?? r.cases ?? [],
+    summary: r.summary,
+  }))
 }
 
 export function fetchAccountOptions(includeSeatId = 0) {
