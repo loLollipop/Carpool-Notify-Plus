@@ -950,17 +950,7 @@ func TestCompletedRefundUpdatesDashboardBillsAndProcessingMonth(t *testing.T) {
 	subscriptionService.Clock = func() time.Time {
 		return time.Date(2026, time.August, 5, 12, 0, 0, 0, cycle.Location)
 	}
-	accountID, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-07-20", true)
-	totalCostYuan := "10.00"
-	if err := subscriptionService.UpdateAccount(accountID, service.UpdateAccountInput{
-		Name:          "质保母号",
-		Email:         "owner@example.com",
-		SpaceName:     "Warranty Space",
-		CostYuan:      "10.00",
-		TotalCostYuan: &totalCostYuan,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	accountID, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-07-20", true, "10.00")
 	if _, err := subscriptionService.BanAccount(accountID, service.BanAccountInput{BannedDate: "2026-07-30"}); err != nil {
 		t.Fatal(err)
 	}
@@ -1028,12 +1018,18 @@ func createWarrantyCustomer(
 	subscriptionService *service.SubscriptionService,
 	boardedAt string,
 	paid bool,
+	costYuan ...string,
 ) (int64, int64) {
 	t.Helper()
+	monthlyCostYuan := ""
+	if len(costYuan) > 0 {
+		monthlyCostYuan = costYuan[0]
+	}
 	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
 		Name:      "质保母号",
 		Email:     "owner@example.com",
 		SpaceName: "Warranty Space",
+		CostYuan:  monthlyCostYuan,
 		SeatCount: 1,
 	})
 	if err != nil {

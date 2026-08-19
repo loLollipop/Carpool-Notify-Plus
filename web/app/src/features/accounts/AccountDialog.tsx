@@ -39,7 +39,6 @@ export interface AccountPrefill {
   spaceName: string
   openedAt: string
   costYuan: string
-  totalCostYuan: string
   zeroRenewalNextMonth: boolean
   seatCount: number
 }
@@ -77,12 +76,6 @@ export function AccountDialog({
           .refine((value) => value === "" || MONEY_PATTERN.test(value), {
             message: t("subscriptionDialog.validation.priceInvalid"),
           }),
-        total_cost_yuan: z
-          .string()
-          .trim()
-          .refine((value) => value === "" || MONEY_PATTERN.test(value), {
-            message: t("subscriptionDialog.validation.priceInvalid"),
-          }),
         zero_renewal_next_month: z.boolean(),
         seat_count: z
           .string()
@@ -104,7 +97,6 @@ export function AccountDialog({
       space_name: prefill?.spaceName ?? "",
       opened_at: prefill?.openedAt ?? "",
       cost_yuan: prefill?.costYuan ?? "",
-      total_cost_yuan: prefill?.totalCostYuan ?? "",
       zero_renewal_next_month: prefill?.zeroRenewalNextMonth ?? false,
       seat_count: String(prefill?.seatCount ?? 1),
     }),
@@ -137,7 +129,6 @@ export function AccountDialog({
         space_name: values.space_name.trim(),
         opened_at: values.opened_at,
         cost_yuan: values.cost_yuan.trim(),
-        total_cost_yuan: values.total_cost_yuan.trim(),
         zero_renewal_next_month: values.zero_renewal_next_month,
         seat_count: Number(values.seat_count),
       }
@@ -229,7 +220,7 @@ export function AccountDialog({
                 )}
               />
             </div>
-            <div className="grid items-start gap-4 sm:grid-cols-2">
+            <div className="grid items-start gap-4">
               <FormField
                 control={form.control}
                 name="cost_yuan"
@@ -239,30 +230,7 @@ export function AccountDialog({
                     <FormControl>
                       <Input inputMode="decimal" placeholder="20.00" {...field} />
                     </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="total_cost_yuan"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t("accounts.totalCost")}</FormLabel>
-                    <FormControl>
-                      <Input
-                        inputMode="decimal"
-                        placeholder={t(
-                          isEdit
-                            ? "accounts.totalCostEditPlaceholder"
-                            : "accounts.totalCostPlaceholder",
-                        )}
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {isEdit ? t("accounts.totalCostEditHint") : t("accounts.totalCostCreateHint")}
-                    </FormDescription>
+                    <FormDescription>{t("accounts.costHint")}</FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}

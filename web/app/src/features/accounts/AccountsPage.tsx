@@ -489,7 +489,6 @@ export function AccountsPage() {
       spaceName: view.account.space_name,
       openedAt: view.account.opened_at,
       costYuan: formatOptionalCents(view.account.cost_cents),
-      totalCostYuan: formatOptionalCents(view.account.total_cost_cents),
       zeroRenewalNextMonth: view.account.zero_renewal_next_month,
       seatCount: view.seat_total,
     })

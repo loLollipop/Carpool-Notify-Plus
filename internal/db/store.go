@@ -3073,8 +3073,8 @@ func (store *Store) CreateAccount(account model.Account, initialCostCents int64,
 	return accountID, nil
 }
 
-// UpdateAccount updates account metadata and optionally adjusts cumulative cost to a target.
-func (store *Store) UpdateAccount(account model.Account, targetTotalCostCents *int64, periodDate string) error {
+// UpdateAccount updates account metadata. Cumulative cost remains ledger-derived.
+func (store *Store) UpdateAccount(account model.Account) error {
 	now := formatTime(time.Now().UTC())
 	zeroRenewalNextMonth := 0
 	if account.ZeroRenewalNextMonth {
@@ -3148,31 +3148,6 @@ func (store *Store) UpdateAccount(account model.Account, targetTotalCostCents *i
 			model.AccountCostSourceZeroRenewal,
 		); err != nil {
 			return fmt.Errorf("align initial account cost period: %w", err)
-		}
-	}
-	if targetTotalCostCents != nil {
-		var currentTotal int64
-		if err := transaction.QueryRow(`
-			SELECT COALESCE(SUM(amount_cents), 0)
-			FROM account_cost_records
-			WHERE account_id = ?`, account.ID).Scan(&currentTotal); err != nil {
-			return err
-		}
-		adjustment := *targetTotalCostCents - currentTotal
-		if adjustment != 0 {
-			if _, err := transaction.Exec(`
-				INSERT INTO account_cost_records (
-					account_id, period_date, amount_cents, source, note, created_at
-				) VALUES (?, ?, ?, ?, ?, ?)`,
-				account.ID,
-				periodDate,
-				adjustment,
-				model.AccountCostSourceManual,
-				"Manual cumulative cost correction",
-				now,
-			); err != nil {
-				return err
-			}
 		}
 	}
 	return transaction.Commit()

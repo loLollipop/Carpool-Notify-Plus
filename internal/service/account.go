@@ -58,7 +58,6 @@ type CreateAccountInput struct {
 	SpaceName            string
 	OpenedAt             string
 	CostYuan             string
-	TotalCostYuan        *string
 	ZeroRenewalNextMonth bool
 	SeatCount            int
 	SeatNames            []string
@@ -74,7 +73,6 @@ type UpdateAccountInput struct {
 	SpaceName            string
 	OpenedAt             string
 	CostYuan             string
-	TotalCostYuan        *string
 	ZeroRenewalNextMonth bool
 	SeatCount            int
 }
@@ -220,19 +218,8 @@ func (service *SubscriptionService) CreateAccount(input CreateAccountInput) (int
 		return 0, err
 	}
 	email = defaultAccountEmail(email, name)
-	totalCostCents, err := normalizeOptionalAccountTotalCost(input.TotalCostYuan)
-	if err != nil {
-		return 0, err
-	}
-	initialCostCents := costCents
-	if totalCostCents != nil {
-		initialCostCents = *totalCostCents
-	}
 	initialCostPeriod := cycle.FormatDate(service.now())
-	// A value different from the monthly cost represents an imported cumulative
-	// balance. Without a detailed historical ledger it must stay in the import
-	// period; moving the whole balance to opened_at would distort that month.
-	if openedAt != "" && initialCostCents == costCents {
+	if openedAt != "" {
 		initialCostPeriod = openedAt
 	}
 
@@ -245,7 +232,7 @@ func (service *SubscriptionService) CreateAccount(input CreateAccountInput) (int
 		OpenedAt:             openedAt,
 		CostCents:            costCents,
 		ZeroRenewalNextMonth: input.ZeroRenewalNextMonth,
-	}, initialCostCents, initialCostPeriod)
+	}, costCents, initialCostPeriod)
 	if err != nil {
 		return 0, err
 	}
@@ -284,10 +271,6 @@ func (service *SubscriptionService) UpdateAccount(accountID int64, input UpdateA
 		return err
 	}
 	email = defaultAccountEmail(email, name)
-	totalCostCents, err := normalizeAccountTotalCostForUpdate(input.TotalCostYuan)
-	if err != nil {
-		return err
-	}
 	if openedAt != strings.TrimSpace(storedAccount.OpenedAt) {
 		costRecords, listErr := service.Store.ListAccountCostRecords(accountID)
 		if listErr != nil {
@@ -316,7 +299,7 @@ func (service *SubscriptionService) UpdateAccount(accountID int64, input UpdateA
 		OpenedAt:             openedAt,
 		CostCents:            costCents,
 		ZeroRenewalNextMonth: input.ZeroRenewalNextMonth,
-	}, totalCostCents, cycle.FormatDate(service.now())); err != nil {
+	}); err != nil {
 		return err
 	}
 	if input.SeatCount > 0 {
@@ -633,28 +616,6 @@ func normalizeAccountDetails(emailRaw, spaceNameRaw, openedAtRaw, costYuanRaw st
 		}
 	}
 	return email, strings.TrimSpace(spaceNameRaw), openedAt, costCents, nil
-}
-
-func normalizeOptionalAccountTotalCost(raw *string) (*int64, error) {
-	if raw == nil || strings.TrimSpace(*raw) == "" {
-		return nil, nil
-	}
-	totalCostCents, err := cycle.ParseYuanToCents(*raw)
-	if err != nil {
-		return nil, fmt.Errorf("账号累计总成本无效: %w", err)
-	}
-	return &totalCostCents, nil
-}
-
-func normalizeAccountTotalCostForUpdate(raw *string) (*int64, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	if strings.TrimSpace(*raw) == "" {
-		clearedTotal := int64(0)
-		return &clearedTotal, nil
-	}
-	return normalizeOptionalAccountTotalCost(raw)
 }
 
 func normalizeAccountEmail(raw string) (string, error) {

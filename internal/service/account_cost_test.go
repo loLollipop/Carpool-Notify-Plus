@@ -59,31 +59,18 @@ func TestAccountCostRenewalsUseMonthlyAnniversaryAndConsumeZeroOnce(t *testing.T
 	}
 }
 
-func TestAccountTotalCostCanBeInitializedAndCorrected(t *testing.T) {
+func TestAccountTotalCostIsDerivedFromOpeningAndRenewalCosts(t *testing.T) {
 	subscriptionService := openTestService(t)
-	subscriptionService.Clock = func() time.Time {
-		return time.Date(2026, time.July, 10, 12, 0, 0, 0, cycle.Location)
-	}
-	initialTotal := "75.00"
+	now := time.Date(2026, time.January, 15, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
 	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
-		Name:          "owner@example.com",
-		Email:         "owner@example.com",
-		OpenedAt:      "2026-07-01",
-		CostYuan:      "20.00",
-		TotalCostYuan: &initialTotal,
-		SeatCount:     1,
+		Name:      "derived-cost@example.com",
+		Email:     "derived-cost@example.com",
+		OpenedAt:  "2026-01-15",
+		CostYuan:  "75.00",
+		SeatCount: 1,
 	})
 	if err != nil {
-		t.Fatal(err)
-	}
-	correctedTotal := "80.00"
-	if err := subscriptionService.UpdateAccount(accountID, service.UpdateAccountInput{
-		Name:          "owner@example.com",
-		Email:         "owner@example.com",
-		OpenedAt:      "2026-07-01",
-		CostYuan:      "20.00",
-		TotalCostYuan: &correctedTotal,
-	}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -91,105 +78,47 @@ func TestAccountTotalCostCanBeInitializedAndCorrected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if account.CostCents != 2000 || account.TotalCostCents != 8000 {
-		t.Fatalf("monthly/total cost = %d/%d, want 2000/8000", account.CostCents, account.TotalCostCents)
-	}
-	records, err := subscriptionService.Store.ListAccountCostRecords(accountID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(records) != 2 || records[0].PeriodDate != "2026-07-10" ||
-		records[1].Source != model.AccountCostSourceManual || records[1].AmountCents != 500 {
-		t.Fatalf("manual correction records = %#v", records)
-	}
-}
-
-func TestAccountTotalCostBlankClearsWhileOmittedPreserves(t *testing.T) {
-	subscriptionService := openTestService(t)
-	subscriptionService.Clock = func() time.Time {
-		return time.Date(2026, time.August, 19, 12, 0, 0, 0, cycle.Location)
-	}
-	initialTotal := "75.00"
-	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
-		Name:          "clear-cost@example.com",
-		Email:         "clear-cost@example.com",
-		OpenedAt:      "2026-08-19",
-		CostYuan:      "110.00",
-		TotalCostYuan: &initialTotal,
-		SeatCount:     1,
-	})
-	if err != nil {
-		t.Fatal(err)
+	if account.CostCents != 7500 || account.TotalCostCents != 7500 {
+		t.Fatalf("opening monthly/total cost = %d/%d, want 7500/7500", account.CostCents, account.TotalCostCents)
 	}
 
-	update := service.UpdateAccountInput{
-		Name:      "clear-cost@example.com",
-		Email:     "clear-cost@example.com",
-		OpenedAt:  "2026-08-19",
+	if err := subscriptionService.UpdateAccount(accountID, service.UpdateAccountInput{
+		Name:      "derived-cost@example.com",
+		Email:     "derived-cost@example.com",
+		OpenedAt:  "2026-01-15",
 		CostYuan:  "110.00",
 		SeatCount: 1,
-	}
-	if err := subscriptionService.UpdateAccount(accountID, update); err != nil {
-		t.Fatal(err)
-	}
-	account, err := subscriptionService.Store.GetAccount(accountID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if account.TotalCostCents != 7500 {
-		t.Fatalf("omitted cumulative cost = %d, want 7500", account.TotalCostCents)
-	}
-
-	clearedTotal := ""
-	update.TotalCostYuan = &clearedTotal
-	if err := subscriptionService.UpdateAccount(accountID, update); err != nil {
+	}); err != nil {
 		t.Fatal(err)
 	}
 	account, err = subscriptionService.Store.GetAccount(accountID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if account.CostCents != 11000 || account.TotalCostCents != 0 {
-		t.Fatalf(
-			"monthly/cleared cumulative cost = %d/%d, want 11000/0",
-			account.CostCents,
-			account.TotalCostCents,
-		)
+	if account.CostCents != 11000 || account.TotalCostCents != 7500 {
+		t.Fatalf("edited monthly/total cost = %d/%d, want 11000/7500", account.CostCents, account.TotalCostCents)
 	}
-	records, err := subscriptionService.Store.ListAccountCostRecords(accountID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(records) != 2 || records[0].AmountCents != 7500 ||
-		records[1].Source != model.AccountCostSourceManual ||
-		records[1].AmountCents != -7500 {
-		t.Fatalf("clear correction records = %#v", records)
-	}
-}
 
-func TestHistoricalAccountTotalCostStaysInImportPeriod(t *testing.T) {
-	subscriptionService := openTestService(t)
-	subscriptionService.Clock = func() time.Time {
-		return time.Date(2026, time.August, 7, 12, 0, 0, 0, cycle.Location)
+	now = time.Date(2026, time.February, 15, 12, 0, 0, 0, cycle.Location)
+	if err := subscriptionService.ProcessAccountCostRenewals(); err != nil {
+		t.Fatal(err)
 	}
-	historicalTotal := "75.00"
-	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
-		Name:          "historical-owner@example.com",
-		Email:         "historical-owner@example.com",
-		OpenedAt:      "2026-01-18",
-		CostYuan:      "20.00",
-		TotalCostYuan: &historicalTotal,
-		SeatCount:     1,
-	})
+	account, err = subscriptionService.Store.GetAccount(accountID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if account.CostCents != 11000 || account.TotalCostCents != 18500 {
+		t.Fatalf("renewed monthly/total cost = %d/%d, want 11000/18500", account.CostCents, account.TotalCostCents)
 	}
 	records, err := subscriptionService.Store.ListAccountCostRecords(accountID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].PeriodDate != "2026-08-07" || records[0].AmountCents != 7500 {
-		t.Fatalf("historical account cost records = %#v", records)
+	if len(records) != 2 || records[0].PeriodDate != "2026-01-15" ||
+		records[0].AmountCents != 7500 || records[0].Source != model.AccountCostSourceInitial ||
+		records[1].PeriodDate != "2026-02-15" || records[1].AmountCents != 11000 ||
+		records[1].Source != model.AccountCostSourceRenewal {
+		t.Fatalf("derived cost records = %#v", records)
 	}
 }
 

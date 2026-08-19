@@ -112,12 +112,10 @@ func TestInvalidAccountSeatShrinkDoesNotPartiallySaveMetadataOrCost(t *testing.T
 			t.Fatal(err)
 		}
 	}
-	targetTotal := "99.00"
 	err := subscriptionService.UpdateAccount(accountID, service.UpdateAccountInput{
-		Name:          "changed@example.com",
-		CostYuan:      "50.00",
-		TotalCostYuan: &targetTotal,
-		SeatCount:     1,
+		Name:      "changed@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 1,
 	})
 	if err == nil {
 		t.Fatal("shrinking below active occupancy should fail")

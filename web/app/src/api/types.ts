@@ -968,7 +968,6 @@ export interface AccountInput {
   space_name: string
   opened_at: string
   cost_yuan: string
-  total_cost_yuan: string
   zero_renewal_next_month: boolean
   seat_count: number
 }
