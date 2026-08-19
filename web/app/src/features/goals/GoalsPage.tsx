@@ -116,6 +116,18 @@ function visibleYuan(cents: number, hidden: boolean) {
   return maskAmount(hidden, yuan(cents))
 }
 
+type RepricingDetailKey = "users" | "relationship" | "protected" | "batch"
+
+function repricingDetailAmountCents(
+  key: RepricingDetailKey,
+  candidate: PricingCandidate,
+) {
+  if (key !== "users") return candidate.monthly_revenue_cents
+  return candidate.customer_group_monthly_revenue_cents > 0
+    ? candidate.customer_group_monthly_revenue_cents
+    : candidate.monthly_revenue_cents
+}
+
 function inputYuan(cents: number) {
   return (cents / 100).toFixed(2)
 }
@@ -1508,7 +1520,7 @@ function RepricingAnalysisPanel({
   const protectedUsers =
     (analysis.risk_segments ?? []).find((segment) => segment.key === "high")?.count ?? 0
 
-  const openAnalysisDetail = (key: "users" | "relationship" | "protected" | "batch") => {
+  const openAnalysisDetail = (key: RepricingDetailKey) => {
     let source = candidates
     if (key === "users") {
       const grouped = new Map<number, PricingCandidate>()
@@ -1538,7 +1550,7 @@ function RepricingAnalysisPanel({
         meta: [candidate.account_name, candidate.seat_name, candidate.next_due_date],
         value: key === "relationship"
           ? t("goals.repricing.daysValue", { count: candidate.relationship_days })
-          : visibleYuan(candidate.customer_group_monthly_revenue_cents || candidate.monthly_revenue_cents, amountsHidden),
+          : visibleYuan(repricingDetailAmountCents(key, candidate), amountsHidden),
         valueTone: key === "protected" ? "warning" : key === "batch" ? "success" : "default",
         searchText: `${candidate.relationship_level} ${candidate.customer_tier}`,
       })),
@@ -1709,7 +1721,7 @@ function RepricingAnalysisPanel({
                       </span>
                       <div className="min-w-0">
                         <p className="truncate font-mono text-sm font-semibold tabular-nums tracking-tight text-foreground">
-                          {visibleYuan(candidate.customer_group_current_price_cents, amountsHidden)}
+                          {visibleYuan(candidate.customer_group_monthly_revenue_cents, amountsHidden)}
                           <span className="ml-1 text-[10px] font-normal text-muted-foreground">
                             {t("goals.repricing.profilePriceSuffix")}
                           </span>
