@@ -1029,7 +1029,6 @@ export default {
       newAccount: "New account",
       empty: "No accounts yet. Create one with a seat capacity, then attach subscriptions.",
       colAccount: "Account",
-      serial: "No. {{number}}",
       serialTitle: "Account imported number {{number}}",
       colOccupancy: "Seats",
       colStatus: "Status",

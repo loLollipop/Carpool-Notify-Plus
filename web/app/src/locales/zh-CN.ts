@@ -1028,7 +1028,6 @@ export default {
       newAccount: "新建账号",
       empty: "还没有账号。先创建账号并设置车位数量，再挂订阅。",
       colAccount: "账号",
-      serial: "{{number}}号",
       serialTitle: "第 {{number}} 个导入的账号",
       colOccupancy: "车位占用",
       colStatus: "状态",

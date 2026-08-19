@@ -59,14 +59,17 @@ function formatOptionalCents(cents: number) {
   return cents > 0 ? formatCents(cents) : ""
 }
 
-function AccountSerial({ number }: { number: number }) {
+function AccountSerial({ number, className }: { number: number; className?: string }) {
   const { t } = useTranslation()
   return (
     <span
-      className="inline-flex h-5 shrink-0 items-center rounded border border-brand/15 bg-brand/[0.06] px-1.5 font-mono text-[10px] font-semibold tracking-tight text-brand tabular-nums"
+      className={cn(
+        "grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 font-mono text-sm font-bold tracking-tight text-brand tabular-nums",
+        className,
+      )}
       title={t("accounts.serialTitle", { number })}
     >
-      {t("accounts.serial", { number })}
+      {number}
     </span>
   )
 }
@@ -295,12 +298,9 @@ function AccountMobileCard({
       <div className="p-4">
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
-              <CircleParking className="size-[18px]" />
-            </span>
+            <AccountSerial number={view.account.id} />
             <div className="min-w-0">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                <AccountSerial number={view.account.id} />
                 <h2 className="min-w-0 break-all text-sm font-semibold leading-5">
                   {view.account.name}
                 </h2>
@@ -706,12 +706,9 @@ export function AccountsPage() {
                   >
                     <TableCell>
                       <div className="flex min-w-0 items-start gap-2.5">
-                        <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
-                          <CircleParking className="size-4" />
-                        </span>
+                        <AccountSerial number={view.account.id} className="mt-0.5 size-8 text-xs" />
                         <div className="min-w-0">
                           <div className="flex min-w-0 items-center gap-1.5">
-                            <AccountSerial number={view.account.id} />
                             <div className="min-w-0 truncate font-medium" title={view.account.name}>
                               {view.account.name}
                             </div>
