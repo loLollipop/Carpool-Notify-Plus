@@ -2024,8 +2024,18 @@ function BulkPricingPanel({
                     <div>{candidate.account_name || "-"}</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">{candidate.seat_name || "-"}</div>
                   </TableCell>
-                  <TableCell className="font-semibold tabular-nums">
-                    {visibleYuan(candidate.current_price_cents, amountsHidden)}
+                  <TableCell className="tabular-nums">
+                    <div className="font-semibold">
+                      {visibleYuan(candidate.current_price_cents, amountsHidden)}
+                    </div>
+                    {candidate.market_monthly_price_cents > 0 &&
+                    candidate.market_monthly_price_cents !== candidate.current_price_cents ? (
+                      <div className="mt-0.5 text-[11px] font-normal text-muted-foreground">
+                        {t("goals.monthlyEquivalent", {
+                          price: visibleYuan(candidate.market_monthly_price_cents, amountsHidden),
+                        })}
+                      </div>
+                    ) : null}
                   </TableCell>
                   <TableCell>
                     <Badge variant={marketPositionBadge[candidate.market_position]}>
@@ -2039,11 +2049,21 @@ function BulkPricingPanel({
                       </div>
                     ) : null}
                     {candidate.suggested_price_cents > candidate.current_price_cents ? (
-                      <div className="mt-1 text-[11px] text-brand tabular-nums">
-                        {t("goals.suggestedCustomerPrice", {
-                          price: visibleYuan(candidate.suggested_price_cents, amountsHidden),
-                          cap: visibleYuan(candidate.max_increase_price_cents, amountsHidden),
-                        })}
+                      <div className="mt-1 text-[11px] tabular-nums">
+                        <div className="text-brand">
+                          {t("goals.suggestedCustomerPrice", {
+                            price: visibleYuan(candidate.suggested_price_cents, amountsHidden),
+                            cap: visibleYuan(candidate.max_increase_price_cents, amountsHidden),
+                          })}
+                        </div>
+                        {candidate.suggested_monthly_price_cents > 0 &&
+                        candidate.suggested_monthly_price_cents !== candidate.suggested_price_cents ? (
+                          <div className="mt-0.5 text-muted-foreground">
+                            {t("goals.monthlyEquivalent", {
+                              price: visibleYuan(candidate.suggested_monthly_price_cents, amountsHidden),
+                            })}
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </TableCell>

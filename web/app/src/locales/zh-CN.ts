@@ -136,6 +136,7 @@ export default {
       customer: "用户",
       teamSeat: "Team 账号 / 席位",
       currentPrice: "当前售价",
+      monthlyEquivalent: "折合 {{price}}/月",
       marketPositionLabel: "市场对标",
       scheduledPrice: "已安排价格",
       nextRenewal: "下次续费",

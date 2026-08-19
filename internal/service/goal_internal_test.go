@@ -567,6 +567,101 @@ func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) 
 	}
 }
 
+func TestQuarterlyPricingUsesMonthlyComparablePriceWithoutChangingCycleAmounts(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "quarterly-owner@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 1 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "Quarterly Team customer",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 33000,
+		CronExpr:            "interval:90d",
+		CustomerEmail:       "quarterly-customer@example.com",
+		SeatID:              seats[0].ID,
+		BoardedAt:           "2025-11-18",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, dueDate := range []string{"2026-02-16", "2026-05-17", "2026-08-15"} {
+		if err := service.Store.SetDuePaid(subscriptionID, dueDate, true, 33000); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	candidates, err := service.buildPricingCandidates(&model.MarketPriceSnapshot{
+		LowPriceCents:    10000,
+		MedianPriceCents: 12000,
+		HighPriceCents:   15000,
+		SampleCount:      10,
+	}, 0)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("quarterly candidates = %#v, err = %v", candidates, err)
+	}
+	candidate := candidates[0]
+	if candidate.CurrentPriceCents != 33000 || candidate.MarketMonthlyPriceCents != 11000 ||
+		candidate.MarketPosition != "below_median" || candidate.GapToMarketMedianCents != 1000 {
+		t.Fatalf("quarterly market comparison = %#v", candidate)
+	}
+	if candidate.SuggestedPriceCents != 34200 || candidate.SuggestedMonthlyPriceCents != 11400 ||
+		candidate.MaxIncreasePriceCents != 35640 {
+		t.Fatalf("quarterly cycle suggestion = %#v", candidate)
+	}
+	if candidate.VerifiedPriceCents != 33000 || candidate.VerifiedMonthlyPriceCents != 11000 ||
+		candidate.VerifiedPriceIndex == nil || *candidate.VerifiedPriceIndex != 92 {
+		t.Fatalf("quarterly paid-price evidence = %#v", candidate)
+	}
+	recommendation, err := service.buildPricingRecommendation(&model.MarketPriceSnapshot{
+		LowPriceCents:    10000,
+		MedianPriceCents: 12000,
+		HighPriceCents:   15000,
+		SampleCount:      10,
+	})
+	if err != nil || recommendation.InternalMedianPriceCents != 11000 {
+		t.Fatalf("quarterly internal median = %#v, err = %v", recommendation, err)
+	}
+
+	analysis := buildRepricingAnalysis(candidates, service.now())
+	if len(analysis.CustomerTiers) != 3 || analysis.CustomerTiers[1].AveragePriceCents != 11000 ||
+		analysis.CustomerTiers[1].LowestPriceCents != 11000 || analysis.CustomerTiers[1].HighestPriceCents != 11000 {
+		t.Fatalf("quarterly tier comparison = %#v", analysis.CustomerTiers)
+	}
+}
+
+func TestMarketMonthlyCycleFactorUsesStandardSubscriptionMonths(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, cycle.Location)
+	tests := []struct {
+		name       string
+		expression string
+		cyclePrice int64
+	}{
+		{name: "monthly interval", expression: "interval:30d", cyclePrice: 12000},
+		{name: "quarterly interval", expression: "interval:90d", cyclePrice: 36000},
+		{name: "half-year interval", expression: "interval:180d", cyclePrice: 72000},
+		{name: "annual interval", expression: "interval:365d", cyclePrice: 144000},
+		{name: "quarterly cron", expression: "0 0 1 */3 *", cyclePrice: 36000},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			subscription := model.Subscription{CronExpr: test.expression, BoardedAt: "2026-01-01"}
+			numerator, denominator := marketMonthlyCycleFactor(subscription, now)
+			if monthly := scalePriceCents(test.cyclePrice, numerator, denominator); monthly != 12000 {
+				t.Fatalf("factor %d/%d converted %d to %d, want 12000", numerator, denominator, test.cyclePrice, monthly)
+			}
+		})
+	}
+}
+
 func TestBulkNextPriceStoreRejectsStaleFinancialState(t *testing.T) {
 	service := openGoalTestService(t)
 	accountID, err := service.CreateAccount(CreateAccountInput{

@@ -136,6 +136,7 @@ export default {
       customer: "Customer",
       teamSeat: "Team account / seat",
       currentPrice: "Current price",
+      monthlyEquivalent: "{{price}}/month equivalent",
       marketPositionLabel: "Market position",
       scheduledPrice: "Scheduled price",
       nextRenewal: "Next renewal",

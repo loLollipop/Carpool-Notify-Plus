@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -132,12 +133,14 @@ type PricingCandidate struct {
 	AccountName                      string   `json:"account_name"`
 	SeatName                         string   `json:"seat_name"`
 	CurrentPriceCents                int64    `json:"current_price_cents"`
+	MarketMonthlyPriceCents          int64    `json:"market_monthly_price_cents"`
 	NextPriceCents                   *int64   `json:"next_price_cents"`
 	NextPriceEffectiveDate           string   `json:"next_price_effective_date"`
 	NextDueDate                      string   `json:"next_due_date"`
 	MarketPosition                   string   `json:"market_position"`
 	GapToMarketMedianCents           int64    `json:"gap_to_market_median_cents"`
 	SuggestedPriceCents              int64    `json:"suggested_price_cents"`
+	SuggestedMonthlyPriceCents       int64    `json:"suggested_monthly_price_cents"`
 	MaxIncreasePriceCents            int64    `json:"max_increase_price_cents"`
 	PaidPeriodCount                  int      `json:"paid_period_count"`
 	LastPaidDate                     string   `json:"last_paid_date"`
@@ -177,6 +180,7 @@ type PricingCandidate struct {
 	RenewalCount                     int      `json:"renewal_count"`
 	RenewalEvidence                  string   `json:"renewal_evidence"`
 	VerifiedPriceCents               int64    `json:"verified_price_cents"`
+	VerifiedMonthlyPriceCents        int64    `json:"verified_monthly_price_cents"`
 	VerifiedPriceIndex               *int     `json:"verified_price_index"`
 	PricePressureScore               int      `json:"price_pressure_score"`
 	PriceStableDays                  int      `json:"price_stable_days"`
@@ -615,6 +619,55 @@ func monthlyCycleFactor(subscription model.Subscription, now time.Time) (int64, 
 	return 365, days * 12
 }
 
+// marketMonthlyCycleFactor converts a billing-period price to the monthly
+// unit used by external Team-seat market snapshots. Standard subscription
+// periods deliberately use customer-facing month counts: a 90-day quarterly
+// bill is three months, so ¥330 is compared as exactly ¥110/month. Irregular
+// schedules fall back to the annualized run-rate factor used by forecasting.
+func marketMonthlyCycleFactor(subscription model.Subscription, now time.Time) (int64, int64) {
+	expression := strings.ToLower(strings.TrimSpace(subscription.CronExpr))
+	if strings.HasPrefix(expression, "interval:") && strings.HasSuffix(expression, "d") {
+		daysText := strings.TrimSuffix(strings.TrimPrefix(expression, "interval:"), "d")
+		if days, err := strconv.Atoi(daysText); err == nil && days > 0 {
+			switch {
+			case days == 365:
+				return 1, 12
+			case days%30 == 0:
+				return 1, int64(days / 30)
+			}
+		}
+	}
+
+	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	if err == nil {
+		dueDates := schedule.NextDueTimes(now, 2)
+		if len(dueDates) == 2 {
+			first := dueDates[0].In(cycle.Location)
+			second := dueDates[1].In(cycle.Location)
+			months := (second.Year()-first.Year())*12 + int(second.Month()-first.Month())
+			if months > 0 && first.Day() == second.Day() &&
+				first.Hour() == second.Hour() && first.Minute() == second.Minute() {
+				return 1, int64(months)
+			}
+		}
+	}
+	return monthlyCycleFactor(subscription, now)
+}
+
+func scalePriceCents(priceCents int64, numerator int64, denominator int64) int64 {
+	if priceCents <= 0 || numerator <= 0 || denominator <= 0 {
+		return 0
+	}
+	return (priceCents*numerator + denominator/2) / denominator
+}
+
+func candidateMarketMonthlyPrice(candidate PricingCandidate) int64 {
+	if candidate.MarketMonthlyPriceCents > 0 {
+		return candidate.MarketMonthlyPriceCents
+	}
+	return candidate.CurrentPriceCents
+}
+
 func (service *SubscriptionService) buildProfitForecast(
 	goal BusinessGoalProgress,
 	runRateCents int64,
@@ -883,7 +936,16 @@ func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.M
 		}
 		seatUsed++
 		if !subscription.IsResale && subscription.PricePerPersonCents > 0 {
-			teamPrices = append(teamPrices, subscription.PricePerPersonCents)
+			factorNumerator, factorDenominator := marketMonthlyCycleFactor(subscription, service.now())
+			monthlyPriceCents := scalePriceCents(
+				subscription.PricePerPersonCents,
+				factorNumerator,
+				factorDenominator,
+			)
+			if monthlyPriceCents <= 0 {
+				monthlyPriceCents = subscription.PricePerPersonCents
+			}
+			teamPrices = append(teamPrices, monthlyPriceCents)
 		}
 	}
 	sort.Slice(teamPrices, func(left int, right int) bool { return teamPrices[left] < teamPrices[right] })
@@ -1023,20 +1085,38 @@ func (service *SubscriptionService) buildPricingCandidates(
 			continue
 		}
 		subscriptionsByID[subscription.ID] = subscription
+		marketFactorNumerator, marketFactorDenominator := marketMonthlyCycleFactor(subscription, service.now())
+		marketMonthlyPriceCents := subscription.PricePerPersonCents
+		maxIncreasePriceCents := maximumGradualPriceCents(subscription.PricePerPersonCents)
+		if marketFactorNumerator > 0 && marketFactorDenominator > 0 {
+			marketMonthlyPriceCents = scalePriceCents(
+				subscription.PricePerPersonCents,
+				marketFactorNumerator,
+				marketFactorDenominator,
+			)
+			maxMonthlyPriceCents := maximumGradualPriceCents(marketMonthlyPriceCents)
+			maxIncreasePriceCents = scalePriceCents(
+				maxMonthlyPriceCents,
+				marketFactorDenominator,
+				marketFactorNumerator,
+			)
+			maxIncreasePriceCents = maxInt64(maxIncreasePriceCents, subscription.PricePerPersonCents)
+		}
 		candidate := PricingCandidate{
-			SubscriptionID:         subscription.ID,
-			Name:                   subscription.Name,
-			CustomerEmail:          subscription.CustomerEmail,
-			CustomerWechat:         subscription.CustomerWechat,
-			AccountName:            subscription.AccountName,
-			SeatName:               subscription.SeatName,
-			CurrentPriceCents:      subscription.PricePerPersonCents,
-			NextPriceCents:         subscription.NextPriceCents,
-			NextPriceEffectiveDate: subscription.NextPriceEffectiveDueDate,
-			Eligible:               true,
-			BlockedCode:            "eligible",
-			MarketPosition:         "unavailable",
-			MaxIncreasePriceCents:  maximumGradualPriceCents(subscription.PricePerPersonCents),
+			SubscriptionID:          subscription.ID,
+			Name:                    subscription.Name,
+			CustomerEmail:           subscription.CustomerEmail,
+			CustomerWechat:          subscription.CustomerWechat,
+			AccountName:             subscription.AccountName,
+			SeatName:                subscription.SeatName,
+			CurrentPriceCents:       subscription.PricePerPersonCents,
+			MarketMonthlyPriceCents: marketMonthlyPriceCents,
+			NextPriceCents:          subscription.NextPriceCents,
+			NextPriceEffectiveDate:  subscription.NextPriceEffectiveDueDate,
+			Eligible:                true,
+			BlockedCode:             "eligible",
+			MarketPosition:          "unavailable",
+			MaxIncreasePriceCents:   maxIncreasePriceCents,
 		}
 		history := billHistories[subscription.ID]
 		candidate.PaidPeriodCount = history.PaidPeriodCount
@@ -1044,6 +1124,11 @@ func (service *SubscriptionService) buildPricingCandidates(
 		candidate.LastPriceIncreaseDate = history.LastIncreaseDate
 		candidate.PaidPeriodsAfterIncrease = history.PaidPeriodsAfterIncrease
 		candidate.VerifiedPriceCents = history.LastPaidPriceCents
+		candidate.VerifiedMonthlyPriceCents = scalePriceCents(
+			history.LastPaidPriceCents,
+			marketFactorNumerator,
+			marketFactorDenominator,
+		)
 		candidate.RelationshipDays = subscriptionRelationshipDays(subscription, service.now())
 		candidate.PriceStableDays = candidate.RelationshipDays
 		if history.LastIncreaseDate != "" {
@@ -1137,19 +1222,32 @@ func (service *SubscriptionService) buildPricingCandidates(
 			)
 		}
 		if snapshot != nil && snapshot.SampleCount >= 3 {
-			candidate.GapToMarketMedianCents = snapshot.MedianPriceCents - subscription.PricePerPersonCents
-			marketTarget := attractiveRenewalPriceCents(snapshot.MedianPriceCents)
-			financiallyHealthyTarget := maxInt64(marketTarget, minimumHealthyPriceCents)
-			candidate.SuggestedPriceCents = minInt64(financiallyHealthyTarget, candidate.MaxIncreasePriceCents)
+			candidate.GapToMarketMedianCents = snapshot.MedianPriceCents - marketMonthlyPriceCents
+			marketMonthlyTarget := attractiveRenewalPriceCents(snapshot.MedianPriceCents)
+			financiallyHealthyMonthlyTarget := maxInt64(marketMonthlyTarget, minimumHealthyPriceCents)
+			financiallyHealthyCycleTarget := financiallyHealthyMonthlyTarget
+			if marketFactorNumerator > 0 && marketFactorDenominator > 0 {
+				financiallyHealthyCycleTarget = scalePriceCents(
+					financiallyHealthyMonthlyTarget,
+					marketFactorDenominator,
+					marketFactorNumerator,
+				)
+			}
+			candidate.SuggestedPriceCents = minInt64(financiallyHealthyCycleTarget, candidate.MaxIncreasePriceCents)
 			if candidate.SuggestedPriceCents < subscription.PricePerPersonCents {
 				candidate.SuggestedPriceCents = subscription.PricePerPersonCents
 			}
+			candidate.SuggestedMonthlyPriceCents = scalePriceCents(
+				candidate.SuggestedPriceCents,
+				marketFactorNumerator,
+				marketFactorDenominator,
+			)
 			switch {
-			case subscription.PricePerPersonCents < snapshot.LowPriceCents:
+			case marketMonthlyPriceCents < snapshot.LowPriceCents:
 				candidate.MarketPosition = "below_low"
-			case subscription.PricePerPersonCents < snapshot.MedianPriceCents:
+			case marketMonthlyPriceCents < snapshot.MedianPriceCents:
 				candidate.MarketPosition = "below_median"
-			case subscription.PricePerPersonCents > snapshot.HighPriceCents:
+			case marketMonthlyPriceCents > snapshot.HighPriceCents:
 				candidate.MarketPosition = "above_high"
 			default:
 				candidate.MarketPosition = "market_range"
@@ -1176,8 +1274,10 @@ func (service *SubscriptionService) buildPricingCandidates(
 		if candidates[left].Recommended != candidates[right].Recommended {
 			return candidates[left].Recommended
 		}
-		if candidates[left].CurrentPriceCents != candidates[right].CurrentPriceCents {
-			return candidates[left].CurrentPriceCents < candidates[right].CurrentPriceCents
+		leftMonthlyPrice := candidateMarketMonthlyPrice(candidates[left])
+		rightMonthlyPrice := candidateMarketMonthlyPrice(candidates[right])
+		if leftMonthlyPrice != rightMonthlyPrice {
+			return leftMonthlyPrice < rightMonthlyPrice
 		}
 		return candidates[left].SubscriptionID < candidates[right].SubscriptionID
 	})
@@ -1593,7 +1693,7 @@ func populateRepricingInsights(candidate *PricingCandidate) {
 		candidate.AdjustmentRisk = "medium"
 	}
 
-	marketMedianCents := candidate.CurrentPriceCents + candidate.GapToMarketMedianCents
+	marketMedianCents := candidateMarketMonthlyPrice(*candidate) + candidate.GapToMarketMedianCents
 	if marketMedianCents > 0 && candidate.MarketPosition != "unavailable" {
 		candidate.PriceGapPercent = int(math.Round(
 			float64(candidate.GapToMarketMedianCents) * 100 / float64(marketMedianCents),
@@ -1719,13 +1819,17 @@ func populatePricingEvidence(candidate *PricingCandidate) {
 // customer has not paid or the market sample is unavailable. It is a price
 // benchmark, never a probability or a claim about an untested higher price.
 func verifiedPriceIndex(candidate PricingCandidate) *int {
-	marketMedianCents := candidate.CurrentPriceCents + candidate.GapToMarketMedianCents
-	if candidate.PaidPeriodCount <= 0 || candidate.VerifiedPriceCents <= 0 ||
+	marketMedianCents := candidateMarketMonthlyPrice(candidate) + candidate.GapToMarketMedianCents
+	verifiedMonthlyPriceCents := candidate.VerifiedMonthlyPriceCents
+	if verifiedMonthlyPriceCents <= 0 {
+		verifiedMonthlyPriceCents = candidate.VerifiedPriceCents
+	}
+	if candidate.PaidPeriodCount <= 0 || verifiedMonthlyPriceCents <= 0 ||
 		candidate.MarketPosition == "unavailable" || marketMedianCents <= 0 {
 		return nil
 	}
 	index := maxInt(int(math.Round(
-		float64(candidate.VerifiedPriceCents)*100/float64(marketMedianCents),
+		float64(verifiedMonthlyPriceCents)*100/float64(marketMedianCents),
 	)), 0)
 	return &index
 }
@@ -1904,16 +2008,17 @@ func buildRepricingAnalysis(candidates []PricingCandidate, now time.Time) Repric
 		incrementSegment(analysis.PriceSegments, priceIndexes, candidate.MarketPosition)
 		if tierIndex, exists := tierIndexes[candidate.CustomerTier]; exists {
 			tier := &analysis.CustomerTiers[tierIndex]
+			marketMonthlyPriceCents := candidateMarketMonthlyPrice(candidate)
 			tier.Count++
 			tierCustomerGroups[tierIndex][customerGroupID] = struct{}{}
 			tier.MonthlyRevenueCents += candidate.MonthlyRevenueCents
-			tierPriceTotals[tierIndex] += candidate.CurrentPriceCents
+			tierPriceTotals[tierIndex] += marketMonthlyPriceCents
 			totalMonthlyRevenueCents += candidate.MonthlyRevenueCents
-			if tier.LowestPriceCents == 0 || candidate.CurrentPriceCents < tier.LowestPriceCents {
-				tier.LowestPriceCents = candidate.CurrentPriceCents
+			if tier.LowestPriceCents == 0 || marketMonthlyPriceCents < tier.LowestPriceCents {
+				tier.LowestPriceCents = marketMonthlyPriceCents
 			}
-			if candidate.CurrentPriceCents > tier.HighestPriceCents {
-				tier.HighestPriceCents = candidate.CurrentPriceCents
+			if marketMonthlyPriceCents > tier.HighestPriceCents {
+				tier.HighestPriceCents = marketMonthlyPriceCents
 			}
 			if candidate.Recommended {
 				tier.RecommendedCount++

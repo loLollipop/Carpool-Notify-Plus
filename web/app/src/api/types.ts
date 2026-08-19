@@ -656,12 +656,14 @@ export interface PricingCandidate {
   account_name: string
   seat_name: string
   current_price_cents: number
+  market_monthly_price_cents: number
   next_price_cents: number | null
   next_price_effective_date: string
   next_due_date: string
   market_position: "below_low" | "below_median" | "market_range" | "above_high" | "unavailable"
   gap_to_market_median_cents: number
   suggested_price_cents: number
+  suggested_monthly_price_cents: number
   max_increase_price_cents: number
   paid_period_count: number
   last_paid_date: string
@@ -716,6 +718,7 @@ export interface PricingCandidate {
   renewal_count: number
   renewal_evidence: "unpaid" | "initial" | "renewed" | "increase_accepted"
   verified_price_cents: number
+  verified_monthly_price_cents: number
   verified_price_index: number | null
   price_pressure_score: number
   price_stable_days: number
