@@ -250,7 +250,15 @@ export function AccountDialog({
                   <FormItem>
                     <FormLabel>{t("accounts.totalCost")}</FormLabel>
                     <FormControl>
-                      <Input inputMode="decimal" placeholder={t("accounts.totalCostPlaceholder")} {...field} />
+                      <Input
+                        inputMode="decimal"
+                        placeholder={t(
+                          isEdit
+                            ? "accounts.totalCostEditPlaceholder"
+                            : "accounts.totalCostPlaceholder",
+                        )}
+                        {...field}
+                      />
                     </FormControl>
                     <FormDescription>
                       {isEdit ? t("accounts.totalCostEditHint") : t("accounts.totalCostCreateHint")}

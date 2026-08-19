@@ -104,6 +104,69 @@ func TestAccountTotalCostCanBeInitializedAndCorrected(t *testing.T) {
 	}
 }
 
+func TestAccountTotalCostBlankClearsWhileOmittedPreserves(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 19, 12, 0, 0, 0, cycle.Location)
+	}
+	initialTotal := "75.00"
+	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:          "clear-cost@example.com",
+		Email:         "clear-cost@example.com",
+		OpenedAt:      "2026-08-19",
+		CostYuan:      "110.00",
+		TotalCostYuan: &initialTotal,
+		SeatCount:     1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	update := service.UpdateAccountInput{
+		Name:      "clear-cost@example.com",
+		Email:     "clear-cost@example.com",
+		OpenedAt:  "2026-08-19",
+		CostYuan:  "110.00",
+		SeatCount: 1,
+	}
+	if err := subscriptionService.UpdateAccount(accountID, update); err != nil {
+		t.Fatal(err)
+	}
+	account, err := subscriptionService.Store.GetAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.TotalCostCents != 7500 {
+		t.Fatalf("omitted cumulative cost = %d, want 7500", account.TotalCostCents)
+	}
+
+	clearedTotal := ""
+	update.TotalCostYuan = &clearedTotal
+	if err := subscriptionService.UpdateAccount(accountID, update); err != nil {
+		t.Fatal(err)
+	}
+	account, err = subscriptionService.Store.GetAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.CostCents != 11000 || account.TotalCostCents != 0 {
+		t.Fatalf(
+			"monthly/cleared cumulative cost = %d/%d, want 11000/0",
+			account.CostCents,
+			account.TotalCostCents,
+		)
+	}
+	records, err := subscriptionService.Store.ListAccountCostRecords(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 || records[0].AmountCents != 7500 ||
+		records[1].Source != model.AccountCostSourceManual ||
+		records[1].AmountCents != -7500 {
+		t.Fatalf("clear correction records = %#v", records)
+	}
+}
+
 func TestHistoricalAccountTotalCostStaysInImportPeriod(t *testing.T) {
 	subscriptionService := openTestService(t)
 	subscriptionService.Clock = func() time.Time {

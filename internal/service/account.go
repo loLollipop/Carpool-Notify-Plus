@@ -284,7 +284,7 @@ func (service *SubscriptionService) UpdateAccount(accountID int64, input UpdateA
 		return err
 	}
 	email = defaultAccountEmail(email, name)
-	totalCostCents, err := normalizeOptionalAccountTotalCost(input.TotalCostYuan)
+	totalCostCents, err := normalizeAccountTotalCostForUpdate(input.TotalCostYuan)
 	if err != nil {
 		return err
 	}
@@ -644,6 +644,17 @@ func normalizeOptionalAccountTotalCost(raw *string) (*int64, error) {
 		return nil, fmt.Errorf("账号累计总成本无效: %w", err)
 	}
 	return &totalCostCents, nil
+}
+
+func normalizeAccountTotalCostForUpdate(raw *string) (*int64, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	if strings.TrimSpace(*raw) == "" {
+		clearedTotal := int64(0)
+		return &clearedTotal, nil
+	}
+	return normalizeOptionalAccountTotalCost(raw)
 }
 
 func normalizeAccountEmail(raw string) (string, error) {
