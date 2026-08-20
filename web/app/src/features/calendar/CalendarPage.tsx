@@ -3,24 +3,9 @@ import { useTranslation } from "react-i18next"
 import { useSearchParams } from "react-router-dom"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 
-import { useCalendar, useDashboard, useSubscriptions } from "@/api/queries"
-import type {
-  CalendarDay,
-  CalendarMonth,
-  CalendarOccurrence,
-  Dashboard,
-  SubscriptionView,
-} from "@/api/types"
-import {
-  KpiSection,
-  KpiSectionSkeleton,
-  type KpiDetailKey,
-} from "@/components/kpi-section"
+import { useCalendar } from "@/api/queries"
+import type { CalendarDay, CalendarMonth, CalendarOccurrence } from "@/api/types"
 import { PageHeader } from "@/components/page-header"
-import {
-  StatDetailDialog,
-  type StatDetailState,
-} from "@/components/stat-detail-dialog"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -177,21 +162,14 @@ function MonthGrid({
 
 function CalendarWorkspace({
   calendar,
-  dashboard,
-  activeSubscriptions,
-  archivedSubscriptions,
   onNavigateMonth,
   onViewOccurrence,
 }: {
   calendar: CalendarMonth
-  dashboard: Dashboard | undefined
-  activeSubscriptions: SubscriptionView[]
-  archivedSubscriptions: SubscriptionView[]
   onNavigateMonth: (month: string) => void
   onViewOccurrence: (occurrence: CalendarOccurrence) => void
 }) {
   const { t } = useTranslation()
-  const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
 
   const handleSelectDay = (day: CalendarDay) => {
     if (!day.in_month) {
@@ -199,129 +177,58 @@ function CalendarWorkspace({
     }
   }
 
-  const openStatDetail = (key: KpiDetailKey) => {
-    if (!dashboard) return
-    if (key === "notifications") {
-      setStatDetail({
-        title: t("dashboard.notifyActivity"),
-        items: (dashboard.notification_activity_30d ?? []).map((item) => ({
-          id: item.id,
-          title: item.customer_email || item.subscription_name,
-          subtitle: item.customer_wechat || item.subscription_name,
-          meta: [item.channel, item.due_date, item.updated_at_label, item.last_error],
-          value: item.status === "success" ? t("common.success") : t("common.failed"),
-          valueTone: item.status === "success" ? "success" : "danger",
-        })),
-      })
-      return
-    }
-    if (key === "pending") {
-      const pending = (calendar.occurrences ?? []).filter((occurrence) => !occurrence.paid)
-      setStatDetail({
-        title: t("dashboard.monthDue"),
-        items: pending.map((occurrence) => ({
-          id: `${occurrence.subscription_id}:${occurrence.due_date}`,
-          title: occurrence.customer_email || occurrence.name,
-          subtitle: occurrence.customer_wechat || occurrence.account_name,
-          meta: [occurrence.account_name, occurrence.seat_name, occurrence.due_date],
-          value: `¥${occurrence.price_yuan}`,
-          valueTone: "warning",
-        })),
-      })
-      return
-    }
-    const source = key === "archived" ? archivedSubscriptions : activeSubscriptions
-    const title = key === "archived"
-      ? t("dashboard.archived")
-      : key === "renewed"
-        ? t("dashboard.monthRenewed")
-        : t("dashboard.subscriptions")
-    setStatDetail({
-      title,
-      items: source.map((view) => ({
-        id: view.subscription.id,
-        title: view.subscription.customer_email || view.subscription.name,
-        subtitle: view.subscription.customer_wechat || view.account_name,
-        meta: [view.account_name, view.seat_name, view.next_due_date],
-        value: `¥${view.price_yuan}`,
-      })),
-    })
-  }
-
   return (
-    <>
-      {dashboard ? (
-        <KpiSection
-          dashboard={dashboard}
-          pendingCount={calendar.pending_month_count}
-          pendingMode="monthDue"
-          onOpenDetail={openStatDetail}
-        />
-      ) : (
-        <KpiSectionSkeleton />
-      )}
-
-      <div className="grid items-start gap-4">
-        <Card className="gap-0 overflow-hidden p-0 animate-fade-up">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/35 px-4 py-3 text-foreground">
-            <div className="flex items-center gap-1">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-label={t("calendar.prevMonth")}
-                onClick={() => onNavigateMonth(calendar.previous_month)}
-              >
-                <ChevronLeft />
-              </Button>
-              <h2 className="display-numeral min-w-28 text-center text-base font-semibold text-foreground">
-                {calendar.month_label}
-              </h2>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground hover:bg-accent hover:text-foreground"
-                aria-label={t("calendar.nextMonth")}
-                onClick={() => onNavigateMonth(calendar.next_month)}
-              >
-                <ChevronRight />
-              </Button>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="hidden items-center gap-3 text-xs text-muted-foreground sm:flex">
-                <span className="flex items-center gap-1.5">
-                  <i className="size-2 rounded-full bg-gold ring-2 ring-gold/15" />
-                  {t("calendar.legendPending")}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <i className="size-2 rounded-full bg-success ring-2 ring-success/15" />
-                  {t("calendar.legendPaid")}
-                </span>
-              </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onNavigateMonth(calendar.current_month)}
-              >
-                {t("calendar.today")}
-              </Button>
-            </div>
+    <Card className="gap-0 overflow-hidden p-0 animate-fade-up">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-muted/35 px-4 py-3 text-foreground">
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label={t("calendar.prevMonth")}
+            onClick={() => onNavigateMonth(calendar.previous_month)}
+          >
+            <ChevronLeft />
+          </Button>
+          <h2 className="display-numeral min-w-28 text-center text-base font-semibold text-foreground">
+            {calendar.month_label}
+          </h2>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:bg-accent hover:text-foreground"
+            aria-label={t("calendar.nextMonth")}
+            onClick={() => onNavigateMonth(calendar.next_month)}
+          >
+            <ChevronRight />
+          </Button>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="hidden items-center gap-3 text-xs text-muted-foreground sm:flex">
+            <span className="flex items-center gap-1.5">
+              <i className="size-2 rounded-full bg-gold ring-2 ring-gold/15" />
+              {t("calendar.legendPending")}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <i className="size-2 rounded-full bg-success ring-2 ring-success/15" />
+              {t("calendar.legendPaid")}
+            </span>
           </div>
-          <MonthGrid
-            calendar={calendar}
-            onSelectDay={handleSelectDay}
-            onViewOccurrence={onViewOccurrence}
-          />
-        </Card>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onNavigateMonth(calendar.current_month)}
+          >
+            {t("calendar.today")}
+          </Button>
+        </div>
       </div>
-      <StatDetailDialog
-        open={statDetail !== null}
-        onOpenChange={(open) => {
-          if (!open) setStatDetail(null)
-        }}
-        detail={statDetail}
+      <MonthGrid
+        calendar={calendar}
+        onSelectDay={handleSelectDay}
+        onViewOccurrence={onViewOccurrence}
       />
-    </>
+    </Card>
   )
 }
 
@@ -333,8 +240,6 @@ export function CalendarPage() {
   const month = searchParams.get("month") ?? ""
 
   const calendarQuery = useCalendar(month || undefined)
-  const dashboardQuery = useDashboard()
-  const subscriptionsQuery = useSubscriptions()
 
   const [seatInfo, setSeatInfo] = React.useState<SeatSubscriptionInfo | null>(null)
 
@@ -351,12 +256,7 @@ export function CalendarPage() {
       />
 
       {calendarQuery.isPending ? (
-        <>
-          <KpiSectionSkeleton />
-          <div className="grid gap-4">
-            <Skeleton className="h-[640px] rounded-xl" />
-          </div>
-        </>
+        <Skeleton className="h-[640px] rounded-xl" />
       ) : calendarQuery.isError ? (
         <Card className="items-center gap-3 py-16 text-center">
           <p className="text-sm text-muted-foreground">{t("common.loadFailed")}</p>
@@ -368,9 +268,6 @@ export function CalendarPage() {
         <CalendarWorkspace
           key={calendar.month_value}
           calendar={calendar}
-          dashboard={dashboardQuery.data}
-          activeSubscriptions={subscriptionsQuery.data?.subscriptions ?? []}
-          archivedSubscriptions={subscriptionsQuery.data?.archived ?? []}
           onNavigateMonth={goToMonth}
           onViewOccurrence={(occurrence) => setSeatInfo(seatInfoFromOccurrence(occurrence, t))}
         />
