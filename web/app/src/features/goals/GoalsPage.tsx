@@ -6,7 +6,6 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
-  LabelList,
   Line,
   Pie,
   PieChart,
@@ -2551,10 +2550,13 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
       color: "var(--destructive)",
     },
   ]
+  const seatEvidenceData = evidenceData.slice(0, 2)
+  const outcomeEvidenceData = evidenceData.slice(2)
+  const outcomeCount = outcomeEvidenceData.reduce((total, item) => total + item.value, 0)
 
   return (
     <section className="overflow-hidden rounded-lg border bg-card shadow-card">
-      <div className="grid gap-5 p-5 lg:grid-cols-[minmax(220px,0.65fr)_minmax(0,1.35fr)] lg:items-center">
+      <div className="grid gap-5 p-5 xl:grid-cols-[minmax(380px,0.8fr)_minmax(0,1.2fr)] xl:items-center">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-brand">
             <BrainCircuit className="size-4" />
@@ -2579,7 +2581,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
             ) : null}
           </div>
           <div
-            className="mt-2 h-[180px] w-full"
+            className="mt-3 grid min-h-[190px] items-center gap-3 sm:grid-cols-[180px_minmax(0,1fr)]"
             role="img"
             aria-label={t("goals.care.prediction.chartAria", {
               first: prediction.first_cycle_subscription_count,
@@ -2588,54 +2590,121 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
               churns: prediction.churn_outcome_count,
             })}
           >
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={evidenceData}
-                layout="vertical"
-                margin={{ top: 4, right: 34, left: 0, bottom: 4 }}
-              >
-                <XAxis
-                  type="number"
-                  hide
-                  allowDecimals={false}
-                  domain={[0, (dataMax: number) => Math.max(dataMax, 1)]}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="label"
-                  axisLine={false}
-                  tickLine={false}
-                  width={76}
-                  tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
-                />
-                <ChartTooltip
-                  cursor={{ fill: "color-mix(in oklab, var(--brand) 6%, transparent)" }}
-                  formatter={(value) => [
-                    t("goals.care.prediction.chartCount", { count: Number(value ?? 0) }),
-                    t("goals.care.prediction.chartEvidence"),
-                  ]}
-                  contentStyle={{
-                    border: "1px solid var(--border)",
-                    borderRadius: 6,
-                    background: "var(--popover)",
-                    color: "var(--popover-foreground)",
-                    fontSize: 11,
-                  }}
-                />
-                <Bar dataKey="value" maxBarSize={13} minPointSize={3} radius={[0, 5, 5, 0]}>
-                  {evidenceData.map((item) => (
-                    <Cell key={item.key} fill={item.color} />
-                  ))}
-                  <LabelList
+            <div className="relative mx-auto h-[180px] w-[180px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={seatEvidenceData}
                     dataKey="value"
-                    position="right"
+                    nameKey="label"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={61}
+                    outerRadius={79}
+                    startAngle={90}
+                    endAngle={-270}
+                    paddingAngle={2}
+                    cornerRadius={6}
+                    stroke="transparent"
+                  >
+                    {seatEvidenceData.map((item) => (
+                      <Cell key={item.key} fill={item.color} />
+                    ))}
+                  </Pie>
+                  <Pie
+                    data={outcomeEvidenceData}
+                    dataKey="value"
+                    nameKey="label"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={38}
+                    outerRadius={54}
+                    startAngle={90}
+                    endAngle={-270}
+                    paddingAngle={3}
+                    cornerRadius={5}
+                    stroke="transparent"
+                  >
+                    {outcomeEvidenceData.map((item) => (
+                      <Cell key={item.key} fill={item.color} />
+                    ))}
+                  </Pie>
+                  <text
+                    x="50%"
+                    y="46%"
+                    textAnchor="middle"
+                    dominantBaseline="middle"
                     fill="var(--foreground)"
-                    fontSize={11}
-                    fontWeight={600}
+                    className="text-xl font-bold tabular-nums"
+                  >
+                    {outcomeCount}
+                  </text>
+                  <text
+                    x="50%"
+                    y="59%"
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fill="var(--muted-foreground)"
+                    className="text-[9px] font-medium"
+                  >
+                    {t("goals.care.prediction.chartOutcomeCenter")}
+                  </text>
+                  <ChartTooltip
+                    formatter={(value, name) => [
+                      t("goals.care.prediction.chartCount", { count: Number(value ?? 0) }),
+                      String(name),
+                    ]}
+                    contentStyle={{
+                      border: "1px solid var(--border)",
+                      borderRadius: 8,
+                      background: "var(--popover)",
+                      color: "var(--popover-foreground)",
+                      fontSize: 11,
+                      boxShadow: "var(--shadow-card)",
+                    }}
                   />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-1 rounded-full border border-foreground/[0.04]" />
+            </div>
+
+            <div className="grid gap-3">
+              {[
+                {
+                  key: "seat",
+                  title: t("goals.care.prediction.chartSeatRing"),
+                  items: seatEvidenceData,
+                },
+                {
+                  key: "outcome",
+                  title: t("goals.care.prediction.chartOutcomeRing"),
+                  items: outcomeEvidenceData,
+                },
+              ].map((group) => (
+                <div key={group.key} className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    {group.title}
+                  </p>
+                  <div className="grid gap-1.5">
+                    {group.items.map((item) => (
+                      <div key={item.key} className="flex items-center gap-2 text-xs">
+                        <span
+                          className="size-2 shrink-0 rounded-full"
+                          style={{
+                            backgroundColor: item.color,
+                            boxShadow: `0 0 0 3px color-mix(in oklab, ${item.color} 10%, transparent)`,
+                          }}
+                        />
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                          {item.label}
+                        </span>
+                        <span className="font-semibold tabular-nums">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 

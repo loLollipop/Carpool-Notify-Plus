@@ -446,7 +446,9 @@ export default {
           chartTitle: "Observed renewal evidence",
           chartAria: "{{first}} first-cycle seats, {{repeat}} renewed seats, {{renewals}} successful renewals, and {{churns}} natural churns",
           chartCount: "{{count}} records",
-          chartEvidence: "Observed evidence",
+          chartSeatRing: "Seat stage · outer ring",
+          chartOutcomeRing: "Observed outcomes · inner ring",
+          chartOutcomeCenter: "outcomes",
           estimate: "Renewal estimate {{value}}%",
           chart: {
             firstCycle: "First-cycle seats",

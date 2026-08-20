@@ -446,7 +446,9 @@ export default {
           chartTitle: "真实续费证据分布",
           chartAria: "仅首单席位 {{first}} 个，已有续费席位 {{repeat}} 个，成功续费 {{renewals}} 次，自然流失 {{churns}} 次",
           chartCount: "{{count}} 条记录",
-          chartEvidence: "真实记录",
+          chartSeatRing: "席位阶段 · 外环",
+          chartOutcomeRing: "历史结果 · 内环",
+          chartOutcomeCenter: "有效结果",
           estimate: "续费估计 {{value}}%",
           chart: {
             firstCycle: "仅首单席位",
