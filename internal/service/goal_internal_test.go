@@ -1410,6 +1410,40 @@ func TestAssignCustomerTiersMergesMultiSeatCustomersTransitively(t *testing.T) {
 	}
 }
 
+func TestAssignCustomerTiersUsesCustomerFacingMonthlyEquivalent(t *testing.T) {
+	candidates := []PricingCandidate{
+		{
+			SubscriptionID:          1,
+			CustomerEmail:           "monthly@example.com",
+			CurrentPriceCents:       10000,
+			MarketMonthlyPriceCents: 10000,
+			MonthlyRevenueCents:     10138,
+		},
+		{
+			SubscriptionID:          2,
+			CustomerEmail:           "quarterly@example.com",
+			CurrentPriceCents:       33000,
+			MarketMonthlyPriceCents: 11000,
+			MonthlyRevenueCents:     11145,
+		},
+	}
+
+	assignCustomerTiers(candidates)
+
+	if candidates[0].CustomerGroupMonthlyRevenueCents != 10000 {
+		t.Fatalf(
+			"monthly customer-facing value = %d, want 10000",
+			candidates[0].CustomerGroupMonthlyRevenueCents,
+		)
+	}
+	if candidates[1].CustomerGroupMonthlyRevenueCents != 11000 {
+		t.Fatalf(
+			"quarterly monthly-equivalent value = %d, want 11000",
+			candidates[1].CustomerGroupMonthlyRevenueCents,
+		)
+	}
+}
+
 func TestMultiSeatCustomerNeverUsesEarlierLowPriceReview(t *testing.T) {
 	candidates := []PricingCandidate{
 		{SubscriptionID: 1, CustomerWechat: "multi", CurrentPriceCents: 5000, MonthlyRevenueCents: 5000, PaidPeriodCount: 2, RelationshipDays: 30, BlockedCode: "protection", MarketPosition: "below_low", SuggestedPriceCents: 5400},

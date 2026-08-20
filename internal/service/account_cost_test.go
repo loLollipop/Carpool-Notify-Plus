@@ -95,8 +95,8 @@ func TestAccountTotalCostIsDerivedFromOpeningAndRenewalCosts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if account.CostCents != 11000 || account.TotalCostCents != 7500 {
-		t.Fatalf("edited monthly/total cost = %d/%d, want 11000/7500", account.CostCents, account.TotalCostCents)
+	if account.CostCents != 11000 || account.TotalCostCents != 11000 {
+		t.Fatalf("edited monthly/total cost = %d/%d, want 11000/11000", account.CostCents, account.TotalCostCents)
 	}
 
 	now = time.Date(2026, time.February, 15, 12, 0, 0, 0, cycle.Location)
@@ -107,15 +107,15 @@ func TestAccountTotalCostIsDerivedFromOpeningAndRenewalCosts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if account.CostCents != 11000 || account.TotalCostCents != 18500 {
-		t.Fatalf("renewed monthly/total cost = %d/%d, want 11000/18500", account.CostCents, account.TotalCostCents)
+	if account.CostCents != 11000 || account.TotalCostCents != 22000 {
+		t.Fatalf("renewed monthly/total cost = %d/%d, want 11000/22000", account.CostCents, account.TotalCostCents)
 	}
 	records, err := subscriptionService.Store.ListAccountCostRecords(accountID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(records) != 2 || records[0].PeriodDate != "2026-01-15" ||
-		records[0].AmountCents != 7500 || records[0].Source != model.AccountCostSourceInitial ||
+		records[0].AmountCents != 11000 || records[0].Source != model.AccountCostSourceInitial ||
 		records[1].PeriodDate != "2026-02-15" || records[1].AmountCents != 11000 ||
 		records[1].Source != model.AccountCostSourceRenewal {
 		t.Fatalf("derived cost records = %#v", records)
@@ -150,8 +150,65 @@ func TestAccountOpeningDateAndMonthlyCostCanChangeBeforeRenewal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 1 || records[0].PeriodDate != "2026-07-02" || records[0].AmountCents != 2000 {
+	if len(records) != 1 || records[0].PeriodDate != "2026-07-02" || records[0].AmountCents != 2500 {
 		t.Fatalf("opening-date and monthly-cost edit records = %#v", records)
+	}
+}
+
+func TestAccountMonthlyCostChangeAfterRenewalKeepsHistoricalCosts(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.January, 15, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "renewed-cost-change@example.com",
+		Email:     "renewed-cost-change@example.com",
+		OpenedAt:  "2026-01-15",
+		CostYuan:  "20.00",
+		SeatCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now = time.Date(2026, time.February, 15, 12, 0, 0, 0, cycle.Location)
+	if err := subscriptionService.ProcessAccountCostRenewals(); err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.UpdateAccount(accountID, service.UpdateAccountInput{
+		Name:      "renewed-cost-change@example.com",
+		Email:     "renewed-cost-change@example.com",
+		OpenedAt:  "2026-01-15",
+		CostYuan:  "25.00",
+		SeatCount: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	account, err := subscriptionService.Store.GetAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.CostCents != 2500 || account.TotalCostCents != 4000 {
+		t.Fatalf("edited renewed monthly/total cost = %d/%d, want 2500/4000", account.CostCents, account.TotalCostCents)
+	}
+
+	now = time.Date(2026, time.March, 15, 12, 0, 0, 0, cycle.Location)
+	if err := subscriptionService.ProcessAccountCostRenewals(); err != nil {
+		t.Fatal(err)
+	}
+	account, err = subscriptionService.Store.GetAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.CostCents != 2500 || account.TotalCostCents != 6500 {
+		t.Fatalf("next renewal monthly/total cost = %d/%d, want 2500/6500", account.CostCents, account.TotalCostCents)
+	}
+	records, err := subscriptionService.Store.ListAccountCostRecords(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 3 || records[0].AmountCents != 2000 ||
+		records[1].AmountCents != 2000 || records[2].AmountCents != 2500 {
+		t.Fatalf("cost records after monthly cost change = %#v", records)
 	}
 }
 

@@ -72,6 +72,7 @@ interface SelectableSeat {
 
 const APPLICATIONS_PER_PAGE = 1
 const CODE_PAGE_SIZE = 4
+const AUTO_SEAT_VALUE = "auto"
 const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/
 const CYCLE_PRESETS = [
   { label: "月付", cron: "interval:30d" },
@@ -84,11 +85,14 @@ const EMPTY_REDEMPTIONS: RedemptionApplicationView[] = []
 const EMPTY_CODES: RedemptionCodeView[] = []
 
 function buildSeatOptions(accounts: AccountOption[]): SelectableSeat[] {
-  return accounts.flatMap((account) =>
+  const options = accounts.flatMap((account) =>
     (account.seats ?? []).map((seat) => ({
       account,
       seat,
     })),
+  )
+  return options.sort(
+    (left, right) => left.account.id - right.account.id || left.seat.id - right.seat.id,
   )
 }
 
@@ -460,7 +464,7 @@ function InvitePanel({
   view: RedemptionApplicationView
   seats: SelectableSeat[]
 }) {
-  const [seatId, setSeatId] = React.useState("")
+  const [seatChoice, setSeatChoice] = React.useState(AUTO_SEAT_VALUE)
   const [priceYuan, setPriceYuan] = React.useState("")
   const [cronExpr, setCronExpr] = React.useState("interval:30d")
   const [boardedAt, setBoardedAt] = React.useState(todayShanghai)
@@ -470,14 +474,21 @@ function InvitePanel({
   const [operatorNote, setOperatorNote] = React.useState("")
   const [rejectOpen, setRejectOpen] = React.useState(false)
 
-  const selectedSeat = seats.find((option) => String(option.seat.id) === seatId) ?? null
+  const manuallySelectedSeat = seatChoice === AUTO_SEAT_VALUE
+    ? null
+    : seats.find((option) => String(option.seat.id) === seatChoice) ?? null
+  const usingAutoAssignment = seatChoice === AUTO_SEAT_VALUE || manuallySelectedSeat === null
+  const selectedSeat = usingAutoAssignment ? seats[0] ?? null : manuallySelectedSeat
+  const effectiveSeatChoice = selectedSeat
+    ? usingAutoAssignment ? AUTO_SEAT_VALUE : String(selectedSeat.seat.id)
+    : ""
   const priceValid = MONEY_PATTERN.test(priceYuan.trim())
   const canSubmit = selectedSeat !== null && priceValid && cronExpr.trim() !== ""
 
   const inviteMutation = useAppMutation(
     () =>
       inviteRedemption(view.application.id, {
-        seat_id: Number(seatId),
+        seat_id: usingAutoAssignment ? 0 : selectedSeat?.seat.id ?? 0,
         price_yuan: priceYuan.trim(),
         cron_expr: cronExpr.trim(),
         notify_offsets: notifyOffsets,
@@ -500,16 +511,35 @@ function InvitePanel({
     <div className="mt-4 grid gap-4 border-t pt-4">
       <div className="grid gap-3 md:grid-cols-[1.35fr_0.7fr_0.75fr]">
         <div className="grid gap-2">
-          <Label>分配母号空间 / 车位</Label>
-          <Select value={seatId} onValueChange={setSeatId} disabled={seats.length === 0}>
+          <div className="flex items-center justify-between gap-2">
+            <Label>分配母号空间 / 车位</Label>
+            {usingAutoAssignment && selectedSeat ? (
+              <span className="text-xs text-success">按账号序号自动分配</span>
+            ) : null}
+          </div>
+          <Select value={effectiveSeatChoice} onValueChange={setSeatChoice} disabled={seats.length === 0}>
             <SelectTrigger>
               <SelectValue placeholder={seats.length === 0 ? "暂无空闲车位" : "选择空闲车位"} />
             </SelectTrigger>
             <SelectContent>
+              {seats[0] ? (
+                <SelectItem value={AUTO_SEAT_VALUE}>
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="font-medium text-success">自动分配</span>
+                    <span className="max-w-40 truncate text-xs text-muted-foreground">
+                      #{seats[0].account.id} {seats[0].account.email || seats[0].account.name}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{seats[0].seat.name}</span>
+                  </span>
+                </SelectItem>
+              ) : null}
               {seats.map((option) => (
                 <SelectItem key={option.seat.id} value={String(option.seat.id)}>
                   <span className="flex min-w-0 items-center gap-2">
-                    <span className="max-w-44 truncate font-medium">{option.account.name}</span>
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                      #{option.account.id}
+                    </span>
+                    <span className="max-w-40 truncate font-medium">{option.account.name}</span>
                     <span className="text-xs text-muted-foreground">{option.seat.name}</span>
                     <span className="ml-auto text-xs tabular-nums text-muted-foreground">
                       ¥{option.account.cost_yuan}

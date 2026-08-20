@@ -6,6 +6,7 @@ import {
   CartesianGrid,
   Cell,
   ComposedChart,
+  LabelList,
   Line,
   Pie,
   PieChart,
@@ -114,6 +115,17 @@ function yuan(cents: number) {
 
 function visibleYuan(cents: number, hidden: boolean) {
   return maskAmount(hidden, yuan(cents))
+}
+
+function compactYuan(cents: number) {
+  return `\u00a5${(cents / 100).toLocaleString("zh-CN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  })}`
+}
+
+function visibleCompactYuan(cents: number, hidden: boolean) {
+  return maskAmount(hidden, compactYuan(cents))
 }
 
 type RepricingDetailKey = "users" | "relationship" | "protected" | "batch"
@@ -1721,7 +1733,7 @@ function RepricingAnalysisPanel({
                       </span>
                       <div className="min-w-0">
                         <p className="truncate font-mono text-sm font-semibold tabular-nums tracking-tight text-foreground">
-                          {visibleYuan(candidate.customer_group_monthly_revenue_cents, amountsHidden)}
+                          {visibleCompactYuan(candidate.customer_group_monthly_revenue_cents, amountsHidden)}
                           <span className="ml-1 text-[10px] font-normal text-muted-foreground">
                             {t("goals.repricing.profilePriceSuffix")}
                           </span>
@@ -2513,61 +2525,117 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
   const prediction = data.customer_care.prediction
   const models = prediction.models ?? []
   const hasEstimate = prediction.estimated_renewal_percent !== null
+  const evidenceData = [
+    {
+      key: "first_cycle",
+      label: t("goals.care.prediction.chart.firstCycle"),
+      value: prediction.first_cycle_subscription_count,
+      color: "var(--muted-foreground)",
+    },
+    {
+      key: "repeat_seats",
+      label: t("goals.care.prediction.chart.repeatSeats"),
+      value: prediction.repeat_subscription_count,
+      color: "var(--brand)",
+    },
+    {
+      key: "renewals",
+      label: t("goals.care.prediction.chart.renewals"),
+      value: prediction.renewal_success_count,
+      color: "var(--success)",
+    },
+    {
+      key: "churns",
+      label: t("goals.care.prediction.chart.churns"),
+      value: prediction.churn_outcome_count,
+      color: "var(--destructive)",
+    },
+  ]
 
   return (
     <section className="overflow-hidden rounded-lg border bg-card shadow-card">
       <div className="grid gap-5 p-5 lg:grid-cols-[minmax(220px,0.65fr)_minmax(0,1.35fr)] lg:items-center">
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-2 text-brand">
             <BrainCircuit className="size-4" />
             <p className="text-xs font-semibold uppercase tracking-[0.16em]">
               {t("goals.care.prediction.eyebrow")}
             </p>
           </div>
-          {hasEstimate ? (
-            <div className="mt-3">
-              <div className="flex items-end gap-2">
-                <span className="text-3xl font-semibold tracking-tight tabular-nums">
-                  {prediction.estimated_renewal_percent}%
-                </span>
-                <span className="pb-1 text-xs text-muted-foreground">
-                  {t("goals.care.prediction.posterior")}
-                </span>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {t("goals.care.prediction.range", {
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-semibold">{t("goals.care.prediction.chartTitle")}</p>
+            {hasEstimate ? (
+              <Badge
+                variant="success"
+                title={t("goals.care.prediction.range", {
                   low: prediction.estimate_low_percent,
                   high: prediction.estimate_high_percent,
                 })}
-              </p>
-            </div>
-          ) : (
-            <div className="mt-3">
-              <p className="text-lg font-semibold">{t("goals.care.prediction.evidenceOnly")}</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                {t("goals.care.prediction.evidenceOnlyHint", {
-                  first: prediction.first_cycle_subscription_count,
-                  repeat: prediction.repeat_subscription_count,
+              >
+                {t("goals.care.prediction.estimate", {
+                  value: prediction.estimated_renewal_percent,
                 })}
-              </p>
-            </div>
-          )}
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Badge variant="outline">
-              {t("goals.care.prediction.outcomes", {
-                count: prediction.renewal_outcome_count,
-              })}
-            </Badge>
-            <Badge variant="success">
-              {t("goals.care.prediction.renewals", {
-                count: prediction.renewal_success_count,
-              })}
-            </Badge>
-            <Badge variant="secondary">
-              {t("goals.care.prediction.churns", {
-                count: prediction.churn_outcome_count,
-              })}
-            </Badge>
+              </Badge>
+            ) : null}
+          </div>
+          <div
+            className="mt-2 h-[180px] w-full"
+            role="img"
+            aria-label={t("goals.care.prediction.chartAria", {
+              first: prediction.first_cycle_subscription_count,
+              repeat: prediction.repeat_subscription_count,
+              renewals: prediction.renewal_success_count,
+              churns: prediction.churn_outcome_count,
+            })}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={evidenceData}
+                layout="vertical"
+                margin={{ top: 4, right: 34, left: 0, bottom: 4 }}
+              >
+                <XAxis
+                  type="number"
+                  hide
+                  allowDecimals={false}
+                  domain={[0, (dataMax: number) => Math.max(dataMax, 1)]}
+                />
+                <YAxis
+                  type="category"
+                  dataKey="label"
+                  axisLine={false}
+                  tickLine={false}
+                  width={76}
+                  tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                />
+                <ChartTooltip
+                  cursor={{ fill: "color-mix(in oklab, var(--brand) 6%, transparent)" }}
+                  formatter={(value) => [
+                    t("goals.care.prediction.chartCount", { count: Number(value ?? 0) }),
+                    t("goals.care.prediction.chartEvidence"),
+                  ]}
+                  contentStyle={{
+                    border: "1px solid var(--border)",
+                    borderRadius: 6,
+                    background: "var(--popover)",
+                    color: "var(--popover-foreground)",
+                    fontSize: 11,
+                  }}
+                />
+                <Bar dataKey="value" maxBarSize={13} minPointSize={3} radius={[0, 5, 5, 0]}>
+                  {evidenceData.map((item) => (
+                    <Cell key={item.key} fill={item.color} />
+                  ))}
+                  <LabelList
+                    dataKey="value"
+                    position="right"
+                    fill="var(--foreground)"
+                    fontSize={11}
+                    fontWeight={600}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
 

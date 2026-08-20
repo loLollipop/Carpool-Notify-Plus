@@ -386,6 +386,9 @@ func (store *Store) migrate() error {
 	if err := store.backfillAccountCostRecords(); err != nil {
 		return err
 	}
+	if err := store.reconcileSingleInitialAccountCosts(); err != nil {
+		return err
+	}
 	if err := store.repairMisdatedInitialAccountCosts(); err != nil {
 		return err
 	}
@@ -598,6 +601,40 @@ func (store *Store) backfillAccountCostRecords() error {
 	)
 	if err != nil {
 		return fmt.Errorf("backfill account cost records: %w", err)
+	}
+	return nil
+}
+
+// reconcileSingleInitialAccountCosts repairs accounts whose monthly cost was
+// edited before their first renewal while older versions left the sole opening
+// ledger entry at the previous amount. Historical imports and accounts with any
+// subsequent ledger activity are intentionally immutable.
+func (store *Store) reconcileSingleInitialAccountCosts() error {
+	_, err := store.database.Exec(`
+		UPDATE account_cost_records AS cost
+		SET amount_cents = (
+			SELECT account.cost_cents
+			FROM accounts AS account
+			WHERE account.id = cost.account_id
+		)
+		WHERE cost.source = ?
+		  AND cost.note <> 'Historical cumulative account cost'
+		  AND EXISTS (
+			SELECT 1
+			FROM accounts AS account
+			WHERE account.id = cost.account_id
+			  AND account.cost_cents <> cost.amount_cents
+		  )
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM account_cost_records AS other
+			WHERE other.account_id = cost.account_id
+			  AND other.id <> cost.id
+		  )`,
+		model.AccountCostSourceInitial,
+	)
+	if err != nil {
+		return fmt.Errorf("reconcile single initial account costs: %w", err)
 	}
 	return nil
 }
@@ -3073,7 +3110,9 @@ func (store *Store) CreateAccount(account model.Account, initialCostCents int64,
 	return accountID, nil
 }
 
-// UpdateAccount updates account metadata. Cumulative cost remains ledger-derived.
+// UpdateAccount updates account metadata. Before the first renewal, the sole
+// ordinary opening ledger entry follows the monthly cost; later ledger history
+// remains immutable and a cost change applies only to future renewals.
 func (store *Store) UpdateAccount(account model.Account) error {
 	now := formatTime(time.Now().UTC())
 	zeroRenewalNextMonth := 0
@@ -3118,6 +3157,26 @@ func (store *Store) UpdateAccount(account model.Account) error {
 	}
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
+	}
+	if _, err := transaction.Exec(`
+		UPDATE account_cost_records AS cost
+		SET amount_cents = ?
+		WHERE cost.account_id = ?
+		  AND cost.source = ?
+		  AND cost.note <> 'Historical cumulative account cost'
+		  AND cost.amount_cents <> ?
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM account_cost_records AS other
+			WHERE other.account_id = cost.account_id
+			  AND other.id <> cost.id
+		  )`,
+		account.CostCents,
+		account.ID,
+		model.AccountCostSourceInitial,
+		account.CostCents,
+	); err != nil {
+		return fmt.Errorf("align initial account cost amount: %w", err)
 	}
 	if openedAt := strings.TrimSpace(account.OpenedAt); openedAt != "" {
 		if _, err := transaction.Exec(`
@@ -3427,6 +3486,27 @@ func (store *Store) CountSeatsByAccount(accountID int64) (int, error) {
 		accountID,
 	).Scan(&count)
 	return count, err
+}
+
+// GetFirstFreeSeatByAccountImportOrder returns the earliest available seat,
+// prioritizing the account serial (account id) and then the seat id. Banned
+// accounts and seats occupied by active subscriptions are excluded.
+func (store *Store) GetFirstFreeSeatByAccountImportOrder() (model.Seat, error) {
+	row := store.database.QueryRow(`
+		SELECT seat.id, seat.account_id, seat.name, seat.created_at, seat.updated_at
+		FROM seats AS seat
+		INNER JOIN accounts AS account ON account.id = seat.account_id
+		WHERE COALESCE(account.banned_at, '') = ''
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM subscriptions AS subscription
+			WHERE subscription.seat_id = seat.id
+			  AND subscription.deleted_at IS NULL
+			  AND subscription.archived_at IS NULL
+		  )
+		ORDER BY account.id ASC, seat.id ASC
+		LIMIT 1`)
+	return scanSeat(row)
 }
 
 // ListFreeSeats returns seats under an account that have no active subscription.

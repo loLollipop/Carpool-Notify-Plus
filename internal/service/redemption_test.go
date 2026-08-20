@@ -94,6 +94,125 @@ func TestRedemptionInviteCreatesSubscriptionAndInitialBill(t *testing.T) {
 	}
 }
 
+func TestRedemptionInviteAutoAssignsFirstFreeSeatByAccountImportOrder(t *testing.T) {
+	subscriptionService := openTestService(t)
+	_, firstAccountSeats := createTestAccountWithSeats(
+		t, subscriptionService, "first imported account", "seat 1", "seat 2",
+	)
+	_, laterAccountSeats := createTestAccountWithSeats(
+		t, subscriptionService, "later imported account", "seat 1",
+	)
+	if _, err := subscriptionService.Create(service.CreateInput{
+		Name:             "existing customer",
+		PriceYuan:        "20.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		SeatID:           firstAccountSeats[0],
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	codes, err := subscriptionService.GenerateRedemptionCodes(service.RedemptionCodeGenerateInput{Count: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := subscriptionService.SubmitRedemptionApplication(service.RedemptionSubmitInput{
+		CustomerEmail:   "auto-assigned@example.com",
+		CustomerContact: "wx-auto-assigned",
+		RedeemCode:      codes[0].Code.Code,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applications, err := subscriptionService.ListRedemptionApplicationsView(model.RedemptionStatusPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(applications) != 1 {
+		t.Fatalf("pending applications = %d, want 1", len(applications))
+	}
+
+	subscriptionID, err := subscriptionService.InviteRedemptionApplication(
+		applications[0].Application.ID,
+		service.RedemptionInviteInput{
+			PriceYuan:        "25.00",
+			CronExpr:         "interval:30d",
+			NotifyOffsetsRaw: "3",
+			BoardedAt:        "2026-08-20",
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscription, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subscription.SeatID != firstAccountSeats[1] {
+		t.Fatalf(
+			"auto-assigned seat = %d, want first free seat %d (later account seat was %d)",
+			subscription.SeatID,
+			firstAccountSeats[1],
+			laterAccountSeats[0],
+		)
+	}
+	status, err := subscriptionService.GetRedemptionStatus(result.TrackingToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != model.RedemptionStatusInvited {
+		t.Fatalf("redemption status = %q, want invited", status.Status)
+	}
+}
+
+func TestRedemptionInviteAutoAssignKeepsApplicationPendingWithoutFreeSeat(t *testing.T) {
+	subscriptionService := openTestService(t)
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "full account", "seat 1")
+	if _, err := subscriptionService.Create(service.CreateInput{
+		Name:             "existing customer",
+		PriceYuan:        "20.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		SeatID:           seatIDs[0],
+	}); err != nil {
+		t.Fatal(err)
+	}
+	codes, err := subscriptionService.GenerateRedemptionCodes(service.RedemptionCodeGenerateInput{Count: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := subscriptionService.SubmitRedemptionApplication(service.RedemptionSubmitInput{
+		CustomerEmail:   "waiting@example.com",
+		CustomerContact: "wx-waiting",
+		RedeemCode:      codes[0].Code.Code,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applications, err := subscriptionService.ListRedemptionApplicationsView(model.RedemptionStatusPending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = subscriptionService.InviteRedemptionApplication(
+		applications[0].Application.ID,
+		service.RedemptionInviteInput{
+			PriceYuan:        "25.00",
+			CronExpr:         "interval:30d",
+			NotifyOffsetsRaw: "3",
+		},
+	)
+	if err == nil || !strings.Contains(err.Error(), "暂无可用席位") {
+		t.Fatalf("auto-assign error = %v, want no free seat", err)
+	}
+	status, err := subscriptionService.GetRedemptionStatus(result.TrackingToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Status != model.RedemptionStatusPending {
+		t.Fatalf("redemption status = %q, want pending", status.Status)
+	}
+}
+
 func TestArchiveRemovesLinkedRedemptionRecordAndCode(t *testing.T) {
 	subscriptionService := openTestService(t)
 	subscriptionService.Clock = func() time.Time {

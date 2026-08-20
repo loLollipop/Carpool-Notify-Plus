@@ -314,15 +314,16 @@ func (service *SubscriptionService) InviteRedemptionApplication(applicationID in
 	if application.Status != model.RedemptionStatusPending {
 		return 0, fmt.Errorf("这条兑换申请已经处理过")
 	}
-	if input.SeatID <= 0 {
-		return 0, fmt.Errorf("请选择要分配的车位")
-	}
-	seat, err := service.Store.GetSeat(input.SeatID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return 0, fmt.Errorf("车位不存在")
+	autoAssign := input.SeatID <= 0
+	var requestedSeat model.Seat
+	if !autoAssign {
+		requestedSeat, err = service.Store.GetSeat(input.SeatID)
+		if err != nil {
+			if err == sql.ErrNoRows {
+				return 0, fmt.Errorf("车位不存在")
+			}
+			return 0, err
 		}
-		return 0, err
 	}
 
 	operatorNote, err := trimLimited("处理备注", input.OperatorNote, maxRedemptionOperatorNoteLength)
@@ -347,36 +348,59 @@ func (service *SubscriptionService) InviteRedemptionApplication(applicationID in
 		boardedAt = cycle.FormatDate(service.now())
 	}
 
-	subscription, err := service.parseInput(CreateInput{
-		Name:             application.CustomerEmail,
-		PriceYuan:        strings.TrimSpace(input.PriceYuan),
-		CronExpr:         cronExpr,
-		NotifyOffsetsRaw: notifyOffsets,
-		Remark:           redemptionSubscriptionRemark(application, operatorRemark),
-		TradeURL:         strings.TrimSpace(input.TradeURL),
-		CustomerEmail:    application.CustomerEmail,
-		CustomerWechat:   application.CustomerContact,
-		AccountID:        seat.AccountID,
-		SeatID:           seat.ID,
-		BoardedAt:        boardedAt,
-	}, 0)
-	if err != nil {
-		return 0, err
+	attempts := 1
+	if autoAssign {
+		attempts = 5
 	}
-	initialDueDate, err := initialBillDueDate(subscription)
-	if err != nil {
-		return 0, err
-	}
-	subscriptionID, err := service.Store.CreateSubscriptionAndInviteRedemption(
-		application.ID,
-		seat.AccountID,
-		seat.ID,
-		subscription,
-		initialDueDate,
-		billDefaultAmountCents(subscription),
-		operatorNote,
-	)
-	if err != nil {
+	for attempt := 0; attempt < attempts; attempt++ {
+		seat := requestedSeat
+		if autoAssign {
+			seat, err = service.Store.GetFirstFreeSeatByAccountImportOrder()
+			if err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					return 0, fmt.Errorf("暂无可用席位，请先在账号列表中添加空闲席位")
+				}
+				return 0, err
+			}
+		}
+
+		subscription, err := service.parseInput(CreateInput{
+			Name:             application.CustomerEmail,
+			PriceYuan:        strings.TrimSpace(input.PriceYuan),
+			CronExpr:         cronExpr,
+			NotifyOffsetsRaw: notifyOffsets,
+			Remark:           redemptionSubscriptionRemark(application, operatorRemark),
+			TradeURL:         strings.TrimSpace(input.TradeURL),
+			CustomerEmail:    application.CustomerEmail,
+			CustomerWechat:   application.CustomerContact,
+			AccountID:        seat.AccountID,
+			SeatID:           seat.ID,
+			BoardedAt:        boardedAt,
+		}, 0)
+		if err != nil {
+			return 0, err
+		}
+		initialDueDate, err := initialBillDueDate(subscription)
+		if err != nil {
+			return 0, err
+		}
+		subscriptionID, err := service.Store.CreateSubscriptionAndInviteRedemption(
+			application.ID,
+			seat.AccountID,
+			seat.ID,
+			subscription,
+			initialDueDate,
+			billDefaultAmountCents(subscription),
+			operatorNote,
+		)
+		if err == nil {
+			return subscriptionID, nil
+		}
+		if autoAssign && (errors.Is(err, db.ErrActiveSeatOccupied) ||
+			errors.Is(err, db.ErrReplacementAccountBanned) ||
+			errors.Is(err, db.ErrReplacementSeatUnavailable)) {
+			continue
+		}
 		switch {
 		case errors.Is(err, db.ErrRedemptionAlreadyProcessed):
 			return 0, fmt.Errorf("兑换申请状态已变化，请刷新后再处理")
@@ -389,7 +413,7 @@ func (service *SubscriptionService) InviteRedemptionApplication(applicationID in
 		}
 		return 0, err
 	}
-	return subscriptionID, nil
+	return 0, fmt.Errorf("空闲席位状态刚刚发生变化，请重试自动分配")
 }
 
 // RejectRedemptionApplication rejects a pending request and releases its code.

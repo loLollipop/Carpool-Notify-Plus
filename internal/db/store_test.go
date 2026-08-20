@@ -135,6 +135,84 @@ func TestOpenDoesNotMoveHistoricalCumulativeAccountCostToOpeningPeriod(t *testin
 	}
 }
 
+func TestOpenReconcilesOnlySingleOrdinaryInitialAccountCost(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "reconcile-initial-account-cost.db")
+	store := openStore(t, databasePath)
+	singleInitialID, err := store.CreateAccount(model.Account{
+		Name:      "single-initial@example.com",
+		OpenedAt:  "2026-08-19",
+		CostCents: 7500,
+	}, 7500, "2026-08-19")
+	if err != nil {
+		t.Fatal(err)
+	}
+	renewedID, err := store.CreateAccount(model.Account{
+		Name:      "renewed@example.com",
+		OpenedAt:  "2026-07-19",
+		CostCents: 2000,
+	}, 2000, "2026-07-19")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inserted, err := store.AccrueAccountRenewal(renewedID, "2026-08-19"); err != nil || !inserted {
+		t.Fatalf("insert renewal = %v, %v", inserted, err)
+	}
+	historicalID, err := store.CreateAccount(model.Account{
+		Name:      "historical@example.com",
+		OpenedAt:  "2026-01-19",
+		CostCents: 2000,
+	}, 7500, "2026-08-19")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`UPDATE accounts SET cost_cents = 11000 WHERE id = ?`, singleInitialID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(
+		`UPDATE accounts SET cost_cents = 2500 WHERE id IN (?, ?)`, renewedID, historicalID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store = openStore(t, databasePath)
+	defer store.Close()
+	singleRecords, err := store.ListAccountCostRecords(singleInitialID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(singleRecords) != 1 || singleRecords[0].AmountCents != 11000 {
+		t.Fatalf("single ordinary initial records = %#v, want amount 11000", singleRecords)
+	}
+	renewedRecords, err := store.ListAccountCostRecords(renewedID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(renewedRecords) != 2 || renewedRecords[0].AmountCents != 2000 || renewedRecords[1].AmountCents != 2000 {
+		t.Fatalf("renewed records = %#v, want historical amounts unchanged", renewedRecords)
+	}
+	historicalRecords, err := store.ListAccountCostRecords(historicalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(historicalRecords) != 1 || historicalRecords[0].AmountCents != 7500 ||
+		historicalRecords[0].Note != "Historical cumulative account cost" {
+		t.Fatalf("historical cumulative records = %#v, want unchanged", historicalRecords)
+	}
+}
+
 func TestOpenAddsReplacementColumnsToLegacyAfterSalesTable(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "legacy-after-sales.db")
 	database, err := sql.Open("sqlite", databasePath)

@@ -1345,10 +1345,11 @@ func assignCustomerTiers(candidates []PricingCandidate) {
 		var currentPriceCents int64
 		groupID := int64(0)
 		for _, index := range memberIndexes {
-			candidateValue := candidates[index].MonthlyRevenueCents
-			if candidateValue <= 0 {
-				candidateValue = candidates[index].CurrentPriceCents
-			}
+			// Customer profiles use the customer-facing monthly equivalent, not
+			// the annualized 365-day run rate used by profit forecasting. This
+			// keeps a ¥100 30-day bill at ¥100/month and a ¥330 quarterly bill
+			// at exactly ¥110/month.
+			candidateValue := candidateMarketMonthlyPrice(candidates[index])
 			monthlyRevenueCents += candidateValue
 			currentPriceCents += maxInt64(candidates[index].CurrentPriceCents, 0)
 			if subscriptionID := candidates[index].SubscriptionID; subscriptionID > 0 &&
