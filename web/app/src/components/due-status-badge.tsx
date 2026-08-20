@@ -53,7 +53,7 @@ export function DueStatusBadge({
       className={cn(
         "inline-flex h-6 min-w-max shrink-0 flex-nowrap items-center gap-1 whitespace-nowrap rounded-full px-2 text-xs font-medium tabular-nums",
         soon
-          ? "bg-brand/12 text-brand dark:bg-brand/18"
+          ? "bg-destructive/10 text-destructive dark:bg-destructive/18"
           : "bg-muted text-muted-foreground",
         className,
       )}

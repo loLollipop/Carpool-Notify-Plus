@@ -83,7 +83,7 @@ function RentalProgress({ view }: { view: SubscriptionView }) {
     <div className="mt-4">
       <div className="mb-1.5 flex items-center justify-between text-[11px] font-medium">
         <span className="text-muted-foreground">{t("plusRentals.rentalProgress")}</span>
-        <span className={cn("tabular-nums", view.days_remaining <= 7 ? "text-brand" : "text-success")}>
+        <span className={cn("tabular-nums", view.days_remaining <= 7 ? "text-destructive" : "text-success")}>
           {view.days_remaining <= 0
             ? t("plusRentals.expired")
             : t("plusRentals.remainingDays", { count: view.days_remaining })}
@@ -93,7 +93,7 @@ function RentalProgress({ view }: { view: SubscriptionView }) {
         <div
           className={cn(
             "h-full rounded-full transition-[width] duration-500",
-            view.days_remaining <= 7 ? "bg-brand" : "bg-success",
+            view.days_remaining <= 7 ? "bg-destructive" : "bg-success",
           )}
           style={{ width: view.days_remaining <= 0 ? "4px" : `${Math.max(4, percentage)}%` }}
         />
@@ -139,7 +139,14 @@ function RentalCard({
       <div className="p-5">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {!oneMonthRental && view.current_period_paid ? (
+                <DueStatusBadge
+                  paid
+                  daysRemaining={view.days_remaining}
+                  showPaidLabel
+                />
+              ) : null}
               <h2 className="truncate text-base font-semibold">{subscription.name}</h2>
               {oneMonthRental ? (
                 <Badge variant="outline" className="shrink-0 border-brand/20 bg-brand/[0.06] text-brand">
@@ -153,9 +160,6 @@ function RentalCard({
                   })}
                 </Badge>
               ) : null}
-              <span className="shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
-                #{subscription.id}
-              </span>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               {t("plusRentals.startedLabel", { date: view.boarded_at })}
@@ -173,9 +177,8 @@ function RentalCard({
             </Badge>
           ) : (
             <DueStatusBadge
-              paid={oneMonthRental ? false : view.current_period_paid}
+              paid={false}
               daysRemaining={view.days_remaining}
-              showPaidLabel
             />
           )}
         </div>
