@@ -60,6 +60,14 @@ export function useRedemptions(status?: "pending" | "invited" | "rejected" | "al
   return useQuery({
     queryKey: queryKeys.redemptions(status),
     queryFn: () => fetchRedemptions(status),
+    // Customers already poll their pending status every five seconds. Keep the
+    // administrator queue on the same cadence so newly submitted applications
+    // appear without a manual page refresh. React Query pauses this interval
+    // while the tab is in the background to avoid unnecessary server traffic.
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
   })
 }
 
