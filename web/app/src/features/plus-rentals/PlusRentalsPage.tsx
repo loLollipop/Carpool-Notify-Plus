@@ -140,6 +140,7 @@ function RentalCard({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
+              <h2 className="truncate text-base font-semibold">{subscription.name}</h2>
               {!oneMonthRental && view.current_period_paid ? (
                 <DueStatusBadge
                   paid
@@ -147,7 +148,6 @@ function RentalCard({
                   showPaidLabel
                 />
               ) : null}
-              <h2 className="truncate text-base font-semibold">{subscription.name}</h2>
               {oneMonthRental ? (
                 <Badge variant="outline" className="shrink-0 border-brand/20 bg-brand/[0.06] text-brand">
                   {t("plusRentals.oneMonthBadge")}
