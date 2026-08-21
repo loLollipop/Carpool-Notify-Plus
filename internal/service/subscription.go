@@ -1570,17 +1570,58 @@ func validateCustomerEmailTemplate(body string) (string, error) {
 	return body, nil
 }
 
+// GetPriceIncreaseCustomerEmailTemplate returns the customer email used for
+// the first renewal whose bill adopts an approved higher price.
+func (service *SubscriptionService) GetPriceIncreaseCustomerEmailTemplate() (string, error) {
+	raw, err := service.Store.GetSetting(model.SettingPriceIncreaseCustomerEmailTemplate)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return model.DefaultPriceIncreaseCustomerEmailTemplate, nil
+		}
+		return "", err
+	}
+	if strings.TrimSpace(raw) == "" {
+		return model.DefaultPriceIncreaseCustomerEmailTemplate, nil
+	}
+	return raw, nil
+}
+
+// SavePriceIncreaseCustomerEmailTemplate validates and stores the first
+// increased-renewal email template.
+func (service *SubscriptionService) SavePriceIncreaseCustomerEmailTemplate(body string) error {
+	body, err := validatePriceIncreaseCustomerEmailTemplate(body)
+	if err != nil {
+		return err
+	}
+	return service.Store.SetSetting(model.SettingPriceIncreaseCustomerEmailTemplate, body)
+}
+
+func validatePriceIncreaseCustomerEmailTemplate(body string) (string, error) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "", fmt.Errorf("调价续费邮件模板不能为空")
+	}
+	if _, err := template.New("customer_price_increase").Parse(body); err != nil {
+		return "", fmt.Errorf("调价续费邮件模板语法错误: %w", err)
+	}
+	return body, nil
+}
+
 // ValidateSettingsPage checks the whole settings form before the first field is
 // persisted, preventing a later validation error from leaving a partial save.
 func (service *SubscriptionService) ValidateSettingsPage(
 	notifyTemplate string,
 	customerEmailTemplate string,
+	priceIncreaseCustomerEmailTemplate string,
 	redeemPage *model.RedeemPageSettings,
 ) error {
 	if _, err := validateNotifyTemplate(notifyTemplate); err != nil {
 		return err
 	}
 	if _, err := validateCustomerEmailTemplate(customerEmailTemplate); err != nil {
+		return err
+	}
+	if _, err := validatePriceIncreaseCustomerEmailTemplate(priceIncreaseCustomerEmailTemplate); err != nil {
 		return err
 	}
 	if redeemPage != nil {
@@ -1597,6 +1638,7 @@ func (service *SubscriptionService) ValidateSettingsPage(
 func (service *SubscriptionService) SaveSettingsPage(
 	notifyTemplate string,
 	customerEmailTemplate string,
+	priceIncreaseCustomerEmailTemplate string,
 	channels []string,
 	redeemPage *model.RedeemPageSettings,
 ) error {
@@ -1608,14 +1650,21 @@ func (service *SubscriptionService) SaveSettingsPage(
 	if err != nil {
 		return err
 	}
+	priceIncreaseCustomerBody, err := validatePriceIncreaseCustomerEmailTemplate(
+		priceIncreaseCustomerEmailTemplate,
+	)
+	if err != nil {
+		return err
+	}
 	encodedChannels, err := json.Marshal(normalizeChannels(channels))
 	if err != nil {
 		return err
 	}
 	values := map[string]string{
-		model.SettingNotifyTemplate:        notifyBody,
-		model.SettingCustomerEmailTemplate: customerBody,
-		model.SettingEnabledChannels:       string(encodedChannels),
+		model.SettingNotifyTemplate:                     notifyBody,
+		model.SettingCustomerEmailTemplate:              customerBody,
+		model.SettingPriceIncreaseCustomerEmailTemplate: priceIncreaseCustomerBody,
+		model.SettingEnabledChannels:                    string(encodedChannels),
 	}
 	if redeemPage != nil {
 		normalized, err := normalizeRedeemPageSettings(*redeemPage)
@@ -1817,13 +1866,15 @@ func (service *SubscriptionService) renderMessageForDueDate(subscription model.S
 }
 
 func (service *SubscriptionService) renderCustomerEmailForDueDate(subscription model.Subscription, dueAt time.Time) (string, error) {
-	templateBody := model.DefaultPriceIncreaseCustomerEmailTemplate
-	if !priceIncreaseAppliesForDueDate(subscription, cycle.FormatDate(dueAt)) {
-		var err error
+	var templateBody string
+	var err error
+	if priceIncreaseAppliesForDueDate(subscription, cycle.FormatDate(dueAt)) {
+		templateBody, err = service.GetPriceIncreaseCustomerEmailTemplate()
+	} else {
 		templateBody, err = service.GetCustomerEmailTemplate()
-		if err != nil {
-			return "", err
-		}
+	}
+	if err != nil {
+		return "", err
 	}
 	return service.renderTemplateForDueDate("customer_email", templateBody, subscription, dueAt)
 }
@@ -1835,9 +1886,13 @@ func (service *SubscriptionService) renderPriceIncreaseAdvanceNoticeForDueDate(
 	if !priceIncreaseAppliesForDueDate(subscription, cycle.FormatDate(dueAt)) {
 		return "", fmt.Errorf("scheduled price increase no longer applies")
 	}
+	templateBody, err := service.GetPriceIncreaseCustomerEmailTemplate()
+	if err != nil {
+		return "", err
+	}
 	return service.renderTemplateForDueDate(
 		"price_increase_advance_notice",
-		model.DefaultPriceIncreaseAdvanceNoticeCustomerEmailTemplate,
+		templateBody,
 		subscription,
 		dueAt,
 	)
@@ -1920,6 +1975,11 @@ func (service *SubscriptionService) PreviewTemplate(name string, templateBody st
 	dueAt, err := service.nextDueForTemplate(subscription)
 	if err != nil {
 		return "", "", err
+	}
+	if name == "customer_price_increase" {
+		previewPrice := subscription.PricePerPersonCents + 1000
+		subscription.NextPriceCents = &previewPrice
+		subscription.NextPriceEffectiveDueDate = cycle.FormatDate(dueAt)
 	}
 	rendered, err = service.renderTemplateForDueDate(name, templateBody, subscription, dueAt)
 	if err != nil {
@@ -2037,6 +2097,10 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 	if err != nil {
 		return model.ExportPayload{}, err
 	}
+	priceIncreaseCustomerTemplateBody, err := service.GetPriceIncreaseCustomerEmailTemplate()
+	if err != nil {
+		return model.ExportPayload{}, err
+	}
 	enabledChannels, err := service.GetEnabledChannels()
 	if err != nil {
 		return model.ExportPayload{}, err
@@ -2085,14 +2149,15 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 	}
 
 	payload := model.ExportPayload{
-		ExportedAt:            cycle.Now().Format(time.RFC3339),
-		NotifyTemplate:        templateBody,
-		CustomerEmailTemplate: customerTemplateBody,
-		EnabledChannels:       enabledChannels,
-		RedeemPageSettings:    redeemPageSettings,
-		Accounts:              exportAccounts,
-		Subscriptions:         make([]model.ExportSubscription, 0, len(subscriptions)),
-		CustomerBenefits:      benefits,
+		ExportedAt:                         cycle.Now().Format(time.RFC3339),
+		NotifyTemplate:                     templateBody,
+		CustomerEmailTemplate:              customerTemplateBody,
+		PriceIncreaseCustomerEmailTemplate: priceIncreaseCustomerTemplateBody,
+		EnabledChannels:                    enabledChannels,
+		RedeemPageSettings:                 redeemPageSettings,
+		Accounts:                           exportAccounts,
+		Subscriptions:                      make([]model.ExportSubscription, 0, len(subscriptions)),
+		CustomerBenefits:                   benefits,
 	}
 	for _, subscription := range subscriptions {
 		profitCents := countedProfitCents(subscription)

@@ -53,6 +53,13 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
@@ -60,12 +67,14 @@ import { cn } from "@/lib/utils"
 import { enterSandboxMode, exitSandboxMode } from "@/lib/sandbox-mode"
 import { useSandboxMode } from "@/hooks/use-sandbox-mode"
 
-type TemplateKind = "notify" | "customer"
+type TemplateKind = "notify" | "customer" | "customer_price_increase"
+type CustomerTemplateKind = Exclude<TemplateKind, "notify">
 type SettingsSection = "templates" | "delivery" | "redemption" | "tools"
 
 type TemplateFieldKey =
   | "customerEmail"
   | "customerWechat"
+  | "previousPrice"
   | "amountDue"
   | "cycleDesc"
   | "nextDueDate"
@@ -80,6 +89,7 @@ interface TemplateFieldOption {
 const TEMPLATE_FIELDS: TemplateFieldOption[] = [
   { key: "customerEmail", signatures: [".CustomerEmail"] },
   { key: "customerWechat", signatures: [".CustomerWechat"] },
+  { key: "previousPrice", signatures: [".PreviousPrice"] },
   { key: "amountDue", signatures: [".AmountDue", ".PricePerPerson"] },
   { key: "cycleDesc", signatures: [".CycleDesc"] },
   { key: "nextDueDate", signatures: [".NextDueDate", ".DueInText", ".DaysUntilDue"] },
@@ -96,6 +106,22 @@ const DEFAULT_FIELDS: TemplateFieldKey[] = [
   "remark",
   "tradeURL",
 ]
+
+const PRICE_INCREASE_FIELDS: TemplateFieldKey[] = [
+  "customerEmail",
+  "previousPrice",
+  "amountDue",
+  "cycleDesc",
+  "nextDueDate",
+  "remark",
+  "tradeURL",
+]
+
+function templateFieldsForKind(kind: TemplateKind) {
+  return TEMPLATE_FIELDS.filter(
+    (field) => field.key !== "previousPrice" || kind === "customer_price_increase",
+  )
+}
 
 interface VisualTemplateDraft {
   title: string
@@ -171,6 +197,16 @@ function isChannelChecked(channel: ChannelSetting, enabledChannels: Set<string>)
 }
 
 function defaultTemplateDraft(kind: TemplateKind): VisualTemplateDraft {
+  if (kind === "customer_price_increase") {
+    return {
+      title: "",
+      duePrefix: "您好，您的 ChatGPT Team 拼车续费价格已安排调整，",
+      dueSuffix: "。",
+      fields: PRICE_INCREASE_FIELDS,
+      footer:
+        "综合近期同类服务价格以及账号、售后维护成本，经重新核算，自上述生效日期起将按调整后的价格续费。\n当前已支付周期与历史账单不受影响；完成本次续费后，后续周期将以调整后的价格为基准。\n如对调整有疑问，或不准备继续续费，请在生效日前联系管理员确认。",
+    }
+  }
   if (kind === "customer") {
     return {
       title: "",
@@ -212,7 +248,7 @@ function inferFooterFromTemplate(templateBody: string) {
 
 function draftFromTemplate(kind: TemplateKind, templateBody: string): VisualTemplateDraft {
   const draft = defaultTemplateDraft(kind)
-  const fields = TEMPLATE_FIELDS.filter((field) =>
+  const fields = templateFieldsForKind(kind).filter((field) =>
     field.signatures.some((signature) => templateBody.includes(signature)),
   ).map((field) => field.key)
 
@@ -232,12 +268,18 @@ function fieldLine(key: TemplateFieldKey, kind: TemplateKind) {
       return "客户邮箱：{{.CustomerEmail}}"
     case "customerWechat":
       return "{{if .CustomerWechat}}客户微信：{{.CustomerWechat}}{{end}}"
+    case "previousPrice":
+      return "原每期价格：¥{{.PreviousPrice}}"
     case "amountDue":
-      return "本期应收：¥{{.AmountDue}}"
+      return kind === "customer_price_increase"
+        ? "调整后每期价格：¥{{.AmountDue}}"
+        : "本期应收：¥{{.AmountDue}}"
     case "cycleDesc":
       return "计费周期：{{.CycleDesc}}"
     case "nextDueDate":
-      return "到期日期：{{.NextDueDate}}（{{.DueInText}}）"
+      return kind === "customer_price_increase"
+        ? "生效日期：{{.NextDueDate}}（{{.DueInText}}）"
+        : "到期日期：{{.NextDueDate}}（{{.DueInText}}）"
     case "remark":
       return "{{if .Remark}}备注：{{.Remark}}{{end}}"
     case "tradeURL":
@@ -288,19 +330,24 @@ function TemplateEditor({
   draft,
   onDraftChange,
   onPreview,
+  customerTemplateKind,
+  onCustomerTemplateKindChange,
 }: {
   kind: TemplateKind
   draft: VisualTemplateDraft
   onDraftChange: (draft: VisualTemplateDraft) => void
   onPreview: () => void
+  customerTemplateKind?: CustomerTemplateKind
+  onCustomerTemplateKindChange?: (kind: CustomerTemplateKind) => void
 }) {
   const { t } = useTranslation()
+  const availableFields = templateFieldsForKind(kind)
   const icon =
-    kind === "customer" ? <Mail className="size-4" /> : <MessageSquare className="size-4" />
+    kind === "notify" ? <MessageSquare className="size-4" /> : <Mail className="size-4" />
 
   const toggleField = (key: TemplateFieldKey, checked: boolean) => {
     const nextFields = checked
-      ? TEMPLATE_FIELDS.map((field) => field.key).filter(
+      ? availableFields.map((field) => field.key).filter(
           (fieldKey) => draft.fields.includes(fieldKey) || fieldKey === key,
         )
       : draft.fields.filter((fieldKey) => fieldKey !== key)
@@ -323,18 +370,44 @@ function TemplateEditor({
           >
             {icon}
           </span>
-          <Label>{t(kind === "customer" ? "settings.customerTemplate" : "settings.notifyTemplate")}</Label>
+          <Label>{t(kind === "notify" ? "settings.notifyTemplate" : "settings.customerTemplate")}</Label>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          className="text-muted-foreground"
-          onClick={onPreview}
-        >
-          <Eye data-slot="icon" />
-          {t("settings.preview")}
-        </Button>
+        <div className="flex min-w-0 items-center gap-2">
+          {kind !== "notify" && customerTemplateKind && onCustomerTemplateKindChange ? (
+            <Select
+              value={customerTemplateKind}
+              onValueChange={(value) =>
+                onCustomerTemplateKindChange(value as CustomerTemplateKind)
+              }
+            >
+              <SelectTrigger
+                size="sm"
+                className="w-[9.75rem] bg-background"
+                aria-label={t("settings.customerTemplateType")}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="customer">
+                  {t("settings.customerTemplateRegular")}
+                </SelectItem>
+                <SelectItem value="customer_price_increase">
+                  {t("settings.customerTemplatePriceIncrease")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          ) : null}
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="text-muted-foreground"
+            onClick={onPreview}
+          >
+            <Eye data-slot="icon" />
+            {t("settings.preview")}
+          </Button>
+        </div>
       </div>
 
       {kind === "notify" ? (
@@ -376,7 +449,7 @@ function TemplateEditor({
       <div className="grid gap-2">
         <Label>{t("settings.templateFieldsTitle")}</Label>
         <div className="grid gap-2 sm:grid-cols-2">
-          {TEMPLATE_FIELDS.map((field) => (
+          {availableFields.map((field) => (
             <label
               key={field.key}
               className="flex min-h-10 cursor-pointer items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm"
@@ -385,7 +458,13 @@ function TemplateEditor({
                 checked={draft.fields.includes(field.key)}
                 onCheckedChange={(value) => toggleField(field.key, value === true)}
               />
-              <span>{t(`settings.templateFields.${field.key}`)}</span>
+              <span>
+                {t(
+                  kind === "customer_price_increase" && field.key === "amountDue"
+                    ? "settings.templateFields.adjustedAmountDue"
+                    : `settings.templateFields.${field.key}`,
+                )}
+              </span>
             </label>
           ))}
         </div>
@@ -394,7 +473,7 @@ function TemplateEditor({
       <div className="grid gap-1.5">
         <Label>{t("settings.templateFooter")}</Label>
         <Textarea
-          rows={kind === "customer" ? 3 : 2}
+          rows={kind === "notify" ? 2 : 3}
           value={draft.footer}
           placeholder={t("common.optional")}
           onChange={(event) =>
@@ -1087,6 +1166,14 @@ function SettingsForm({ settings }: { settings: Settings }) {
   const [customerDraft, setCustomerDraft] = React.useState(() =>
     draftFromTemplate("customer", settings.customer_email_template),
   )
+  const [priceIncreaseCustomerDraft, setPriceIncreaseCustomerDraft] = React.useState(() =>
+    draftFromTemplate(
+      "customer_price_increase",
+      settings.price_increase_customer_email_template,
+    ),
+  )
+  const [customerTemplateKind, setCustomerTemplateKind] =
+    React.useState<CustomerTemplateKind>("customer")
   const [enabledChannels, setEnabledChannels] = React.useState<Set<string>>(
     () => new Set(settings.enabled_channels ?? []),
   )
@@ -1107,6 +1194,10 @@ function SettingsForm({ settings }: { settings: Settings }) {
     () => renderVisualTemplate("customer", customerDraft),
     [customerDraft],
   )
+  const priceIncreaseCustomerTemplate = React.useMemo(
+    () => renderVisualTemplate("customer_price_increase", priceIncreaseCustomerDraft),
+    [priceIncreaseCustomerDraft],
+  )
 
   const saveMutation = useAppMutation((input: SettingsInput) => saveSettings(input), {
     onSuccess: () =>
@@ -1121,7 +1212,13 @@ function SettingsForm({ settings }: { settings: Settings }) {
   const openPreview = (kind: TemplateKind) => {
     setPreviewKind(kind)
     setPreview({ status: "loading" })
-    previewSettingsTemplate(kind, kind === "notify" ? notifyTemplate : customerTemplate)
+    const template =
+      kind === "notify"
+        ? notifyTemplate
+        : kind === "customer_price_increase"
+          ? priceIncreaseCustomerTemplate
+          : customerTemplate
+    previewSettingsTemplate(kind, template)
       .then((result) =>
         setPreview({
           status: "ok",
@@ -1147,7 +1244,11 @@ function SettingsForm({ settings }: { settings: Settings }) {
 
   const handleSave = (event: React.FormEvent) => {
     event.preventDefault()
-    if (notifyTemplate.trim() === "" || customerTemplate.trim() === "") {
+    if (
+      notifyTemplate.trim() === "" ||
+      customerTemplate.trim() === "" ||
+      priceIncreaseCustomerTemplate.trim() === ""
+    ) {
       toast.error(t("settings.validation.templateRequired"))
       return
     }
@@ -1161,6 +1262,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
     saveMutation.mutate({
       notify_template: notifyTemplate,
       customer_email_template: customerTemplate,
+      price_increase_customer_email_template: priceIncreaseCustomerTemplate,
       channels: Array.from(enabledChannels),
       redeem_page: normalizeRedeemPageSettings(redeemPage),
       notification_config: {
@@ -1238,10 +1340,20 @@ function SettingsForm({ settings }: { settings: Settings }) {
               onPreview={() => openPreview("notify")}
             />
             <TemplateEditor
-              kind="customer"
-              draft={customerDraft}
-              onDraftChange={setCustomerDraft}
-              onPreview={() => openPreview("customer")}
+              kind={customerTemplateKind}
+              draft={
+                customerTemplateKind === "customer"
+                  ? customerDraft
+                  : priceIncreaseCustomerDraft
+              }
+              onDraftChange={
+                customerTemplateKind === "customer"
+                  ? setCustomerDraft
+                  : setPriceIncreaseCustomerDraft
+              }
+              onPreview={() => openPreview(customerTemplateKind)}
+              customerTemplateKind={customerTemplateKind}
+              onCustomerTemplateKindChange={setCustomerTemplateKind}
             />
           </div>
         </TabsContent>
@@ -1297,7 +1409,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
             <p className="text-sm leading-relaxed text-destructive">{preview.message}</p>
           ) : (
             <div className="grid gap-3">
-              {previewKind === "customer" ? (
+              {previewKind !== "notify" ? (
                 <div>
                   <div className="text-[11px] font-medium text-muted-foreground">
                     {t("settings.previewSubject")}

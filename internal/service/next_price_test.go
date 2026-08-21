@@ -68,12 +68,17 @@ func TestScheduledNextPriceProtectsCurrentPeriodAndAppliesOnRenewal(t *testing.T
 	if err := subscriptionService.SaveCustomerEmailTemplate("普通续费模板：¥{{.AmountDue}}"); err != nil {
 		t.Fatal(err)
 	}
+	if err := subscriptionService.SavePriceIncreaseCustomerEmailTemplate(
+		"调价续费模板：原价 ¥{{.PreviousPrice}} / 新价 ¥{{.AmountDue}}",
+	); err != nil {
+		t.Fatal(err)
+	}
 	_, previewSubject, previewBody, err := subscriptionService.PreviewCustomerEmail(subscriptionID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(previewSubject, "价格调整通知") ||
-		!strings.Contains(previewBody, "此前已向您说明") ||
+		!strings.Contains(previewBody, "调价续费模板") ||
 		!strings.Contains(previewBody, "30.00") ||
 		!strings.Contains(previewBody, "45.00") ||
 		strings.Contains(previewBody, "普通续费模板") {
@@ -117,7 +122,7 @@ func TestScheduledNextPriceProtectsCurrentPeriodAndAppliesOnRenewal(t *testing.T
 	if recorder.calls != 1 ||
 		!strings.Contains(recorder.lastTitle, "价格调整通知") ||
 		!strings.Contains(recorder.lastBody, "45.00") ||
-		!strings.Contains(recorder.lastBody, "此前已向您说明") {
+		!strings.Contains(recorder.lastBody, "调价续费模板") {
 		t.Fatalf("scheduled reminder = calls %d title %q body %q", recorder.calls, recorder.lastTitle, recorder.lastBody)
 	}
 
@@ -206,6 +211,11 @@ func TestScheduledPriceIncreaseSendsAdvanceNotice(t *testing.T) {
 	if subscription.NextPriceEffectiveDueDate != "2026-07-31" {
 		t.Fatalf("effective date = %q, want 2026-07-31", subscription.NextPriceEffectiveDueDate)
 	}
+	if err := subscriptionService.SavePriceIncreaseCustomerEmailTemplate(
+		"自定义调价通知：¥{{.PreviousPrice}} → ¥{{.AmountDue}}；当前已支付周期不受影响",
+	); err != nil {
+		t.Fatal(err)
+	}
 
 	recorder := &recordingSender{}
 	subscriptionService.Notify = notify.Registry{SMTP: recorder}
@@ -214,7 +224,7 @@ func TestScheduledPriceIncreaseSendsAdvanceNotice(t *testing.T) {
 	}
 	if recorder.calls != 1 ||
 		!strings.Contains(recorder.lastTitle, "价格调整提前告知") ||
-		!strings.Contains(recorder.lastBody, "提前向您说明") ||
+		!strings.Contains(recorder.lastBody, "自定义调价通知") ||
 		!strings.Contains(recorder.lastBody, "100.00") ||
 		!strings.Contains(recorder.lastBody, "108.00") ||
 		!strings.Contains(recorder.lastBody, "当前已支付周期不受影响") {

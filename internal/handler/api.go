@@ -368,6 +368,11 @@ func (server *Server) getSettings(context *gin.Context) {
 		respondError(context, http.StatusInternalServerError, err.Error())
 		return
 	}
+	priceIncreaseCustomerTemplate, err := server.Service.GetPriceIncreaseCustomerEmailTemplate()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
 	enabledChannels, err := server.Service.GetEnabledChannels()
 	if err != nil {
 		respondError(context, http.StatusInternalServerError, err.Error())
@@ -410,12 +415,13 @@ func (server *Server) getSettings(context *gin.Context) {
 		},
 	}
 	respondOK(context, gin.H{
-		"notify_template":         notifyTemplate,
-		"customer_email_template": customerTemplate,
-		"enabled_channels":        enabledChannels,
-		"channels":                channels,
-		"notification_config":     configuration.NotificationConfig(),
-		"redeem_page":             redeemPageSettings,
+		"notify_template":                        notifyTemplate,
+		"customer_email_template":                customerTemplate,
+		"price_increase_customer_email_template": priceIncreaseCustomerTemplate,
+		"enabled_channels":                       enabledChannels,
+		"channels":                               channels,
+		"notification_config":                    configuration.NotificationConfig(),
+		"redeem_page":                            redeemPageSettings,
 	})
 }
 
@@ -1103,11 +1109,12 @@ func (server *Server) deleteBill(context *gin.Context) {
 func (server *Server) putSettings(context *gin.Context) {
 	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 2<<20)
 	var request struct {
-		NotifyTemplate        string                          `json:"notify_template"`
-		CustomerEmailTemplate string                          `json:"customer_email_template"`
-		Channels              []string                        `json:"channels"`
-		NotificationConfig    *config.NotificationConfigInput `json:"notification_config"`
-		RedeemPage            *model.RedeemPageSettings       `json:"redeem_page"`
+		NotifyTemplate                     string                          `json:"notify_template"`
+		CustomerEmailTemplate              string                          `json:"customer_email_template"`
+		PriceIncreaseCustomerEmailTemplate string                          `json:"price_increase_customer_email_template"`
+		Channels                           []string                        `json:"channels"`
+		NotificationConfig                 *config.NotificationConfigInput `json:"notification_config"`
+		RedeemPage                         *model.RedeemPageSettings       `json:"redeem_page"`
 	}
 	if err := context.ShouldBindJSON(&request); err != nil {
 		respondError(context, http.StatusBadRequest, "无效的请求")
@@ -1118,6 +1125,7 @@ func (server *Server) putSettings(context *gin.Context) {
 	if err := server.Service.ValidateSettingsPage(
 		request.NotifyTemplate,
 		request.CustomerEmailTemplate,
+		request.PriceIncreaseCustomerEmailTemplate,
 		request.RedeemPage,
 	); err != nil {
 		respondError(context, http.StatusBadRequest, err.Error())
@@ -1147,6 +1155,7 @@ func (server *Server) putSettings(context *gin.Context) {
 	if err := server.Service.SaveSettingsPage(
 		request.NotifyTemplate,
 		request.CustomerEmailTemplate,
+		request.PriceIncreaseCustomerEmailTemplate,
 		request.Channels,
 		request.RedeemPage,
 	); err != nil {
@@ -1195,8 +1204,17 @@ func (server *Server) postSettingsTemplatePreview(context *gin.Context) {
 		return
 	}
 	name := "notify"
-	if request.Kind == "customer" {
+	subjectPrefix := "拼车续费提醒 · "
+	switch request.Kind {
+	case "notify":
+	case "customer":
 		name = "customer_email"
+	case "customer_price_increase":
+		name = "customer_price_increase"
+		subjectPrefix = "拼车续费价格调整通知 · "
+	default:
+		respondError(context, http.StatusBadRequest, "无效的模板类型")
+		return
 	}
 	rendered, sampleName, err := server.Service.PreviewTemplate(name, request.Template)
 	if err != nil {
@@ -1206,7 +1224,7 @@ func (server *Server) postSettingsTemplatePreview(context *gin.Context) {
 	respondOK(context, gin.H{
 		"rendered":    rendered,
 		"sample_name": sampleName,
-		"subject":     "拼车续费提醒 · " + sampleName,
+		"subject":     subjectPrefix + sampleName,
 	})
 }
 

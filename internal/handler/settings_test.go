@@ -51,9 +51,10 @@ to = "operator@example.com"
 	}
 
 	payload := map[string]any{
-		"notify_template":         model.DefaultNotifyTemplate,
-		"customer_email_template": model.DefaultCustomerEmailTemplate,
-		"channels":                []string{"smtp"},
+		"notify_template":                        model.DefaultNotifyTemplate,
+		"customer_email_template":                model.DefaultCustomerEmailTemplate,
+		"price_increase_customer_email_template": model.DefaultPriceIncreaseCustomerEmailTemplate,
+		"channels":                               []string{"smtp"},
 		"notification_config": map[string]any{
 			"smtp": map[string]any{
 				"host": "smtp.new.example", "port": 465, "username": "new-user",
@@ -101,9 +102,10 @@ func TestPutSettingsValidatesWholeRequestBeforePersisting(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := map[string]any{
-		"notify_template":         "this must not be persisted",
-		"customer_email_template": model.DefaultCustomerEmailTemplate,
-		"channels":                []string{"smtp"},
+		"notify_template":                        "this must not be persisted",
+		"customer_email_template":                model.DefaultCustomerEmailTemplate,
+		"price_increase_customer_email_template": model.DefaultPriceIncreaseCustomerEmailTemplate,
+		"channels":                               []string{"smtp"},
 		"notification_config": map[string]any{
 			"smtp":   map[string]any{"port": 70000},
 			"iyuu":   map[string]any{},
@@ -130,6 +132,43 @@ func TestPutSettingsValidatesWholeRequestBeforePersisting(t *testing.T) {
 	}
 	if after != before {
 		t.Fatalf("failed settings request partially persisted notify template: before=%q after=%q", before, after)
+	}
+}
+
+func TestPriceIncreaseCustomerTemplatePreviewUsesDistinctPricesAndSubject(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store, err := db.Open(filepath.Join(t.TempDir(), "settings-preview.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	server := &Server{Service: &service.SubscriptionService{Store: store}}
+	payload, err := json.Marshal(map[string]string{
+		"kind":     "customer_price_increase",
+		"template": "原价 ¥{{.PreviousPrice}}，新价 ¥{{.AmountDue}}",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/settings/template-preview",
+		bytes.NewReader(payload),
+	)
+	context.Request.Header.Set("Content-Type", "application/json")
+
+	server.postSettingsTemplatePreview(context)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	responseBody := recorder.Body.String()
+	for _, expected := range []string{"价格调整通知", "20.00", "30.00"} {
+		if !strings.Contains(responseBody, expected) {
+			t.Fatalf("preview response = %s, missing %q", responseBody, expected)
+		}
 	}
 }
 

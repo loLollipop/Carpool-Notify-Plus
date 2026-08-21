@@ -384,7 +384,10 @@ export function resetSandbox() {
   })
 }
 
-export function previewSettingsTemplate(kind: "notify" | "customer", template: string) {
+export function previewSettingsTemplate(
+  kind: "notify" | "customer" | "customer_price_increase",
+  template: string,
+) {
   return api<{ rendered: string; sample_name: string; subject: string }>(
     "/api/settings/template-preview",
     { method: "POST", body: { kind, template } },

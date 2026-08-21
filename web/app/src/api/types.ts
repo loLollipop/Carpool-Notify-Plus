@@ -501,6 +501,7 @@ export interface NotificationConfig {
 export interface Settings {
   notify_template: string
   customer_email_template: string
+  price_increase_customer_email_template: string
   enabled_channels: string[] | null
   channels: ChannelSetting[]
   notification_config: NotificationConfig
@@ -992,6 +993,7 @@ export interface AfterSalesCaseInput {
 export interface SettingsInput {
   notify_template: string
   customer_email_template: string
+  price_increase_customer_email_template: string
   channels: string[]
   redeem_page: RedeemPageSettings
   notification_config: {

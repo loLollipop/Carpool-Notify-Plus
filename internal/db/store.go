@@ -429,9 +429,27 @@ func (store *Store) migrate() error {
 			return err
 		}
 	}
+
+	var priceIncreaseCustomerTemplateCount int
+	err = store.database.QueryRow(
+		`SELECT COUNT(1) FROM settings WHERE key = ?`,
+		model.SettingPriceIncreaseCustomerEmailTemplate,
+	).Scan(&priceIncreaseCustomerTemplateCount)
+	if err != nil {
+		return fmt.Errorf("check default price-increase customer email template: %w", err)
+	}
+	if priceIncreaseCustomerTemplateCount == 0 {
+		if err := store.SetSetting(
+			model.SettingPriceIncreaseCustomerEmailTemplate,
+			model.DefaultPriceIncreaseCustomerEmailTemplate,
+		); err != nil {
+			return err
+		}
+	}
 	for _, templateKey := range []string{
 		model.SettingNotifyTemplate,
 		model.SettingCustomerEmailTemplate,
+		model.SettingPriceIncreaseCustomerEmailTemplate,
 	} {
 		if err := store.migrateTemplateNameToCustomerEmail(templateKey); err != nil {
 			return err
