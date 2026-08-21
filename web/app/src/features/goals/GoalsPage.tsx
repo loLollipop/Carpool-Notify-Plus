@@ -17,6 +17,7 @@ import {
 } from "recharts"
 import {
   ArrowRight,
+  BadgeDollarSign,
   BrainCircuit,
   CalendarClock,
   CheckCircle2,
@@ -46,6 +47,7 @@ import {
   recordGoalCustomerBenefits,
   refreshGoalMarket,
   scheduleGoalBulkNextPrice,
+  scheduleGoalManualNextPrices,
   updateBusinessGoal,
 } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
@@ -1440,6 +1442,21 @@ function RelationshipRadar({ candidate }: { candidate: PricingCandidate }) {
   )
 }
 
+const manualPricingHardBlocks = new Set<PricingCandidate["blocked_code"]>([
+  "account_banned",
+  "after_sales",
+  "invalid_schedule",
+  "scheduled",
+  "exempted",
+])
+
+function manualPriceCents(value: string) {
+  const normalized = value.trim()
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return null
+  const cents = Math.round(Number(normalized) * 100)
+  return Number.isSafeInteger(cents) && cents > 0 ? cents : null
+}
+
 function RepricingAnalysisPanel({
   data,
   amountsHidden,
@@ -1455,6 +1472,9 @@ function RepricingAnalysisPanel({
   const [activeTier, setActiveTier] = React.useState<CustomerTierKey | "all">("all")
   const [profilePage, setProfilePage] = React.useState(1)
   const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
+  const [manualCustomer, setManualCustomer] = React.useState<PricingCandidate | null>(null)
+  const [manualPrices, setManualPrices] = React.useState<Record<number, string>>({})
+  const [manualConfirming, setManualConfirming] = React.useState(false)
   const profilePageSize = 6
   const queue = React.useMemo(() => {
     const grouped = new Map<number, PricingCandidate>()
@@ -1487,9 +1507,57 @@ function RepricingAnalysisPanel({
   const currentProfilePage = Math.min(profilePage, profilePageCount)
   const profilePageStart = (currentProfilePage - 1) * profilePageSize
   const visibleQueue = queue.slice(profilePageStart, profilePageStart + profilePageSize)
+  const manualGroupCandidates = React.useMemo(() => {
+    if (!manualCustomer) return []
+    const groupID = manualCustomer.customer_group_id || manualCustomer.subscription_id
+    return candidates
+      .filter(
+        (candidate) =>
+          (candidate.customer_group_id || candidate.subscription_id) === groupID,
+      )
+      .sort((left, right) => left.subscription_id - right.subscription_id)
+  }, [candidates, manualCustomer])
+  const manualRows = manualGroupCandidates.map((candidate) => {
+    const value = manualPrices[candidate.subscription_id] ?? ""
+    const parsedCents = value ? manualPriceCents(value) : null
+    const blocked = manualPricingHardBlocks.has(candidate.blocked_code)
+    return {
+      candidate,
+      value,
+      parsedCents,
+      blocked,
+      invalid: value !== "" && (parsedCents === null || parsedCents <= candidate.current_price_cents),
+    }
+  })
+  const manualEntries = manualRows.filter(
+    (row) => !row.blocked && row.value !== "" && !row.invalid && row.parsedCents !== null,
+  )
+  const manualHasInvalid = manualRows.some((row) => row.invalid)
+  const manualCanSubmit = manualEntries.length > 0 && !manualHasInvalid
+  const manualMutation = useAppMutation(
+    () =>
+      scheduleGoalManualNextPrices({
+        items: manualEntries.map((row) => ({
+          subscription_id: row.candidate.subscription_id,
+          next_price_yuan: row.value.trim(),
+        })),
+      }),
+    {
+      onSuccess: () => {
+        setManualCustomer(null)
+        setManualPrices({})
+        setManualConfirming(false)
+      },
+    },
+  )
   const handleTierChange = (tier: CustomerTierKey | "all") => {
     setActiveTier(tier)
     setProfilePage(1)
+  }
+  const openManualPricing = (candidate: PricingCandidate) => {
+    setManualCustomer(candidate)
+    setManualPrices({})
+    setManualConfirming(false)
   }
   if (!analysis) {
     return (
@@ -1789,6 +1857,17 @@ function RepricingAnalysisPanel({
                         </span>
                       ))}
                     </div>
+                    <div className="mt-3 flex justify-end">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-brand/25 bg-brand/[0.04] text-brand hover:bg-brand/10 hover:text-brand"
+                        onClick={() => openManualPricing(candidate)}
+                      >
+                        <BadgeDollarSign />
+                        {t("goals.repricing.manualPricing.action")}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               )
@@ -1830,6 +1909,230 @@ function RepricingAnalysisPanel({
           </div>
         ) : null}
       </Card>
+
+      <Dialog
+        open={manualCustomer !== null}
+        onOpenChange={(open) => {
+          if (!open && !manualMutation.isPending) {
+            setManualCustomer(null)
+            setManualPrices({})
+            setManualConfirming(false)
+          }
+        }}
+      >
+        <DialogContent aria-describedby={undefined} className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex flex-wrap items-center gap-2">
+              <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
+                <BadgeDollarSign className="size-4" />
+              </span>
+              {t("goals.repricing.manualPricing.title")}
+              <Badge variant="brand">{t("goals.repricing.manualPricing.operatorBadge")}</Badge>
+            </DialogTitle>
+          </DialogHeader>
+
+          {manualConfirming ? (
+            <div className="grid gap-3">
+              <div className="rounded-lg border border-warning/30 bg-warning/8 p-3 text-xs leading-5 text-warning-foreground dark:text-warning">
+                {t("goals.repricing.manualPricing.confirmHint", {
+                  count: manualEntries.length,
+                })}
+              </div>
+              <div className="divide-y overflow-hidden rounded-lg border">
+                {manualEntries.map((row) => (
+                  <div
+                    key={row.candidate.subscription_id}
+                    className="flex items-center justify-between gap-4 px-3 py-2.5 text-sm"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{row.candidate.name}</p>
+                      <p className="truncate text-[11px] text-muted-foreground">
+                        {row.candidate.account_name} · {row.candidate.seat_name}
+                      </p>
+                    </div>
+                    <div className="shrink-0 font-mono text-xs tabular-nums">
+                      <span className="text-muted-foreground">
+                        {visibleYuan(row.candidate.current_price_cents, amountsHidden)}
+                      </span>
+                      <ArrowRight className="mx-2 inline size-3.5 text-brand" />
+                      <span className="font-semibold text-brand">
+                        {visibleYuan(row.parsedCents ?? 0, amountsHidden)}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              <div className="rounded-lg border border-brand/15 bg-brand/[0.045] p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold">
+                      {manualCustomer?.customer_email || manualCustomer?.name}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {t("goals.repricing.manualPricing.customerSeatCount", {
+                        count: manualGroupCandidates.length,
+                      })}
+                    </p>
+                  </div>
+                  <Badge variant="outline">
+                    {manualCustomer
+                      ? t(`goals.repricing.customerTier.${manualCustomer.customer_tier}.label`)
+                      : ""}
+                  </Badge>
+                </div>
+              </div>
+
+              {data.market.snapshot ? (
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      ["low", data.market.snapshot.low_price_cents],
+                      ["median", data.market.snapshot.median_price_cents],
+                      ["high", data.market.snapshot.high_price_cents],
+                    ] as const
+                  ).map(([key, value]) => (
+                    <div key={key} className="rounded-md border bg-muted/20 px-3 py-2 text-center">
+                      <p className="text-[10px] text-muted-foreground">
+                        {t(`goals.repricing.manualPricing.market.${key}`)}
+                      </p>
+                      <p className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
+                        {visibleYuan(value, amountsHidden)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
+                  {t("goals.repricing.manualPricing.marketUnavailable")}
+                </div>
+              )}
+
+              <div className="rounded-md border border-warning/25 bg-warning/8 px-3 py-2 text-xs leading-5 text-warning-foreground dark:text-warning">
+                {t("goals.repricing.manualPricing.overrideHint")}
+              </div>
+
+              <div className="grid gap-2">
+                {manualRows.map(({ candidate, value, blocked, invalid }) => (
+                  <div
+                    key={candidate.subscription_id}
+                    className={cn(
+                      "grid gap-3 rounded-lg border p-3 sm:grid-cols-[minmax(0,1fr)_160px] sm:items-center",
+                      blocked && "bg-muted/25 opacity-70",
+                    )}
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <p className="truncate text-sm font-semibold">{candidate.name}</p>
+                        <Badge variant={marketPositionBadge[candidate.market_position]}>
+                          {t(`goals.marketPosition.${candidate.market_position}`)}
+                        </Badge>
+                        {!blocked && candidate.blocked_code !== "eligible" ? (
+                          <Badge variant="warning">
+                            {t("goals.repricing.manualPricing.earlyOverride")}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 truncate text-[11px] text-muted-foreground">
+                        {candidate.account_name} · {candidate.seat_name} · {candidate.next_due_date}
+                      </p>
+                      <p className="mt-1 font-mono text-xs tabular-nums">
+                        {t("goals.repricing.manualPricing.currentPrice")} {visibleYuan(candidate.current_price_cents, amountsHidden)}
+                        {candidate.market_monthly_price_cents !== candidate.current_price_cents ? (
+                          <span className="ml-2 text-muted-foreground">
+                            {t("goals.monthlyEquivalent", {
+                              price: visibleYuan(candidate.market_monthly_price_cents, amountsHidden),
+                            })}
+                          </span>
+                        ) : null}
+                      </p>
+                      {blocked ? (
+                        <p className="mt-1.5 text-[11px] text-destructive">
+                          {candidate.blocked_reason || t("goals.repricing.manualPricing.blocked")}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor={`manual-next-price-${candidate.subscription_id}`}>
+                        {t("goals.repricing.manualPricing.nextPrice")}
+                      </Label>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                          ¥
+                        </span>
+                        <Input
+                          id={`manual-next-price-${candidate.subscription_id}`}
+                          className="pl-7 font-mono tabular-nums"
+                          value={value}
+                          disabled={blocked}
+                          inputMode="decimal"
+                          autoComplete="off"
+                          placeholder="0.00"
+                          onChange={(event) =>
+                            setManualPrices((current) => ({
+                              ...current,
+                              [candidate.subscription_id]: event.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      {invalid ? (
+                        <p className="text-[11px] text-destructive">
+                          {t("goals.repricing.manualPricing.invalidPrice")}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-[11px] leading-5 text-muted-foreground">
+                {t("goals.repricing.manualPricing.notice")}
+              </p>
+            </div>
+          )}
+
+          <DialogFooter className="sm:justify-between">
+            {manualConfirming ? (
+              <>
+                <Button
+                  variant="outline"
+                  disabled={manualMutation.isPending}
+                  onClick={() => setManualConfirming(false)}
+                >
+                  {t("goals.backToSettings")}
+                </Button>
+                <Button
+                  disabled={manualMutation.isPending}
+                  onClick={() => manualMutation.mutate()}
+                >
+                  <BadgeDollarSign />
+                  {manualMutation.isPending
+                    ? t("common.saving")
+                    : t("goals.repricing.manualPricing.confirm")}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button variant="ghost" onClick={() => setManualCustomer(null)}>
+                  {t("common.cancel")}
+                </Button>
+                <Button
+                  disabled={!manualCanSubmit}
+                  onClick={() => setManualConfirming(true)}
+                >
+                  <ArrowRight />
+                  {t("goals.repricing.manualPricing.preview", {
+                    count: manualEntries.length,
+                  })}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -1954,9 +2257,6 @@ function BulkPricingPanel({
     !hasNonIncrease &&
     !hasAboveSafeCap
   const recommendedCount = candidates.filter((candidate) => candidate.recommended).length
-  const eligibleOptimizeCount = candidates.filter(
-    (candidate) => candidate.customer_tier === "optimize" && candidate.eligible,
-  ).length
 
   const mutation = useAppMutation(
     () =>
@@ -2048,25 +2348,6 @@ function BulkPricingPanel({
     }
   }
 
-  function selectEligibleOptimizeCustomers() {
-    const optimizeCandidates = candidates.filter(
-      (candidate) => candidate.customer_tier === "optimize" && candidate.eligible,
-    )
-    setFilter("optimize")
-    setPage(1)
-    setSelected(new Set(optimizeCandidates.map((candidate) => candidate.subscription_id)))
-    setPricingDialogOpen(optimizeCandidates.length > 0)
-    const sharedSuggestion = optimizeCandidates.length
-      ? Math.min(...optimizeCandidates.map((candidate) => candidate.suggested_price_cents))
-      : 0
-    const highestCurrent = optimizeCandidates.length
-      ? Math.max(...optimizeCandidates.map((candidate) => candidate.current_price_cents))
-      : 0
-    if (!nextPrice && sharedSuggestion > highestCurrent) {
-      setNextPrice(inputYuan(sharedSuggestion))
-    }
-  }
-
   function openPricingSettings() {
     if (nextPrice === "" && canUseSharedSuggestion && sharedSuggestedPrice > 0) {
       setNextPrice(inputYuan(sharedSuggestedPrice))
@@ -2090,26 +2371,15 @@ function BulkPricingPanel({
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={selectEligibleOptimizeCustomers}
-            disabled={eligibleOptimizeCount === 0}
-          >
-            <SlidersHorizontal />
-            {t("goals.selectOptimize", { count: eligibleOptimizeCount })}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={selectRecommendations}
-            disabled={recommendedCount === 0}
-          >
-            <Users />
-            {t("goals.selectRecommended")}
-          </Button>
-        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={selectRecommendations}
+          disabled={recommendedCount === 0}
+        >
+          <Users />
+          {t("goals.selectRecommended")}
+        </Button>
       </div>
 
       <div className="grid gap-3 border-b bg-muted/20 p-4 lg:grid-cols-[minmax(220px,1fr)_190px_auto] lg:items-center">

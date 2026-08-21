@@ -1296,6 +1296,107 @@ func TestBulkNextPriceRechecksEarlierLowPriceEligibility(t *testing.T) {
 	}
 }
 
+func TestManualNextPriceBypassesAlgorithmicTimingAndIncreaseCap(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "manual-pricing-owner@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 1 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "First-cycle customer",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 8000,
+		CronExpr:            "interval:30d",
+		SeatID:              seats[0].ID,
+		CustomerEmail:       "manual-pricing-customer@example.com",
+		BoardedAt:           "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Store.SetDuePaid(subscriptionID, "2026-08-01", true, 8000); err != nil {
+		t.Fatal(err)
+	}
+
+	candidates, err := service.buildPricingCandidates(nil, 0)
+	if err != nil || len(candidates) != 1 || candidates[0].BlockedCode != "protection" || candidates[0].Eligible {
+		t.Fatalf("protected first-cycle candidate = %#v, err = %v", candidates, err)
+	}
+	if candidates[0].MaxIncreasePriceCents >= 10000 {
+		t.Fatalf("test price does not exceed algorithmic cap: %#v", candidates[0])
+	}
+
+	updated, err := service.ScheduleManualNextPrices(ManualNextPricesInput{Items: []ManualNextPriceItemInput{{
+		SubscriptionID: subscriptionID,
+		NextPriceYuan:  "100.00",
+	}}})
+	if err != nil || updated != 1 {
+		t.Fatalf("manual pricing result = %d, err = %v", updated, err)
+	}
+	stored, err := service.Store.GetSubscription(subscriptionID)
+	if err != nil || stored.NextPriceCents == nil || *stored.NextPriceCents != 10000 ||
+		stored.NextPriceEffectiveDueDate != "2026-09-30" {
+		t.Fatalf("manual pricing state = %#v, err = %v", stored, err)
+	}
+}
+
+func TestManualNextPriceKeepsOperatorExemption(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "manual-exemption-owner@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 1 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "Exempted customer",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 8000,
+		CronExpr:            "interval:30d",
+		SeatID:              seats[0].ID,
+		CustomerEmail:       "manual-exemption-customer@example.com",
+		BoardedAt:           "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Store.CreatePricingExemptions([]model.PricingExemption{{
+		SubscriptionID:            subscriptionID,
+		ReasonCode:                "manual",
+		ReviewAfter:               "2026-09-15",
+		ReviewCycles:              1,
+		PriceCentsSnapshot:        8000,
+		MarketMedianCentsSnapshot: 10000,
+	}}, "2026-08-15"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.ScheduleManualNextPrices(ManualNextPricesInput{Items: []ManualNextPriceItemInput{{
+		SubscriptionID: subscriptionID,
+		NextPriceYuan:  "90.00",
+	}}}); err == nil || !strings.Contains(err.Error(), "豁免") {
+		t.Fatalf("manual pricing exemption error = %v", err)
+	}
+	stored, err := service.Store.GetSubscription(subscriptionID)
+	if err != nil || stored.NextPriceCents != nil {
+		t.Fatalf("exempted price was changed = %#v, err = %v", stored, err)
+	}
+}
+
 func TestExpeditedOptimizeCustomerDoesNotBypassActiveExemption(t *testing.T) {
 	service := openGoalTestService(t)
 	accountID, err := service.CreateAccount(CreateAccountInput{

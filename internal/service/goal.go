@@ -249,6 +249,15 @@ type BulkNextPriceInput struct {
 	NextPriceYuan   string
 }
 
+type ManualNextPriceItemInput struct {
+	SubscriptionID int64
+	NextPriceYuan  string
+}
+
+type ManualNextPricesInput struct {
+	Items []ManualNextPriceItemInput
+}
+
 type BulkPricingExemptionInput struct {
 	SubscriptionIDs []int64
 	ReviewCycles    int
@@ -2292,6 +2301,96 @@ func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInp
 	if len(updates) == 0 {
 		return 0, fmt.Errorf("没有可调价的 Team 用户")
 	}
+	if err := service.Store.UpdateSubscriptionNextPrices(updates, cycle.FormatDate(service.now())); err != nil {
+		if err == sql.ErrNoRows {
+			return 0, fmt.Errorf("所选用户状态已变化，请刷新后重试")
+		}
+		return 0, err
+	}
+	return len(updates), nil
+}
+
+// ScheduleManualNextPrices lets the operator arrange per-seat future prices
+// from a customer profile. It deliberately bypasses algorithmic timing gates
+// (protection, cooldown, and recovery observation), while retaining hard
+// operational safeguards, atomic writes, and the 30-day advance-notice rule.
+func (service *SubscriptionService) ScheduleManualNextPrices(input ManualNextPricesInput) (int, error) {
+	if len(input.Items) == 0 {
+		return 0, fmt.Errorf("请至少填写一个人工调价价格")
+	}
+	if len(input.Items) > maximumBulkPricingSelection {
+		return 0, fmt.Errorf("单次最多调整 %d 个 Team 席位", maximumBulkPricingSelection)
+	}
+
+	candidates, err := service.buildPricingCandidates(nil, 0)
+	if err != nil {
+		return 0, err
+	}
+	candidateByID := make(map[int64]PricingCandidate, len(candidates))
+	for _, candidate := range candidates {
+		candidateByID[candidate.SubscriptionID] = candidate
+	}
+
+	seen := make(map[int64]struct{}, len(input.Items))
+	updates := make([]model.Subscription, 0, len(input.Items))
+	for _, item := range input.Items {
+		if item.SubscriptionID <= 0 {
+			return 0, fmt.Errorf("包含无效的订阅 ID")
+		}
+		if _, duplicate := seen[item.SubscriptionID]; duplicate {
+			return 0, fmt.Errorf("人工调价列表包含重复的 Team 席位")
+		}
+		seen[item.SubscriptionID] = struct{}{}
+
+		candidate, exists := candidateByID[item.SubscriptionID]
+		if !exists {
+			return 0, fmt.Errorf("所选 Team 席位不存在或已下车")
+		}
+		switch candidate.BlockedCode {
+		case "eligible", "protection", "cooldown", "after_sales_recovery":
+			// Manual market judgment may override these algorithmic timing gates.
+		case "account_banned", "after_sales", "invalid_schedule", "scheduled", "exempted":
+			return 0, fmt.Errorf("%s 暂时不能人工调价：%s", candidate.Name, candidate.BlockedReason)
+		default:
+			return 0, fmt.Errorf("%s 当前状态不支持人工调价", candidate.Name)
+		}
+
+		previous, getErr := service.Store.GetSubscription(item.SubscriptionID)
+		if getErr != nil {
+			if getErr == sql.ErrNoRows {
+				return 0, fmt.Errorf("所选 Team 席位不存在或已下车")
+			}
+			return 0, getErr
+		}
+		if previous.BusinessType != model.SubscriptionBusinessTeam || previous.SeatID <= 0 || previous.IsResale {
+			return 0, fmt.Errorf("%s 不是可人工调价的 Team 席位", previous.Name)
+		}
+		if err := service.ensureNoPendingAfterSales(item.SubscriptionID, "安排人工调价"); err != nil {
+			return 0, fmt.Errorf("%s：%w", previous.Name, err)
+		}
+		nextPriceCents, parseErr := cycle.ParseYuanToCents(strings.TrimSpace(item.NextPriceYuan))
+		if parseErr != nil || nextPriceCents <= 0 {
+			return 0, fmt.Errorf("%s 的人工调价金额无效", previous.Name)
+		}
+		if nextPriceCents <= previous.PricePerPersonCents {
+			return 0, fmt.Errorf(
+				"%s 的新价格须高于当前价格 ¥%s",
+				previous.Name,
+				cycle.FormatCents(previous.PricePerPersonCents),
+			)
+		}
+
+		updated := previous
+		updated.NextPriceCents = &nextPriceCents
+		if err := service.configureNextPrice(previous, &updated, false); err != nil {
+			return 0, fmt.Errorf("%s：%w", previous.Name, err)
+		}
+		if err := service.ensureMinimumPriceIncreaseNotice(&updated); err != nil {
+			return 0, fmt.Errorf("%s：%w", previous.Name, err)
+		}
+		updates = append(updates, updated)
+	}
+
 	if err := service.Store.UpdateSubscriptionNextPrices(updates, cycle.FormatDate(service.now())); err != nil {
 		if err == sql.ErrNoRows {
 			return 0, fmt.Errorf("所选用户状态已变化，请刷新后重试")

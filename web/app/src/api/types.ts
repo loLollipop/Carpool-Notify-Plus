@@ -934,6 +934,13 @@ export interface BulkNextPriceInput {
   next_price_yuan: string
 }
 
+export interface ManualNextPricesInput {
+  items: Array<{
+    subscription_id: number
+    next_price_yuan: string
+  }>
+}
+
 export interface BulkPricingExemptionInput {
   subscription_ids: number[]
   review_cycles: number

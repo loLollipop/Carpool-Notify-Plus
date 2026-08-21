@@ -17,6 +17,7 @@ import type {
   Dashboard,
   DuePeriodOption,
   GoalCenter,
+  ManualNextPricesInput,
   ReminderPreview,
   RedemptionApplicationView,
   RedemptionCodeGenerateInput,
@@ -203,6 +204,13 @@ export function refreshGoalMarket() {
 
 export function scheduleGoalBulkNextPrice(input: BulkNextPriceInput) {
   return api<MessageResult & { updated_count: number }>("/api/goals/pricing/bulk-next-price", {
+    method: "POST",
+    body: input,
+  })
+}
+
+export function scheduleGoalManualNextPrices(input: ManualNextPricesInput) {
+  return api<MessageResult & { updated_count: number }>("/api/goals/pricing/manual-next-prices", {
     method: "POST",
     body: input,
   })

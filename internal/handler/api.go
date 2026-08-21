@@ -149,6 +149,40 @@ func (server *Server) postGoalBulkNextPrice(context *gin.Context) {
 	})
 }
 
+type manualNextPriceItemRequest struct {
+	SubscriptionID int64  `json:"subscription_id"`
+	NextPriceYuan  string `json:"next_price_yuan"`
+}
+
+type manualNextPricesRequest struct {
+	Items []manualNextPriceItemRequest `json:"items"`
+}
+
+func (server *Server) postGoalManualNextPrices(context *gin.Context) {
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 32<<10)
+	var request manualNextPricesRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的人工调价内容")
+		return
+	}
+	items := make([]service.ManualNextPriceItemInput, 0, len(request.Items))
+	for _, item := range request.Items {
+		items = append(items, service.ManualNextPriceItemInput{
+			SubscriptionID: item.SubscriptionID,
+			NextPriceYuan:  item.NextPriceYuan,
+		})
+	}
+	updated, err := server.Service.ScheduleManualNextPrices(service.ManualNextPricesInput{Items: items})
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{
+		"message":       fmt.Sprintf("已为 %d 个 Team 席位安排人工调价", updated),
+		"updated_count": updated,
+	})
+}
+
 type bulkPricingExemptionRequest struct {
 	SubscriptionIDs []int64 `json:"subscription_ids"`
 	ReviewCycles    int     `json:"review_cycles"`

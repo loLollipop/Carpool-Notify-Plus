@@ -110,6 +110,7 @@ func (server *Server) registerBusinessRoutes(routes *gin.RouterGroup) {
 	routes.POST("/goals", server.postCreateGoal)
 	routes.POST("/goals/market/refresh", server.postRefreshGoalMarket)
 	routes.POST("/goals/pricing/bulk-next-price", server.postGoalBulkNextPrice)
+	routes.POST("/goals/pricing/manual-next-prices", server.postGoalManualNextPrices)
 	routes.POST("/goals/pricing/bulk-exempt", server.postGoalBulkPricingExemption)
 	routes.POST("/goals/customer-benefits", server.postGoalCustomerBenefits)
 	routes.PUT("/goals/:id", server.putUpdateGoal)
