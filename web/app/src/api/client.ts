@@ -62,6 +62,7 @@ const SANDBOX_BUSINESS_PREFIXES = [
   "/api/subscriptions",
   "/api/accounts",
   "/api/account-options",
+  "/api/seats",
   "/api/after-sales",
   "/api/bills",
   "/api/settings/test-notify",

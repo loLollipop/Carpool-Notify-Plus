@@ -56,3 +56,83 @@ func TestSoftDeleteArchivedSubscriptionWaitsForSeatFreezeExpiry(t *testing.T) {
 		t.Fatalf("subscription after allowed delete error = %v, want sql.ErrNoRows", err)
 	}
 }
+
+func TestOpenBackfillsCompletedCancellationFreezeFromOriginalRefundTime(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "legacy-completed-cancellation.db")
+	store, err := Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountID, err := store.CreateAccount(model.Account{Name: "legacy owner"}, 0, "2026-08-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seatID, err := store.CreateSeat(model.Seat{AccountID: accountID, Name: "车位1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscriptionID, err := store.CreateSubscription(model.Subscription{
+		Name:                "legacy canceled customer",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 3000,
+		CronExpr:            "interval:30d",
+		NotifyOffsets:       []int{},
+		BoardedAt:           "2026-08-01",
+		AccountID:           accountID,
+		SeatID:              seatID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	processedAt := time.Date(2026, time.August, 20, 4, 30, 0, 0, time.UTC)
+	processedText := formatTime(processedAt)
+	if _, err := store.database.Exec(`
+		UPDATE subscriptions
+		SET archived_at = ?, seat_frozen_until = NULL, updated_at = ?
+		WHERE id = ?`, processedText, processedText, subscriptionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.database.Exec(`
+		INSERT INTO after_sales_cases (
+			account_id, subscription_id, business_type, banned_date,
+			source, status, processed_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		accountID,
+		subscriptionID,
+		model.SubscriptionBusinessTeam,
+		"2026-08-20",
+		model.AfterSalesSourceCustomerCancellation,
+		model.AfterSalesStatusRefunded,
+		processedText,
+		processedText,
+		processedText,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetSetting(model.SettingSeatFreezeDays, "3"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	archived, err := store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantUntil := processedAt.Add(3 * 24 * time.Hour)
+	if archived.SeatFrozenUntil == nil || !archived.SeatFrozenUntil.Equal(wantUntil) {
+		t.Fatalf("backfilled deadline = %v, want %v", archived.SeatFrozenUntil, wantUntil)
+	}
+	if free, err := store.ListFreeSeatsAt(accountID, 0, wantUntil.Add(-time.Second)); err != nil || len(free) != 0 {
+		t.Fatalf("seat before legacy deadline = %#v, %v", free, err)
+	}
+	if free, err := store.ListFreeSeatsAt(accountID, 0, wantUntil.Add(time.Second)); err != nil || len(free) != 1 {
+		t.Fatalf("seat after legacy deadline = %#v, %v", free, err)
+	}
+}

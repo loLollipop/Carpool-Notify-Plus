@@ -92,6 +92,11 @@ type UpdateSeatInput struct {
 	Name string
 }
 
+// UpdateSeatFreezeInput changes the deadline of one currently frozen seat.
+type UpdateSeatFreezeInput struct {
+	FrozenUntil string
+}
+
 // ListAccountsView returns all accounts with seat occupancy details.
 func (service *SubscriptionService) ListAccountsView() ([]AccountView, error) {
 	accounts, err := service.Store.ListAccounts()
@@ -487,6 +492,58 @@ func (service *SubscriptionService) UpdateSeat(seatID int64, input UpdateSeatInp
 		ID:   seatID,
 		Name: seatName,
 	})
+}
+
+// UpdateSeatFreeze changes a single cancellation cooling deadline without
+// affecting the global default used by future cancellations.
+func (service *SubscriptionService) UpdateSeatFreeze(
+	seatID int64,
+	input UpdateSeatFreezeInput,
+) error {
+	if _, err := service.Store.GetSeat(seatID); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("车位不存在")
+		}
+		return err
+	}
+	now := service.now()
+	frozenSubscription, err := service.Store.GetFrozenSubscriptionBySeatID(seatID, now)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("该车位当前不在冷却期内")
+		}
+		return err
+	}
+
+	raw := strings.TrimSpace(input.FrozenUntil)
+	var frozenUntil time.Time
+	for _, layout := range []string{"2006-01-02T15:04", time.RFC3339, time.RFC3339Nano} {
+		parsed, parseErr := time.ParseInLocation(layout, raw, cycle.Location)
+		if parseErr == nil {
+			frozenUntil = parsed.In(cycle.Location)
+			break
+		}
+	}
+	if frozenUntil.IsZero() {
+		return fmt.Errorf("请选择有效的冷却截止时间")
+	}
+	if !frozenUntil.After(now) {
+		return fmt.Errorf("冷却截止时间必须晚于当前时间")
+	}
+	if frozenUntil.After(now.AddDate(0, 0, model.MaxSeatFreezeDays)) {
+		return fmt.Errorf("冷却截止时间不能超过 %d 天", model.MaxSeatFreezeDays)
+	}
+	if err := service.Store.UpdateFrozenSubscriptionUntil(
+		frozenSubscription.ID,
+		frozenUntil,
+		now,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("冷却状态已发生变化，请刷新后重试")
+		}
+		return err
+	}
+	return nil
 }
 
 // DeleteSeat removes a free seat. Historical subscriptions keep their bills via

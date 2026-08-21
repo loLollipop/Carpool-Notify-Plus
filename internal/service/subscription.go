@@ -2141,7 +2141,13 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 		From:     configuration.SMTPFrom,
 	}
 	title := customerEmailSubjectForDueDate(subscription, dueAt)
-	return sender.SendTo(ctx, []string{subscription.CustomerEmail}, title, message)
+	return sender.SendHTMLTo(
+		ctx,
+		[]string{subscription.CustomerEmail},
+		title,
+		message,
+		notify.BuildCustomerEmailHTML(message),
+	)
 }
 
 func customerEmailSubject(subscription model.Subscription) string {
@@ -2727,7 +2733,26 @@ type smtpAddressedSender interface {
 	SendTo(ctx context.Context, recipients []string, title string, message string) error
 }
 
+type smtpHTMLAddressedSender interface {
+	SendHTMLTo(
+		ctx context.Context,
+		recipients []string,
+		title string,
+		plainText string,
+		htmlBody string,
+	) error
+}
+
 func sendCustomerSMTP(ctx context.Context, sender notify.Sender, recipient string, title string, message string) error {
+	if addressed, ok := sender.(smtpHTMLAddressedSender); ok {
+		return addressed.SendHTMLTo(
+			ctx,
+			[]string{recipient},
+			title,
+			message,
+			notify.BuildCustomerEmailHTML(message),
+		)
+	}
 	if addressed, ok := sender.(smtpAddressedSender); ok {
 		return addressed.SendTo(ctx, []string{recipient}, title, message)
 	}

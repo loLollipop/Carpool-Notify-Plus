@@ -51,6 +51,7 @@ import {
 } from "@/lib/account-renewal"
 import { AccountDialog, type AccountPrefill } from "./AccountDialog"
 import { AccountBanDialog, type AccountBanTarget } from "./AccountBanDialog"
+import { SeatFreezeDialog, type SeatFreezeTarget } from "./SeatFreezeDialog"
 
 type AccountStatsFilter = "all" | "renewal" | "banned" | "full" | "available"
 
@@ -268,6 +269,7 @@ function AccountMobileCard({
   isExpanded,
   onToggle,
   onOpenSeat,
+  onEditFreeze,
   onEdit,
   onBan,
   onDelete,
@@ -276,6 +278,7 @@ function AccountMobileCard({
   isExpanded: boolean
   onToggle: () => void
   onOpenSeat: (seat: NonNullable<AccountView["seats"]>[number]) => void
+  onEditFreeze: (seat: NonNullable<AccountView["seats"]>[number]) => void
   onEdit: () => void
   onBan: () => void
   onDelete: () => void
@@ -393,16 +396,21 @@ function AccountMobileCard({
                       seat.seat.name
                     if (seat.frozen) {
                       return (
-                        <div
+                        <button
                           key={seat.seat.id}
-                          className="flex items-center justify-between gap-2 rounded-md border border-dashed bg-gold/[0.06] px-3 py-2 text-left text-xs"
+                          type="button"
+                          onClick={() => onEditFreeze(seat)}
+                          className="flex items-center justify-between gap-2 rounded-md border border-dashed border-sky-500/25 bg-sky-500/[0.06] px-3 py-2 text-left text-xs transition-colors hover:border-sky-500/45 hover:bg-sky-500/10"
                         >
                           <span className="min-w-0 truncate">{occupantLabel}</span>
-                          <Badge variant="outline" className="shrink-0 border-gold/30 text-gold">
+                          <Badge
+                            variant="outline"
+                            className="shrink-0 border-sky-500/30 text-sky-700 dark:text-sky-300"
+                          >
                             <Snowflake />
                             {t("accounts.frozenUntil", { time: seat.frozen_until_label })}
                           </Badge>
-                        </div>
+                        </button>
                       )
                     }
                     return (
@@ -468,6 +476,7 @@ export function AccountsPage() {
   const [editingAccount, setEditingAccount] = React.useState<AccountPrefill | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<{ id: number; name: string } | null>(null)
   const [banTarget, setBanTarget] = React.useState<AccountBanTarget | null>(null)
+  const [freezeTarget, setFreezeTarget] = React.useState<SeatFreezeTarget | null>(null)
   const [subscriptionDialogOpen, setSubscriptionDialogOpen] = React.useState(false)
   const [subscriptionPrefill, setSubscriptionPrefill] = React.useState<SubscriptionPrefill | null>(null)
   const [search, setSearch] = React.useState("")
@@ -509,6 +518,20 @@ export function AccountsPage() {
       seatCount: view.seat_total,
     })
     setAccountDialogOpen(true)
+  }
+
+  const openFreezeEditor = (seat: NonNullable<AccountView["seats"]>[number]) => {
+    const customer =
+      seat.frozen_customer_email.trim() ||
+      seat.frozen_subscription_name.trim() ||
+      seat.seat.name
+    setFreezeTarget({
+      seatId: seat.seat.id,
+      seatName: seat.seat.name,
+      customer,
+      frozenUntil: seat.frozen_until,
+      frozenUntilLabel: seat.frozen_until_label,
+    })
   }
 
   const accounts = React.useMemo(() => accountsQuery.data ?? [], [accountsQuery.data])
@@ -714,6 +737,7 @@ export function AccountsPage() {
                   setSubscriptionPrefill(prefillFromSeat(seat))
                   setSubscriptionDialogOpen(true)
                 }}
+                onEditFreeze={openFreezeEditor}
                 onEdit={() => openEdit(view)}
                 onBan={() =>
                   setBanTarget({
@@ -828,14 +852,17 @@ export function AccountsPage() {
                                     seat.seat.name
                                   if (seat.frozen) {
                                     return (
-                                      <span
+                                      <button
                                         key={seat.seat.id}
+                                        type="button"
                                         title={t("accounts.frozenUntil", { time: seat.frozen_until_label })}
-                                        className="inline-flex max-w-full items-center gap-1 truncate rounded-md border border-dashed border-gold/30 bg-gold/[0.06] px-2 py-0.5 text-xs text-gold"
+                                        aria-label={`${occupantLabel} · ${t("accounts.frozenUntil", { time: seat.frozen_until_label })}`}
+                                        onClick={() => openFreezeEditor(seat)}
+                                        className="inline-flex max-w-full items-center gap-1 truncate rounded-md border border-dashed border-sky-500/30 bg-sky-500/[0.06] px-2 py-0.5 text-xs text-sky-700 transition-colors hover:border-sky-500/50 hover:bg-sky-500/10 dark:text-sky-300"
                                       >
                                         <Snowflake className="size-3 shrink-0" />
                                         <span className="truncate">{occupantLabel}</span>
-                                      </span>
+                                      </button>
                                     )
                                   }
                                   return (
@@ -1030,6 +1057,12 @@ export function AccountsPage() {
         open={subscriptionDialogOpen}
         onOpenChange={setSubscriptionDialogOpen}
         prefill={subscriptionPrefill}
+      />
+      <SeatFreezeDialog
+        target={freezeTarget}
+        onOpenChange={(open) => {
+          if (!open) setFreezeTarget(null)
+        }}
       />
       <StatDetailDialog
         open={statDetail !== null}

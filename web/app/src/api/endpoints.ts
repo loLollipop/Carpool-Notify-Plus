@@ -329,6 +329,10 @@ export function deleteAccount(id: number) {
   return api<MessageResult>(`/api/accounts/${id}`, { method: "DELETE" })
 }
 
+export function updateSeatFreeze(id: number, input: { frozen_until: string }) {
+  return api<MessageResult>(`/api/seats/${id}/freeze`, { method: "PUT", body: input })
+}
+
 export function banAccount(id: number, input: { banned_date: string; note: string }) {
   return api<MessageResult & { created_count: number }>(`/api/accounts/${id}/ban`, {
     method: "POST",
@@ -388,7 +392,7 @@ export function previewSettingsTemplate(
   kind: "notify" | "customer" | "customer_price_increase",
   template: string,
 ) {
-  return api<{ rendered: string; sample_name: string; subject: string }>(
+  return api<{ rendered: string; sample_name: string; subject: string; html: string }>(
     "/api/settings/template-preview",
     { method: "POST", body: { kind, template } },
   )

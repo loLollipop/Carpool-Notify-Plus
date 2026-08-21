@@ -8,10 +8,13 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"mime/multipart"
+	"mime/quotedprintable"
 	"net"
 	"net/http"
 	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
@@ -141,6 +144,30 @@ func (sender SMTPSender) Send(ctx context.Context, title string, message string)
 
 // SendTo delivers title/message to explicit recipients.
 func (sender SMTPSender) SendTo(ctx context.Context, recipients []string, title string, message string) error {
+	return sender.sendTo(ctx, recipients, title, message, "")
+}
+
+// SendHTMLTo sends a multipart/alternative email with a plain-text fallback.
+func (sender SMTPSender) SendHTMLTo(
+	ctx context.Context,
+	recipients []string,
+	title string,
+	plainText string,
+	htmlBody string,
+) error {
+	if strings.TrimSpace(htmlBody) == "" {
+		return sender.SendTo(ctx, recipients, title, plainText)
+	}
+	return sender.sendTo(ctx, recipients, title, plainText, htmlBody)
+}
+
+func (sender SMTPSender) sendTo(
+	ctx context.Context,
+	recipients []string,
+	title string,
+	plainText string,
+	htmlBody string,
+) error {
 	if sender.Host == "" || sender.Port <= 0 || sender.From == "" {
 		return fmt.Errorf("smtp is not configured")
 	}
@@ -171,7 +198,19 @@ func (sender SMTPSender) SendTo(ctx context.Context, recipients []string, title 
 
 	addr := net.JoinHostPort(sender.Host, strconv.Itoa(sender.Port))
 	auth := smtp.PlainAuth("", sender.Username, sender.Password, sender.Host)
-	payload := buildSMTPMessage(fromAddress.String(), toHeaders, title, message)
+	payload := buildSMTPMessage(fromAddress.String(), toHeaders, title, plainText)
+	if strings.TrimSpace(htmlBody) != "" {
+		payload, err = buildSMTPHTMLMessage(
+			fromAddress.String(),
+			toHeaders,
+			title,
+			plainText,
+			htmlBody,
+		)
+		if err != nil {
+			return err
+		}
+	}
 
 	var sendErr error
 	if sender.Port == 465 {
@@ -197,6 +236,50 @@ func buildSMTPMessage(from string, to []string, subject string, body string) []b
 	normalizedBody = strings.ReplaceAll(normalizedBody, "\r", "\n")
 	builder.WriteString(strings.ReplaceAll(normalizedBody, "\n", "\r\n"))
 	return []byte(builder.String())
+}
+
+func buildSMTPHTMLMessage(
+	from string,
+	to []string,
+	subject string,
+	plainText string,
+	htmlBody string,
+) ([]byte, error) {
+	var multipartBody bytes.Buffer
+	writer := multipart.NewWriter(&multipartBody)
+	writePart := func(contentType string, content string) error {
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Type", contentType+"; charset=UTF-8")
+		header.Set("Content-Transfer-Encoding", "quoted-printable")
+		part, err := writer.CreatePart(header)
+		if err != nil {
+			return err
+		}
+		quotedWriter := quotedprintable.NewWriter(part)
+		if _, err := quotedWriter.Write([]byte(content)); err != nil {
+			_ = quotedWriter.Close()
+			return err
+		}
+		return quotedWriter.Close()
+	}
+	if err := writePart("text/plain", plainText); err != nil {
+		return nil, err
+	}
+	if err := writePart("text/html", htmlBody); err != nil {
+		return nil, err
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+
+	var headers strings.Builder
+	headers.WriteString("From: " + sanitizeSMTPHeader(from) + "\r\n")
+	headers.WriteString("To: " + sanitizeSMTPHeader(strings.Join(to, ", ")) + "\r\n")
+	headers.WriteString("Subject: " + mime.QEncoding.Encode("UTF-8", sanitizeSMTPHeader(subject)) + "\r\n")
+	headers.WriteString("MIME-Version: 1.0\r\n")
+	headers.WriteString("Content-Type: multipart/alternative; boundary=\"" + writer.Boundary() + "\"\r\n")
+	headers.WriteString("\r\n")
+	return append([]byte(headers.String()), multipartBody.Bytes()...), nil
 }
 
 func sanitizeSMTPHeader(value string) string {

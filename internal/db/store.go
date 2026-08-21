@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -499,6 +500,66 @@ func (store *Store) migrate() error {
 		); err != nil {
 			return err
 		}
+	}
+	if err := store.backfillCancellationSeatFreezes(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// backfillCancellationSeatFreezes applies the current protection window to
+// customer cancellations completed before seat_frozen_until was introduced.
+// The deadline is based on the original refund timestamp, so an old completed
+// cancellation is never given a fresh freeze window on upgrade.
+func (store *Store) backfillCancellationSeatFreezes() error {
+	freezeDays := model.DefaultSeatFreezeDays
+	raw, err := store.GetSetting(model.SettingSeatFreezeDays)
+	if err != nil && err != sql.ErrNoRows {
+		return fmt.Errorf("read seat freeze days for backfill: %w", err)
+	}
+	if parsed, parseErr := strconv.Atoi(strings.TrimSpace(raw)); parseErr == nil &&
+		parsed >= model.MinSeatFreezeDays && parsed <= model.MaxSeatFreezeDays {
+		freezeDays = parsed
+	}
+
+	now := formatTime(time.Now().UTC())
+	if _, err := store.database.Exec(`
+		UPDATE subscriptions
+		SET seat_frozen_until = (
+				SELECT MAX(datetime(after_sales.processed_at, printf('+%d days', ?)))
+				FROM after_sales_cases AS after_sales
+				WHERE after_sales.subscription_id = subscriptions.id
+				  AND after_sales.source = ?
+				  AND after_sales.status = ?
+				  AND COALESCE(NULLIF(LOWER(TRIM(after_sales.business_type)), ''), 'team') = ?
+				  AND after_sales.processed_at IS NOT NULL
+				  AND TRIM(after_sales.processed_at) <> ''
+			),
+			updated_at = ?
+		WHERE deleted_at IS NULL
+		  AND archived_at IS NOT NULL
+		  AND seat_id IS NOT NULL
+		  AND seat_frozen_until IS NULL
+		  AND EXISTS (
+			SELECT 1
+			FROM after_sales_cases AS after_sales
+			WHERE after_sales.subscription_id = subscriptions.id
+			  AND after_sales.source = ?
+			  AND after_sales.status = ?
+			  AND COALESCE(NULLIF(LOWER(TRIM(after_sales.business_type)), ''), 'team') = ?
+			  AND after_sales.processed_at IS NOT NULL
+			  AND TRIM(after_sales.processed_at) <> ''
+		  )`,
+		freezeDays,
+		model.AfterSalesSourceCustomerCancellation,
+		model.AfterSalesStatusRefunded,
+		model.SubscriptionBusinessTeam,
+		now,
+		model.AfterSalesSourceCustomerCancellation,
+		model.AfterSalesStatusRefunded,
+		model.SubscriptionBusinessTeam,
+	); err != nil {
+		return fmt.Errorf("backfill cancellation seat freezes: %w", err)
 	}
 	return nil
 }
@@ -3664,6 +3725,41 @@ func (store *Store) GetFrozenSubscriptionBySeatID(seatID int64, now time.Time) (
 		ORDER BY subscription.seat_frozen_until DESC, subscription.id DESC
 		LIMIT 1`, seatID, formatTime(now.UTC()))
 	return scanSubscription(row)
+}
+
+// UpdateFrozenSubscriptionUntil changes one active cancellation freeze while
+// preserving the archived subscription that owns the original seat.
+func (store *Store) UpdateFrozenSubscriptionUntil(
+	subscriptionID int64,
+	frozenUntil time.Time,
+	currentTime time.Time,
+) error {
+	now := formatTime(currentTime.UTC())
+	result, err := store.database.Exec(`
+		UPDATE subscriptions
+		SET seat_frozen_until = ?, updated_at = ?
+		WHERE id = ?
+		  AND deleted_at IS NULL
+		  AND archived_at IS NOT NULL
+		  AND seat_id IS NOT NULL
+		  AND seat_frozen_until IS NOT NULL
+		  AND julianday(seat_frozen_until) > julianday(?)`,
+		formatTime(frozenUntil.UTC()),
+		now,
+		subscriptionID,
+		now,
+	)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // CountUnavailableSeatsByAccount counts active and temporarily frozen seats.

@@ -287,6 +287,55 @@ func TestCancellationFreezeBlocksArchivedRecordDeletion(t *testing.T) {
 	}
 }
 
+func TestAdministratorCanAdjustOneFrozenSeatDeadline(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	accountID, subscriptionID := createWarrantyCustomer(
+		t,
+		subscriptionService,
+		"2026-08-01",
+		false,
+	)
+	request, err := subscriptionService.RequestCancellation(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SetAfterSalesCaseRefunded(request.CaseID, true); err != nil {
+		t.Fatal(err)
+	}
+	accountView, err := subscriptionService.GetAccountView(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(accountView.Seats) != 1 || !accountView.Seats[0].Frozen {
+		t.Fatalf("account view before adjustment = %#v", accountView)
+	}
+	seatID := accountView.Seats[0].Seat.ID
+	if err := subscriptionService.UpdateSeatFreeze(seatID, service.UpdateSeatFreezeInput{
+		FrozenUntil: "2026-08-20T18:30",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	accountView, err = subscriptionService.GetAccountView(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accountView.Seats[0].FrozenUntilLabel != "2026-08-20 18:30" {
+		t.Fatalf("adjusted seat view = %#v", accountView.Seats[0])
+	}
+	if err := subscriptionService.UpdateSeatFreeze(seatID, service.UpdateSeatFreezeInput{
+		FrozenUntil: "2026-08-10T11:59",
+	}); err == nil || !strings.Contains(err.Error(), "必须晚于当前时间") {
+		t.Fatalf("past deadline error = %v", err)
+	}
+
+	now = time.Date(2026, time.August, 20, 18, 30, 1, 0, cycle.Location)
+	if free, err := subscriptionService.Store.ListFreeSeatsAt(accountID, 0, now); err != nil || len(free) != 1 {
+		t.Fatalf("seat after adjusted deadline = %#v, %v", free, err)
+	}
+}
+
 func TestExpiredCancellationRestoresSubscriptionAndRemovesTemporaryCase(t *testing.T) {
 	subscriptionService := openTestService(t)
 	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)

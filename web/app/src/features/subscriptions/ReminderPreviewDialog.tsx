@@ -4,6 +4,7 @@ import { Mail, Send } from "lucide-react"
 
 import { fetchReminderPreview, sendCustomerEmail } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
+import { EmailPreview } from "@/components/email-preview"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -13,7 +14,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 
 export function ReminderPreviewDialog({
@@ -47,7 +47,7 @@ export function ReminderPreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="gap-3 sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t("reminder.title")}</DialogTitle>
           <DialogDescription>{t("reminder.desc")}</DialogDescription>
@@ -72,19 +72,24 @@ export function ReminderPreviewDialog({
                 })}
               </div>
             ) : null}
-            <div className="flex items-center gap-2">
-              <Mail className="size-4 text-muted-foreground" />
-              <span className="text-muted-foreground">{t("reminder.to")}</span>
-              <span className="font-medium">{preview.to}</span>
+            <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 rounded-xl border bg-muted/30 px-3.5 py-3 text-[13px]">
+              <span className="row-span-2 grid size-8 place-items-center self-center rounded-lg bg-brand/10 text-brand">
+                <Mail className="size-4" />
+              </span>
+              <div className="min-w-0 truncate">
+                <span className="mr-2 text-xs text-muted-foreground">{t("reminder.to")}</span>
+                <span className="font-medium">{preview.to}</span>
+              </div>
+              <div className="min-w-0 truncate">
+                <span className="mr-2 text-xs text-muted-foreground">{t("reminder.subject")}</span>
+                <span className="font-semibold">{preview.subject}</span>
+              </div>
             </div>
-            <div className="flex items-baseline gap-2">
-              <span className="shrink-0 text-muted-foreground">{t("reminder.subject")}</span>
-              <span className="font-medium">{preview.subject}</span>
-            </div>
-            <Separator />
-            <pre className="max-h-72 overflow-auto rounded-lg border bg-muted/40 p-3.5 font-sans text-[13px] leading-relaxed whitespace-pre-wrap">
-              {preview.body}
-            </pre>
+            <EmailPreview
+              html={preview.html}
+              plainText={preview.body}
+              title={t("reminder.title")}
+            />
           </div>
         ) : null}
 

@@ -547,6 +547,7 @@ export interface ReminderPreview {
   to: string
   subject: string
   body: string
+  html: string
   current_price_yuan?: string
   next_price_yuan?: string
   next_price_effective_due_date?: string

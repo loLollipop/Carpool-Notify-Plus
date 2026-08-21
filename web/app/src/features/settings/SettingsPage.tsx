@@ -39,6 +39,7 @@ import type {
   SettingsInput,
 } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { EmailPreview } from "@/components/email-preview"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -150,7 +151,7 @@ interface NotificationConfigState {
 
 type TemplatePreviewState =
   | { status: "loading" }
-  | { status: "ok"; rendered: string; sampleName: string; subject: string }
+  | { status: "ok"; rendered: string; sampleName: string; subject: string; html: string }
   | { status: "error"; message: string }
 
 const MAX_QR_UPLOAD_BYTES = 1024 * 1024
@@ -1276,6 +1277,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
           rendered: result.rendered,
           sampleName: result.sample_name,
           subject: result.subject,
+          html: result.html,
         }),
       )
       .catch((error: Error) => setPreview({ status: "error", message: error.message }))
@@ -1464,7 +1466,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
           if (!open) setPreviewKind(null)
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="gap-3 sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{t("settings.previewTitle")}</DialogTitle>
             <DialogDescription>
@@ -1483,16 +1485,25 @@ function SettingsForm({ settings }: { settings: Settings }) {
           ) : (
             <div className="grid gap-3">
               {previewKind !== "notify" ? (
-                <div>
-                  <div className="text-[11px] font-medium text-muted-foreground">
-                    {t("settings.previewSubject")}
+                <div className="flex items-start gap-3 rounded-xl border bg-muted/30 px-3.5 py-3">
+                  <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-brand/10 text-brand">
+                    <Mail className="size-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-[11px] font-medium text-muted-foreground">
+                      {t("settings.previewSubject")}
+                    </div>
+                    <div className="mt-0.5 truncate text-[13px] font-semibold">
+                      {preview.subject}
+                    </div>
                   </div>
-                  <div className="mt-0.5 text-[13px] font-medium">{preview.subject}</div>
                 </div>
               ) : null}
-              <pre className="max-h-80 overflow-auto rounded-lg border bg-muted/40 p-3.5 text-[13px] leading-relaxed whitespace-pre-wrap">
-                {preview.rendered}
-              </pre>
+              <EmailPreview
+                html={previewKind === "notify" ? "" : preview.html}
+                plainText={preview.rendered}
+                title={t("settings.previewTitle")}
+              />
             </div>
           )}
 

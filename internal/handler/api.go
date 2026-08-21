@@ -13,6 +13,7 @@ import (
 	"carpool-notify/internal/config"
 	"carpool-notify/internal/cycle"
 	"carpool-notify/internal/model"
+	"carpool-notify/internal/notify"
 	"carpool-notify/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -489,7 +490,12 @@ func (server *Server) getReminderPreview(context *gin.Context) {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
 	}
-	payload := gin.H{"to": to, "subject": subject, "body": body}
+	payload := gin.H{
+		"to":      to,
+		"subject": subject,
+		"body":    body,
+		"html":    notify.BuildCustomerEmailHTML(body),
+	}
 	if subscription, getErr := server.Service.Get(subscriptionID); getErr == nil && subscription.NextPriceCents != nil {
 		payload["current_price_yuan"] = cycle.FormatCents(subscription.PricePerPersonCents)
 		payload["next_price_yuan"] = cycle.FormatCents(*subscription.NextPriceCents)
@@ -967,6 +973,27 @@ func (server *Server) putUpdateAccount(context *gin.Context) {
 	respondOK(context, gin.H{"message": "账号已保存"})
 }
 
+func (server *Server) putSeatFreeze(context *gin.Context) {
+	seatID, ok := parseIDParam(context, "id", "无效的车位 ID")
+	if !ok {
+		return
+	}
+	var request struct {
+		FrozenUntil string `json:"frozen_until"`
+	}
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	if err := server.Service.UpdateSeatFreeze(seatID, service.UpdateSeatFreezeInput{
+		FrozenUntil: request.FrozenUntil,
+	}); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "车位冷却时间已更新"})
+}
+
 func (server *Server) postBanAccount(context *gin.Context) {
 	accountID, ok := parseIDParam(context, "id", "无效的账号 ID")
 	if !ok {
@@ -1238,6 +1265,12 @@ func (server *Server) postSettingsTemplatePreview(context *gin.Context) {
 		"rendered":    rendered,
 		"sample_name": sampleName,
 		"subject":     subjectPrefix + sampleName,
+		"html": func() string {
+			if request.Kind == "notify" {
+				return ""
+			}
+			return notify.BuildCustomerEmailHTML(rendered)
+		}(),
 	})
 }
 
