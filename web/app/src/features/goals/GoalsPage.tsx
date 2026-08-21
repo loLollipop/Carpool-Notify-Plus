@@ -1447,7 +1447,7 @@ function RepricingAnalysisPanel({
 }: {
   data: GoalCenter
   amountsHidden: boolean
-  onOpenBulkPricing: () => void
+  onOpenBulkPricing: (tier: CustomerTierKey | "all") => void
 }) {
   const { t } = useTranslation()
   const analysis = data.repricing_analysis
@@ -1653,7 +1653,11 @@ function RepricingAnalysisPanel({
               ) : null}
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={onOpenBulkPricing}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => onOpenBulkPricing(activeTier)}
+          >
             {t("goals.repricing.manageBatch")}
             <ArrowRight />
           </Button>
@@ -1830,7 +1834,15 @@ function RepricingAnalysisPanel({
   )
 }
 
-type PricingFilter = "recommended" | "below_market" | "scheduled" | "exempted" | "all"
+type PricingFilter =
+  | "recommended"
+  | "optimize"
+  | "mainstay"
+  | "core"
+  | "below_market"
+  | "scheduled"
+  | "exempted"
+  | "all"
 type PricingExemptionReason = BulkPricingExemptionInput["reason_code"]
 const pricingPageSize = 8
 
@@ -1857,13 +1869,15 @@ function candidateSearchText(candidate: PricingCandidate) {
 function BulkPricingPanel({
   data,
   amountsHidden,
+  initialFilter = "recommended",
 }: {
   data: GoalCenter
   amountsHidden: boolean
+  initialFilter?: PricingFilter
 }) {
   const { t } = useTranslation()
   const candidates = React.useMemo(() => data.pricing_candidates ?? [], [data.pricing_candidates])
-  const [filter, setFilter] = React.useState<PricingFilter>("recommended")
+  const [filter, setFilter] = React.useState<PricingFilter>(initialFilter)
   const [search, setSearch] = React.useState("")
   const [selected, setSelected] = React.useState<Set<number>>(() => new Set())
   const [nextPrice, setNextPrice] = React.useState("")
@@ -1882,6 +1896,9 @@ function BulkPricingPanel({
       const matchesFilter =
         filter === "all" ||
         (filter === "recommended" && candidate.recommended) ||
+        (filter === "optimize" && candidate.customer_tier === "optimize") ||
+        (filter === "mainstay" && candidate.customer_tier === "mainstay") ||
+        (filter === "core" && candidate.customer_tier === "core") ||
         (filter === "scheduled" && candidate.next_price_cents !== null) ||
         (filter === "exempted" && candidate.blocked_code === "exempted") ||
         (filter === "below_market" &&
@@ -1937,6 +1954,9 @@ function BulkPricingPanel({
     !hasNonIncrease &&
     !hasAboveSafeCap
   const recommendedCount = candidates.filter((candidate) => candidate.recommended).length
+  const eligibleOptimizeCount = candidates.filter(
+    (candidate) => candidate.customer_tier === "optimize" && candidate.eligible,
+  ).length
 
   const mutation = useAppMutation(
     () =>
@@ -2028,6 +2048,25 @@ function BulkPricingPanel({
     }
   }
 
+  function selectEligibleOptimizeCustomers() {
+    const optimizeCandidates = candidates.filter(
+      (candidate) => candidate.customer_tier === "optimize" && candidate.eligible,
+    )
+    setFilter("optimize")
+    setPage(1)
+    setSelected(new Set(optimizeCandidates.map((candidate) => candidate.subscription_id)))
+    setPricingDialogOpen(optimizeCandidates.length > 0)
+    const sharedSuggestion = optimizeCandidates.length
+      ? Math.min(...optimizeCandidates.map((candidate) => candidate.suggested_price_cents))
+      : 0
+    const highestCurrent = optimizeCandidates.length
+      ? Math.max(...optimizeCandidates.map((candidate) => candidate.current_price_cents))
+      : 0
+    if (!nextPrice && sharedSuggestion > highestCurrent) {
+      setNextPrice(inputYuan(sharedSuggestion))
+    }
+  }
+
   function openPricingSettings() {
     if (nextPrice === "" && canUseSharedSuggestion && sharedSuggestedPrice > 0) {
       setNextPrice(inputYuan(sharedSuggestedPrice))
@@ -2051,15 +2090,26 @@ function BulkPricingPanel({
             </div>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={selectRecommendations}
-          disabled={recommendedCount === 0}
-        >
-          <Users />
-          {t("goals.selectRecommended")}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={selectEligibleOptimizeCustomers}
+            disabled={eligibleOptimizeCount === 0}
+          >
+            <SlidersHorizontal />
+            {t("goals.selectOptimize", { count: eligibleOptimizeCount })}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={selectRecommendations}
+            disabled={recommendedCount === 0}
+          >
+            <Users />
+            {t("goals.selectRecommended")}
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-3 border-b bg-muted/20 p-4 lg:grid-cols-[minmax(220px,1fr)_190px_auto] lg:items-center">
@@ -2088,6 +2138,9 @@ function BulkPricingPanel({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="recommended">{t("goals.filter.recommended")}</SelectItem>
+            <SelectItem value="optimize">{t("goals.filter.optimize")}</SelectItem>
+            <SelectItem value="mainstay">{t("goals.filter.mainstay")}</SelectItem>
+            <SelectItem value="core">{t("goals.filter.core")}</SelectItem>
             <SelectItem value="below_market">{t("goals.filter.below_market")}</SelectItem>
             <SelectItem value="scheduled">{t("goals.filter.scheduled")}</SelectItem>
             <SelectItem value="exempted">{t("goals.filter.exempted")}</SelectItem>
@@ -2137,7 +2190,15 @@ function BulkPricingPanel({
                     />
                   </TableCell>
                   <TableCell className="min-w-48 whitespace-normal">
-                    <div className="font-medium">{candidate.name}</div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="font-medium">{candidate.name}</span>
+                      <Badge
+                        className={customerTierVisuals[candidate.customer_tier].badgeClass}
+                        variant="outline"
+                      >
+                        {t(`goals.repricing.customerTier.${candidate.customer_tier}.label`)}
+                      </Badge>
+                    </div>
                     <div className="mt-0.5 text-xs text-muted-foreground">{contact}</div>
                     <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
                       {t("goals.relationshipStatus", {
@@ -3525,6 +3586,10 @@ export function GoalsPage() {
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [completeOpen, setCompleteOpen] = React.useState(false)
   const [workspaceTab, setWorkspaceTab] = React.useState("overview")
+  const [pricingEntry, setPricingEntry] = React.useState<{
+    filter: PricingFilter
+    requestId: number
+  }>({ filter: "recommended", requestId: 0 })
 
   const refreshMutation = useAppMutation(refreshGoalMarket)
   const completeMutation = useAppMutation(
@@ -3670,7 +3735,13 @@ export function GoalsPage() {
               <RepricingAnalysisPanel
                 data={query.data}
                 amountsHidden={amountsHidden}
-                onOpenBulkPricing={() => setWorkspaceTab("repricing")}
+                onOpenBulkPricing={(tier) => {
+                  setPricingEntry((current) => ({
+                    filter: tier === "all" ? "recommended" : tier,
+                    requestId: current.requestId + 1,
+                  }))
+                  setWorkspaceTab("repricing")
+                }}
               />
             </TabsContent>
 
@@ -3679,7 +3750,12 @@ export function GoalsPage() {
               forceMount
               className="mt-0 data-[state=inactive]:hidden animate-fade-in"
             >
-              <BulkPricingPanel data={query.data} amountsHidden={amountsHidden} />
+              <BulkPricingPanel
+                key={pricingEntry.requestId}
+                data={query.data}
+                amountsHidden={amountsHidden}
+                initialFilter={pricingEntry.filter}
+              />
             </TabsContent>
 
             <TabsContent

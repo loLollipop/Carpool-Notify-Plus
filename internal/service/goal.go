@@ -1193,6 +1193,17 @@ func (service *SubscriptionService) buildPricingCandidates(
 				}
 			}
 		}
+		// An active operator exemption must be evaluated before the standard
+		// protection window. Optimize-tier customers can leave that window via
+		// the expedited review below, but must never bypass an explicit exemption.
+		if latestExemption.ID > 0 && latestExemption.ReviewAfter > cycle.FormatDate(service.now()) {
+			candidate.ExemptionReviewDate = latestExemption.ReviewAfter
+			block(
+				"exempted",
+				fmt.Sprintf("管理员已豁免本轮调价，将于 %s 重新评估", latestExemption.ReviewAfter),
+				latestExemption.ReviewAfter,
+			)
+		}
 		if history.PaidPeriodCount < minimumRepricingPaidPeriods ||
 			candidate.RelationshipDays < minimumRepricingRelationshipDays {
 			block(
@@ -1211,14 +1222,6 @@ func (service *SubscriptionService) buildPricingCandidates(
 					minimumRepricingRelationshipDays,
 					minimumRepricingPaidPeriods,
 				),
-			)
-		}
-		if latestExemption.ID > 0 && latestExemption.ReviewAfter > cycle.FormatDate(service.now()) {
-			candidate.ExemptionReviewDate = latestExemption.ReviewAfter
-			block(
-				"exempted",
-				fmt.Sprintf("管理员已豁免本轮调价，将于 %s 重新评估", latestExemption.ReviewAfter),
-				latestExemption.ReviewAfter,
 			)
 		}
 		if snapshot != nil && snapshot.SampleCount >= 3 {

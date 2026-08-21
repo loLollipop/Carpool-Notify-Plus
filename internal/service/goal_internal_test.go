@@ -1296,6 +1296,93 @@ func TestBulkNextPriceRechecksEarlierLowPriceEligibility(t *testing.T) {
 	}
 }
 
+func TestExpeditedOptimizeCustomerDoesNotBypassActiveExemption(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "optimize-exemption-owner@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 3,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 3 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+
+	prices := []int64{8000, 10000, 12000}
+	var optimizeSubscriptionID int64
+	for index, priceCents := range prices {
+		subscriptionID, createErr := service.Store.CreateSubscription(model.Subscription{
+			Name:                fmt.Sprintf("customer-%d", index+1),
+			BusinessType:        model.SubscriptionBusinessTeam,
+			PricePerPersonCents: priceCents,
+			CronExpr:            "interval:30d",
+			SeatID:              seats[index].ID,
+			CustomerEmail:       fmt.Sprintf("customer-%d@example.com", index+1),
+			BoardedAt:           "2026-07-01",
+		})
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		if index == 0 {
+			optimizeSubscriptionID = subscriptionID
+			for _, dueDate := range []string{"2026-07-01", "2026-07-31"} {
+				if paidErr := service.Store.SetDuePaid(subscriptionID, dueDate, true, priceCents); paidErr != nil {
+					t.Fatal(paidErr)
+				}
+			}
+		}
+	}
+
+	snapshot := model.MarketPriceSnapshot{
+		LowPriceCents: 10000, MedianPriceCents: 13000, HighPriceCents: 15000, SampleCount: 10,
+	}
+	before, err := service.buildPricingCandidates(&snapshot, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var optimizeCandidate PricingCandidate
+	for _, candidate := range before {
+		if candidate.SubscriptionID == optimizeSubscriptionID {
+			optimizeCandidate = candidate
+			break
+		}
+	}
+	if optimizeCandidate.CustomerTier != "optimize" || !optimizeCandidate.ExpeditedReview ||
+		!optimizeCandidate.Eligible || !optimizeCandidate.Recommended {
+		t.Fatalf("optimize candidate before exemption = %#v", optimizeCandidate)
+	}
+
+	if err := service.Store.CreatePricingExemptions([]model.PricingExemption{{
+		SubscriptionID:            optimizeSubscriptionID,
+		ReasonCode:                "price_observation",
+		ReviewAfter:               "2026-09-15",
+		ReviewCycles:              1,
+		PriceCentsSnapshot:        8000,
+		MarketMedianCentsSnapshot: 13000,
+	}}, "2026-08-15"); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := service.buildPricingCandidates(&snapshot, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range after {
+		if candidate.SubscriptionID != optimizeSubscriptionID {
+			continue
+		}
+		if candidate.Eligible || candidate.Recommended || candidate.BlockedCode != "exempted" ||
+			candidate.NextReviewDate != "2026-09-15" {
+			t.Fatalf("active exemption was bypassed by optimize review = %#v", candidate)
+		}
+		return
+	}
+	t.Fatal("optimize candidate missing after exemption")
+}
+
 func TestLowPriceSingleSeatCustomerMustMeetBothEarlierThresholds(t *testing.T) {
 	now := time.Date(2026, time.August, 17, 12, 0, 0, 0, cycle.Location)
 	tests := []struct {
