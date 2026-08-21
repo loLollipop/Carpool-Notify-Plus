@@ -388,7 +388,12 @@ func (store *Store) UpdateAfterSalesCase(caseID int64, refundAmountCents int64, 
 }
 
 // SetAfterSalesCaseRefunded marks or unmarks one case as completed.
-func (store *Store) SetAfterSalesCaseRefunded(caseID int64, refunded bool, processedTime time.Time) error {
+func (store *Store) SetAfterSalesCaseRefunded(
+	caseID int64,
+	refunded bool,
+	processedTime time.Time,
+	cancellationSeatFreezeUntil time.Time,
+) error {
 	var source string
 	if err := store.database.QueryRow(
 		`SELECT source FROM after_sales_cases WHERE id = ?`,
@@ -400,7 +405,7 @@ func (store *Store) SetAfterSalesCaseRefunded(caseID int64, refunded bool, proce
 		if !refunded {
 			return ErrAfterSalesProcessed
 		}
-		return store.CompleteCancellationRefund(caseID, processedTime)
+		return store.CompleteCancellationRefund(caseID, processedTime, cancellationSeatFreezeUntil)
 	}
 
 	transaction, err := store.database.Begin()
@@ -473,6 +478,7 @@ func (store *Store) SetAfterSalesCaseRefunded(caseID int64, refunded bool, proce
 			UPDATE subscriptions
 			SET archived_at = ?, cancellation_requested_at = NULL,
 			    cancellation_expires_at = NULL, cancellation_case_id = 0,
+			    seat_frozen_until = NULL,
 			    updated_at = ?
 			WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL`,
 			nowText,

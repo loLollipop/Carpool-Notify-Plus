@@ -25,6 +25,11 @@ type AccountView struct {
 type SeatView struct {
 	Seat                   model.Seat `json:"seat"`
 	Occupied               bool       `json:"occupied"`
+	Frozen                 bool       `json:"frozen"`
+	FrozenUntil            string     `json:"frozen_until"`
+	FrozenUntilLabel       string     `json:"frozen_until_label"`
+	FrozenSubscriptionName string     `json:"frozen_subscription_name"`
+	FrozenCustomerEmail    string     `json:"frozen_customer_email"`
 	ActiveSubscriptionID   int64      `json:"active_subscription_id"`
 	ActiveSubscriptionName string     `json:"active_subscription_name"`
 	ActiveBusinessType     string     `json:"active_business_type"`
@@ -139,7 +144,7 @@ func (service *SubscriptionService) buildAccountView(account model.Account) (Acc
 		if err != nil {
 			return AccountView{}, err
 		}
-		if seatView.Occupied {
+		if seatView.Occupied || seatView.Frozen {
 			usedCount++
 		}
 		seatViews = append(seatViews, seatView)
@@ -186,6 +191,24 @@ func (service *SubscriptionService) buildSeatView(seat model.Seat) (SeatView, er
 		view.ActiveBoardedAt = activeSubscription.BoardedAt
 	} else if err != sql.ErrNoRows {
 		return SeatView{}, err
+	} else {
+		frozenSubscription, frozenErr := service.Store.GetFrozenSubscriptionBySeatID(
+			seat.ID,
+			service.now(),
+		)
+		if frozenErr == nil {
+			view.Frozen = true
+			view.FrozenSubscriptionName = frozenSubscription.Name
+			view.FrozenCustomerEmail = frozenSubscription.CustomerEmail
+			if frozenSubscription.SeatFrozenUntil != nil {
+				view.FrozenUntil = frozenSubscription.SeatFrozenUntil.UTC().Format(time.RFC3339)
+				view.FrozenUntilLabel = frozenSubscription.SeatFrozenUntil.
+					In(cycle.Location).
+					Format("2006-01-02 15:04")
+			}
+		} else if frozenErr != sql.ErrNoRows {
+			return SeatView{}, frozenErr
+		}
 	}
 
 	linkedCount, err := service.Store.CountSubscriptionsLinkedToSeat(seat.ID)
@@ -194,7 +217,7 @@ func (service *SubscriptionService) buildSeatView(seat model.Seat) (SeatView, er
 	}
 	view.LinkedSubscriptionCount = linkedCount
 	// Free seats can be deleted; historical links are cleared on delete.
-	view.CanDelete = !view.Occupied
+	view.CanDelete = !view.Occupied && !view.Frozen
 	return view, nil
 }
 
@@ -314,7 +337,7 @@ func (service *SubscriptionService) validateAccountSeatCount(accountID int64, ta
 	if targetCount < model.MinInitialSeatCount || targetCount > model.MaxInitialSeatCount {
 		return fmt.Errorf("车位数量须为 %d～%d 的整数", model.MinInitialSeatCount, model.MaxInitialSeatCount)
 	}
-	usedCount, err := service.Store.CountActiveSubscriptionsByAccount(accountID)
+	usedCount, err := service.Store.CountUnavailableSeatsByAccount(accountID, service.now())
 	if err != nil {
 		return err
 	}
@@ -347,6 +370,12 @@ func (service *SubscriptionService) resizeAccountSeats(accountID int64, targetCo
 			continue
 		}
 		if err != sql.ErrNoRows {
+			return err
+		}
+		if _, err := service.Store.GetFrozenSubscriptionBySeatID(seat.ID, service.now()); err == nil {
+			occupiedIDs[seat.ID] = struct{}{}
+			continue
+		} else if err != sql.ErrNoRows {
 			return err
 		}
 	}
@@ -398,12 +427,12 @@ func (service *SubscriptionService) DeleteAccount(accountID int64) error {
 		}
 		return err
 	}
-	activeCount, err := service.Store.CountActiveSubscriptionsByAccount(accountID)
+	activeCount, err := service.Store.CountUnavailableSeatsByAccount(accountID, service.now())
 	if err != nil {
 		return err
 	}
 	if activeCount > 0 {
-		return fmt.Errorf("该账号仍有活跃订阅占用车位，请先下车后再删除")
+		return fmt.Errorf("该账号仍有活跃或冻结中的车位，暂时无法删除")
 	}
 	afterSalesCount, err := service.Store.CountAfterSalesCasesByAccount(accountID)
 	if err != nil {
@@ -476,6 +505,11 @@ func (service *SubscriptionService) DeleteSeat(seatID int64) error {
 	if err != nil && err != sql.ErrNoRows {
 		return err
 	}
+	if _, err := service.Store.GetFrozenSubscriptionBySeatID(seatID, service.now()); err == nil {
+		return fmt.Errorf("该车位仍在退订冻结期内，无法删除")
+	} else if err != sql.ErrNoRows {
+		return err
+	}
 	if err := service.Store.ClearSeatLinksForSeat(seatID); err != nil {
 		return err
 	}
@@ -531,7 +565,7 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 		if account.BannedAt != "" && !includesCurrentSeat {
 			continue
 		}
-		freeSeats, err := service.Store.ListFreeSeats(account.ID, includeSeatID)
+		freeSeats, err := service.Store.ListFreeSeatsAt(account.ID, includeSeatID, service.now())
 		if err != nil {
 			return nil, err
 		}

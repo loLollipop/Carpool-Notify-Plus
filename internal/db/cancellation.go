@@ -277,6 +277,7 @@ func (store *Store) RestoreExpiredCancellationRequests(now time.Time) (int, erro
 		SET cancellation_requested_at = NULL,
 		    cancellation_expires_at = NULL,
 		    cancellation_case_id = 0,
+		    seat_frozen_until = NULL,
 		    updated_at = ?
 		WHERE archived_at IS NULL
 		  AND deleted_at IS NULL
@@ -299,8 +300,13 @@ func (store *Store) RestoreExpiredCancellationRequests(now time.Time) (int, erro
 }
 
 // CompleteCancellationRefund closes a customer cancellation and archives the
-// subscription atomically so its seat is released only after processing.
-func (store *Store) CompleteCancellationRefund(caseID int64, processedTime time.Time) error {
+// subscription atomically while reserving its Team seat until the protection
+// window expires.
+func (store *Store) CompleteCancellationRefund(
+	caseID int64,
+	processedTime time.Time,
+	seatFreezeUntil time.Time,
+) error {
 	transaction, err := store.database.Begin()
 	if err != nil {
 		return err
@@ -348,7 +354,14 @@ func (store *Store) CompleteCancellationRefund(caseID int64, processedTime time.
 	if rowsAffected != 1 {
 		return ErrAfterSalesProcessed
 	}
-	if err := archiveSubscriptionInTransaction(transaction, subscriptionID, nowText, caseID); err != nil {
+	freezeUntilText := formatTime(seatFreezeUntil.UTC())
+	if err := archiveSubscriptionInTransaction(
+		transaction,
+		subscriptionID,
+		nowText,
+		caseID,
+		freezeUntilText,
+	); err != nil {
 		return err
 	}
 	return transaction.Commit()
@@ -359,6 +372,7 @@ func archiveSubscriptionInTransaction(
 	subscriptionID int64,
 	nowText string,
 	preserveCancellationCaseID int64,
+	seatFreezeUntil any,
 ) error {
 	var cancellationCaseID int64
 	if err := transaction.QueryRow(`
@@ -374,12 +388,17 @@ func archiveSubscriptionInTransaction(
 	result, err := transaction.Exec(`
 		UPDATE subscriptions
 		SET archived_at = COALESCE(archived_at, ?),
+		    seat_frozen_until = CASE
+				WHEN seat_id IS NOT NULL THEN ?
+				ELSE NULL
+			END,
 		    cancellation_requested_at = NULL,
 		    cancellation_expires_at = NULL,
 		    cancellation_case_id = 0,
 		    updated_at = ?
 		WHERE id = ? AND deleted_at IS NULL`,
 		nowText,
+		seatFreezeUntil,
 		nowText,
 		subscriptionID,
 	)

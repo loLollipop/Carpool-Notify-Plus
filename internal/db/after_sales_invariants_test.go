@@ -72,7 +72,8 @@ func TestAfterSalesRefundLimitIsEnforcedInsideWriteTransaction(t *testing.T) {
 	if err := store.UpdateAfterSalesCase(pendingID, 200, "remaining amount"); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.SetAfterSalesCaseRefunded(pendingID, true, time.Now()); err != nil {
+	nowTime := time.Now()
+	if err := store.SetAfterSalesCaseRefunded(pendingID, true, nowTime, nowTime); err != nil {
 		t.Fatalf("completing exact remaining refund: %v", err)
 	}
 }

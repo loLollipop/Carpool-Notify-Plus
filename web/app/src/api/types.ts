@@ -24,6 +24,7 @@ export interface Subscription {
   subscription_type: string
   boarded_at: string
   archived_at: string | null
+  seat_frozen_until: string | null
   cancellation_requested_at: string | null
   cancellation_expires_at: string | null
   cancellation_case_id: number
@@ -57,6 +58,7 @@ export interface SubscriptionView {
   seat_name: string
   boarded_at: string
   archived_at_label: string
+  seat_frozen_until_label: string
   cancellation_pending: boolean
   cancellation_case_id: number
   cancellation_expires_at_label: string
@@ -249,6 +251,11 @@ export interface Seat {
 export interface SeatView {
   seat: Seat
   occupied: boolean
+  frozen: boolean
+  frozen_until: string
+  frozen_until_label: string
+  frozen_subscription_name: string
+  frozen_customer_email: string
   active_subscription_id: number
   active_subscription_name: string
   active_business_type: SubscriptionBusinessType
@@ -506,6 +513,7 @@ export interface Settings {
   channels: ChannelSetting[]
   notification_config: NotificationConfig
   redeem_page: RedeemPageSettings
+  seat_freeze_days: number
 }
 
 export interface RedeemPageSettings {
@@ -996,6 +1004,7 @@ export interface SettingsInput {
   price_increase_customer_email_template: string
   channels: string[]
   redeem_page: RedeemPageSettings
+  seat_freeze_days: number
   notification_config: {
     smtp: {
       host: string

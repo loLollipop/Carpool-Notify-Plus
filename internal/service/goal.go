@@ -913,12 +913,18 @@ func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.M
 	}
 	activeAccountIDs := make(map[int64]struct{})
 	var monthlyAccountCostCents int64
+	seatUsed := 0
 	for _, account := range accounts {
 		if strings.TrimSpace(account.BannedAt) != "" {
 			continue
 		}
 		activeAccountIDs[account.ID] = struct{}{}
 		monthlyAccountCostCents += account.CostCents
+		unavailable, countErr := service.Store.CountUnavailableSeatsByAccount(account.ID, service.now())
+		if countErr != nil {
+			return PricingRecommendation{}, countErr
+		}
+		seatUsed += unavailable
 	}
 	seats, err := service.Store.ListAllSeats()
 	if err != nil {
@@ -935,7 +941,6 @@ func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.M
 		return PricingRecommendation{}, err
 	}
 	teamPrices := make([]int64, 0)
-	seatUsed := 0
 	for _, subscription := range subscriptions {
 		if subscription.BusinessType != model.SubscriptionBusinessTeam || subscription.SeatID <= 0 {
 			continue
@@ -943,7 +948,6 @@ func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.M
 		if _, active := activeAccountIDs[subscription.AccountID]; !active {
 			continue
 		}
-		seatUsed++
 		if !subscription.IsResale && subscription.PricePerPersonCents > 0 {
 			factorNumerator, factorDenominator := marketMonthlyCycleFactor(subscription, service.now())
 			monthlyPriceCents := scalePriceCents(

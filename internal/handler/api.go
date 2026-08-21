@@ -383,6 +383,11 @@ func (server *Server) getSettings(context *gin.Context) {
 		respondError(context, http.StatusInternalServerError, err.Error())
 		return
 	}
+	seatFreezeDays, err := server.Service.GetSeatFreezeDays()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
 	enabledSet := map[string]struct{}{}
 	for _, channel := range enabledChannels {
 		enabledSet[channel] = struct{}{}
@@ -422,6 +427,7 @@ func (server *Server) getSettings(context *gin.Context) {
 		"channels":                               channels,
 		"notification_config":                    configuration.NotificationConfig(),
 		"redeem_page":                            redeemPageSettings,
+		"seat_freeze_days":                       seatFreezeDays,
 	})
 }
 
@@ -780,7 +786,7 @@ func (server *Server) postArchiveSubscription(context *gin.Context) {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
 	}
-	message := "已进入退订售后，处理完成前不会释放车位"
+	message := "已进入退订售后，退款完成后原车位将进入冻结期"
 	if subscription.BusinessType == model.SubscriptionBusinessPlus {
 		message = "Plus 出租已进入售后处理，确认退款后将自动归档"
 	}
@@ -821,7 +827,11 @@ func (server *Server) postCopySubscription(context *gin.Context) {
 		// Prefer a free seat on the same account when the caller omits seat_id.
 		source, getErr := server.Service.Store.GetSubscriptionIncludingArchived(subscriptionID)
 		if getErr == nil && source.AccountID > 0 {
-			freeSeats, freeErr := server.Service.Store.ListFreeSeats(source.AccountID, 0)
+			freeSeats, freeErr := server.Service.Store.ListFreeSeatsAt(
+				source.AccountID,
+				0,
+				cycle.Now(),
+			)
 			if freeErr == nil && len(freeSeats) > 0 {
 				request.SeatID = freeSeats[0].ID
 			}
@@ -1115,6 +1125,7 @@ func (server *Server) putSettings(context *gin.Context) {
 		Channels                           []string                        `json:"channels"`
 		NotificationConfig                 *config.NotificationConfigInput `json:"notification_config"`
 		RedeemPage                         *model.RedeemPageSettings       `json:"redeem_page"`
+		SeatFreezeDays                     *int                            `json:"seat_freeze_days"`
 	}
 	if err := context.ShouldBindJSON(&request); err != nil {
 		respondError(context, http.StatusBadRequest, "无效的请求")
@@ -1127,6 +1138,7 @@ func (server *Server) putSettings(context *gin.Context) {
 		request.CustomerEmailTemplate,
 		request.PriceIncreaseCustomerEmailTemplate,
 		request.RedeemPage,
+		request.SeatFreezeDays,
 	); err != nil {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
@@ -1158,6 +1170,7 @@ func (server *Server) putSettings(context *gin.Context) {
 		request.PriceIncreaseCustomerEmailTemplate,
 		request.Channels,
 		request.RedeemPage,
+		request.SeatFreezeDays,
 	); err != nil {
 		if rollbackConfig != nil {
 			if rollbackErr := rollbackConfig(); rollbackErr != nil {

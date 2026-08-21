@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/mail"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -125,12 +126,13 @@ type SubscriptionView struct {
 	SeatName                   string             `json:"seat_name"`
 	BoardedAt                  string             `json:"boarded_at"`
 	ArchivedAtLabel            string             `json:"archived_at_label"`
+	SeatFrozenUntilLabel       string             `json:"seat_frozen_until_label"`
 	CancellationPending        bool               `json:"cancellation_pending"`
 	CancellationCaseID         int64              `json:"cancellation_case_id"`
 	CancellationExpiresAtLabel string             `json:"cancellation_expires_at_label"`
 	// BillCount is set for archived rows (used to gate soft-delete).
 	BillCount int `json:"bill_count"`
-	// CanSoftDelete is true when archived and BillCount == 0.
+	// CanSoftDelete mirrors every server-side deletion guard used by archived rows.
 	CanSoftDelete bool `json:"can_soft_delete"`
 }
 
@@ -347,6 +349,12 @@ func (service *SubscriptionService) buildView(
 	if subscription.ArchivedAt != nil {
 		archivedAtLabel = subscription.ArchivedAt.In(cycle.Location).Format("2006-01-02 15:04")
 	}
+	seatFrozenUntilLabel := ""
+	if subscription.SeatFrozenUntil != nil && subscription.SeatFrozenUntil.After(now) {
+		seatFrozenUntilLabel = subscription.SeatFrozenUntil.
+			In(cycle.Location).
+			Format("2006-01-02 15:04")
+	}
 	cancellationPending := subscription.CancellationCaseID > 0 &&
 		subscription.CancellationExpiresAt != nil &&
 		subscription.CancellationExpiresAt.After(now)
@@ -380,6 +388,7 @@ func (service *SubscriptionService) buildView(
 		SeatName:                   subscription.SeatName,
 		BoardedAt:                  subscription.BoardedAt,
 		ArchivedAtLabel:            archivedAtLabel,
+		SeatFrozenUntilLabel:       seatFrozenUntilLabel,
 		CancellationPending:        cancellationPending,
 		CancellationCaseID:         subscription.CancellationCaseID,
 		CancellationExpiresAtLabel: cancellationExpiresAtLabel,
@@ -962,7 +971,8 @@ func (service *SubscriptionService) SoftDelete(subscriptionID int64) error {
 	return service.Store.SoftDeleteSubscription(subscriptionID)
 }
 
-// SoftDeleteArchived soft-deletes an archived subscription only when it has no bills.
+// SoftDeleteArchived soft-deletes an archived subscription only when it has no
+// bills and its original seat is no longer in the cancellation freeze window.
 func (service *SubscriptionService) SoftDeleteArchived(subscriptionID int64) error {
 	subscription, err := service.Store.GetSubscriptionIncludingArchived(subscriptionID)
 	if err != nil {
@@ -973,6 +983,13 @@ func (service *SubscriptionService) SoftDeleteArchived(subscriptionID int64) err
 	}
 	if subscription.ArchivedAt == nil {
 		return fmt.Errorf("只能伪删除已下车的订阅；请先下车归档")
+	}
+	now := service.now()
+	if subscription.SeatFrozenUntil != nil && subscription.SeatFrozenUntil.After(now) {
+		return fmt.Errorf(
+			"原车位冻结至 %s，冻结结束后才能删除记录",
+			subscription.SeatFrozenUntil.In(cycle.Location).Format("2006-01-02 15:04"),
+		)
 	}
 	afterSalesCount, err := service.Store.CountAfterSalesCasesBySubscription(subscriptionID)
 	if err != nil {
@@ -990,7 +1007,7 @@ func (service *SubscriptionService) SoftDeleteArchived(subscriptionID int64) err
 		return fmt.Errorf("仍有 %d 笔关联账单，无法删除；请先在账单页取消对应「已交费」或处理账单", billCount)
 	}
 
-	if err := service.Store.SoftDeleteArchivedSubscription(subscriptionID); err != nil {
+	if err := service.Store.SoftDeleteArchivedSubscription(subscriptionID, now); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("订阅不存在、未下车或已删除")
 		}
@@ -1151,8 +1168,13 @@ func (service *SubscriptionService) ListArchivedView() ([]SubscriptionView, erro
 		if err != nil {
 			return nil, err
 		}
+		afterSalesCount, err := service.Store.CountAfterSalesCasesBySubscription(subscription.ID)
+		if err != nil {
+			return nil, err
+		}
 		view.BillCount = billCount
-		view.CanSoftDelete = billCount == 0
+		view.CanSoftDelete = billCount == 0 && afterSalesCount == 0 &&
+			(subscription.SeatFrozenUntil == nil || !subscription.SeatFrozenUntil.After(now))
 		views = append(views, view)
 	}
 	return views, nil
@@ -1468,7 +1490,7 @@ func (service *SubscriptionService) resolveSeatID(accountID, seatID, existingSub
 
 // pickFreeSeat returns the first free seat under accountID (treating existingSubscriptionID as free).
 func (service *SubscriptionService) pickFreeSeat(accountID, existingSubscriptionID int64) (int64, error) {
-	freeSeats, err := service.Store.ListFreeSeats(accountID, existingSubscriptionID)
+	freeSeats, err := service.Store.ListFreeSeatsAt(accountID, existingSubscriptionID, service.now())
 	if err != nil {
 		return 0, err
 	}
@@ -1482,7 +1504,21 @@ func (service *SubscriptionService) pickFreeSeat(accountID, existingSubscription
 func (service *SubscriptionService) ensureSeatAvailable(seatID int64, ignoreSubscriptionID int64) error {
 	occupant, err := service.Store.GetActiveSubscriptionBySeatID(seatID)
 	if err == sql.ErrNoRows {
-		return nil
+		frozen, frozenErr := service.Store.GetFrozenSubscriptionBySeatID(seatID, service.now())
+		if frozenErr == sql.ErrNoRows {
+			return nil
+		}
+		if frozenErr != nil {
+			return frozenErr
+		}
+		until := ""
+		if frozen.SeatFrozenUntil != nil {
+			until = frozen.SeatFrozenUntil.In(cycle.Location).Format("2006-01-02 15:04")
+		}
+		if until == "" {
+			return fmt.Errorf("该车位仍在退订冻结期内")
+		}
+		return fmt.Errorf("该车位冻结至 %s，暂时不能分配", until)
 	}
 	if err != nil {
 		return err
@@ -1614,6 +1650,7 @@ func (service *SubscriptionService) ValidateSettingsPage(
 	customerEmailTemplate string,
 	priceIncreaseCustomerEmailTemplate string,
 	redeemPage *model.RedeemPageSettings,
+	seatFreezeDays *int,
 ) error {
 	if _, err := validateNotifyTemplate(notifyTemplate); err != nil {
 		return err
@@ -1629,6 +1666,11 @@ func (service *SubscriptionService) ValidateSettingsPage(
 			return err
 		}
 	}
+	if seatFreezeDays != nil {
+		if err := validateSeatFreezeDays(*seatFreezeDays); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -1641,6 +1683,7 @@ func (service *SubscriptionService) SaveSettingsPage(
 	priceIncreaseCustomerEmailTemplate string,
 	channels []string,
 	redeemPage *model.RedeemPageSettings,
+	seatFreezeDays *int,
 ) error {
 	notifyBody, err := validateNotifyTemplate(notifyTemplate)
 	if err != nil {
@@ -1677,7 +1720,48 @@ func (service *SubscriptionService) SaveSettingsPage(
 		}
 		values[model.SettingRedeemPageSettings] = string(encoded)
 	}
+	if seatFreezeDays != nil {
+		if err := validateSeatFreezeDays(*seatFreezeDays); err != nil {
+			return err
+		}
+		values[model.SettingSeatFreezeDays] = strconv.Itoa(*seatFreezeDays)
+	}
 	return service.Store.SetSettings(values)
+}
+
+func validateSeatFreezeDays(days int) error {
+	if days < model.MinSeatFreezeDays || days > model.MaxSeatFreezeDays {
+		return fmt.Errorf(
+			"退订席位冻结时间须为 %d～%d 天",
+			model.MinSeatFreezeDays,
+			model.MaxSeatFreezeDays,
+		)
+	}
+	return nil
+}
+
+// GetSeatFreezeDays returns the cancellation protection window. Missing or
+// blank legacy settings use the product default instead of releasing at once.
+func (service *SubscriptionService) GetSeatFreezeDays() (int, error) {
+	raw, err := service.Store.GetSetting(model.SettingSeatFreezeDays)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return model.DefaultSeatFreezeDays, nil
+		}
+		return 0, err
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return model.DefaultSeatFreezeDays, nil
+	}
+	days, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("读取退订席位冻结时间失败: %w", err)
+	}
+	if err := validateSeatFreezeDays(days); err != nil {
+		return 0, err
+	}
+	return days, nil
 }
 
 // GetEnabledChannels returns the global notify channel selection.
@@ -2109,6 +2193,10 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 	if err != nil {
 		return model.ExportPayload{}, err
 	}
+	seatFreezeDays, err := service.GetSeatFreezeDays()
+	if err != nil {
+		return model.ExportPayload{}, err
+	}
 	accounts, err := service.Store.ListAccounts()
 	if err != nil {
 		return model.ExportPayload{}, err
@@ -2155,6 +2243,7 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 		PriceIncreaseCustomerEmailTemplate: priceIncreaseCustomerTemplateBody,
 		EnabledChannels:                    enabledChannels,
 		RedeemPageSettings:                 redeemPageSettings,
+		SeatFreezeDays:                     seatFreezeDays,
 		Accounts:                           exportAccounts,
 		Subscriptions:                      make([]model.ExportSubscription, 0, len(subscriptions)),
 		CustomerBenefits:                   benefits,

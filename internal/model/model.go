@@ -33,6 +33,7 @@ const (
 	SettingPriceIncreaseCustomerEmailTemplate = "price_increase_customer_email_template"
 	SettingEnabledChannels                    = "enabled_channels"
 	SettingRedeemPageSettings                 = "redeem_page_settings"
+	SettingSeatFreezeDays                     = "seat_freeze_days"
 
 	BusinessGoalStatusActive    = "active"
 	BusinessGoalStatusCompleted = "completed"
@@ -62,6 +63,9 @@ const (
 	MaxInitialSeatCount = 1000
 	// MaxSubscriptionTypeLength is kept for legacy column length during migration.
 	MaxSubscriptionTypeLength = 40
+	DefaultSeatFreezeDays     = 7
+	MinSeatFreezeDays         = 1
+	MaxSeatFreezeDays         = 90
 )
 
 // DefaultEnabledChannels keeps new open-source installs from using unconfigured private channels.
@@ -302,7 +306,10 @@ type Subscription struct {
 	BoardedAt string `json:"boarded_at"`
 	// ArchivedAt is set when the user gets off (下车); archived subscriptions
 	// leave the active list and scheduler but keep bills linked.
-	ArchivedAt              *time.Time `json:"archived_at"`
+	ArchivedAt *time.Time `json:"archived_at"`
+	// SeatFrozenUntil keeps a canceled Team seat unavailable after the refund
+	// is completed. Plus rentals have no seat and leave this field empty.
+	SeatFrozenUntil         *time.Time `json:"seat_frozen_until"`
 	CancellationRequestedAt *time.Time `json:"cancellation_requested_at"`
 	CancellationExpiresAt   *time.Time `json:"cancellation_expires_at"`
 	CancellationCaseID      int64      `json:"cancellation_case_id"`
@@ -457,6 +464,7 @@ type ExportPayload struct {
 	PriceIncreaseCustomerEmailTemplate string               `json:"price_increase_customer_email_template"`
 	EnabledChannels                    []string             `json:"enabled_channels"`
 	RedeemPageSettings                 RedeemPageSettings   `json:"redeem_page_settings"`
+	SeatFreezeDays                     int                  `json:"seat_freeze_days"`
 	Accounts                           []ExportAccount      `json:"accounts"`
 	Subscriptions                      []ExportSubscription `json:"subscriptions"`
 	CustomerBenefits                   []CustomerBenefit    `json:"customer_benefits"`

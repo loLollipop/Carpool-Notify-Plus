@@ -355,7 +355,7 @@ func (service *SubscriptionService) InviteRedemptionApplication(applicationID in
 	for attempt := 0; attempt < attempts; attempt++ {
 		seat := requestedSeat
 		if autoAssign {
-			seat, err = service.Store.GetFirstFreeSeatByAccountImportOrder()
+			seat, err = service.Store.GetFirstFreeSeatByAccountImportOrderAt(service.now())
 			if err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
 					return 0, fmt.Errorf("暂无可用席位，请先在账号列表中添加空闲席位")

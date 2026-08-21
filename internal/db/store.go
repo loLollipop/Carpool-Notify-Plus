@@ -134,6 +134,7 @@ func (store *Store) migrate() error {
 						cancellation_requested_at TEXT,
 						cancellation_expires_at TEXT,
 						cancellation_case_id INTEGER NOT NULL DEFAULT 0,
+						seat_frozen_until TEXT,
 						deleted_at TEXT,
                         created_at TEXT NOT NULL,
                         updated_at TEXT NOT NULL
@@ -374,6 +375,9 @@ func (store *Store) migrate() error {
 	if err := store.ensureCancellationColumns(); err != nil {
 		return err
 	}
+	if err := store.ensureSeatFreezeUntilColumn(); err != nil {
+		return err
+	}
 	if err := store.ensureAfterSalesSourceColumns(); err != nil {
 		return err
 	}
@@ -476,6 +480,23 @@ func (store *Store) migrate() error {
 			return fmt.Errorf("marshal default enabled channels: %w", marshalErr)
 		}
 		if err := store.SetSetting(model.SettingEnabledChannels, string(channelsJSON)); err != nil {
+			return err
+		}
+	}
+
+	var seatFreezeDaysCount int
+	err = store.database.QueryRow(
+		`SELECT COUNT(1) FROM settings WHERE key = ?`,
+		model.SettingSeatFreezeDays,
+	).Scan(&seatFreezeDaysCount)
+	if err != nil {
+		return fmt.Errorf("check default seat freeze days: %w", err)
+	}
+	if seatFreezeDaysCount == 0 {
+		if err := store.SetSetting(
+			model.SettingSeatFreezeDays,
+			fmt.Sprintf("%d", model.DefaultSeatFreezeDays),
+		); err != nil {
 			return err
 		}
 	}
@@ -1002,6 +1023,22 @@ func (store *Store) ensureCancellationColumns() error {
 	return nil
 }
 
+func (store *Store) ensureSeatFreezeUntilColumn() error {
+	hasColumn, err := store.subscriptionsHasColumn("seat_frozen_until")
+	if err != nil {
+		return err
+	}
+	if hasColumn {
+		return nil
+	}
+	if _, err := store.database.Exec(
+		`ALTER TABLE subscriptions ADD COLUMN seat_frozen_until TEXT`,
+	); err != nil {
+		return fmt.Errorf("add subscriptions.seat_frozen_until: %w", err)
+	}
+	return nil
+}
+
 func (store *Store) ensureBoardedAtColumn() error {
 	hasColumn, err := store.subscriptionsHasColumn("boarded_at")
 	if err != nil {
@@ -1433,8 +1470,16 @@ func (store *Store) ensureAfterSalesBusinessTypeColumn() error {
 // can have at most one active subscription. Triggers protect all write paths,
 // including concurrent requests that both observed the seat as free.
 func (store *Store) ensureActiveSeatOccupancyTriggers() error {
+	for _, triggerName := range []string{
+		"prevent_duplicate_active_seat_insert",
+		"prevent_duplicate_active_seat_update",
+	} {
+		if _, err := store.database.Exec(`DROP TRIGGER IF EXISTS ` + triggerName); err != nil {
+			return fmt.Errorf("drop seat occupancy trigger %s: %w", triggerName, err)
+		}
+	}
 	statements := []string{
-		`CREATE TRIGGER IF NOT EXISTS prevent_duplicate_active_seat_insert
+		`CREATE TRIGGER prevent_duplicate_active_seat_insert
 		BEFORE INSERT ON subscriptions
 		WHEN NEW.seat_id IS NOT NULL
 		 AND NEW.deleted_at IS NULL
@@ -1443,12 +1488,18 @@ func (store *Store) ensureActiveSeatOccupancyTriggers() error {
 			SELECT 1 FROM subscriptions
 			WHERE seat_id = NEW.seat_id
 			  AND deleted_at IS NULL
-			  AND archived_at IS NULL
+			  AND (
+				archived_at IS NULL
+				OR (
+					seat_frozen_until IS NOT NULL
+					AND julianday(seat_frozen_until) > julianday('now')
+				)
+			  )
 		 )
 		BEGIN
-			SELECT RAISE(ABORT, 'active seat already occupied');
+			SELECT RAISE(ABORT, 'seat unavailable');
 		END;`,
-		`CREATE TRIGGER IF NOT EXISTS prevent_duplicate_active_seat_update
+		`CREATE TRIGGER prevent_duplicate_active_seat_update
 		BEFORE UPDATE OF seat_id, archived_at, deleted_at ON subscriptions
 		WHEN NEW.seat_id IS NOT NULL
 		 AND NEW.deleted_at IS NULL
@@ -1458,10 +1509,16 @@ func (store *Store) ensureActiveSeatOccupancyTriggers() error {
 			WHERE seat_id = NEW.seat_id
 			  AND id <> NEW.id
 			  AND deleted_at IS NULL
-			  AND archived_at IS NULL
+			  AND (
+				archived_at IS NULL
+				OR (
+					seat_frozen_until IS NOT NULL
+					AND julianday(seat_frozen_until) > julianday('now')
+				)
+			  )
 		 )
 		BEGIN
-			SELECT RAISE(ABORT, 'active seat already occupied');
+			SELECT RAISE(ABORT, 'seat unavailable');
 		END;`,
 	}
 	for _, statement := range statements {
@@ -1496,6 +1553,7 @@ const subscriptionSelectColumns = `
 	subscription.subscription_type,
 	subscription.boarded_at,
 	subscription.archived_at,
+	subscription.seat_frozen_until,
 	subscription.cancellation_requested_at,
 	subscription.cancellation_expires_at,
 	COALESCE(subscription.cancellation_case_id, 0),
@@ -1707,7 +1765,12 @@ func insertInitialBill(
 }
 
 func isActiveSeatOccupancyError(err error) bool {
-	return err != nil && strings.Contains(strings.ToLower(err.Error()), ErrActiveSeatOccupied.Error())
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, ErrActiveSeatOccupied.Error()) ||
+		strings.Contains(message, "seat unavailable")
 }
 
 // UpdateSubscription updates an existing active (non-deleted, non-archived) subscription.
@@ -2090,17 +2153,22 @@ func (store *Store) SoftDeleteSubscription(subscriptionID int64) error {
 	return nil
 }
 
-// SoftDeleteArchivedSubscription soft-deletes an already-archived subscription.
-// Returns sql.ErrNoRows when the id is missing, not archived, or already deleted.
-func (store *Store) SoftDeleteArchivedSubscription(subscriptionID int64) error {
-	now := formatTime(time.Now().UTC())
+// SoftDeleteArchivedSubscription soft-deletes an already-archived subscription
+// whose cancellation seat freeze has expired. Returns sql.ErrNoRows when the id
+// is missing, not archived, already deleted, or still inside the freeze window.
+func (store *Store) SoftDeleteArchivedSubscription(subscriptionID int64, currentTime time.Time) error {
+	now := formatTime(currentTime.UTC())
 	result, err := store.database.Exec(`
                 UPDATE subscriptions
                 SET deleted_at = ?, updated_at = ?
                 WHERE id = ?
                   AND deleted_at IS NULL
-                  AND archived_at IS NOT NULL`,
-		now, now, subscriptionID,
+                  AND archived_at IS NOT NULL
+                  AND (
+                    seat_frozen_until IS NULL
+                    OR julianday(seat_frozen_until) <= julianday(?)
+                  )`,
+		now, now, subscriptionID, now,
 	)
 	if err != nil {
 		return err
@@ -2152,7 +2220,7 @@ func (store *Store) ArchiveSubscription(subscriptionID int64) error {
 		return ErrSubscriptionHasPendingAfterSales
 	}
 
-	if err := archiveSubscriptionInTransaction(transaction, subscriptionID, now, 0); err != nil {
+	if err := archiveSubscriptionInTransaction(transaction, subscriptionID, now, 0, nil); err != nil {
 		return err
 	}
 
@@ -3510,6 +3578,10 @@ func (store *Store) CountSeatsByAccount(accountID int64) (int, error) {
 // prioritizing the account serial (account id) and then the seat id. Banned
 // accounts and seats occupied by active subscriptions are excluded.
 func (store *Store) GetFirstFreeSeatByAccountImportOrder() (model.Seat, error) {
+	return store.GetFirstFreeSeatByAccountImportOrderAt(time.Now())
+}
+
+func (store *Store) GetFirstFreeSeatByAccountImportOrderAt(now time.Time) (model.Seat, error) {
 	row := store.database.QueryRow(`
 		SELECT seat.id, seat.account_id, seat.name, seat.created_at, seat.updated_at
 		FROM seats AS seat
@@ -3520,16 +3592,26 @@ func (store *Store) GetFirstFreeSeatByAccountImportOrder() (model.Seat, error) {
 			FROM subscriptions AS subscription
 			WHERE subscription.seat_id = seat.id
 			  AND subscription.deleted_at IS NULL
-			  AND subscription.archived_at IS NULL
+			  AND (
+				subscription.archived_at IS NULL
+				OR (
+					subscription.seat_frozen_until IS NOT NULL
+					AND julianday(subscription.seat_frozen_until) > julianday(?)
+				)
+			  )
 		  )
 		ORDER BY account.id ASC, seat.id ASC
-		LIMIT 1`)
+		LIMIT 1`, formatTime(now.UTC()))
 	return scanSeat(row)
 }
 
 // ListFreeSeats returns seats under an account that have no active subscription.
 // When includeSeatID > 0, that seat is always included (for edit forms keeping current seat).
 func (store *Store) ListFreeSeats(accountID int64, includeSeatID int64) ([]model.Seat, error) {
+	return store.ListFreeSeatsAt(accountID, includeSeatID, time.Now())
+}
+
+func (store *Store) ListFreeSeatsAt(accountID int64, includeSeatID int64, now time.Time) ([]model.Seat, error) {
 	rows, err := store.database.Query(`
 		SELECT seat.id, seat.account_id, seat.name, seat.created_at, seat.updated_at
 		FROM seats AS seat
@@ -3540,11 +3622,17 @@ func (store *Store) ListFreeSeats(accountID int64, includeSeatID int64) ([]model
 				SELECT 1 FROM subscriptions AS subscription
 				WHERE subscription.seat_id = seat.id
 				  AND subscription.deleted_at IS NULL
-				  AND subscription.archived_at IS NULL
+				  AND (
+					subscription.archived_at IS NULL
+					OR (
+						subscription.seat_frozen_until IS NOT NULL
+						AND julianday(subscription.seat_frozen_until) > julianday(?)
+					)
+				  )
 			)
 		  )
 		ORDER BY seat.id ASC`,
-		accountID, includeSeatID,
+		accountID, includeSeatID, formatTime(now.UTC()),
 	)
 	if err != nil {
 		return nil, err
@@ -3560,6 +3648,49 @@ func (store *Store) ListFreeSeats(accountID int64, includeSeatID int64) ([]model
 		seats = append(seats, seat)
 	}
 	return seats, rows.Err()
+}
+
+// GetFrozenSubscriptionBySeatID returns the archived cancellation that still
+// reserves a seat during the configured protection window.
+func (store *Store) GetFrozenSubscriptionBySeatID(seatID int64, now time.Time) (model.Subscription, error) {
+	row := store.database.QueryRow(`
+		SELECT `+subscriptionSelectColumns+`
+		`+subscriptionFromJoin+`
+		WHERE subscription.seat_id = ?
+		  AND subscription.deleted_at IS NULL
+		  AND subscription.archived_at IS NOT NULL
+		  AND subscription.seat_frozen_until IS NOT NULL
+		  AND julianday(subscription.seat_frozen_until) > julianday(?)
+		ORDER BY subscription.seat_frozen_until DESC, subscription.id DESC
+		LIMIT 1`, seatID, formatTime(now.UTC()))
+	return scanSubscription(row)
+}
+
+// CountUnavailableSeatsByAccount counts active and temporarily frozen seats.
+// EXISTS keeps one seat from being counted twice if historical rows overlap.
+func (store *Store) CountUnavailableSeatsByAccount(accountID int64, now time.Time) (int, error) {
+	var count int
+	err := store.database.QueryRow(`
+		SELECT COUNT(1)
+		FROM seats AS seat
+		WHERE seat.account_id = ?
+		  AND EXISTS (
+			SELECT 1
+			FROM subscriptions AS subscription
+			WHERE subscription.seat_id = seat.id
+			  AND subscription.deleted_at IS NULL
+			  AND (
+				subscription.archived_at IS NULL
+				OR (
+					subscription.seat_frozen_until IS NOT NULL
+					AND julianday(subscription.seat_frozen_until) > julianday(?)
+				)
+			  )
+		  )`,
+		accountID,
+		formatTime(now.UTC()),
+	).Scan(&count)
+	return count, err
 }
 
 // CountSubscriptionsLinkedToSeat counts non-deleted subscriptions (active or archived) on a seat.
@@ -4020,6 +4151,7 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 	var seatName string
 	var boardedAt string
 	var archivedAt sql.NullString
+	var seatFrozenUntil sql.NullString
 	var cancellationRequestedAt sql.NullString
 	var cancellationExpiresAt sql.NullString
 	var deletedAt sql.NullString
@@ -4052,6 +4184,7 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 		&subscription.SubscriptionType,
 		&boardedAt,
 		&archivedAt,
+		&seatFrozenUntil,
 		&cancellationRequestedAt,
 		&cancellationExpiresAt,
 		&subscription.CancellationCaseID,
@@ -4101,6 +4234,13 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 			return model.Subscription{}, err
 		}
 		subscription.ArchivedAt = &parsed
+	}
+	if seatFrozenUntil.Valid && seatFrozenUntil.String != "" {
+		parsed, err := parseTime(seatFrozenUntil.String)
+		if err != nil {
+			return model.Subscription{}, err
+		}
+		subscription.SeatFrozenUntil = &parsed
 	}
 	if cancellationRequestedAt.Valid && cancellationRequestedAt.String != "" {
 		parsed, err := parseTime(cancellationRequestedAt.String)

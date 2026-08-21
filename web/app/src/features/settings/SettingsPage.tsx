@@ -17,6 +17,7 @@ import {
   MessageSquare,
   Send,
   ShieldCheck,
+  Snowflake,
   Trash2,
 } from "lucide-react"
 
@@ -69,7 +70,7 @@ import { useSandboxMode } from "@/hooks/use-sandbox-mode"
 
 type TemplateKind = "notify" | "customer" | "customer_price_increase"
 type CustomerTemplateKind = Exclude<TemplateKind, "notify">
-type SettingsSection = "templates" | "delivery" | "redemption" | "tools"
+type SettingsSection = "templates" | "delivery" | "redemption" | "operations" | "tools"
 
 type TemplateFieldKey =
   | "customerEmail"
@@ -1156,6 +1157,53 @@ function SystemTools() {
   )
 }
 
+function SeatFreezeSettingsEditor({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (value: string) => void
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <Card className="gap-5 p-6">
+      <div className="flex items-start gap-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+          <Snowflake className="size-4" />
+        </span>
+        <div>
+          <h2 className="text-sm font-semibold">{t("settings.seatFreezeTitle")}</h2>
+          <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
+            {t("settings.seatFreezeDescription")}
+          </p>
+        </div>
+      </div>
+
+      <div className="grid gap-2 sm:max-w-xs">
+        <Label htmlFor="seat-freeze-days">{t("settings.seatFreezeDays")}</Label>
+        <div className="relative">
+          <Input
+            id="seat-freeze-days"
+            type="number"
+            min={1}
+            max={90}
+            step={1}
+            inputMode="numeric"
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            className="pr-12 tabular-nums"
+          />
+          <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground">
+            {t("settings.daysUnit")}
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground">{t("settings.seatFreezeHint")}</p>
+      </div>
+    </Card>
+  )
+}
+
 function SettingsForm({ settings }: { settings: Settings }) {
   const { t } = useTranslation()
   const [activeSection, setActiveSection] = React.useState<SettingsSection>("templates")
@@ -1182,6 +1230,9 @@ function SettingsForm({ settings }: { settings: Settings }) {
   )
   const [redeemPage, setRedeemPage] = React.useState(() =>
     normalizeRedeemPageSettings(settings.redeem_page),
+  )
+  const [seatFreezeDays, setSeatFreezeDays] = React.useState(() =>
+    String(settings.seat_freeze_days || 7),
   )
   const [previewKind, setPreviewKind] = React.useState<TemplateKind | null>(null)
   const [preview, setPreview] = React.useState<TemplatePreviewState>({ status: "loading" })
@@ -1259,12 +1310,23 @@ function SettingsForm({ settings }: { settings: Settings }) {
       return
     }
 
+    const parsedSeatFreezeDays = Number(seatFreezeDays)
+    if (
+      !Number.isInteger(parsedSeatFreezeDays) ||
+      parsedSeatFreezeDays < 1 ||
+      parsedSeatFreezeDays > 90
+    ) {
+      toast.error(t("settings.validation.seatFreezeDaysInvalid"))
+      return
+    }
+
     saveMutation.mutate({
       notify_template: notifyTemplate,
       customer_email_template: customerTemplate,
       price_increase_customer_email_template: priceIncreaseCustomerTemplate,
       channels: Array.from(enabledChannels),
       redeem_page: normalizeRedeemPageSettings(redeemPage),
+      seat_freeze_days: parsedSeatFreezeDays,
       notification_config: {
         smtp: {
           host: deliveryConfig.smtp.host,
@@ -1293,7 +1355,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
         className="gap-5"
       >
         <div className="rounded-lg border bg-card p-1 shadow-[0_1px_3px_color-mix(in_oklab,var(--foreground)_6%,transparent)]">
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 border-0 bg-transparent p-0 lg:grid-cols-4">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 border-0 bg-transparent p-0 sm:grid-cols-3 lg:grid-cols-5">
             <TabsTrigger
               value="templates"
               className="h-11 justify-center px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
@@ -1314,6 +1376,13 @@ function SettingsForm({ settings }: { settings: Settings }) {
             >
               <Megaphone />
               {t("settings.sections.redemption")}
+            </TabsTrigger>
+            <TabsTrigger
+              value="operations"
+              className="h-11 justify-center px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
+            >
+              <Snowflake />
+              {t("settings.sections.operations")}
             </TabsTrigger>
             <TabsTrigger
               value="tools"
@@ -1370,6 +1439,10 @@ function SettingsForm({ settings }: { settings: Settings }) {
 
         <TabsContent value="redemption" className="mt-0 animate-fade-in">
           <RedeemPageSettingsEditor value={redeemPage} onChange={setRedeemPage} />
+        </TabsContent>
+
+        <TabsContent value="operations" className="mt-0 animate-fade-in">
+          <SeatFreezeSettingsEditor value={seatFreezeDays} onChange={setSeatFreezeDays} />
         </TabsContent>
 
         <TabsContent value="tools" className="mt-0 animate-fade-in">

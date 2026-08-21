@@ -83,7 +83,7 @@ func TestBanAccountCalculatesThirtyDayWarrantyRefund(t *testing.T) {
 	}
 }
 
-func TestCancellationWaitsForAfterSalesBeforeArchivingAndReleasingSeat(t *testing.T) {
+func TestCancellationFreezesSeatForDefaultWindowAfterRefund(t *testing.T) {
 	subscriptionService := openTestService(t)
 	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return now }
@@ -133,15 +133,55 @@ func TestCancellationWaitsForAfterSalesBeforeArchivingAndReleasingSeat(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if archived.ArchivedAt == nil || archived.CancellationCaseID != 0 {
+	if archived.ArchivedAt == nil || archived.CancellationCaseID != 0 || archived.SeatFrozenUntil == nil {
 		t.Fatalf("archived subscription = %#v", archived)
 	}
-	freeSeats, err = subscriptionService.Store.ListFreeSeats(accountID, 0)
+	wantFrozenUntil := now.AddDate(0, 0, model.DefaultSeatFreezeDays)
+	if !archived.SeatFrozenUntil.Equal(wantFrozenUntil) {
+		t.Fatalf("seat frozen until = %v, want %v", archived.SeatFrozenUntil, wantFrozenUntil)
+	}
+	freeSeats, err = subscriptionService.Store.ListFreeSeatsAt(accountID, 0, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(freeSeats) != 0 {
+		t.Fatalf("free seats during freeze = %d, want 0", len(freeSeats))
+	}
+	accountView, err := subscriptionService.GetAccountView(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accountView.SeatUsed != 1 || len(accountView.Seats) != 1 || !accountView.Seats[0].Frozen {
+		t.Fatalf("frozen account view = %#v", accountView)
+	}
+	_, fallbackSeatIDs := createTestAccountWithSeats(
+		t,
+		subscriptionService,
+		"冻结期备用母号",
+		"车位1",
+	)
+	firstFree, err := subscriptionService.Store.GetFirstFreeSeatByAccountImportOrderAt(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstFree.ID != fallbackSeatIDs[0] {
+		t.Fatalf("auto assignment chose seat %d, want fallback %d", firstFree.ID, fallbackSeatIDs[0])
+	}
+
+	now = wantFrozenUntil.Add(time.Second)
+	freeSeats, err = subscriptionService.Store.ListFreeSeatsAt(accountID, 0, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(freeSeats) != 1 {
-		t.Fatalf("free seats after refund = %d, want 1", len(freeSeats))
+		t.Fatalf("free seats after freeze = %d, want 1", len(freeSeats))
+	}
+	firstFree, err = subscriptionService.Store.GetFirstFreeSeatByAccountImportOrderAt(now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if firstFree.ID != freeSeats[0].ID {
+		t.Fatalf("released seat ordering = %d, want original %d", firstFree.ID, freeSeats[0].ID)
 	}
 	completed, err := subscriptionService.Store.GetAfterSalesCase(request.CaseID)
 	if err != nil {
@@ -149,6 +189,101 @@ func TestCancellationWaitsForAfterSalesBeforeArchivingAndReleasingSeat(t *testin
 	}
 	if completed.Status != model.AfterSalesStatusRefunded || completed.ProcessedAt == nil {
 		t.Fatalf("completed case = %#v", completed)
+	}
+}
+
+func TestCancellationUsesConfiguredSeatFreezeWindow(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	if err := subscriptionService.Store.SetSetting(model.SettingSeatFreezeDays, "3"); err != nil {
+		t.Fatal(err)
+	}
+	accountID, subscriptionID := createWarrantyCustomer(
+		t,
+		subscriptionService,
+		"2026-08-01",
+		true,
+	)
+	request, err := subscriptionService.RequestCancellation(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SetAfterSalesCaseRefunded(request.CaseID, true); err != nil {
+		t.Fatal(err)
+	}
+	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantFrozenUntil := now.AddDate(0, 0, 3)
+	if archived.SeatFrozenUntil == nil || !archived.SeatFrozenUntil.Equal(wantFrozenUntil) {
+		t.Fatalf("configured freeze = %v, want %v", archived.SeatFrozenUntil, wantFrozenUntil)
+	}
+	if free, err := subscriptionService.Store.ListFreeSeatsAt(
+		accountID,
+		0,
+		wantFrozenUntil.Add(-time.Second),
+	); err != nil || len(free) != 0 {
+		t.Fatalf("seat before configured expiry = %#v, %v", free, err)
+	}
+	if free, err := subscriptionService.Store.ListFreeSeatsAt(
+		accountID,
+		0,
+		wantFrozenUntil.Add(time.Second),
+	); err != nil || len(free) != 1 {
+		t.Fatalf("seat after configured expiry = %#v, %v", free, err)
+	}
+}
+
+func TestCancellationFreezeBlocksArchivedRecordDeletion(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	_, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-08-01", false)
+
+	request, err := subscriptionService.RequestCancellation(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SetAfterSalesCaseRefunded(request.CaseID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	archived, err := subscriptionService.ListArchivedView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, view := range archived {
+		if view.Subscription.ID != subscriptionID {
+			continue
+		}
+		found = true
+		if view.BillCount != 0 || view.CanSoftDelete {
+			t.Fatalf("frozen no-bill archive view = %#v", view)
+		}
+	}
+	if !found {
+		t.Fatal("expected frozen subscription in archived list")
+	}
+	if err := subscriptionService.SoftDeleteArchived(subscriptionID); err == nil ||
+		!strings.Contains(err.Error(), "原车位冻结至 2026-08-17 12:00") {
+		t.Fatalf("soft delete during freeze error = %v", err)
+	}
+	if _, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID); err != nil {
+		t.Fatalf("frozen subscription was deleted: %v", err)
+	}
+
+	now = now.AddDate(0, 0, model.DefaultSeatFreezeDays).Add(time.Second)
+	archived, err = subscriptionService.ListArchivedView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, view := range archived {
+		if view.Subscription.ID == subscriptionID && view.CanSoftDelete {
+			t.Fatal("completed after-sales history must still keep archived record non-deletable")
+		}
 	}
 }
 

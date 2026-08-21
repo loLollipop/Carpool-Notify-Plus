@@ -212,6 +212,8 @@ func (service *SubscriptionService) UpdateAfterSalesCase(
 }
 
 func (service *SubscriptionService) SetAfterSalesCaseRefunded(caseID int64, refunded bool) error {
+	processedAt := service.now()
+	seatFreezeUntil := processedAt
 	if refunded {
 		caseItem, err := service.Store.GetAfterSalesCase(caseID)
 		if err != nil {
@@ -223,8 +225,21 @@ func (service *SubscriptionService) SetAfterSalesCaseRefunded(caseID int64, refu
 		if err := service.validateAfterSalesRefundAmount(caseID, caseItem.RefundAmountCents); err != nil {
 			return err
 		}
+		if caseItem.Source == model.AfterSalesSourceCustomerCancellation &&
+			caseItem.BusinessType == model.SubscriptionBusinessTeam {
+			freezeDays, err := service.GetSeatFreezeDays()
+			if err != nil {
+				return err
+			}
+			seatFreezeUntil = processedAt.AddDate(0, 0, freezeDays)
+		}
 	}
-	if err := service.Store.SetAfterSalesCaseRefunded(caseID, refunded, service.now()); err != nil {
+	if err := service.Store.SetAfterSalesCaseRefunded(
+		caseID,
+		refunded,
+		processedAt,
+		seatFreezeUntil,
+	); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("售后记录不存在")
 		}

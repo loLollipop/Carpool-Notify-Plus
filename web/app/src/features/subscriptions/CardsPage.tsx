@@ -10,6 +10,7 @@ import {
   Pencil,
   Receipt,
   Search,
+  Snowflake,
   UserRoundMinus,
 } from "lucide-react"
 
@@ -245,6 +246,11 @@ function SubscriptionCard({
             <Clock3 />
             {t("cards.cancellationPending")}
           </Badge>
+        ) : archived && view.seat_frozen_until_label ? (
+          <Badge variant="outline" className="shrink-0 border-gold/30 bg-gold/[0.06] font-normal text-gold">
+            <Snowflake />
+            {t("cards.seatFrozen")}
+          </Badge>
         ) : (
           <DueStatusBadge paid={false} daysRemaining={view.days_remaining} />
         )}
@@ -258,6 +264,13 @@ function SubscriptionCard({
               time: view.cancellation_expires_at_label,
             })}
           </span>
+        </div>
+      ) : null}
+
+      {archived && view.seat_frozen_until_label ? (
+        <div className="mt-3 flex items-start gap-2 rounded-md border border-dashed border-gold/25 bg-gold/[0.05] px-3 py-2.5 text-xs leading-5 text-gold">
+          <Snowflake className="mt-0.5 size-3.5 shrink-0" />
+          <span>{t("cards.seatFrozenUntil", { time: view.seat_frozen_until_label })}</span>
         </div>
       ) : null}
 

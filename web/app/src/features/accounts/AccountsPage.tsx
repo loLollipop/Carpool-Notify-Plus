@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
+  Snowflake,
   Trash2,
 } from "lucide-react"
 
@@ -280,7 +281,7 @@ function AccountMobileCard({
   onDelete: () => void
 }) {
   const { t } = useTranslation()
-  const occupants = (view.seats ?? []).filter((seat) => seat.occupied)
+  const occupants = (view.seats ?? []).filter((seat) => seat.occupied || seat.frozen)
   const accountName = view.account.name.trim()
   const accountEmail = view.account.email.trim()
   const showAccountEmail = accountEmail !== "" && accountEmail !== accountName
@@ -386,9 +387,24 @@ function AccountMobileCard({
                 <div className="grid gap-1.5 pt-1">
                   {occupants.map((seat) => {
                     const occupantLabel =
-                      seat.active_customer_email.trim() ||
-                      seat.active_subscription_name.trim() ||
+                      (seat.frozen
+                        ? seat.frozen_customer_email.trim() || seat.frozen_subscription_name.trim()
+                        : seat.active_customer_email.trim() || seat.active_subscription_name.trim()) ||
                       seat.seat.name
+                    if (seat.frozen) {
+                      return (
+                        <div
+                          key={seat.seat.id}
+                          className="flex items-center justify-between gap-2 rounded-md border border-dashed bg-gold/[0.06] px-3 py-2 text-left text-xs"
+                        >
+                          <span className="min-w-0 truncate">{occupantLabel}</span>
+                          <Badge variant="outline" className="shrink-0 border-gold/30 text-gold">
+                            <Snowflake />
+                            {t("accounts.frozenUntil", { time: seat.frozen_until_label })}
+                          </Badge>
+                        </div>
+                      )
+                    }
                     return (
                       <button
                         key={seat.seat.id}
@@ -570,6 +586,9 @@ export function AccountsPage() {
         seat.active_customer_wechat,
         seat.active_trade_url,
         seat.active_remark,
+        seat.frozen_subscription_name,
+        seat.frozen_customer_email,
+        seat.frozen_until_label,
       ])
       const nextRenewalDate = getNextMonthlyRenewalDate(view.account.opened_at)
       return [
@@ -610,6 +629,9 @@ export function AccountsPage() {
               seat.active_customer_wechat,
               seat.active_trade_url,
               seat.active_remark,
+              seat.frozen_subscription_name,
+              seat.frozen_customer_email,
+              seat.frozen_until_label,
             ].some((field) => field?.toLowerCase().includes(query))
           })
           if (seatHit) next.add(view.account.id)
@@ -726,7 +748,7 @@ export function AccountsPage() {
             <TableBody className="[&_tr:last-child]:border-b [&_tr:last-child]:border-b-border">
               {pagedAccounts.map((view) => {
                 const isExpanded = expanded.has(view.account.id)
-                const occupants = (view.seats ?? []).filter((seat) => seat.occupied)
+                const occupants = (view.seats ?? []).filter((seat) => seat.occupied || seat.frozen)
                 const accountName = view.account.name.trim()
                 const accountEmail = view.account.email.trim()
                 const showAccountEmail = accountEmail !== "" && accountEmail !== accountName
@@ -800,9 +822,22 @@ export function AccountsPage() {
                               <div className="flex flex-wrap gap-1 pt-1.5">
                                 {occupants.map((seat) => {
                                   const occupantLabel =
-                                    seat.active_customer_email.trim() ||
-                                    seat.active_subscription_name.trim() ||
+                                    (seat.frozen
+                                      ? seat.frozen_customer_email.trim() || seat.frozen_subscription_name.trim()
+                                      : seat.active_customer_email.trim() || seat.active_subscription_name.trim()) ||
                                     seat.seat.name
+                                  if (seat.frozen) {
+                                    return (
+                                      <span
+                                        key={seat.seat.id}
+                                        title={t("accounts.frozenUntil", { time: seat.frozen_until_label })}
+                                        className="inline-flex max-w-full items-center gap-1 truncate rounded-md border border-dashed border-gold/30 bg-gold/[0.06] px-2 py-0.5 text-xs text-gold"
+                                      >
+                                        <Snowflake className="size-3 shrink-0" />
+                                        <span className="truncate">{occupantLabel}</span>
+                                      </span>
+                                    )
+                                  }
                                   return (
                                     <button
                                       key={seat.seat.id}
