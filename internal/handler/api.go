@@ -49,6 +49,15 @@ func (server *Server) getDashboard(context *gin.Context) {
 	respondOK(context, gin.H{"dashboard": dashboard})
 }
 
+func (server *Server) getOperationsOverview(context *gin.Context) {
+	overview, err := server.Service.GetOperationsOverview()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"overview": overview})
+}
+
 func (server *Server) getGoals(context *gin.Context) {
 	center, err := server.Service.GetGoalCenter()
 	if err != nil {

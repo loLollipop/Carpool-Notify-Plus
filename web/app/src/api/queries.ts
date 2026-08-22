@@ -8,6 +8,7 @@ import {
   fetchCalendar,
   fetchDashboard,
   fetchGoals,
+  fetchOperationsOverview,
   fetchRedemptionCodes,
   fetchRedemptions,
   fetchSettings,
@@ -20,6 +21,7 @@ export const queryKeys = {
   data: ["data"] as const,
   calendar: (month?: string) => ["data", "calendar", month ?? "current"] as const,
   dashboard: ["data", "dashboard"] as const,
+  operationsOverview: ["data", "operations-overview"] as const,
   goals: ["data", "goals"] as const,
   redemptions: (status?: "pending" | "invited" | "rejected" | "all") =>
     ["data", "redemptions", status ?? "all"] as const,
@@ -46,6 +48,17 @@ export function useCalendar(month?: string) {
 
 export function useDashboard() {
   return useQuery({ queryKey: queryKeys.dashboard, queryFn: fetchDashboard })
+}
+
+export function useOperationsOverview() {
+  return useQuery({
+    queryKey: queryKeys.operationsOverview,
+    queryFn: fetchOperationsOverview,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
+  })
 }
 
 export function useGoals() {

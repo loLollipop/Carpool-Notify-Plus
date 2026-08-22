@@ -224,6 +224,88 @@ export interface Dashboard {
   accounts: AccountBreakdown[] | null
 }
 
+export type OperationTaskKind =
+  | "team_overdue"
+  | "team_due"
+  | "plus_overdue"
+  | "plus_due"
+  | "redemption"
+  | "after_sales"
+  | "notification_failed"
+  | "seat_release"
+  | "account_renewal"
+
+export interface OperationTask {
+  id: string
+  kind: OperationTaskKind
+  tone: "critical" | "warning" | "info"
+  subscription_id: number
+  after_sales_case_id: number
+  redemption_id: number
+  account_id: number
+  seat_id: number
+  name: string
+  customer_email: string
+  customer_wechat: string
+  account_name: string
+  seat_name: string
+  due_date: string
+  due_at_label: string
+  days_remaining: number
+  amount_yuan: string
+  cycle_desc: string
+  one_month_rental: boolean
+  route: string
+}
+
+export interface OperationsCapacitySummary {
+  account_count: number
+  seat_total: number
+  seat_used: number
+  seat_free: number
+  seat_frozen: number
+  seat_releasing_7d: number
+  utilization_percent: number
+}
+
+export interface OperationsWorkSummary {
+  urgent_count: number
+  overdue_count: number
+  overdue_amount_yuan: string
+  due_7d_count: number
+  due_7d_amount_yuan: string
+  team_due_count: number
+  plus_due_count: number
+  account_renewal_count: number
+  pending_redemption_count: number
+  pending_after_sales_count: number
+  failed_notification_count: number
+}
+
+export interface OperationsGoalSummary {
+  name: string
+  target_profit_cents: number
+  current_profit_cents: number
+  remaining_profit_cents: number
+  progress_percent: number
+  projected_monthly_profit_cents: number
+  projected_date: string
+}
+
+export interface OperationsOverview {
+  generated_at: string
+  dashboard: Dashboard
+  finance: BillsSummary
+  this_month_pending_count: number
+  this_month_pending_amount_yuan: string
+  projected_monthly_profit_cents: number
+  active_recurring_count: number
+  capacity: OperationsCapacitySummary
+  work: OperationsWorkSummary
+  goal: OperationsGoalSummary | null
+  tasks: OperationTask[] | null
+}
+
 export interface Account {
   id: number
   name: string

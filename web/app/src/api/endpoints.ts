@@ -18,6 +18,7 @@ import type {
   DuePeriodOption,
   GoalCenter,
   ManualNextPricesInput,
+  OperationsOverview,
   ReminderPreview,
   RedemptionApplicationView,
   RedemptionCodeGenerateInput,
@@ -63,6 +64,12 @@ export function fetchCalendar(month?: string) {
 
 export function fetchDashboard() {
   return api<{ dashboard: Dashboard }>("/api/dashboard").then((r) => r.dashboard)
+}
+
+export function fetchOperationsOverview() {
+  return api<{ overview: OperationsOverview }>("/api/operations/overview").then(
+    (result) => result.overview,
+  )
 }
 
 export function fetchGoals() {
