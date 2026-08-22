@@ -344,6 +344,293 @@
     mask-image: linear-gradient(to bottom, black, transparent 86%);
   }
 
+  .redeem-ambient-field {
+    display: none;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  @media (min-width: 1280px) {
+    .redeem-ambient-field {
+      position: fixed;
+      z-index: 0;
+      top: 72px;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      display: block;
+      overflow: hidden;
+    }
+
+    .redeem-console > section {
+      z-index: 1;
+    }
+
+    .redeem-ambient-scan {
+      position: absolute;
+      top: -5rem;
+      right: 0;
+      left: 0;
+      height: 5rem;
+      opacity: 0.26;
+      background: linear-gradient(
+        to bottom,
+        transparent,
+        color-mix(in oklab, var(--redeem-accent) 13%, transparent) 48%,
+        color-mix(in oklab, var(--redeem-accent) 28%, transparent) 50%,
+        color-mix(in oklab, var(--redeem-accent) 13%, transparent) 52%,
+        transparent
+      );
+      animation: redeem-ambient-scan 14s linear infinite;
+    }
+
+    .redeem-circuit-bank {
+      position: absolute;
+      top: 4%;
+      bottom: 7%;
+      width: max(104px, calc(50% - 585px));
+      opacity: 0.72;
+    }
+
+    .redeem-circuit-bank.is-left {
+      left: 0;
+    }
+
+    .redeem-circuit-bank.is-right {
+      right: 0;
+    }
+
+    .redeem-circuit-bank::before {
+      position: absolute;
+      top: 2%;
+      bottom: 2%;
+      width: 1px;
+      background: repeating-linear-gradient(
+        to bottom,
+        color-mix(in oklab, var(--redeem-line-strong) 78%, transparent) 0 8px,
+        transparent 8px 15px
+      );
+      content: "";
+    }
+
+    .redeem-circuit-bank::after {
+      position: absolute;
+      top: 0;
+      width: 2px;
+      height: 4.5rem;
+      background: linear-gradient(
+        to bottom,
+        transparent,
+        var(--redeem-accent),
+        transparent
+      );
+      box-shadow: 0 0 10px color-mix(in oklab, var(--redeem-accent) 46%, transparent);
+      content: "";
+      animation: redeem-vertical-packet 7s ease-in-out infinite;
+    }
+
+    .redeem-circuit-bank.is-left::before,
+    .redeem-circuit-bank.is-left::after {
+      right: 18px;
+    }
+
+    .redeem-circuit-bank.is-right::before,
+    .redeem-circuit-bank.is-right::after {
+      left: 18px;
+    }
+
+    .redeem-circuit-bank.is-right::after {
+      animation-delay: -3.5s;
+    }
+
+    .redeem-circuit-track {
+      position: absolute;
+      height: 1px;
+      border-top: 1px solid color-mix(in oklab, var(--redeem-line-strong) 72%, transparent);
+    }
+
+    .redeem-circuit-bank.is-left .redeem-circuit-track {
+      right: 18px;
+    }
+
+    .redeem-circuit-bank.is-right .redeem-circuit-track {
+      left: 18px;
+    }
+
+    .redeem-circuit-track::before {
+      position: absolute;
+      top: -3px;
+      width: 6px;
+      height: 6px;
+      border: 1px solid var(--redeem-accent);
+      background: var(--redeem-bg);
+      content: "";
+      transform: rotate(45deg);
+      animation: redeem-node-signal 3.6s ease-in-out infinite;
+    }
+
+    .redeem-circuit-bank.is-left .redeem-circuit-track::before {
+      right: -3px;
+    }
+
+    .redeem-circuit-bank.is-right .redeem-circuit-track::before {
+      left: -3px;
+    }
+
+    .redeem-circuit-track::after {
+      position: absolute;
+      top: -1px;
+      left: -22px;
+      width: 22px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--redeem-accent), transparent);
+      box-shadow: 0 0 7px color-mix(in oklab, var(--redeem-accent) 48%, transparent);
+      content: "";
+      animation: redeem-horizontal-packet 5.8s linear infinite;
+      will-change: left, opacity;
+    }
+
+    .redeem-circuit-bank.is-right .redeem-circuit-track::after {
+      animation-direction: reverse;
+    }
+
+    .redeem-circuit-track.is-a {
+      top: 10%;
+      width: 74%;
+    }
+
+    .redeem-circuit-track.is-b {
+      top: 29%;
+      width: 96%;
+    }
+
+    .redeem-circuit-track.is-c {
+      top: 49%;
+      width: 58%;
+    }
+
+    .redeem-circuit-track.is-d {
+      top: 70%;
+      width: 86%;
+    }
+
+    .redeem-circuit-track.is-e {
+      top: 89%;
+      width: 48%;
+    }
+
+    .redeem-circuit-track.is-b::after {
+      animation-delay: -2.7s;
+      animation-duration: 7.2s;
+    }
+
+    .redeem-circuit-track.is-c::after {
+      animation-delay: -4.1s;
+      animation-duration: 4.9s;
+    }
+
+    .redeem-circuit-track.is-d::after {
+      animation-delay: -1.4s;
+      animation-duration: 8.1s;
+    }
+
+    .redeem-circuit-track.is-e::after {
+      animation-delay: -3.3s;
+      animation-duration: 6.4s;
+    }
+
+    .redeem-circuit-track.is-b::before,
+    .redeem-circuit-track.is-e::before {
+      animation-delay: -1.8s;
+    }
+
+    .redeem-circuit-track.is-c::before {
+      animation-delay: -3s;
+    }
+
+    .redeem-ambient-crosshair {
+      position: absolute;
+      width: 28px;
+      height: 28px;
+      border: 1px solid color-mix(in oklab, var(--redeem-line-strong) 72%, transparent);
+      opacity: 0.72;
+      animation: redeem-crosshair-drift 9s ease-in-out infinite;
+    }
+
+    .redeem-ambient-crosshair::before,
+    .redeem-ambient-crosshair::after {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      background: color-mix(in oklab, var(--redeem-accent) 72%, transparent);
+      content: "";
+      transform: translate(-50%, -50%);
+    }
+
+    .redeem-ambient-crosshair::before {
+      width: 36px;
+      height: 1px;
+    }
+
+    .redeem-ambient-crosshair::after {
+      width: 1px;
+      height: 36px;
+    }
+
+    .redeem-circuit-bank.is-left .redeem-ambient-crosshair.is-a {
+      top: 19%;
+      left: 24%;
+    }
+
+    .redeem-circuit-bank.is-left .redeem-ambient-crosshair.is-b {
+      right: 36%;
+      bottom: 18%;
+      animation-delay: -4.5s;
+    }
+
+    .redeem-circuit-bank.is-right .redeem-ambient-crosshair.is-a {
+      top: 38%;
+      right: 24%;
+      animation-delay: -2.8s;
+    }
+
+    .redeem-circuit-bank.is-right .redeem-ambient-crosshair.is-b {
+      right: 42%;
+      bottom: 12%;
+      animation-delay: -6.2s;
+    }
+
+    .redeem-ambient-horizon {
+      position: absolute;
+      right: 4%;
+      bottom: 22px;
+      left: 4%;
+      height: 13px;
+      border-top: 1px solid color-mix(in oklab, var(--redeem-line-strong) 62%, transparent);
+      opacity: 0.6;
+      background-image: repeating-linear-gradient(
+        90deg,
+        color-mix(in oklab, var(--redeem-line-strong) 72%, transparent) 0 1px,
+        transparent 1px 18px
+      );
+      background-position: top;
+      background-repeat: repeat-x;
+      background-size: auto 5px;
+    }
+
+    .redeem-ambient-horizon::after {
+      position: absolute;
+      top: -1px;
+      left: 0;
+      width: 8rem;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--redeem-accent), transparent);
+      box-shadow: 0 0 8px color-mix(in oklab, var(--redeem-accent) 48%, transparent);
+      content: "";
+      animation: redeem-horizon-packet 12s linear infinite;
+    }
+  }
+
   .redeem-topbar {
     position: relative;
     z-index: 10;
@@ -909,6 +1196,85 @@
       box-shadow: 0 0 0 4px var(--redeem-accent-soft), 0 0 18px color-mix(in oklab, var(--redeem-accent) 72%, transparent);
     }
   }
+
+  @keyframes redeem-ambient-scan {
+    from {
+      transform: translateY(-5rem);
+    }
+    to {
+      transform: translateY(calc(100vh + 5rem));
+    }
+  }
+
+  @keyframes redeem-vertical-packet {
+    0% {
+      opacity: 0;
+      transform: translateY(-4.5rem);
+    }
+    15%,
+    85% {
+      opacity: 0.9;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(calc(89vh - 4.5rem));
+    }
+  }
+
+  @keyframes redeem-horizontal-packet {
+    0% {
+      left: -22px;
+      opacity: 0;
+    }
+    12%,
+    88% {
+      opacity: 0.9;
+    }
+    100% {
+      left: 100%;
+      opacity: 0;
+    }
+  }
+
+  @keyframes redeem-node-signal {
+    0%,
+    100% {
+      background: var(--redeem-bg);
+      box-shadow: none;
+    }
+    48%,
+    54% {
+      background: var(--redeem-accent);
+      box-shadow: 0 0 10px color-mix(in oklab, var(--redeem-accent) 64%, transparent);
+    }
+  }
+
+  @keyframes redeem-crosshair-drift {
+    0%,
+    100% {
+      opacity: 0.42;
+      transform: translateY(-4px) rotate(0deg);
+    }
+    50% {
+      opacity: 0.78;
+      transform: translateY(4px) rotate(90deg);
+    }
+  }
+
+  @keyframes redeem-horizon-packet {
+    0% {
+      opacity: 0;
+      transform: translateX(-8rem);
+    }
+    12%,
+    88% {
+      opacity: 0.8;
+    }
+    100% {
+      opacity: 0;
+      transform: translateX(calc(92vw - 8rem));
+    }
+  }
 }
 
 @media (max-width: 639px) {
@@ -918,6 +1284,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .redeem-ambient-field *,
+  .redeem-ambient-field *::before,
+  .redeem-ambient-field *::after {
+    animation: none !important;
+  }
+
   *,
   *::before,
   *::after {

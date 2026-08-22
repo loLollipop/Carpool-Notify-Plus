@@ -159,6 +159,36 @@ function RedeemThemeToggle() {
   )
 }
 
+function RedeemAmbientField() {
+  return (
+    <div className="redeem-ambient-field" aria-hidden="true">
+      <span className="redeem-ambient-scan" />
+
+      <div className="redeem-circuit-bank is-left">
+        <span className="redeem-circuit-track is-a" />
+        <span className="redeem-circuit-track is-b" />
+        <span className="redeem-circuit-track is-c" />
+        <span className="redeem-circuit-track is-d" />
+        <span className="redeem-circuit-track is-e" />
+        <span className="redeem-ambient-crosshair is-a" />
+        <span className="redeem-ambient-crosshair is-b" />
+      </div>
+
+      <div className="redeem-circuit-bank is-right">
+        <span className="redeem-circuit-track is-a" />
+        <span className="redeem-circuit-track is-b" />
+        <span className="redeem-circuit-track is-c" />
+        <span className="redeem-circuit-track is-d" />
+        <span className="redeem-circuit-track is-e" />
+        <span className="redeem-ambient-crosshair is-a" />
+        <span className="redeem-ambient-crosshair is-b" />
+      </div>
+
+      <span className="redeem-ambient-horizon" />
+    </div>
+  )
+}
+
 function RedeemAnnouncementButton({ onClick }: { onClick: () => void }) {
   return (
     <Tooltip>
@@ -763,6 +793,8 @@ export function RedeemPage() {
         onConfirm={confirmSubmission}
         onRestart={resetApplication}
       />
+
+      <RedeemAmbientField />
 
       <header className="redeem-topbar">
         <div className="mx-auto flex h-16 w-full max-w-[1200px] items-center justify-between gap-4 px-4 sm:h-[72px] sm:px-6 lg:px-8">
