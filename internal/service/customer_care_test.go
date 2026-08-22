@@ -204,7 +204,14 @@ func TestPredictionReadinessEnablesBetaBinomialAfterObservedCycles(t *testing.T)
 			AmountCents:    10000,
 		})
 	}
-	readiness := buildPredictionReadiness(active, nil, bills, nil, nil)
+	readiness := buildPredictionReadiness(
+		active,
+		nil,
+		bills,
+		nil,
+		nil,
+		time.Date(2026, time.August, 15, 12, 0, 0, 0, cycle.Location),
+	)
 	if readiness.ActiveModel != "beta_binomial" || readiness.RenewalOutcomeCount != 20 ||
 		readiness.EstimatedRenewalPercent == nil || readiness.EstimateLowPercent == nil ||
 		readiness.EstimateHighPercent == nil {
@@ -212,5 +219,154 @@ func TestPredictionReadinessEnablesBetaBinomialAfterObservedCycles(t *testing.T)
 	}
 	if *readiness.EstimatedRenewalPercent < 95 || *readiness.EstimateHighPercent > 100 {
 		t.Fatalf("beta posterior estimate = %d [%d, %d]", *readiness.EstimatedRenewalPercent, *readiness.EstimateLowPercent, *readiness.EstimateHighPercent)
+	}
+}
+
+func TestPredictionReadinessCountsCompletedCustomerCancellationAsNaturalChurn(t *testing.T) {
+	archivedAt := time.Date(2026, time.August, 21, 20, 26, 0, 0, cycle.Location)
+	archived := []model.Subscription{{
+		ID:           1,
+		BusinessType: model.SubscriptionBusinessTeam,
+		BoardedAt:    "2026-07-22",
+		ArchivedAt:   &archivedAt,
+	}}
+	bills := []model.Bill{{
+		ID:             10,
+		SubscriptionID: 1,
+		DueDate:        "2026-07-22",
+		AmountCents:    10000,
+	}}
+	cases := []model.AfterSalesCase{{
+		SubscriptionID:    1,
+		BillID:            10,
+		BusinessType:      model.SubscriptionBusinessTeam,
+		Source:            model.AfterSalesSourceCustomerCancellation,
+		Status:            model.AfterSalesStatusRefunded,
+		RefundAmountCents: 0,
+	}}
+
+	readiness := buildPredictionReadiness(
+		nil,
+		archived,
+		bills,
+		cases,
+		nil,
+		time.Date(2026, time.August, 22, 9, 0, 0, 0, cycle.Location),
+	)
+	if readiness.ChurnOutcomeCount != 1 || readiness.RenewalOutcomeCount != 1 {
+		t.Fatalf("cancellation readiness = %#v", readiness)
+	}
+	if len(readiness.Lifecycle) != customerLifecycleMonths {
+		t.Fatalf("lifecycle months = %d, want %d", len(readiness.Lifecycle), customerLifecycleMonths)
+	}
+	july := readiness.Lifecycle[len(readiness.Lifecycle)-2]
+	august := readiness.Lifecycle[len(readiness.Lifecycle)-1]
+	if july.Month != "2026-07" || july.NewSeatCount != 1 || july.ActiveSeatCount != 1 {
+		t.Fatalf("July lifecycle = %#v", july)
+	}
+	if august.Month != "2026-08" || august.NaturalChurnCount != 1 || august.ActiveSeatCount != 0 {
+		t.Fatalf("August lifecycle = %#v", august)
+	}
+}
+
+func TestPredictionReadinessExcludesFullyRefundedRenewalButKeepsChurn(t *testing.T) {
+	archivedAt := time.Date(2026, time.August, 21, 12, 0, 0, 0, cycle.Location)
+	archived := []model.Subscription{{
+		ID:           1,
+		BusinessType: model.SubscriptionBusinessTeam,
+		BoardedAt:    "2026-07-01",
+		ArchivedAt:   &archivedAt,
+	}}
+	bills := []model.Bill{
+		{ID: 1, SubscriptionID: 1, DueDate: "2026-07-01", AmountCents: 10000},
+		{ID: 2, SubscriptionID: 1, DueDate: "2026-07-31", AmountCents: 10000},
+	}
+	cases := []model.AfterSalesCase{{
+		SubscriptionID:    1,
+		BillID:            2,
+		BusinessType:      model.SubscriptionBusinessTeam,
+		Source:            model.AfterSalesSourceCustomerCancellation,
+		Status:            model.AfterSalesStatusRefunded,
+		RefundAmountCents: 10000,
+	}}
+
+	readiness := buildPredictionReadiness(
+		nil,
+		archived,
+		bills,
+		cases,
+		nil,
+		time.Date(2026, time.August, 22, 9, 0, 0, 0, cycle.Location),
+	)
+	if readiness.RenewalSuccessCount != 0 || readiness.ChurnOutcomeCount != 1 {
+		t.Fatalf("fully refunded renewal evidence = %#v", readiness)
+	}
+	for _, month := range readiness.Lifecycle {
+		if month.RenewalSuccessCount != 0 {
+			t.Fatalf("fully refunded lifecycle renewal = %#v", readiness.Lifecycle)
+		}
+	}
+}
+
+func TestPredictionReadinessDoesNotTreatAccountBanAsNaturalChurn(t *testing.T) {
+	archivedAt := time.Date(2026, time.August, 21, 12, 0, 0, 0, cycle.Location)
+	archived := []model.Subscription{{
+		ID:           1,
+		BusinessType: model.SubscriptionBusinessTeam,
+		BoardedAt:    "2026-07-01",
+		ArchivedAt:   &archivedAt,
+	}}
+	bills := []model.Bill{{ID: 1, SubscriptionID: 1, DueDate: "2026-07-01", AmountCents: 10000}}
+	cases := []model.AfterSalesCase{{
+		SubscriptionID: 1,
+		BillID:         1,
+		BusinessType:   model.SubscriptionBusinessTeam,
+		Source:         model.AfterSalesSourceAccountBan,
+		Status:         model.AfterSalesStatusRefunded,
+	}}
+
+	readiness := buildPredictionReadiness(
+		nil,
+		archived,
+		bills,
+		cases,
+		nil,
+		time.Date(2026, time.August, 22, 9, 0, 0, 0, cycle.Location),
+	)
+	if readiness.ChurnOutcomeCount != 0 {
+		t.Fatalf("account-ban readiness = %#v", readiness)
+	}
+	if readiness.Lifecycle[len(readiness.Lifecycle)-1].NaturalChurnCount != 0 {
+		t.Fatalf("account-ban lifecycle = %#v", readiness.Lifecycle)
+	}
+}
+
+func TestCustomerLifecycleIncludesActiveSeatWithoutBill(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 9, 0, 0, 0, cycle.Location)
+	createdAt := time.Date(2026, time.August, 20, 12, 0, 0, 0, cycle.Location)
+	archivedAt := time.Date(2026, time.August, 21, 12, 0, 0, 0, cycle.Location)
+	subscriptions := []model.Subscription{
+		{
+			ID:           1,
+			BusinessType: model.SubscriptionBusinessTeam,
+			BoardedAt:    "2026-08-20",
+			CreatedAt:    createdAt,
+		},
+		{
+			ID:           2,
+			BusinessType: model.SubscriptionBusinessTeam,
+			BoardedAt:    "2026-08-20",
+			CreatedAt:    createdAt,
+			ArchivedAt:   &archivedAt,
+		},
+	}
+
+	lifecycle := buildCustomerLifecycle(subscriptions, nil, nil, nil, nil, now)
+	august := lifecycle[len(lifecycle)-1]
+	if august.NewSeatCount != 2 || august.ActiveSeatCount != 1 {
+		t.Fatalf("unbilled seat lifecycle = %#v", august)
+	}
+	if august.NaturalChurnCount != 0 {
+		t.Fatalf("unbilled archive must not create churn evidence: %#v", august)
 	}
 }

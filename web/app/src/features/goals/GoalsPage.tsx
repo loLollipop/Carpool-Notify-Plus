@@ -2855,39 +2855,59 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
   const prediction = data.customer_care.prediction
   const models = prediction.models ?? []
   const hasEstimate = prediction.estimated_renewal_percent !== null
-  const evidenceData = [
+  const lifecycle = (prediction.lifecycle ?? []).map((month) => ({
+    month: month.month,
+    label: t("goals.care.prediction.monthLabel", {
+      month: Number(month.month.slice(5, 7)),
+    }),
+    newSeats: month.new_seat_count,
+    renewals: month.renewal_success_count,
+    churns: month.natural_churn_count,
+    activeSeats: month.active_seat_count,
+  }))
+  const lifecycleTotals = lifecycle.reduce(
+    (totals, month) => ({
+      newSeats: totals.newSeats + month.newSeats,
+      renewals: totals.renewals + month.renewals,
+      churns: totals.churns + month.churns,
+    }),
+    { newSeats: 0, renewals: 0, churns: 0 },
+  )
+  const currentActiveSeats = lifecycle.at(-1)?.activeSeats ?? 0
+  const lifecycleMetrics = [
     {
-      key: "first_cycle",
-      label: t("goals.care.prediction.chart.firstCycle"),
-      value: prediction.first_cycle_subscription_count,
-      color: "var(--muted-foreground)",
+      key: "activeSeats",
+      label: t("goals.care.prediction.chart.activeSeats"),
+      value: currentActiveSeats,
+      color: "var(--gold)",
+      countKey: "chartSeatCount",
     },
     {
-      key: "repeat_seats",
-      label: t("goals.care.prediction.chart.repeatSeats"),
-      value: prediction.repeat_subscription_count,
+      key: "newSeats",
+      label: t("goals.care.prediction.chart.newSeats"),
+      value: lifecycleTotals.newSeats,
       color: "var(--brand)",
+      countKey: "chartSeatCount",
     },
     {
       key: "renewals",
       label: t("goals.care.prediction.chart.renewals"),
-      value: prediction.renewal_success_count,
+      value: lifecycleTotals.renewals,
       color: "var(--success)",
+      countKey: "chartEventCount",
     },
     {
       key: "churns",
       label: t("goals.care.prediction.chart.churns"),
-      value: prediction.churn_outcome_count,
+      value: lifecycleTotals.churns,
       color: "var(--destructive)",
+      countKey: "chartSeatCount",
     },
   ]
-  const seatEvidenceData = evidenceData.slice(0, 2)
-  const outcomeEvidenceData = evidenceData.slice(2)
-  const outcomeCount = outcomeEvidenceData.reduce((total, item) => total + item.value, 0)
 
   return (
     <section className="overflow-hidden rounded-lg border bg-card shadow-card">
-      <div className="grid gap-5 p-5 xl:grid-cols-[minmax(380px,0.8fr)_minmax(0,1.2fr)] xl:items-center">
+      <div className="grid gap-5 p-5 xl:grid-cols-[minmax(520px,1.08fr)_minmax(0,0.92fr)] xl:items-stretch">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-brand">
             <BrainCircuit className="size-4" />
@@ -2912,128 +2932,136 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
             ) : null}
           </div>
           <div
-            className="mt-3 grid min-h-[190px] items-center gap-3 sm:grid-cols-[180px_minmax(0,1fr)]"
+            className="mt-3 overflow-hidden rounded-lg border border-border/70 bg-muted/[0.12]"
             role="img"
             aria-label={t("goals.care.prediction.chartAria", {
-              first: prediction.first_cycle_subscription_count,
-              repeat: prediction.repeat_subscription_count,
-              renewals: prediction.renewal_success_count,
-              churns: prediction.churn_outcome_count,
+              active: currentActiveSeats,
+              newSeats: lifecycleTotals.newSeats,
+              renewals: lifecycleTotals.renewals,
+              churns: lifecycleTotals.churns,
             })}
           >
-            <div className="relative mx-auto h-[180px] w-[180px]">
+            <div className="grid grid-cols-2 border-b border-border/60 sm:grid-cols-4">
+              {lifecycleMetrics.map((item, index) => (
+                <div
+                  key={item.key}
+                  className={cn(
+                    "px-3 py-2.5",
+                    index % 2 !== 0 && "border-l border-border/60",
+                    index >= 2 && "border-t border-border/60 sm:border-t-0",
+                    index > 0 && "sm:border-l sm:border-border/60",
+                  )}
+                >
+                  <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+                    <span
+                      className="size-1.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <span className="truncate">{item.label}</span>
+                  </div>
+                  <p className="mt-1 text-lg font-semibold tabular-nums">
+                    {t(`goals.care.prediction.${item.countKey}`, { count: item.value })}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            <div className="h-[230px] w-full px-1 pt-3">
               <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={seatEvidenceData}
-                    dataKey="value"
-                    nameKey="label"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={61}
-                    outerRadius={79}
-                    startAngle={90}
-                    endAngle={-270}
-                    paddingAngle={2}
-                    cornerRadius={6}
-                    stroke="transparent"
-                  >
-                    {seatEvidenceData.map((item) => (
-                      <Cell key={item.key} fill={item.color} />
-                    ))}
-                  </Pie>
-                  <Pie
-                    data={outcomeEvidenceData}
-                    dataKey="value"
-                    nameKey="label"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={38}
-                    outerRadius={54}
-                    startAngle={90}
-                    endAngle={-270}
-                    paddingAngle={3}
-                    cornerRadius={5}
-                    stroke="transparent"
-                  >
-                    {outcomeEvidenceData.map((item) => (
-                      <Cell key={item.key} fill={item.color} />
-                    ))}
-                  </Pie>
-                  <text
-                    x="50%"
-                    y="46%"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fill="var(--foreground)"
-                    className="text-xl font-bold tabular-nums"
-                  >
-                    {outcomeCount}
-                  </text>
-                  <text
-                    x="50%"
-                    y="59%"
-                    textAnchor="middle"
-                    dominantBaseline="middle"
-                    fill="var(--muted-foreground)"
-                    className="text-[9px] font-medium"
-                  >
-                    {t("goals.care.prediction.chartOutcomeCenter")}
-                  </text>
+                <ComposedChart
+                  data={lifecycle}
+                  margin={{ top: 8, right: 10, left: -18, bottom: 0 }}
+                  barGap={2}
+                >
+                  <CartesianGrid stroke="var(--border)" strokeDasharray="3 5" vertical={false} />
+                  <XAxis
+                    dataKey="label"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                  />
+                  <YAxis
+                    yAxisId="events"
+                    allowDecimals={false}
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                  />
+                  <YAxis
+                    yAxisId="active"
+                    orientation="right"
+                    allowDecimals={false}
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                  />
                   <ChartTooltip
+                    cursor={{ fill: "color-mix(in oklab, var(--brand) 6%, transparent)" }}
                     formatter={(value, name) => [
-                      t("goals.care.prediction.chartCount", { count: Number(value ?? 0) }),
-                      String(name),
+                      t(
+                        `goals.care.prediction.${String(name) === "renewals" ? "chartEventCount" : "chartSeatCount"}`,
+                        { count: Number(value ?? 0) },
+                      ),
+                      t(`goals.care.prediction.chart.${String(name)}`),
                     ]}
+                    labelFormatter={(label) =>
+                      lifecycle.find((month) => month.label === String(label))?.month ?? String(label)
+                    }
                     contentStyle={{
                       border: "1px solid var(--border)",
-                      borderRadius: 8,
+                      borderRadius: 6,
                       background: "var(--popover)",
                       color: "var(--popover-foreground)",
-                      fontSize: 11,
+                      fontSize: 12,
                       boxShadow: "var(--shadow-card)",
                     }}
                   />
-                </PieChart>
+                  <Bar
+                    yAxisId="events"
+                    dataKey="newSeats"
+                    fill="var(--brand)"
+                    maxBarSize={18}
+                    radius={[3, 3, 0, 0]}
+                  />
+                  <Bar
+                    yAxisId="events"
+                    dataKey="renewals"
+                    fill="var(--success)"
+                    maxBarSize={18}
+                    radius={[3, 3, 0, 0]}
+                  />
+                  <Bar
+                    yAxisId="events"
+                    dataKey="churns"
+                    fill="var(--destructive)"
+                    maxBarSize={18}
+                    radius={[3, 3, 0, 0]}
+                  />
+                  <Line
+                    yAxisId="active"
+                    type="monotone"
+                    dataKey="activeSeats"
+                    stroke="var(--gold)"
+                    strokeWidth={2.25}
+                    dot={{ r: 2.5, fill: "var(--card)", strokeWidth: 2 }}
+                    activeDot={{ r: 4, fill: "var(--card)", strokeWidth: 2 }}
+                  />
+                </ComposedChart>
               </ResponsiveContainer>
-              <div className="pointer-events-none absolute inset-1 rounded-full border border-foreground/[0.04]" />
             </div>
 
-            <div className="grid gap-3">
-              {[
-                {
-                  key: "seat",
-                  title: t("goals.care.prediction.chartSeatRing"),
-                  items: seatEvidenceData,
-                },
-                {
-                  key: "outcome",
-                  title: t("goals.care.prediction.chartOutcomeRing"),
-                  items: outcomeEvidenceData,
-                },
-              ].map((group) => (
-                <div key={group.key} className="rounded-md border border-border/60 bg-muted/20 px-3 py-2.5">
-                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                    {group.title}
-                  </p>
-                  <div className="grid gap-1.5">
-                    {group.items.map((item) => (
-                      <div key={item.key} className="flex items-center gap-2 text-xs">
-                        <span
-                          className="size-2 shrink-0 rounded-full"
-                          style={{
-                            backgroundColor: item.color,
-                            boxShadow: `0 0 0 3px color-mix(in oklab, ${item.color} 10%, transparent)`,
-                          }}
-                        />
-                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
-                          {item.label}
-                        </span>
-                        <span className="font-semibold tabular-nums">{item.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 border-t border-border/60 px-3 py-2 text-[10px] font-medium text-muted-foreground">
+              {lifecycleMetrics.map((item) => (
+                <span key={item.key} className="flex items-center gap-1.5">
+                  <span
+                    className={cn(
+                      "shrink-0",
+                      item.key === "activeSeats" ? "h-0.5 w-3 rounded-full" : "size-2 rounded-sm",
+                    )}
+                    style={{ backgroundColor: item.color }}
+                  />
+                  {item.label}
+                </span>
               ))}
             </div>
           </div>

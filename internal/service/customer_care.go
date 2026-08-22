@@ -27,6 +27,7 @@ const (
 	minimumSurvivalChurns          = 10
 	minimumBGNBDRepeatCustomers    = 50
 	minimumUpliftEvaluatedBenefits = 40
+	customerLifecycleMonths        = 6
 )
 
 type CustomerBenefitCandidate struct {
@@ -75,6 +76,14 @@ type ForecastModelReadiness struct {
 	DetailCode      string `json:"detail_code"`
 }
 
+type CustomerLifecycleMonth struct {
+	Month               string `json:"month"`
+	NewSeatCount        int    `json:"new_seat_count"`
+	RenewalSuccessCount int    `json:"renewal_success_count"`
+	NaturalChurnCount   int    `json:"natural_churn_count"`
+	ActiveSeatCount     int    `json:"active_seat_count"`
+}
+
 type PredictionReadiness struct {
 	ActiveModel                 string                   `json:"active_model"`
 	RenewalOutcomeCount         int                      `json:"renewal_outcome_count"`
@@ -87,6 +96,7 @@ type PredictionReadiness struct {
 	EstimateLowPercent          *int                     `json:"estimate_low_percent"`
 	EstimateHighPercent         *int                     `json:"estimate_high_percent"`
 	Models                      []ForecastModelReadiness `json:"models"`
+	Lifecycle                   []CustomerLifecycleMonth `json:"lifecycle"`
 }
 
 type CustomerCareCenter struct {
@@ -135,7 +145,7 @@ func (service *SubscriptionService) buildCustomerCare(
 		return CustomerCareCenter{}, err
 	}
 
-	refundedBillIDs := refundedBenefitBillIDs(afterSalesCases)
+	refundedBillIDs := fullyRefundedBillIDs(afterSalesCases, bills)
 	views := buildCustomerBenefitViews(
 		benefits,
 		bills,
@@ -170,6 +180,7 @@ func (service *SubscriptionService) buildCustomerCare(
 			bills,
 			afterSalesCases,
 			views,
+			service.now(),
 		),
 	}
 	center.Summary.CustomerCount = len(careCandidates)
@@ -491,14 +502,28 @@ func sortCustomerBenefitCandidates(candidates []CustomerBenefitCandidate) {
 	})
 }
 
-func refundedBenefitBillIDs(cases []model.AfterSalesCase) map[int64]struct{} {
-	refunded := make(map[int64]struct{})
+func fullyRefundedBillIDs(
+	cases []model.AfterSalesCase,
+	bills []model.Bill,
+) map[int64]struct{} {
+	billAmounts := make(map[int64]int64, len(bills))
+	for _, bill := range bills {
+		billAmounts[bill.ID] = bill.AmountCents
+	}
+	refundTotals := make(map[int64]int64)
 	for _, caseItem := range cases {
 		if caseItem.Status == model.AfterSalesStatusRefunded && caseItem.BillID > 0 {
-			refunded[caseItem.BillID] = struct{}{}
+			refundTotals[caseItem.BillID] += caseItem.RefundAmountCents
 		}
 	}
-	return refunded
+	fullyRefunded := make(map[int64]struct{})
+	for billID, refundCents := range refundTotals {
+		billAmountCents := billAmounts[billID]
+		if billAmountCents > 0 && refundCents >= billAmountCents {
+			fullyRefunded[billID] = struct{}{}
+		}
+	}
+	return fullyRefunded
 }
 
 func buildCustomerBenefitViews(
@@ -566,19 +591,27 @@ func buildPredictionReadiness(
 	bills []model.Bill,
 	afterSalesCases []model.AfterSalesCase,
 	benefitViews []CustomerBenefitView,
+	now time.Time,
 ) PredictionReadiness {
-	refundedBillIDs := refundedBenefitBillIDs(afterSalesCases)
+	refundedBillIDs := fullyRefundedBillIDs(afterSalesCases, bills)
 	billCounts := make(map[int64]int)
+	allBillCounts := make(map[int64]int)
 	for _, bill := range bills {
+		allBillCounts[bill.SubscriptionID]++
 		if _, refunded := refundedBillIDs[bill.ID]; refunded {
 			continue
 		}
 		billCounts[bill.SubscriptionID]++
 	}
 	involuntaryChurn := make(map[int64]struct{})
+	completedCancellation := make(map[int64]struct{})
 	for _, caseItem := range afterSalesCases {
 		if caseItem.Source == model.AfterSalesSourceAccountBan {
 			involuntaryChurn[caseItem.SubscriptionID] = struct{}{}
+		}
+		if caseItem.Source == model.AfterSalesSourceCustomerCancellation &&
+			caseItem.Status == model.AfterSalesStatusRefunded {
+			completedCancellation[caseItem.SubscriptionID] = struct{}{}
 		}
 	}
 
@@ -605,10 +638,10 @@ func buildPredictionReadiness(
 			readiness.RepeatSubscriptionCount++
 			readiness.RenewalSuccessCount += paidPeriods - 1
 		}
-		if paidPeriods > 0 {
-			if _, involuntary := involuntaryChurn[subscription.ID]; !involuntary {
-				readiness.ChurnOutcomeCount++
-			}
+		_, explicitCancellation := completedCancellation[subscription.ID]
+		_, involuntary := involuntaryChurn[subscription.ID]
+		if !involuntary && (allBillCounts[subscription.ID] > 0 || explicitCancellation) {
+			readiness.ChurnOutcomeCount++
 		}
 	}
 	readiness.RenewalOutcomeCount = readiness.RenewalSuccessCount + readiness.ChurnOutcomeCount
@@ -617,6 +650,14 @@ func buildPredictionReadiness(
 		archivedSubscriptions...,
 	)
 	readiness.RepeatCustomerCount = countRepeatCustomerGroups(allSubscriptions, billCounts)
+	readiness.Lifecycle = buildCustomerLifecycle(
+		allSubscriptions,
+		bills,
+		refundedBillIDs,
+		involuntaryChurn,
+		completedCancellation,
+		now,
+	)
 	if readiness.RenewalOutcomeCount >= minimumBetaBinomialOutcomes {
 		mean, low, high := betaPosteriorApproximation(
 			readiness.RenewalSuccessCount,
@@ -682,6 +723,131 @@ func buildPredictionReadiness(
 		},
 	}
 	return readiness
+}
+
+func buildCustomerLifecycle(
+	subscriptions []model.Subscription,
+	bills []model.Bill,
+	fullyRefundedBillIDs map[int64]struct{},
+	involuntaryChurn map[int64]struct{},
+	completedCancellation map[int64]struct{},
+	now time.Time,
+) []CustomerLifecycleMonth {
+	now = now.In(cycle.Location)
+	firstMonth := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, cycle.Location).
+		AddDate(0, -(customerLifecycleMonths - 1), 0)
+	months := make([]CustomerLifecycleMonth, 0, customerLifecycleMonths)
+	monthIndex := make(map[string]int, customerLifecycleMonths)
+	monthStarts := make([]time.Time, 0, customerLifecycleMonths)
+	for index := 0; index < customerLifecycleMonths; index++ {
+		monthStart := firstMonth.AddDate(0, index, 0)
+		month := monthStart.Format("2006-01")
+		monthIndex[month] = len(months)
+		monthStarts = append(monthStarts, monthStart)
+		months = append(months, CustomerLifecycleMonth{Month: month})
+	}
+
+	allBillsBySubscription := make(map[int64][]model.Bill)
+	validBillsBySubscription := make(map[int64][]model.Bill)
+	for _, bill := range bills {
+		allBillsBySubscription[bill.SubscriptionID] = append(
+			allBillsBySubscription[bill.SubscriptionID],
+			bill,
+		)
+		if _, fullyRefunded := fullyRefundedBillIDs[bill.ID]; !fullyRefunded {
+			validBillsBySubscription[bill.SubscriptionID] = append(
+				validBillsBySubscription[bill.SubscriptionID],
+				bill,
+			)
+		}
+	}
+	for subscriptionID := range validBillsBySubscription {
+		sort.SliceStable(validBillsBySubscription[subscriptionID], func(left int, right int) bool {
+			leftBill := validBillsBySubscription[subscriptionID][left]
+			rightBill := validBillsBySubscription[subscriptionID][right]
+			if leftBill.DueDate != rightBill.DueDate {
+				return leftBill.DueDate < rightBill.DueDate
+			}
+			return leftBill.ID < rightBill.ID
+		})
+	}
+
+	for _, subscription := range subscriptions {
+		if subscription.BusinessType != model.SubscriptionBusinessTeam || subscription.IsResale {
+			continue
+		}
+		_, explicitCancellation := completedCancellation[subscription.ID]
+		allBills := allBillsBySubscription[subscription.ID]
+		hasCustomerHistory := len(allBills) > 0 || explicitCancellation
+		startedAt, ok := customerLifecycleStartedAt(subscription, allBills)
+		if !ok {
+			continue
+		}
+		if index, exists := monthIndex[startedAt.Format("2006-01")]; exists {
+			months[index].NewSeatCount++
+		}
+
+		for index, monthStart := range monthStarts {
+			evaluatedAt := monthStart.AddDate(0, 1, 0).Add(-time.Nanosecond)
+			if evaluatedAt.After(now) {
+				evaluatedAt = now
+			}
+			if startedAt.After(evaluatedAt) {
+				continue
+			}
+			if subscription.ArchivedAt == nil || subscription.ArchivedAt.In(cycle.Location).After(evaluatedAt) {
+				months[index].ActiveSeatCount++
+			}
+		}
+
+		validBills := validBillsBySubscription[subscription.ID]
+		for billIndex := 1; billIndex < len(validBills); billIndex++ {
+			month := monthFromDate(validBills[billIndex].DueDate)
+			if month == "" {
+				month = validBills[billIndex].PaidAt.In(cycle.Location).Format("2006-01")
+			}
+			if index, exists := monthIndex[month]; exists {
+				months[index].RenewalSuccessCount++
+			}
+		}
+
+		if subscription.ArchivedAt == nil {
+			continue
+		}
+		if _, involuntary := involuntaryChurn[subscription.ID]; involuntary {
+			continue
+		}
+		if !hasCustomerHistory {
+			continue
+		}
+		if index, exists := monthIndex[subscription.ArchivedAt.In(cycle.Location).Format("2006-01")]; exists {
+			months[index].NaturalChurnCount++
+		}
+	}
+	return months
+}
+
+func customerLifecycleStartedAt(
+	subscription model.Subscription,
+	bills []model.Bill,
+) (time.Time, bool) {
+	if boardedAt, err := time.ParseInLocation("2006-01-02", subscription.BoardedAt, cycle.Location); err == nil {
+		return cycle.StartOfDay(boardedAt), true
+	}
+	var earliest time.Time
+	for _, bill := range bills {
+		billAt, err := time.ParseInLocation("2006-01-02", bill.DueDate, cycle.Location)
+		if err == nil && (earliest.IsZero() || billAt.Before(earliest)) {
+			earliest = billAt
+		}
+	}
+	if !earliest.IsZero() {
+		return cycle.StartOfDay(earliest), true
+	}
+	if !subscription.CreatedAt.IsZero() {
+		return cycle.StartOfDay(subscription.CreatedAt.In(cycle.Location)), true
+	}
+	return time.Time{}, false
 }
 
 func countRepeatCustomerGroups(

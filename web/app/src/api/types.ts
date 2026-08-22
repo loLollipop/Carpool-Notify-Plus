@@ -902,6 +902,14 @@ export interface ForecastModelReadiness {
   detail_code: string
 }
 
+export interface CustomerLifecycleMonth {
+  month: string
+  new_seat_count: number
+  renewal_success_count: number
+  natural_churn_count: number
+  active_seat_count: number
+}
+
 export interface PredictionReadiness {
   active_model: "evidence_only" | "beta_binomial"
   renewal_outcome_count: number
@@ -909,10 +917,12 @@ export interface PredictionReadiness {
   churn_outcome_count: number
   first_cycle_subscription_count: number
   repeat_subscription_count: number
+  repeat_customer_count: number
   estimated_renewal_percent: number | null
   estimate_low_percent: number | null
   estimate_high_percent: number | null
   models: ForecastModelReadiness[] | null
+  lifecycle: CustomerLifecycleMonth[] | null
 }
 
 export interface CustomerCareCenter {
