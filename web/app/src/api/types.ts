@@ -365,6 +365,9 @@ export interface AccountView {
   seat_used: number
   is_full: boolean
   can_delete: boolean
+  next_renewal_date: string
+  renewal_this_month: boolean
+  renewal_actionable: boolean
 }
 
 export interface SandboxAccount {

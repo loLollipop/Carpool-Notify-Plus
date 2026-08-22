@@ -59,6 +59,55 @@ func TestAccountCostRenewalsUseMonthlyAnniversaryAndConsumeZeroOnce(t *testing.T
 	}
 }
 
+func TestMarkAccountRenewedUpdatesPendingStateAndIsIdempotent(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 22, 12, 0, 0, 0, cycle.Location)
+	}
+	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "manual-renewal@example.com",
+		Email:     "manual-renewal@example.com",
+		OpenedAt:  "2026-07-25",
+		CostYuan:  "75.00",
+		SeatCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	view, err := subscriptionService.GetAccountView(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.NextRenewalDate != "2026-08-25" || !view.RenewalThisMonth || !view.RenewalActionable {
+		t.Fatalf("renewal state before marking = %#v", view)
+	}
+
+	inserted, err := subscriptionService.MarkAccountRenewed(accountID, "2026-08-25")
+	if err != nil || !inserted {
+		t.Fatalf("first mark = %v, %v", inserted, err)
+	}
+	inserted, err = subscriptionService.MarkAccountRenewed(accountID, "2026-08-25")
+	if err != nil || inserted {
+		t.Fatalf("repeated mark = %v, %v, want idempotent success", inserted, err)
+	}
+
+	account, err := subscriptionService.Store.GetAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.TotalCostCents != 15000 {
+		t.Fatalf("total cost after repeated mark = %d, want 15000", account.TotalCostCents)
+	}
+	view, err = subscriptionService.GetAccountView(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.NextRenewalDate != "2026-09-25" || view.RenewalThisMonth || view.RenewalActionable {
+		t.Fatalf("renewal state after marking = %#v", view)
+	}
+}
+
 func TestAccountTotalCostIsDerivedFromOpeningAndRenewalCosts(t *testing.T) {
 	subscriptionService := openTestService(t)
 	now := time.Date(2026, time.January, 15, 12, 0, 0, 0, cycle.Location)

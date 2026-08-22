@@ -82,6 +82,23 @@ func TestOperationsOverviewPrioritizesWorkAndSummarizesCapacity(t *testing.T) {
 	if !foundOverdue || !foundAccountRenewal {
 		t.Fatalf("tasks = %#v, want overdue subscription and upcoming account renewal", overview.Tasks)
 	}
+
+	inserted, err := subscriptionService.MarkAccountRenewed(accountID, "2026-08-25")
+	if err != nil || !inserted {
+		t.Fatalf("mark account renewed = %v, %v", inserted, err)
+	}
+	overview, err = subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Work.AccountRenewalCount != 0 {
+		t.Fatalf("account renewal count after marking = %d, want 0", overview.Work.AccountRenewalCount)
+	}
+	for _, task := range overview.Tasks {
+		if task.Kind == "account_renewal" && task.AccountID == accountID {
+			t.Fatalf("renewed account still appears in tasks: %#v", task)
+		}
+	}
 }
 
 func TestOperationsOverviewWorkCountsAreNotCappedWithTaskList(t *testing.T) {

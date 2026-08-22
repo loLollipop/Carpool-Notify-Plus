@@ -332,6 +332,13 @@ export function updateAccount(id: number, input: AccountInput) {
   return api<MessageResult>(`/api/accounts/${id}`, { method: "PUT", body: input })
 }
 
+export function markAccountRenewed(id: number, renewalDate: string) {
+  return api<MessageResult & { renewal_date: string; inserted: boolean }>(
+    `/api/accounts/${id}/renew`,
+    { method: "POST", body: { renewal_date: renewalDate } },
+  )
+}
+
 export function deleteAccount(id: number) {
   return api<MessageResult>(`/api/accounts/${id}`, { method: "DELETE" })
 }

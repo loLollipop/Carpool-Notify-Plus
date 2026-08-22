@@ -143,6 +143,7 @@ func (server *Server) registerBusinessRoutes(routes *gin.RouterGroup) {
 	routes.GET("/account-options", server.getAccountOptions)
 	routes.POST("/accounts", server.postCreateAccount)
 	routes.PUT("/accounts/:id", server.putUpdateAccount)
+	routes.POST("/accounts/:id/renew", server.postRenewAccount)
 	routes.POST("/accounts/:id/ban", server.postBanAccount)
 	routes.DELETE("/accounts/:id", server.deleteAccount)
 	routes.PUT("/seats/:id/freeze", server.putSeatFreeze)

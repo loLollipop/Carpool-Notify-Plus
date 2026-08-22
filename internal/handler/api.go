@@ -982,6 +982,34 @@ func (server *Server) putUpdateAccount(context *gin.Context) {
 	respondOK(context, gin.H{"message": "账号已保存"})
 }
 
+func (server *Server) postRenewAccount(context *gin.Context) {
+	accountID, ok := parseIDParam(context, "id", "无效的账号 ID")
+	if !ok {
+		return
+	}
+	var request struct {
+		RenewalDate string `json:"renewal_date"`
+	}
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	inserted, err := server.Service.MarkAccountRenewed(accountID, request.RenewalDate)
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	message := "该期账号续费已登记"
+	if inserted {
+		message = "账号续费已登记，成本已更新"
+	}
+	respondOK(context, gin.H{
+		"message":      message,
+		"renewal_date": request.RenewalDate,
+		"inserted":     inserted,
+	})
+}
+
 func (server *Server) putSeatFreeze(context *gin.Context) {
 	seatID, ok := parseIDParam(context, "id", "无效的车位 ID")
 	if !ok {

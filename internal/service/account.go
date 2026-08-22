@@ -13,12 +13,15 @@ import (
 
 // AccountView is one account with seat occupancy for the accounts page and forms.
 type AccountView struct {
-	Account   model.Account `json:"account"`
-	Seats     []SeatView    `json:"seats"`
-	SeatTotal int           `json:"seat_total"`
-	SeatUsed  int           `json:"seat_used"`
-	IsFull    bool          `json:"is_full"`
-	CanDelete bool          `json:"can_delete"`
+	Account           model.Account `json:"account"`
+	Seats             []SeatView    `json:"seats"`
+	SeatTotal         int           `json:"seat_total"`
+	SeatUsed          int           `json:"seat_used"`
+	IsFull            bool          `json:"is_full"`
+	CanDelete         bool          `json:"can_delete"`
+	NextRenewalDate   string        `json:"next_renewal_date"`
+	RenewalThisMonth  bool          `json:"renewal_this_month"`
+	RenewalActionable bool          `json:"renewal_actionable"`
 }
 
 // SeatView is one seat with optional active subscription occupancy.
@@ -154,7 +157,7 @@ func (service *SubscriptionService) buildAccountView(account model.Account) (Acc
 		}
 		seatViews = append(seatViews, seatView)
 	}
-	return AccountView{
+	view := AccountView{
 		Account:   account,
 		Seats:     seatViews,
 		SeatTotal: len(seatViews),
@@ -162,7 +165,20 @@ func (service *SubscriptionService) buildAccountView(account model.Account) (Acc
 		IsFull:    len(seatViews) > 0 && usedCount >= len(seatViews),
 		// No active occupancy: delete cascades free seats (history seat links are cleared).
 		CanDelete: usedCount == 0,
-	}, nil
+	}
+	if strings.TrimSpace(account.BannedAt) == "" {
+		renewalAt, err := service.nextAccountCostRenewal(account)
+		if err != nil {
+			return AccountView{}, err
+		}
+		if !renewalAt.IsZero() {
+			today := cycle.StartOfDay(service.now())
+			view.NextRenewalDate = cycle.FormatDate(renewalAt)
+			view.RenewalThisMonth = renewalAt.Year() == today.Year() && renewalAt.Month() == today.Month()
+			view.RenewalActionable = accountRenewalActionable(renewalAt, today)
+		}
+	}
+	return view, nil
 }
 
 func (service *SubscriptionService) buildSeatView(seat model.Seat) (SeatView, error) {

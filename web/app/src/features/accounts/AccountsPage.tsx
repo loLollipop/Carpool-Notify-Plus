@@ -1,6 +1,7 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
+  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -16,7 +17,7 @@ import {
   Trash2,
 } from "lucide-react"
 
-import { deleteAccount } from "@/api/endpoints"
+import { deleteAccount, markAccountRenewed } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
 import { useAccounts } from "@/api/queries"
 import type { AccountView } from "@/api/types"
@@ -46,7 +47,6 @@ import {
   type SubscriptionPrefill,
 } from "@/features/subscriptions/subscription-prefill"
 import {
-  getMonthlyRenewalDate,
   getNextMonthlyRenewalDate,
 } from "@/lib/account-renewal"
 import { AccountDialog, type AccountPrefill } from "./AccountDialog"
@@ -54,6 +54,13 @@ import { AccountBanDialog, type AccountBanTarget } from "./AccountBanDialog"
 import { SeatFreezeDialog, type SeatFreezeTarget } from "./SeatFreezeDialog"
 
 type AccountStatsFilter = "all" | "renewal" | "banned" | "full" | "available"
+
+interface AccountRenewalTarget {
+  id: number
+  name: string
+  renewalDate: string
+  amountYuan: string
+}
 
 const ACCOUNTS_PER_PAGE = 9
 
@@ -114,10 +121,16 @@ function AccountStatus({ view }: { view: AccountView }) {
   )
 }
 
-function AccountDateRows({ openedAt }: { openedAt: string }) {
+function AccountDateRows({
+  view,
+  onRenew,
+}: {
+  view: AccountView
+  onRenew: () => void
+}) {
   const { t } = useTranslation()
-  const monthlyRenewalDate = getMonthlyRenewalDate(openedAt)
-  const nextRenewalDate = getNextMonthlyRenewalDate(openedAt)
+  const openedAt = view.account.opened_at
+  const nextRenewalDate = view.next_renewal_date || getNextMonthlyRenewalDate(openedAt)
   return (
     <div className="grid min-w-0 grid-cols-[max-content_6.25rem] items-center gap-x-2.5 gap-y-1 text-xs text-muted-foreground">
       <span>{t("accounts.openedAt")}</span>
@@ -131,16 +144,24 @@ function AccountDateRows({ openedAt }: { openedAt: string }) {
       >
         {nextRenewalDate || "-"}
       </span>
-      {monthlyRenewalDate && monthlyRenewalDate !== nextRenewalDate ? (
+      {view.renewal_this_month && view.next_renewal_date ? (
         <>
           <span>{t("accounts.monthRenewalAt")}</span>
           <span
             className="truncate font-mono font-medium text-gold tabular-nums"
-            title={monthlyRenewalDate}
+            title={view.next_renewal_date}
           >
-            {monthlyRenewalDate}
+            {view.next_renewal_date}
           </span>
         </>
+      ) : null}
+      {view.renewal_actionable && view.next_renewal_date ? (
+        <div className="col-span-2 mt-1">
+          <Button type="button" variant="outline" size="sm" onClick={onRenew}>
+            <CheckCircle2 data-slot="icon" />
+            {t("accounts.markRenewed")}
+          </Button>
+        </div>
       ) : null}
     </div>
   )
@@ -270,6 +291,7 @@ function AccountMobileCard({
   onToggle,
   onOpenSeat,
   onEditFreeze,
+  onRenew,
   onEdit,
   onBan,
   onDelete,
@@ -279,6 +301,7 @@ function AccountMobileCard({
   onToggle: () => void
   onOpenSeat: (seat: NonNullable<AccountView["seats"]>[number]) => void
   onEditFreeze: (seat: NonNullable<AccountView["seats"]>[number]) => void
+  onRenew: () => void
   onEdit: () => void
   onBan: () => void
   onDelete: () => void
@@ -340,7 +363,7 @@ function AccountMobileCard({
             </div>
           </div>
           <div className="col-span-2 border-t border-foreground/[0.06] pt-2.5">
-            <AccountDateRows openedAt={view.account.opened_at} />
+            <AccountDateRows view={view} onRenew={onRenew} />
           </div>
           <div className="col-span-2">
             <div className="text-muted-foreground">{t("accounts.colPaymentMethod")}</div>
@@ -482,11 +505,16 @@ export function AccountsPage() {
   const [search, setSearch] = React.useState("")
   const [statsFilter, setStatsFilter] = React.useState<AccountStatsFilter>("all")
   const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
+  const [renewalTarget, setRenewalTarget] = React.useState<AccountRenewalTarget | null>(null)
   const [page, setPage] = React.useState(1)
 
   const deleteMutation = useAppMutation((id: number) => deleteAccount(id), {
     onSuccess: () => setDeleteTarget(null),
   })
+  const renewalMutation = useAppMutation(
+    (target: AccountRenewalTarget) => markAccountRenewed(target.id, target.renewalDate),
+    { onSuccess: () => setRenewalTarget(null) },
+  )
 
   const toggleExpanded = (accountId: number) => {
     setExpanded((previous) => {
@@ -535,12 +563,23 @@ export function AccountsPage() {
   }
 
   const accounts = React.useMemo(() => accountsQuery.data ?? [], [accountsQuery.data])
+  const openRenewal = (view: AccountView) => {
+    if (!view.next_renewal_date || !view.renewal_actionable) return
+    setStatDetail(null)
+    setRenewalTarget({
+      id: view.account.id,
+      name: view.account.email || view.account.name,
+      renewalDate: view.next_renewal_date,
+      amountYuan: formatCents(view.account.zero_renewal_next_month ? 0 : view.account.cost_cents),
+    })
+  }
   const renewalDates = React.useMemo(() => {
     const dates = new Map<number, string>()
     for (const view of accounts) {
       if (view.account.banned_at) continue
-      const renewalDate = getMonthlyRenewalDate(view.account.opened_at)
-      if (renewalDate) dates.set(view.account.id, renewalDate)
+      if (view.renewal_this_month && view.next_renewal_date) {
+        dates.set(view.account.id, view.next_renewal_date)
+      }
     }
     return dates
   }, [accounts])
@@ -582,8 +621,15 @@ export function AccountsPage() {
             ? t("accounts.statusFull")
             : t("accounts.statusOpen"),
         ],
-        value: `${view.seat_used}/${view.seat_total}`,
-        valueTone: view.account.banned_at || view.is_full ? "danger" : "success",
+        value: nextFilter === "renewal" ? (
+          <Button type="button" size="sm" onClick={() => openRenewal(view)}>
+            <CheckCircle2 data-slot="icon" />
+            {t("accounts.markRenewed")}
+          </Button>
+        ) : `${view.seat_used}/${view.seat_total}`,
+        valueTone: nextFilter === "renewal"
+          ? undefined
+          : view.account.banned_at || view.is_full ? "danger" : "success",
         searchText: view.account.remark,
       })),
     })
@@ -738,6 +784,7 @@ export function AccountsPage() {
                   setSubscriptionDialogOpen(true)
                 }}
                 onEditFreeze={openFreezeEditor}
+                onRenew={() => openRenewal(view)}
                 onEdit={() => openEdit(view)}
                 onBan={() =>
                   setBanTarget({
@@ -813,7 +860,7 @@ export function AccountsPage() {
                             </div>
                           ) : null}
                           <div className="mt-2">
-                            <AccountDateRows openedAt={view.account.opened_at} />
+                            <AccountDateRows view={view} onRenew={() => openRenewal(view)} />
                           </div>
                         </div>
                       </div>
@@ -1070,6 +1117,23 @@ export function AccountsPage() {
           if (!open) setStatDetail(null)
         }}
         detail={statDetail}
+      />
+      <ConfirmDialog
+        open={renewalTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !renewalMutation.isPending) setRenewalTarget(null)
+        }}
+        title={t("accounts.renewalConfirmTitle")}
+        description={t("accounts.renewalConfirmDesc", {
+          name: renewalTarget?.name ?? "",
+          date: renewalTarget?.renewalDate ?? "",
+          amount: renewalTarget?.amountYuan ?? "0.00",
+        })}
+        actionLabel={t("accounts.markRenewed")}
+        pending={renewalMutation.isPending}
+        onConfirm={() => {
+          if (renewalTarget) renewalMutation.mutate(renewalTarget)
+        }}
       />
       <ConfirmDialog
         open={deleteTarget !== null}

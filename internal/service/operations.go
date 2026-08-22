@@ -369,14 +369,13 @@ func buildAccountRenewalOperationTasks(
 	today := cycle.StartOfDay(now)
 	for _, view := range accounts {
 		account := view.Account
-		if account.BannedAt != "" || strings.TrimSpace(account.OpenedAt) == "" {
+		if account.BannedAt != "" || strings.TrimSpace(view.NextRenewalDate) == "" {
 			continue
 		}
-		openedAt, err := time.ParseInLocation("2006-01-02", account.OpenedAt, cycle.Location)
+		renewalAt, err := time.ParseInLocation("2006-01-02", view.NextRenewalDate, cycle.Location)
 		if err != nil {
 			continue
 		}
-		renewalAt := nextMonthlyAnniversary(openedAt, today.AddDate(0, 0, -1))
 		days := cycle.DaysRemaining(renewalAt, today)
 		if days < 0 || days > 7 {
 			continue

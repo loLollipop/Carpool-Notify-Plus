@@ -3374,6 +3374,25 @@ func (store *Store) LatestAutomaticAccountCostPeriod(accountID int64) (string, e
 	return periodDate, err
 }
 
+// HasAutomaticAccountCostPeriod reports whether an initial or renewal ledger
+// entry already exists for the account and billing period.
+func (store *Store) HasAutomaticAccountCostPeriod(accountID int64, periodDate string) (bool, error) {
+	var exists int
+	err := store.database.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM account_cost_records
+			WHERE account_id = ? AND period_date = ? AND source IN (?, ?, ?)
+		)`,
+		accountID,
+		strings.TrimSpace(periodDate),
+		model.AccountCostSourceInitial,
+		model.AccountCostSourceRenewal,
+		model.AccountCostSourceZeroRenewal,
+	).Scan(&exists)
+	return exists != 0, err
+}
+
 // AccrueAccountRenewal inserts one idempotent renewal and consumes the $0 flag once.
 func (store *Store) AccrueAccountRenewal(accountID int64, periodDate string) (bool, error) {
 	transaction, err := store.database.Begin()
