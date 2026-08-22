@@ -615,8 +615,8 @@ func TestComputeDashboardAggregatesByAccount(t *testing.T) {
 	if dashboard.TotalAmountYuan != "47.50" {
 		t.Fatalf("TotalAmountYuan = %q, want %q", dashboard.TotalAmountYuan, "47.50")
 	}
-	if dashboard.TotalCostYuan != "30.00" {
-		t.Fatalf("TotalCostYuan = %q, want %q", dashboard.TotalCostYuan, "30.00")
+	if dashboard.TotalCostCents != 3000 || dashboard.TotalCostYuan != "30.00" {
+		t.Fatalf("total cost = %d/%q, want 3000/%q", dashboard.TotalCostCents, dashboard.TotalCostYuan, "30.00")
 	}
 	if dashboard.TotalProfitYuan != "17.50" {
 		t.Fatalf("TotalProfitYuan = %q, want %q", dashboard.TotalProfitYuan, "17.50")
@@ -702,8 +702,8 @@ func TestComputeDashboardCountsAccountCostOnceAndIncludesEmptyAccounts(t *testin
 	if dashboard.TotalAmountYuan != "55.00" {
 		t.Fatalf("TotalAmountYuan = %q, want %q", dashboard.TotalAmountYuan, "55.00")
 	}
-	if dashboard.TotalCostYuan != "28.00" {
-		t.Fatalf("TotalCostYuan = %q, want %q", dashboard.TotalCostYuan, "28.00")
+	if dashboard.TotalCostCents != 2800 || dashboard.TotalCostYuan != "28.00" {
+		t.Fatalf("total cost = %d/%q, want 2800/%q", dashboard.TotalCostCents, dashboard.TotalCostYuan, "28.00")
 	}
 	if dashboard.TotalProfitYuan != "27.00" {
 		t.Fatalf("TotalProfitYuan = %q, want %q", dashboard.TotalProfitYuan, "27.00")

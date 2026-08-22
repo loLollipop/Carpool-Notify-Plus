@@ -3,11 +3,13 @@ package service_test
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 	"carpool-notify/internal/notify"
 	"carpool-notify/internal/service"
@@ -1126,6 +1128,84 @@ func TestAfterSalesCaseCanReassignCustomerWithoutRefund(t *testing.T) {
 		SeatID:    replacementSeats[0].ID,
 	}); err == nil {
 		t.Fatal("repeated reassignment should fail")
+	}
+}
+
+func TestAfterSalesReassignmentSkipsFrozenSeats(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+
+	replacementAccountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:      "replacement-account",
+		Email:     "replacement@example.com",
+		SpaceName: "Replacement Space",
+		SeatNames: []string{"Seat 1", "Seat 2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementSeats, err := subscriptionService.Store.ListSeatsByAccount(replacementAccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	frozenSubscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "canceled-customer",
+		PriceYuan:        "30.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "0",
+		CustomerEmail:    "canceled@example.com",
+		AccountID:        replacementAccountID,
+		BoardedAt:        "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancellation, err := subscriptionService.RequestCancellation(frozenSubscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SetAfterSalesCaseRefunded(cancellation.CaseID, true); err != nil {
+		t.Fatal(err)
+	}
+
+	sourceAccountID, sourceSubscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-08-01", true)
+	if _, err := subscriptionService.BanAccount(sourceAccountID, service.BanAccountInput{BannedDate: "2026-08-05"}); err != nil {
+		t.Fatal(err)
+	}
+	page, err := subscriptionService.ListAfterSalesPage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var caseID int64
+	for _, item := range page.Cases {
+		if item.Case.SubscriptionID == sourceSubscriptionID && item.Case.Status == model.AfterSalesStatusPending {
+			caseID = item.Case.ID
+			break
+		}
+	}
+	if caseID == 0 {
+		t.Fatal("pending after-sales case not found")
+	}
+
+	err = subscriptionService.Store.ReassignAfterSalesCase(
+		caseID,
+		replacementAccountID,
+		replacementSeats[0].ID,
+		now,
+	)
+	if !errors.Is(err, db.ErrReplacementSeatOccupied) {
+		t.Fatalf("frozen seat error = %v, want ErrReplacementSeatOccupied", err)
+	}
+	if err := subscriptionService.Store.ReassignAfterSalesCase(caseID, replacementAccountID, 0, now); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := subscriptionService.Store.GetSubscription(sourceSubscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.SeatID != replacementSeats[1].ID {
+		t.Fatalf("auto-assigned seat = %d, want free seat %d", moved.SeatID, replacementSeats[1].ID)
 	}
 }
 

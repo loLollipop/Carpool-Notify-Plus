@@ -363,10 +363,49 @@ func TestCustomerLifecycleIncludesActiveSeatWithoutBill(t *testing.T) {
 
 	lifecycle := buildCustomerLifecycle(subscriptions, nil, nil, nil, nil, now)
 	august := lifecycle[len(lifecycle)-1]
-	if august.NewSeatCount != 2 || august.ActiveSeatCount != 1 {
+	if august.NewSeatCount != 2 || august.ActiveSeatCount != 1 || august.TotalSeatCount != 1 {
 		t.Fatalf("unbilled seat lifecycle = %#v", august)
 	}
 	if august.NaturalChurnCount != 0 {
 		t.Fatalf("unbilled archive must not create churn evidence: %#v", august)
+	}
+}
+
+func TestCustomerLifecycleIncludesFrozenSeatInTotal(t *testing.T) {
+	now := time.Date(2026, time.August, 22, 9, 0, 0, 0, cycle.Location)
+	archivedAt := time.Date(2026, time.August, 21, 12, 0, 0, 0, cycle.Location)
+	frozenUntil := time.Date(2026, time.August, 28, 12, 0, 0, 0, cycle.Location)
+	subscriptions := []model.Subscription{
+		{
+			ID:           1,
+			BusinessType: model.SubscriptionBusinessTeam,
+			BoardedAt:    "2026-08-01",
+		},
+		{
+			ID:              2,
+			BusinessType:    model.SubscriptionBusinessTeam,
+			BoardedAt:       "2026-08-01",
+			ArchivedAt:      &archivedAt,
+			SeatFrozenUntil: &frozenUntil,
+		},
+	}
+
+	lifecycle := buildCustomerLifecycle(subscriptions, nil, nil, nil, nil, now)
+	august := lifecycle[len(lifecycle)-1]
+	if august.ActiveSeatCount != 1 || august.TotalSeatCount != 2 {
+		t.Fatalf("frozen seat lifecycle = %#v", august)
+	}
+
+	afterFreeze := buildCustomerLifecycle(
+		subscriptions,
+		nil,
+		nil,
+		nil,
+		nil,
+		time.Date(2026, time.August, 29, 9, 0, 0, 0, cycle.Location),
+	)
+	afterFreezeAugust := afterFreeze[len(afterFreeze)-1]
+	if afterFreezeAugust.ActiveSeatCount != 1 || afterFreezeAugust.TotalSeatCount != 1 {
+		t.Fatalf("expired frozen seat lifecycle = %#v", afterFreezeAugust)
 	}
 }

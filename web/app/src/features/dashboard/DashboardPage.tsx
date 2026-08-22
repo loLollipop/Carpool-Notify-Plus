@@ -1010,8 +1010,7 @@ export function DashboardPage() {
       ) + bills
         .filter((bill) => bill.business_type === "plus")
         .reduce((sum, bill) => sum + bill.cost_cents, 0)
-      const totalCostCents = Math.round(Number.parseFloat(dashboard.total_cost_yuan || "0") * 100)
-      const benefitCostCents = Math.max(0, totalCostCents - knownCostCents)
+      const benefitCostCents = Math.max(0, dashboard.total_cost_cents - knownCostCents)
       const benefitItems: StatDetailItem[] = benefitCostCents > 0 ? [{
         id: "benefit-cost",
         title: t("dash.detailBenefitCost"),
@@ -1051,7 +1050,7 @@ export function DashboardPage() {
       }))
       const teamAndBenefitCostCents = Math.max(
         0,
-        Math.round(Number.parseFloat(dashboard.total_cost_yuan) * 100) -
+        dashboard.total_cost_cents -
           plusBills.reduce((sum, bill) => sum + bill.cost_cents, 0),
       )
       const teamProfitCents = teamNetCents - teamAndBenefitCostCents

@@ -643,6 +643,7 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		TotalRefundYuan:      cycle.FormatCents(totalRefundCents),
 		NetRevenueCents:      netRevenueCents,
 		NetRevenueYuan:       cycle.FormatCents(netRevenueCents),
+		TotalCostCents:       totalCostCents,
 		TotalCostYuan:        cycle.FormatCents(totalCostCents),
 		TotalProfitYuan:      cycle.FormatCents(totalProfitCents),
 		TotalProfitCents:     totalProfitCents,
@@ -692,6 +693,7 @@ type Dashboard struct {
 	TotalRefundYuan      string                 `json:"total_refund_yuan"`
 	NetRevenueCents      int64                  `json:"net_revenue_cents"`
 	NetRevenueYuan       string                 `json:"net_revenue_yuan"`
+	TotalCostCents       int64                  `json:"total_cost_cents"`
 	TotalCostYuan        string                 `json:"total_cost_yuan"`
 	TotalProfitYuan      string                 `json:"total_profit_yuan"`
 	TotalProfitCents     int64                  `json:"total_profit_cents"`

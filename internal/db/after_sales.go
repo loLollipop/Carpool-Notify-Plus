@@ -627,6 +627,7 @@ func (store *Store) ReassignAfterSalesCase(
 	replacementSeatID int64,
 	processedTime time.Time,
 ) error {
+	processedAt := formatTime(processedTime.UTC())
 	transaction, err := store.database.Begin()
 	if err != nil {
 		return err
@@ -694,10 +695,16 @@ func (store *Store) ReassignAfterSalesCase(
 				FROM subscriptions AS subscription
 				WHERE subscription.seat_id = seat.id
 				  AND subscription.deleted_at IS NULL
-				  AND subscription.archived_at IS NULL
+				  AND (
+					subscription.archived_at IS NULL
+					OR (
+						subscription.seat_frozen_until IS NOT NULL
+						AND julianday(subscription.seat_frozen_until) > julianday(?)
+					)
+				  )
 			  )
 			ORDER BY seat.id ASC
-			LIMIT 1`, replacementAccountID).Scan(&replacementSeatID, &seatName); err != nil {
+			LIMIT 1`, replacementAccountID, processedAt).Scan(&replacementSeatID, &seatName); err != nil {
 			return fmt.Errorf("%w: %v", ErrReplacementSeatUnavailable, err)
 		}
 	}
@@ -709,7 +716,13 @@ func (store *Store) ReassignAfterSalesCase(
 		WHERE seat_id = ?
 		  AND id <> ?
 		  AND deleted_at IS NULL
-		  AND archived_at IS NULL`, replacementSeatID, subscriptionID).Scan(&occupiedCount); err != nil {
+		  AND (
+			archived_at IS NULL
+			OR (
+				seat_frozen_until IS NOT NULL
+				AND julianday(seat_frozen_until) > julianday(?)
+			)
+		  )`, replacementSeatID, subscriptionID, processedAt).Scan(&occupiedCount); err != nil {
 		return err
 	}
 	if occupiedCount > 0 {
@@ -719,17 +732,19 @@ func (store *Store) ReassignAfterSalesCase(
 		return ErrReplacementSeatUnchanged
 	}
 
-	now := formatTime(processedTime.UTC())
 	result, err := transaction.Exec(`
 		UPDATE subscriptions
 		SET seat_id = ?, subscription_type = ?, updated_at = ?
 		WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL`,
 		replacementSeatID,
 		accountName,
-		now,
+		processedAt,
 		subscriptionID,
 	)
 	if err != nil {
+		if isActiveSeatOccupancyError(err) {
+			return ErrReplacementSeatOccupied
+		}
 		return err
 	}
 	rowsAffected, err := result.RowsAffected()
@@ -754,8 +769,8 @@ func (store *Store) ReassignAfterSalesCase(
 		strings.TrimSpace(spaceName),
 		strings.TrimSpace(seatName),
 		model.AfterSalesStatusReassigned,
-		now,
-		now,
+		processedAt,
+		processedAt,
 		caseID,
 		model.AfterSalesStatusPending,
 		model.AfterSalesStatusReview,

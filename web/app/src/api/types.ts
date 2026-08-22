@@ -212,6 +212,7 @@ export interface Dashboard {
   total_refund_yuan: string
   net_revenue_cents: number
   net_revenue_yuan: string
+  total_cost_cents: number
   total_cost_yuan: string
   total_profit_yuan: string
   total_profit_cents: number
@@ -908,6 +909,7 @@ export interface CustomerLifecycleMonth {
   renewal_success_count: number
   natural_churn_count: number
   active_seat_count: number
+  total_seat_count: number
 }
 
 export interface PredictionReadiness {

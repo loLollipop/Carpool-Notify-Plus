@@ -82,6 +82,7 @@ type CustomerLifecycleMonth struct {
 	RenewalSuccessCount int    `json:"renewal_success_count"`
 	NaturalChurnCount   int    `json:"natural_churn_count"`
 	ActiveSeatCount     int    `json:"active_seat_count"`
+	TotalSeatCount      int    `json:"total_seat_count"`
 }
 
 type PredictionReadiness struct {
@@ -795,8 +796,17 @@ func buildCustomerLifecycle(
 			if startedAt.After(evaluatedAt) {
 				continue
 			}
-			if subscription.ArchivedAt == nil || subscription.ArchivedAt.In(cycle.Location).After(evaluatedAt) {
+			activeAt := subscription.ArchivedAt == nil ||
+				subscription.ArchivedAt.In(cycle.Location).After(evaluatedAt)
+			frozenAt := subscription.ArchivedAt != nil &&
+				!subscription.ArchivedAt.In(cycle.Location).After(evaluatedAt) &&
+				subscription.SeatFrozenUntil != nil &&
+				subscription.SeatFrozenUntil.In(cycle.Location).After(evaluatedAt)
+			if activeAt {
 				months[index].ActiveSeatCount++
+			}
+			if activeAt || frozenAt {
+				months[index].TotalSeatCount++
 			}
 		}
 

@@ -2860,20 +2860,20 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
     label: t("goals.care.prediction.monthLabel", {
       month: Number(month.month.slice(5, 7)),
     }),
-    newSeats: month.new_seat_count,
+    totalSeats: month.total_seat_count,
     renewals: month.renewal_success_count,
     churns: month.natural_churn_count,
     activeSeats: month.active_seat_count,
   }))
   const lifecycleTotals = lifecycle.reduce(
     (totals, month) => ({
-      newSeats: totals.newSeats + month.newSeats,
       renewals: totals.renewals + month.renewals,
       churns: totals.churns + month.churns,
     }),
-    { newSeats: 0, renewals: 0, churns: 0 },
+    { renewals: 0, churns: 0 },
   )
   const currentActiveSeats = lifecycle.at(-1)?.activeSeats ?? 0
+  const currentTotalSeats = lifecycle.at(-1)?.totalSeats ?? 0
   const lifecycleMetrics = [
     {
       key: "activeSeats",
@@ -2883,9 +2883,9 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
       countKey: "chartSeatCount",
     },
     {
-      key: "newSeats",
-      label: t("goals.care.prediction.chart.newSeats"),
-      value: lifecycleTotals.newSeats,
+      key: "totalSeats",
+      label: t("goals.care.prediction.chart.totalSeats"),
+      value: currentTotalSeats,
       color: "var(--brand)",
       countKey: "chartSeatCount",
     },
@@ -2936,7 +2936,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
             role="img"
             aria-label={t("goals.care.prediction.chartAria", {
               active: currentActiveSeats,
-              newSeats: lifecycleTotals.newSeats,
+              total: currentTotalSeats,
               renewals: lifecycleTotals.renewals,
               churns: lifecycleTotals.churns,
             })}
@@ -3017,10 +3017,11 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                     }}
                   />
                   <Bar
-                    yAxisId="events"
-                    dataKey="newSeats"
+                    yAxisId="active"
+                    dataKey="totalSeats"
                     fill="var(--brand)"
-                    maxBarSize={18}
+                    fillOpacity={0.82}
+                    maxBarSize={24}
                     radius={[3, 3, 0, 0]}
                   />
                   <Bar
@@ -3067,7 +3068,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
           </div>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="grid min-h-0 gap-2 sm:grid-cols-2 xl:mt-1 xl:grid-rows-2">
           {models.map((model) => {
             const progress = Math.min(
               100,
