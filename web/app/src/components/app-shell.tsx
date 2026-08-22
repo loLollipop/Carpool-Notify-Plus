@@ -183,19 +183,19 @@ export function AppShell() {
     if (!overview) return 0
     switch (to) {
       case "/":
-        return overview.work.urgent_count
+        return overview.unread.dashboard_count
       case "/calendar":
-        return overview.work.overdue_count + overview.work.due_7d_count
+        return overview.unread.calendar_count
       case "/users":
-        return overview.work.team_due_count
+        return overview.unread.team_count
       case "/plus-rentals":
-        return overview.work.plus_due_count
+        return overview.unread.plus_count
       case "/redemptions":
-        return overview.work.pending_redemption_count
+        return overview.unread.redemption_count
       case "/accounts":
-        return overview.capacity.seat_releasing_7d + overview.work.account_renewal_count
+        return overview.unread.account_count
       case "/after-sales":
-        return overview.work.pending_after_sales_count
+        return overview.unread.after_sales_count
       default:
         return 0
     }

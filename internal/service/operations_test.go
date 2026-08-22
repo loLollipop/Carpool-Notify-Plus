@@ -146,4 +146,81 @@ func TestOperationsOverviewWorkCountsAreNotCappedWithTaskList(t *testing.T) {
 	if overview.Work.PlusDueCount != 25 || overview.Work.TeamDueCount != 1 {
 		t.Fatalf("work counts = %#v, want all 25 Plus and 1 Team tasks", overview.Work)
 	}
+	if len(overview.Notifications) != 26 {
+		t.Fatalf("notification list length = %d, want all 26 tasks", len(overview.Notifications))
+	}
+	if overview.Unread.PlusCount != 25 || overview.Unread.TeamCount != 1 || overview.Unread.CalendarCount != 26 {
+		t.Fatalf("unread counts = %#v, want all subscription tasks", overview.Unread)
+	}
+
+	acknowledgedID := overview.Notifications[len(overview.Notifications)-1].ID
+	if count, err := subscriptionService.AcknowledgeOperationTasks([]string{acknowledgedID}); err != nil || count != 1 {
+		t.Fatalf("acknowledge task = %d, %v, want 1, nil", count, err)
+	}
+	overview, err = subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Unread.CalendarCount != 25 {
+		t.Fatalf("calendar unread after acknowledgement = %d, want 25", overview.Unread.CalendarCount)
+	}
+	if overview.Work.PlusDueCount != 25 || overview.Work.TeamDueCount != 1 {
+		t.Fatalf("business work changed after acknowledgement: %#v", overview.Work)
+	}
+}
+
+func TestOperationAcknowledgementIsOccurrenceSpecific(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 22, 12, 0, 0, 0, cycle.Location)
+	}
+
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "Daily Plus customer",
+		BusinessType:     model.SubscriptionBusinessPlus,
+		PriceYuan:        "68.00",
+		CostYuan:         "20.00",
+		CronExpr:         "interval:1d",
+		NotifyOffsetsRaw: "1",
+		CustomerEmail:    "daily@example.com",
+		CustomerWechat:   "daily-wechat",
+		BoardedAt:        "2026-08-20",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	overview, err := subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.Notifications) != 1 || !overview.Notifications[0].Unread {
+		t.Fatalf("initial notifications = %#v, want one unread task", overview.Notifications)
+	}
+	firstTaskID := overview.Notifications[0].ID
+	if count, acknowledgeErr := subscriptionService.AcknowledgeOperationTasks([]string{firstTaskID}); acknowledgeErr != nil || count != 1 {
+		t.Fatalf("acknowledge first occurrence = %d, %v", count, acknowledgeErr)
+	}
+
+	overview, err = subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Unread.PlusCount != 0 || overview.Work.PlusDueCount != 1 || overview.Notifications[0].Unread {
+		t.Fatalf("acknowledged overview = %#v, want unresolved but read", overview)
+	}
+
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-08-21", true); err != nil {
+		t.Fatal(err)
+	}
+	overview, err = subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(overview.Notifications) != 1 || !overview.Notifications[0].Unread {
+		t.Fatalf("next occurrence notifications = %#v, want one unread task", overview.Notifications)
+	}
+	if overview.Notifications[0].ID == firstTaskID || overview.Notifications[0].DueDate != "2026-08-22" {
+		t.Fatalf("next occurrence = %#v, want a new 2026-08-22 task", overview.Notifications[0])
+	}
 }

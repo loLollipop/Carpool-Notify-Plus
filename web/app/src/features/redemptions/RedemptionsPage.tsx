@@ -39,6 +39,7 @@ import type {
 } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { PageHeader } from "@/components/page-header"
+import { OperationUnreadBadge } from "@/components/operation-unread-badge"
 import {
   StatDetailDialog,
   type StatDetailState,
@@ -60,6 +61,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
+import { useOperationNotifications } from "@/hooks/use-operation-notifications"
 import { todayShanghai } from "@/features/subscriptions/subscription-prefill"
 
 type RedemptionFilter = "pending" | "invited" | "rejected" | "all"
@@ -697,10 +699,14 @@ function RedemptionCard({
   view,
   index,
   seats,
+  unreadCount,
+  onAcknowledge,
 }: {
   view: RedemptionApplicationView
   index: number
   seats: SelectableSeat[]
+  unreadCount: number
+  onAcknowledge: () => void
 }) {
   const application = view.application
   const invited = application.status === "invited"
@@ -708,8 +714,10 @@ function RedemptionCard({
 
   return (
     <Card
+      onClick={unreadCount > 0 ? onAcknowledge : undefined}
       className={cn(
         "relative gap-0 overflow-hidden p-5 transition-colors hover:border-foreground/15 animate-fade-up",
+        unreadCount > 0 && "cursor-pointer ring-1 ring-destructive/15",
         invited
           ? "border-l-4 border-l-success"
           : rejected
@@ -722,6 +730,7 @@ function RedemptionCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             {statusBadge(application.status)}
+            <OperationUnreadBadge count={unreadCount} />
             <span className="text-xs tabular-nums text-muted-foreground">{view.created_at_label}</span>
           </div>
           <h3 className="mt-3 truncate text-[16px] font-semibold">{application.customer_email}</h3>
@@ -795,6 +804,7 @@ export function RedemptionsPage() {
   const [page, setPage] = React.useState(1)
   const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
   const redemptionsQuery = useRedemptions("all")
+  const { notifications, acknowledge } = useOperationNotifications()
   const accountOptionsQuery = useAccountOptions(0, true)
 
   const seats = React.useMemo(
@@ -803,13 +813,22 @@ export function RedemptionsPage() {
   )
 
   const redemptions = redemptionsQuery.data?.redemptions ?? EMPTY_REDEMPTIONS
+  const unreadTasksByApplication = React.useMemo(() => {
+    const tasks = new Map<number, typeof notifications>()
+    for (const task of notifications) {
+      if (task.kind !== "redemption" || !task.redemption_id) continue
+      const current = tasks.get(task.redemption_id) ?? []
+      current.push(task)
+      tasks.set(task.redemption_id, current)
+    }
+    return tasks
+  }, [notifications])
   const filtered = React.useMemo(() => {
     const query = search.trim().toLowerCase()
     const byStatus = filter === "all"
       ? redemptions
       : redemptions.filter((view) => view.application.status === filter)
-    if (!query) return byStatus
-    return byStatus.filter((view) =>
+    const matches = !query ? byStatus : byStatus.filter((view) =>
       [
         view.application.customer_email,
         view.application.customer_contact,
@@ -823,7 +842,11 @@ export function RedemptionsPage() {
         view.subscription_name,
       ].some((field) => field?.toLowerCase().includes(query)),
     )
-  }, [filter, redemptions, search])
+    return [...matches].sort((left, right) =>
+      (unreadTasksByApplication.get(right.application.id)?.length ?? 0) -
+      (unreadTasksByApplication.get(left.application.id)?.length ?? 0),
+    )
+  }, [filter, redemptions, search, unreadTasksByApplication])
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / APPLICATIONS_PER_PAGE))
   const safePage = Math.min(page, pageCount)
@@ -977,6 +1000,8 @@ export function RedemptionsPage() {
                     view={view}
                     index={index}
                     seats={seats}
+                    unreadCount={unreadTasksByApplication.get(view.application.id)?.length ?? 0}
+                    onAcknowledge={() => acknowledge(unreadTasksByApplication.get(view.application.id) ?? [])}
                   />
                 ))}
               </div>

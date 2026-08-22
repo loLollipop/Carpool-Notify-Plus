@@ -18,6 +18,7 @@ import {
 import { useCalendar } from "@/api/queries"
 import type { CalendarDay, CalendarMonth, CalendarOccurrence, SubscriptionView } from "@/api/types"
 import { PageHeader } from "@/components/page-header"
+import { OperationUnreadBadge } from "@/components/operation-unread-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -25,6 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
+import { useOperationNotifications } from "@/hooks/use-operation-notifications"
 import { maskAmount } from "@/lib/amount-privacy"
 import { cn } from "@/lib/utils"
 import { isOneMonthRentalCron } from "@/features/plus-rentals/rental-mode"
@@ -42,9 +44,11 @@ const TASKS_PER_PAGE = 12
 function EventPill({
   occurrence,
   onView,
+  unreadCount,
 }: {
   occurrence: CalendarOccurrence
   onView: (occurrence: CalendarOccurrence) => void
+  unreadCount: number
 }) {
   const { t } = useTranslation()
   const label =
@@ -69,7 +73,10 @@ function EventPill({
               : "border-gold/40 bg-gold/15 text-foreground shadow-[inset_3px_0_0_var(--gold)] hover:bg-gold/20",
           )}
         >
-          {label}
+          <span className="flex min-w-0 items-center gap-1">
+            <span className="min-w-0 truncate">{label}</span>
+            <OperationUnreadBadge count={unreadCount} className="h-4 min-w-4 px-1 text-[9px]" />
+          </span>
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="grid gap-0.5">
@@ -87,10 +94,12 @@ function MonthGrid({
   calendar,
   onSelectDay,
   onViewOccurrence,
+  unreadCountFor,
 }: {
   calendar: CalendarMonth
   onSelectDay: (day: CalendarDay) => void
   onViewOccurrence: (occurrence: CalendarOccurrence) => void
+  unreadCountFor: (occurrence: CalendarOccurrence) => number
 }) {
   const { t } = useTranslation()
   const weekdays = t("calendar.weekdays", { returnObjects: true }) as string[]
@@ -153,6 +162,7 @@ function MonthGrid({
                     key={`${occurrence.subscription_id}:${occurrence.due_date}`}
                     occurrence={occurrence}
                     onView={onViewOccurrence}
+                    unreadCount={unreadCountFor(occurrence)}
                   />
                 ))}
               </span>
@@ -272,10 +282,12 @@ function TaskRow({
   occurrence,
   onView,
   onPaid,
+  unreadCount,
 }: {
   occurrence: CalendarOccurrence
   onView: (occurrence: CalendarOccurrence) => void
   onPaid: (occurrence: CalendarOccurrence) => void
+  unreadCount: number
 }) {
   const { t } = useTranslation()
   const { amountsHidden } = useAmountPrivacy()
@@ -302,6 +314,7 @@ function TaskRow({
       <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onView(occurrence)}>
         <span className="flex min-w-0 flex-wrap items-center gap-2">
           <strong className="truncate text-sm">{identifier}</strong>
+          <OperationUnreadBadge count={unreadCount} />
           <Badge variant={plus ? "brand" : "secondary"}>{plus ? "Plus" : "Team"}</Badge>
           {occurrence.paid ? <Badge variant="success">{t("dueStatus.paid")}</Badge> : null}
         </span>
@@ -350,21 +363,29 @@ function TaskWorkspace({
   calendar,
   onView,
   onPaid,
+  unreadCountFor,
 }: {
   calendar: CalendarMonth
   onView: (occurrence: CalendarOccurrence) => void
   onPaid: (occurrence: CalendarOccurrence) => void
+  unreadCountFor: (occurrence: CalendarOccurrence) => number
 }) {
   const { t } = useTranslation()
   const [filter, setFilter] = React.useState<TaskFilter>("all")
   const [page, setPage] = React.useState(1)
   const occurrences = React.useMemo(() => {
     const pending = (calendar.occurrences ?? []).filter((item) => !item.paid)
-    if (filter === "overdue") return pending.filter((item) => item.days_remaining < 0)
-    if (filter === "soon") return pending.filter((item) => item.days_remaining >= 0 && item.days_remaining <= 7)
-    if (filter === "paid") return calendar.paid_in_month_occurrences ?? []
-    return pending
-  }, [calendar.occurrences, calendar.paid_in_month_occurrences, filter])
+    const filtered = filter === "overdue"
+      ? pending.filter((item) => item.days_remaining < 0)
+      : filter === "soon"
+        ? pending.filter((item) => item.days_remaining >= 0 && item.days_remaining <= 7)
+        : filter === "paid"
+          ? calendar.paid_in_month_occurrences ?? []
+          : pending
+    return [...filtered].sort(
+      (left, right) => unreadCountFor(right) - unreadCountFor(left),
+    )
+  }, [calendar.occurrences, calendar.paid_in_month_occurrences, filter, unreadCountFor])
   const pageCount = Math.max(1, Math.ceil(occurrences.length / TASKS_PER_PAGE))
   const currentPage = Math.min(page, pageCount)
   const pageOccurrences = occurrences.slice(
@@ -411,6 +432,7 @@ function TaskWorkspace({
                     occurrence={occurrence}
                     onView={onView}
                     onPaid={onPaid}
+                    unreadCount={unreadCountFor(occurrence)}
                   />
                 ))}
               </div>
@@ -526,9 +548,35 @@ export function CalendarPage() {
   const requestedView = searchParams.get("view")
   const view: CalendarView = requestedView === "calendar" || requestedView === "activity" ? requestedView : "tasks"
   const calendarQuery = useCalendar(month || undefined)
+  const { notifications, acknowledge } = useOperationNotifications()
   const [seatInfo, setSeatInfo] = React.useState<SeatSubscriptionInfo | null>(null)
   const [duePaidTarget, setDuePaidTarget] = React.useState<DuePaidTarget | null>(null)
   const calendar = calendarQuery.data
+  const occurrenceTasks = React.useMemo(() => {
+    const tasks = new Map<string, typeof notifications>()
+    for (const task of notifications) {
+      if (!task.subscription_id || !task.due_date) continue
+      const key = `${task.subscription_id}:${task.due_date}`
+      const current = tasks.get(key) ?? []
+      current.push(task)
+      tasks.set(key, current)
+    }
+    return tasks
+  }, [notifications])
+  const tasksForOccurrence = React.useCallback(
+    (occurrence: CalendarOccurrence) =>
+      occurrenceTasks.get(`${occurrence.subscription_id}:${occurrence.due_date}`) ?? [],
+    [occurrenceTasks],
+  )
+  const unreadCountFor = React.useCallback(
+    (occurrence: CalendarOccurrence) => tasksForOccurrence(occurrence).length,
+    [tasksForOccurrence],
+  )
+
+  const openOccurrence = (occurrence: CalendarOccurrence) => {
+    acknowledge(tasksForOccurrence(occurrence))
+    setSeatInfo(seatInfoFromOccurrence(occurrence, t))
+  }
 
   const updateParams = (updates: { month?: string; view?: CalendarView }) => {
     const next = new URLSearchParams(searchParams)
@@ -544,6 +592,7 @@ export function CalendarPage() {
   }
 
   const openPaid = (occurrence: CalendarOccurrence) => {
+    acknowledge(tasksForOccurrence(occurrence))
     setDuePaidTarget({
       subscriptionId: occurrence.subscription_id,
       name: occurrence.customer_email || occurrence.customer_wechat || occurrence.name,
@@ -580,8 +629,9 @@ export function CalendarPage() {
               <TaskWorkspace
                 key={calendar.month_value}
                 calendar={calendar}
-                onView={(occurrence) => setSeatInfo(seatInfoFromOccurrence(occurrence, t))}
+                onView={openOccurrence}
                 onPaid={openPaid}
+                unreadCountFor={unreadCountFor}
               />
             </TabsContent>
             <TabsContent value="calendar" className="mt-3">
@@ -591,7 +641,8 @@ export function CalendarPage() {
                   onSelectDay={(day) => {
                     if (!day.in_month) updateParams({ month: day.date.slice(0, 7) })
                   }}
-                  onViewOccurrence={(occurrence) => setSeatInfo(seatInfoFromOccurrence(occurrence, t))}
+                  onViewOccurrence={openOccurrence}
+                  unreadCountFor={unreadCountFor}
                 />
               </Card>
             </TabsContent>

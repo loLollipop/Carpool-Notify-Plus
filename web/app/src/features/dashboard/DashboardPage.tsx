@@ -36,6 +36,7 @@ import { useOperationsOverview } from "@/api/queries"
 import type { OperationTask, OperationsOverview } from "@/api/types"
 import { AmountPrivacyToggle } from "@/components/amount-privacy-toggle"
 import { PageHeader } from "@/components/page-header"
+import { OperationUnreadBadge } from "@/components/operation-unread-badge"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -44,6 +45,7 @@ import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDi
 import { PlusRentalDialog } from "@/features/plus-rentals/PlusRentalDialog"
 import { SubscriptionDialog } from "@/features/subscriptions/SubscriptionDialog"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
+import { useOperationNotifications } from "@/hooks/use-operation-notifications"
 import { maskAmount } from "@/lib/amount-privacy"
 import { cn } from "@/lib/utils"
 
@@ -277,10 +279,12 @@ function OperationsQueue({
   overview,
   amountsHidden,
   onCollect,
+  onAcknowledge,
 }: {
   overview: OperationsOverview
   amountsHidden: boolean
   onCollect: (task: OperationTask) => void
+  onAcknowledge: (task: OperationTask) => void
 }) {
   const { t } = useTranslation()
   const tasks = (overview.tasks ?? []).slice(0, 8)
@@ -357,6 +361,7 @@ function OperationsQueue({
                 <span className="min-w-0 flex-1">
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="truncate text-xs font-semibold">{identifier}</span>
+                    <OperationUnreadBadge count={task.unread ? 1 : 0} className="h-4 min-w-4 px-1 text-[9px]" />
                     <span className="shrink-0 text-[10px] text-muted-foreground">
                       {kindLabel(task.kind)}
                     </span>
@@ -372,14 +377,21 @@ function OperationsQueue({
                   </span>
                 ) : null}
                 {canCollect ? (
-                  <Button size="sm" className="h-7 shrink-0 px-2.5 text-[11px]" onClick={() => onCollect(task)}>
+                  <Button
+                    size="sm"
+                    className="h-7 shrink-0 px-2.5 text-[11px]"
+                    onClick={() => {
+                      onAcknowledge(task)
+                      onCollect(task)
+                    }}
+                  >
                     {task.kind.startsWith("plus_")
                       ? t("dash.workbench.recordRenewal")
                       : t("dash.workbench.recordPaid")}
                   </Button>
                 ) : (
                   <Button asChild variant="outline" size="sm" className="h-7 shrink-0 px-2.5 text-[11px]">
-                    <Link to={task.route}>{t("dash.workbench.handle")}</Link>
+                    <Link to={task.route} onClick={() => onAcknowledge(task)}>{t("dash.workbench.handle")}</Link>
                   </Button>
                 )}
               </div>
@@ -543,6 +555,7 @@ export function DashboardPage() {
   const navigate = useNavigate()
   const { amountsHidden, toggleAmounts } = useAmountPrivacy()
   const overviewQuery = useOperationsOverview()
+  const { acknowledge } = useOperationNotifications()
   const [plusDialogOpen, setPlusDialogOpen] = React.useState(false)
   const [teamDialogOpen, setTeamDialogOpen] = React.useState(false)
   const [duePaidTarget, setDuePaidTarget] = React.useState<DuePaidTarget | null>(null)
@@ -641,7 +654,12 @@ export function DashboardPage() {
 
           <section className="grid min-h-[430px] gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
             <CashflowCard overview={overview} amountsHidden={amountsHidden} />
-            <OperationsQueue overview={overview} amountsHidden={amountsHidden} onCollect={openCollect} />
+            <OperationsQueue
+              overview={overview}
+              amountsHidden={amountsHidden}
+              onCollect={openCollect}
+              onAcknowledge={(task) => acknowledge([task])}
+            />
           </section>
 
           <section className="grid gap-4 lg:grid-cols-2">

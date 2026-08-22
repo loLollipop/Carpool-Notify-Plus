@@ -38,6 +38,17 @@ type OperationTask struct {
 	CycleDesc        string `json:"cycle_desc"`
 	OneMonthRental   bool   `json:"one_month_rental"`
 	Route            string `json:"route"`
+	Unread           bool   `json:"unread"`
+}
+
+type OperationsUnreadSummary struct {
+	DashboardCount  int `json:"dashboard_count"`
+	CalendarCount   int `json:"calendar_count"`
+	TeamCount       int `json:"team_count"`
+	PlusCount       int `json:"plus_count"`
+	RedemptionCount int `json:"redemption_count"`
+	AccountCount    int `json:"account_count"`
+	AfterSalesCount int `json:"after_sales_count"`
 }
 
 type OperationsCapacitySummary struct {
@@ -87,6 +98,8 @@ type OperationsOverview struct {
 	Capacity                    OperationsCapacitySummary `json:"capacity"`
 	Work                        OperationsWorkSummary     `json:"work"`
 	Goal                        *OperationsGoalSummary    `json:"goal"`
+	Unread                      OperationsUnreadSummary   `json:"unread"`
+	Notifications               []OperationTask           `json:"notifications"`
 	Tasks                       []OperationTask           `json:"tasks"`
 }
 
@@ -178,10 +191,90 @@ func (service *SubscriptionService) GetOperationsOverview() (OperationsOverview,
 		}
 		return overview.Tasks[left].Priority > overview.Tasks[right].Priority
 	})
+	acknowledged, err := service.Store.ListAcknowledgedOperationTaskIDs()
+	if err != nil {
+		return OperationsOverview{}, err
+	}
+	for index := range overview.Tasks {
+		_, seen := acknowledged[overview.Tasks[index].ID]
+		overview.Tasks[index].Unread = !seen
+		if overview.Tasks[index].Unread {
+			addUnreadOperationTask(&overview.Unread, overview.Tasks[index])
+		}
+	}
+	sort.SliceStable(overview.Tasks, func(left, right int) bool {
+		return overview.Tasks[left].Unread && !overview.Tasks[right].Unread
+	})
+	overview.Notifications = append([]OperationTask(nil), overview.Tasks...)
 	if len(overview.Tasks) > operationsTaskLimit {
 		overview.Tasks = overview.Tasks[:operationsTaskLimit]
 	}
 	return overview, nil
+}
+
+func addUnreadOperationTask(summary *OperationsUnreadSummary, task OperationTask) {
+	switch task.Kind {
+	case "team_due", "team_overdue":
+		summary.CalendarCount++
+		summary.TeamCount++
+	case "plus_due", "plus_overdue":
+		summary.CalendarCount++
+		summary.PlusCount++
+	case "redemption":
+		summary.RedemptionCount++
+	case "after_sales":
+		summary.AfterSalesCount++
+	case "seat_release", "account_renewal":
+		summary.AccountCount++
+	}
+	if task.Tone == "critical" {
+		summary.DashboardCount++
+	}
+}
+
+// AcknowledgeOperationTasks persists well-formed IDs sent by the authenticated
+// admin UI. It deliberately avoids rebuilding the expensive operations
+// overview on every click.
+func (service *SubscriptionService) AcknowledgeOperationTasks(taskIDs []string) (int, error) {
+	matched := make([]string, 0, len(taskIDs))
+	seen := make(map[string]struct{}, len(taskIDs))
+	for _, rawTaskID := range taskIDs {
+		taskID := strings.TrimSpace(rawTaskID)
+		if !validOperationTaskID(taskID) {
+			continue
+		}
+		if _, duplicate := seen[taskID]; duplicate {
+			continue
+		}
+		seen[taskID] = struct{}{}
+		matched = append(matched, taskID)
+	}
+	if len(matched) == 0 {
+		return 0, nil
+	}
+	if err := service.Store.AcknowledgeOperationTasks(matched, service.now()); err != nil {
+		return 0, err
+	}
+	return len(matched), nil
+}
+
+func validOperationTaskID(taskID string) bool {
+	if taskID == "" || len(taskID) > 256 {
+		return false
+	}
+	for _, prefix := range []string{
+		"subscription:",
+		"redemption:",
+		"after-sales:",
+		"notification-failures:",
+		"seat-release:",
+		"account-renewal:",
+	} {
+		if strings.HasPrefix(taskID, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func buildOperationsCapacity(
@@ -211,7 +304,7 @@ func buildOperationsCapacity(
 			}
 			summary.SeatReleasing7Days++
 			*tasks = append(*tasks, OperationTask{
-				ID:            fmt.Sprintf("seat-release:%d", seat.Seat.ID),
+				ID:            fmt.Sprintf("seat-release:%d:%s", seat.Seat.ID, cycle.FormatDate(frozenUntil.In(cycle.Location))),
 				Kind:          "seat_release",
 				Tone:          "info",
 				Priority:      45 - days,
@@ -350,8 +443,14 @@ func buildNotificationOperationTask(dashboard Dashboard, tasks *[]OperationTask)
 	if dashboard.NotifyFailed30d <= 0 {
 		return
 	}
+	latestFailureID := int64(0)
+	for _, activity := range dashboard.NotificationActivity {
+		if activity.Status == "failed" && activity.ID > latestFailureID {
+			latestFailureID = activity.ID
+		}
+	}
 	*tasks = append(*tasks, OperationTask{
-		ID:       "notification-failures",
+		ID:       fmt.Sprintf("notification-failures:%d", latestFailureID),
 		Kind:     "notification_failed",
 		Tone:     "critical",
 		Priority: 88,

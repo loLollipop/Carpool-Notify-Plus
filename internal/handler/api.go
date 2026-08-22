@@ -58,6 +58,25 @@ func (server *Server) getOperationsOverview(context *gin.Context) {
 	respondOK(context, gin.H{"overview": overview})
 }
 
+type acknowledgeOperationTasksRequest struct {
+	TaskIDs []string `json:"task_ids"`
+}
+
+func (server *Server) postAcknowledgeOperationTasks(context *gin.Context) {
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 32<<10)
+	var request acknowledgeOperationTasksRequest
+	if err := context.ShouldBindJSON(&request); err != nil || len(request.TaskIDs) == 0 || len(request.TaskIDs) > 1000 {
+		respondError(context, http.StatusBadRequest, "invalid operation task ids")
+		return
+	}
+	acknowledged, err := server.Service.AcknowledgeOperationTasks(request.TaskIDs)
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"acknowledged": acknowledged})
+}
+
 func (server *Server) getGoals(context *gin.Context) {
 	center, err := server.Service.GetGoalCenter()
 	if err != nil {

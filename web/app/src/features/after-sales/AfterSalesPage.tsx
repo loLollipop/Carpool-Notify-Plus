@@ -28,6 +28,7 @@ import { useAccountOptions, useAfterSales } from "@/api/queries"
 import type { AfterSalesCaseView, AfterSalesStatus } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { PageHeader } from "@/components/page-header"
+import { OperationUnreadBadge } from "@/components/operation-unread-badge"
 import {
   StatDetailDialog,
   type StatDetailState,
@@ -63,6 +64,7 @@ import {
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
+import { useOperationNotifications } from "@/hooks/use-operation-notifications"
 
 type AfterSalesFilter = "all" | AfterSalesStatus
 type AfterSalesBusinessFilter = "all" | "team" | "plus"
@@ -421,6 +423,7 @@ function EditCaseDialog({
 export function AfterSalesPage() {
   const { t } = useTranslation()
   const query = useAfterSales()
+  const { notifications, acknowledge } = useOperationNotifications()
   const [searchParams, setSearchParams] = useSearchParams()
   const accountFilter = Number(searchParams.get("account") || 0)
   const caseFilter = Number(searchParams.get("case") || 0)
@@ -439,13 +442,23 @@ export function AfterSalesPage() {
   )
 
   const allCases = React.useMemo(() => query.data?.cases ?? [], [query.data?.cases])
+  const unreadTasksByCase = React.useMemo(() => {
+    const tasks = new Map<number, typeof notifications>()
+    for (const task of notifications) {
+      if (task.kind !== "after_sales" || !task.after_sales_case_id) continue
+      const current = tasks.get(task.after_sales_case_id) ?? []
+      current.push(task)
+      tasks.set(task.after_sales_case_id, current)
+    }
+    return tasks
+  }, [notifications])
   const summaryCases = React.useMemo(
     () => query.data?.summary_cases ?? allCases,
     [allCases, query.data?.summary_cases],
   )
   const filteredCases = React.useMemo(() => {
     const needle = search.trim().toLowerCase()
-    return allCases.filter((view) => {
+    const matches = allCases.filter((view) => {
       if (accountFilter > 0 && view.case.account_id !== accountFilter) return false
       if (caseFilter > 0 && view.case.id !== caseFilter) return false
       if (businessFilter !== "all" && view.case.business_type !== businessFilter) return false
@@ -466,7 +479,11 @@ export function AfterSalesPage() {
         view.refund_amount_yuan,
       ].some((field) => field.toLowerCase().includes(needle))
     })
-  }, [accountFilter, allCases, businessFilter, caseFilter, filter, search])
+    return matches.sort((left, right) =>
+      (unreadTasksByCase.get(right.case.id)?.length ?? 0) -
+      (unreadTasksByCase.get(left.case.id)?.length ?? 0),
+    )
+  }, [accountFilter, allCases, businessFilter, caseFilter, filter, search, unreadTasksByCase])
 
   const pageCount = Math.max(1, Math.ceil(filteredCases.length / CASES_PER_PAGE))
   const safePage = Math.min(page, pageCount)
@@ -647,10 +664,24 @@ export function AfterSalesPage() {
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           <div className="grid gap-3 md:hidden">
             {pagedCases.map((view) => (
-              <Card key={view.case.id} className="gap-0 overflow-hidden p-0">
+              <Card
+                key={view.case.id}
+                onClick={
+                  unreadTasksByCase.has(view.case.id)
+                    ? () => acknowledge(unreadTasksByCase.get(view.case.id) ?? [])
+                    : undefined
+                }
+                className={cn(
+                  "gap-0 overflow-hidden p-0",
+                  unreadTasksByCase.has(view.case.id) && "cursor-pointer ring-1 ring-destructive/15",
+                )}
+              >
                 <div className="flex items-start justify-between gap-3 border-b px-4 py-3.5">
                   <ContactLines view={view} />
-                  <StatusBadge status={view.case.status} />
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <OperationUnreadBadge count={unreadTasksByCase.get(view.case.id)?.length ?? 0} />
+                    <StatusBadge status={view.case.status} />
+                  </div>
                 </div>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-3 px-4 py-3.5 text-sm">
                   <div className="col-span-2">
@@ -704,8 +735,21 @@ export function AfterSalesPage() {
               </TableHeader>
               <TableBody>
                 {pagedCases.map((view) => (
-                  <TableRow key={view.case.id}>
-                    <TableCell className="max-w-56 whitespace-normal"><ContactLines view={view} /></TableCell>
+                  <TableRow
+                    key={view.case.id}
+                    onClick={
+                      unreadTasksByCase.has(view.case.id)
+                        ? () => acknowledge(unreadTasksByCase.get(view.case.id) ?? [])
+                        : undefined
+                    }
+                    className={unreadTasksByCase.has(view.case.id) ? "cursor-pointer" : undefined}
+                  >
+                    <TableCell className="max-w-56 whitespace-normal">
+                      <div className="flex items-start gap-2">
+                        <ContactLines view={view} />
+                        <OperationUnreadBadge count={unreadTasksByCase.get(view.case.id)?.length ?? 0} />
+                      </div>
+                    </TableCell>
                     <TableCell className="max-w-52 whitespace-normal">
                       <AccountSnapshot view={view} />
                       <ReplacementSnapshot view={view} />

@@ -256,6 +256,17 @@ export interface OperationTask {
   cycle_desc: string
   one_month_rental: boolean
   route: string
+  unread: boolean
+}
+
+export interface OperationsUnreadSummary {
+  dashboard_count: number
+  calendar_count: number
+  team_count: number
+  plus_count: number
+  redemption_count: number
+  account_count: number
+  after_sales_count: number
 }
 
 export interface OperationsCapacitySummary {
@@ -303,6 +314,8 @@ export interface OperationsOverview {
   capacity: OperationsCapacitySummary
   work: OperationsWorkSummary
   goal: OperationsGoalSummary | null
+  unread: OperationsUnreadSummary
+  notifications: OperationTask[] | null
   tasks: OperationTask[] | null
 }
 

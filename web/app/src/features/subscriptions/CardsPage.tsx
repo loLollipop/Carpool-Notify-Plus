@@ -26,6 +26,7 @@ import {
   type KpiDetailKey,
 } from "@/components/kpi-section"
 import { PageHeader } from "@/components/page-header"
+import { OperationUnreadBadge } from "@/components/operation-unread-badge"
 import {
   StatDetailDialog,
   type StatDetailState,
@@ -52,6 +53,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDialog"
 import { cn } from "@/lib/utils"
+import { useOperationNotifications } from "@/hooks/use-operation-notifications"
 import { ReminderPreviewDialog } from "./ReminderPreviewDialog"
 import { SubscriptionDialog } from "./SubscriptionDialog"
 import { prefillFromView, type SubscriptionPrefill } from "./subscription-prefill"
@@ -177,6 +179,8 @@ function SubscriptionCard({
   onSendReminder,
   onArchive,
   onGoAfterSales,
+  unreadCount,
+  onAcknowledge,
 }: {
   view: SubscriptionView
   index: number
@@ -185,6 +189,8 @@ function SubscriptionCard({
   onSendReminder: (view: SubscriptionView) => void
   onArchive: (view: SubscriptionView) => void
   onGoAfterSales: (caseId: number) => void
+  unreadCount: number
+  onAcknowledge: () => void
 }) {
   const { t } = useTranslation()
   const subscription = view.subscription
@@ -204,9 +210,11 @@ function SubscriptionCard({
 
   return (
     <Card
+      onClick={unreadCount > 0 ? onAcknowledge : undefined}
       className={cn(
         "group relative gap-0 overflow-hidden p-5 transition-[border-color,background-color] duration-200 animate-fade-up hover:border-input hover:bg-accent/25",
         cancellationPending && "border-dashed bg-muted/55 text-muted-foreground hover:bg-muted/55",
+        unreadCount > 0 && "cursor-pointer ring-1 ring-destructive/15",
       )}
       style={{ animationDelay: `${Math.min(index * 40, 320)}ms` }}
     >
@@ -241,19 +249,22 @@ function SubscriptionCard({
             plusRental={plusRental}
           />
         </div>
-        {cancellationPending ? (
-          <Badge variant="secondary" className="shrink-0 font-normal">
-            <Clock3 />
-            {t("cards.cancellationPending")}
-          </Badge>
-        ) : archived && view.seat_frozen_until_label ? (
-          <Badge variant="outline" className="shrink-0 border-gold/30 bg-gold/[0.06] font-normal text-gold">
-            <Snowflake />
-            {t("cards.seatFrozen")}
-          </Badge>
-        ) : (
-          <DueStatusBadge paid={false} daysRemaining={view.days_remaining} />
-        )}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <OperationUnreadBadge count={unreadCount} />
+          {cancellationPending ? (
+            <Badge variant="secondary" className="shrink-0 font-normal">
+              <Clock3 />
+              {t("cards.cancellationPending")}
+            </Badge>
+          ) : archived && view.seat_frozen_until_label ? (
+            <Badge variant="outline" className="shrink-0 border-gold/30 bg-gold/[0.06] font-normal text-gold">
+              <Snowflake />
+              {t("cards.seatFrozen")}
+            </Badge>
+          ) : (
+            <DueStatusBadge paid={false} daysRemaining={view.days_remaining} />
+          )}
+        </div>
       </div>
 
       {cancellationPending ? (
@@ -362,6 +373,7 @@ export function CardsPage() {
   const focusedSubscriptionId = Number.isFinite(routeFocusId) ? routeFocusId : 0
 
   const subscriptionsQuery = useSubscriptions()
+  const { notifications, acknowledge } = useOperationNotifications()
   const { refetch: refetchSubscriptions } = subscriptionsQuery
   const dashboardQuery = useDashboard()
   const calendarQuery = useCalendar()
@@ -436,6 +448,16 @@ export function CardsPage() {
     [subscriptionsQuery.data?.archived],
   )
   const calendar = calendarQuery.data
+  const unreadTasksBySubscription = React.useMemo(() => {
+    const tasks = new Map<number, typeof notifications>()
+    for (const task of notifications) {
+      if (!task.subscription_id || !task.kind.startsWith("team_")) continue
+      const current = tasks.get(task.subscription_id) ?? []
+      current.push(task)
+      tasks.set(task.subscription_id, current)
+    }
+    return tasks
+  }, [notifications])
 
   const nextCancellationExpiry = React.useMemo(() => {
     const expiries = activeViews
@@ -523,8 +545,7 @@ export function CardsPage() {
     }
 
     const query = search.trim().toLowerCase()
-    if (!query) return pool
-    return pool.filter((view) =>
+    const matches = !query ? pool : pool.filter((view) =>
       [
         view.subscription.name,
         view.subscription.business_type,
@@ -543,6 +564,10 @@ export function CardsPage() {
         ...(view.channel_labels ?? []),
       ].some((field) => field?.toLowerCase().includes(query)),
     )
+    return [...matches].sort((left, right) =>
+      (unreadTasksBySubscription.get(right.subscription.id)?.length ?? 0) -
+      (unreadTasksBySubscription.get(left.subscription.id)?.length ?? 0),
+    )
   }, [
     activeViews,
     archivedViews,
@@ -550,6 +575,7 @@ export function CardsPage() {
     focusedSubscriptionId,
     search,
     teamRenewalStats.renewedSubscriptionIds,
+    unreadTasksBySubscription,
   ])
 
   const pageCount = Math.max(1, Math.ceil(filteredViews.length / USERS_PER_PAGE))
@@ -716,6 +742,8 @@ export function CardsPage() {
                   })
                 }
                 onGoAfterSales={(caseId) => navigate(`/after-sales?case=${caseId}`)}
+                unreadCount={unreadTasksBySubscription.get(view.subscription.id)?.length ?? 0}
+                onAcknowledge={() => acknowledge(unreadTasksBySubscription.get(view.subscription.id) ?? [])}
               />
             ))}
           </div>

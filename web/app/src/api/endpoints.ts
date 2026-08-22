@@ -72,6 +72,13 @@ export function fetchOperationsOverview() {
   )
 }
 
+export function acknowledgeOperationTasks(taskIds: string[]) {
+  return api<{ acknowledged: number }>("/api/operations/tasks/acknowledge", {
+    method: "POST",
+    body: { task_ids: taskIds },
+  })
+}
+
 export function fetchGoals() {
   return api<{ goals: GoalCenter }>("/api/goals").then((result) => result.goals)
 }

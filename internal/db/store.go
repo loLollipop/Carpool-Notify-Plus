@@ -216,6 +216,12 @@ func (store *Store) migrate() error {
 			ON after_sales_cases(status, banned_date DESC, id DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_after_sales_account
 			ON after_sales_cases(account_id, banned_date DESC, id DESC);`,
+		`CREATE TABLE IF NOT EXISTS operation_acknowledgements (
+			task_id TEXT PRIMARY KEY,
+			acknowledged_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_operation_acknowledgements_time
+			ON operation_acknowledgements(acknowledged_at);`,
 		`CREATE TABLE IF NOT EXISTS settings (
                         key TEXT PRIMARY KEY,
                         value TEXT NOT NULL
@@ -2711,6 +2717,7 @@ func (store *Store) ResetBusinessData() error {
 	defer func() { _ = transaction.Rollback() }()
 
 	tables := []string{
+		"operation_acknowledgements",
 		"redemption_codes",
 		"redemption_applications",
 		"after_sales_cases",
