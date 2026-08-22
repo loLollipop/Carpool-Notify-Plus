@@ -405,6 +405,9 @@
   }
 
   .redeem-support-panel {
+    position: relative;
+    z-index: 1;
+    height: 100%;
     border: 1px solid var(--redeem-line-strong);
     border-radius: 8px;
     background: color-mix(in oklab, var(--redeem-panel) 94%, transparent);
@@ -460,8 +463,10 @@
 
   .redeem-terminal {
     position: relative;
+    z-index: 1;
     gap: 0;
-    align-self: start;
+    height: 100%;
+    align-self: stretch;
     border-color: var(--redeem-line-strong);
     border-radius: 8px;
     background: color-mix(in oklab, var(--redeem-panel) 94%, transparent);
@@ -489,6 +494,204 @@
     height: 2px;
     background: linear-gradient(90deg, var(--redeem-accent), transparent);
     content: "";
+  }
+
+  .redeem-workspace {
+    position: relative;
+  }
+
+  .redeem-workspace-decor {
+    display: none;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  @media (min-width: 1280px) {
+    .redeem-workspace-decor {
+      position: absolute;
+      z-index: 0;
+      inset: 0;
+      display: block;
+      color: var(--redeem-muted);
+      font-family: var(--font-mono);
+    }
+
+    .redeem-telemetry-bar {
+      position: absolute;
+      top: -28px;
+      right: 0;
+      left: 0;
+      display: flex;
+      height: 14px;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .redeem-telemetry-label {
+      display: flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 0.45rem;
+      color: color-mix(in oklab, var(--redeem-muted) 82%, transparent);
+      font-size: 8px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .redeem-telemetry-label i {
+      width: 5px;
+      height: 5px;
+      border: 1px solid var(--redeem-accent);
+      background: var(--redeem-accent-soft);
+      box-shadow: 0 0 8px color-mix(in oklab, var(--redeem-accent) 42%, transparent);
+    }
+
+    .redeem-telemetry-track {
+      height: 9px;
+      flex: 1 1 auto;
+      border-bottom: 1px solid color-mix(in oklab, var(--redeem-line-strong) 72%, transparent);
+      background-image: repeating-linear-gradient(
+        90deg,
+        color-mix(in oklab, var(--redeem-line-strong) 68%, transparent) 0 1px,
+        transparent 1px 12px
+      );
+      background-position: bottom;
+      background-repeat: repeat-x;
+      background-size: auto 4px;
+    }
+
+    .redeem-frame-corner {
+      position: absolute;
+      width: 28px;
+      height: 28px;
+      color: var(--redeem-accent);
+      opacity: 0.78;
+    }
+
+    .redeem-frame-corner::after {
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      background: currentColor;
+      box-shadow: 0 0 9px color-mix(in oklab, var(--redeem-accent) 58%, transparent);
+      content: "";
+    }
+
+    .redeem-frame-corner.is-top-left {
+      top: -12px;
+      left: -12px;
+      border-top: 1px solid currentColor;
+      border-left: 1px solid currentColor;
+    }
+
+    .redeem-frame-corner.is-top-left::after {
+      top: -2px;
+      left: -2px;
+    }
+
+    .redeem-frame-corner.is-top-right {
+      top: -12px;
+      right: -12px;
+      border-top: 1px solid currentColor;
+      border-right: 1px solid currentColor;
+    }
+
+    .redeem-frame-corner.is-top-right::after {
+      top: -2px;
+      right: -2px;
+    }
+
+    .redeem-frame-corner.is-bottom-left {
+      bottom: -12px;
+      left: -12px;
+      border-bottom: 1px solid currentColor;
+      border-left: 1px solid currentColor;
+    }
+
+    .redeem-frame-corner.is-bottom-left::after {
+      bottom: -2px;
+      left: -2px;
+    }
+
+    .redeem-frame-corner.is-bottom-right {
+      right: -12px;
+      bottom: -12px;
+      border-right: 1px solid currentColor;
+      border-bottom: 1px solid currentColor;
+    }
+
+    .redeem-frame-corner.is-bottom-right::after {
+      right: -2px;
+      bottom: -2px;
+    }
+
+    .redeem-side-rail {
+      position: absolute;
+      top: 54px;
+      bottom: 54px;
+      display: flex;
+      width: 18px;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .redeem-side-rail::before {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 50%;
+      border-left: 1px dashed color-mix(in oklab, var(--redeem-line-strong) 70%, transparent);
+      content: "";
+    }
+
+    .redeem-side-rail span {
+      position: relative;
+      z-index: 1;
+      padding: 0.5rem 0;
+      background: var(--redeem-bg);
+      color: color-mix(in oklab, var(--redeem-muted) 78%, transparent);
+      font-size: 7px;
+      font-weight: 700;
+      line-height: 1;
+      writing-mode: vertical-rl;
+    }
+
+    .redeem-side-rail.is-left {
+      left: -39px;
+    }
+
+    .redeem-side-rail.is-left span {
+      transform: rotate(180deg);
+    }
+
+    .redeem-side-rail.is-right {
+      right: -39px;
+    }
+
+    .redeem-frame-node {
+      position: absolute;
+      top: 50%;
+      width: 9px;
+      height: 9px;
+      border: 1px solid var(--redeem-accent);
+      background: var(--redeem-bg);
+      transform: translateY(-50%) rotate(45deg);
+    }
+
+    .redeem-frame-node::after {
+      position: absolute;
+      inset: 2px;
+      background: var(--redeem-accent);
+      content: "";
+    }
+
+    .redeem-frame-node.is-left {
+      left: -34px;
+    }
+
+    .redeem-frame-node.is-right {
+      right: -34px;
+    }
   }
 
   .redeem-terminal-bar {
@@ -619,6 +822,81 @@
     box-shadow:
       0 12px 32px -15px color-mix(in oklab, var(--redeem-accent) 88%, transparent),
       0 1px 0 color-mix(in oklab, white 38%, transparent) inset;
+  }
+
+  .redeem-flow-footer {
+    margin-top: auto;
+    border-top: 1px solid var(--redeem-line);
+    padding-top: 1rem;
+  }
+
+  .redeem-flow-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+    color: var(--redeem-muted);
+    font-size: 10px;
+    font-weight: 650;
+  }
+
+  .redeem-flow-heading > span:last-child {
+    font-family: var(--font-mono);
+    font-size: 8px;
+    letter-spacing: 0.12em;
+  }
+
+  .redeem-flow-rail {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .redeem-flow-rail li {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--redeem-muted);
+    font-size: 11px;
+  }
+
+  .redeem-flow-rail li:not(:last-child)::after {
+    position: absolute;
+    z-index: 0;
+    top: 50%;
+    right: 0.5rem;
+    width: calc(100% - 5.6rem);
+    height: 1px;
+    background: var(--redeem-line);
+    content: "";
+  }
+
+  .redeem-flow-rail li > span {
+    display: grid;
+    z-index: 1;
+    width: 24px;
+    height: 22px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid color-mix(in oklab, var(--redeem-accent) 30%, var(--redeem-line));
+    border-radius: 4px;
+    background: var(--redeem-accent-soft);
+    color: var(--redeem-accent);
+    font-family: var(--font-mono);
+    font-size: 8px;
+    font-weight: 700;
+  }
+
+  .redeem-flow-rail strong {
+    position: relative;
+    z-index: 1;
+    padding-right: 0.35rem;
+    background: var(--redeem-panel);
+    color: var(--redeem-text);
+    font-weight: 650;
+    white-space: nowrap;
   }
 
   @keyframes redeem-status-pulse {

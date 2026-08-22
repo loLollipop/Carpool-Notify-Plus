@@ -197,6 +197,8 @@ function WechatQrBlock({
           <img
             src={qrDataURL}
             alt="客服微信二维码"
+            loading="eager"
+            decoding="sync"
             className={cn("aspect-square w-full object-contain", compact ? "max-h-80" : "")}
           />
         </div>
@@ -302,14 +304,30 @@ function RedeemSafetyNoticeDialog({
   open,
   onOpenChange,
   settings,
+  ready,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   settings: RedeemPageSettings
+  ready: boolean
 }) {
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && !ready) return
+    onOpenChange(nextOpen)
+  }
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="sm:max-w-[520px]">
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="sm:max-w-[520px]"
+        onEscapeKeyDown={(event) => {
+          if (!ready) event.preventDefault()
+        }}
+        onInteractOutside={(event) => {
+          if (!ready) event.preventDefault()
+        }}
+      >
         <DialogHeader>
           <div className="mb-2 grid size-11 place-items-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
             <AlertTriangle className="size-6" />
@@ -331,8 +349,20 @@ function RedeemSafetyNoticeDialog({
           ))}
         </div>
 
-        <Button type="button" className="h-11 w-full" onClick={() => onOpenChange(false)}>
-          我已了解，继续兑换
+        <Button
+          type="button"
+          className="h-11 w-full"
+          disabled={!ready}
+          onClick={() => onOpenChange(false)}
+        >
+          {ready ? (
+            "我已了解，继续兑换"
+          ) : (
+            <>
+              <LoaderCircle data-slot="icon" className="animate-spin" />
+              正在准备兑换页
+            </>
+          )}
         </Button>
       </DialogContent>
     </Dialog>
@@ -607,6 +637,7 @@ export function RedeemPage() {
   )
   const [flowDialogOpen, setFlowDialogOpen] = React.useState(() => trackingToken !== "")
   const [reviewValues, setReviewValues] = React.useState<FormValues | null>(null)
+  const [preloadedSupportQR, setPreloadedSupportQR] = React.useState("")
 
   const settingsQuery = useQuery({
     queryKey: ["public-redeem-settings", sandboxAccessToken || "live"],
@@ -614,6 +645,27 @@ export function RedeemPage() {
     staleTime: 5 * 60 * 1000,
   })
   const redeemSettings = normalizeRedeemPageSettings(settingsQuery.data)
+  const supportQRDataURL = redeemSettings.support_qr_data_url.trim()
+
+  React.useEffect(() => {
+    if (!supportQRDataURL) return
+
+    let active = true
+    const image = new Image()
+    const markReady = () => {
+      if (active) setPreloadedSupportQR(supportQRDataURL)
+    }
+    image.onload = markReady
+    image.onerror = markReady
+    image.src = supportQRDataURL
+    if (image.complete) markReady()
+
+    return () => {
+      active = false
+      image.onload = null
+      image.onerror = null
+    }
+  }, [supportQRDataURL])
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -689,6 +741,8 @@ export function RedeemPage() {
   const statusLoadFailed = trackingToken !== "" && statusQuery.isError
   const supportConfigured = hasSupportContact(redeemSettings)
   const supportColumnVisible = supportConfigured || settingsQuery.isPending
+  const supportAssetReady = supportQRDataURL === "" || preloadedSupportQR === supportQRDataURL
+  const redeemPageReady = !settingsQuery.isPending && supportAssetReady
 
   return (
     <main className="redeem-console min-h-dvh overflow-hidden text-[var(--redeem-text)]">
@@ -696,6 +750,7 @@ export function RedeemPage() {
         open={noticeOpen}
         onOpenChange={setNoticeOpen}
         settings={redeemSettings}
+        ready={redeemPageReady}
       />
       <RedemptionFlowDialog
         open={flowDialogOpen}
@@ -736,145 +791,188 @@ export function RedeemPage() {
       <section className="relative mx-auto w-full max-w-[1120px] px-4 pb-8 pt-6 sm:px-6 sm:pb-10 sm:pt-8 lg:px-8 lg:pb-12 lg:pt-10">
         <div
           className={cn(
-            "grid items-start gap-6 animate-fade-up",
+            "redeem-workspace grid items-stretch gap-6 animate-fade-up",
             supportColumnVisible
               ? "lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_340px]"
               : "mx-auto max-w-[760px]",
           )}
         >
-          <Card className="redeem-terminal overflow-hidden p-0">
-          <div className="redeem-terminal-bar">
-            <div className="flex items-center gap-2">
-              <span className="redeem-window-dot bg-[#ff6b63]" />
-              <span className="redeem-window-dot bg-[#e9bd4e]" />
-              <span className="redeem-window-dot bg-[var(--redeem-accent)]" />
-              <span className="ml-2 font-mono text-[10px] font-medium tracking-[0.08em] text-[var(--redeem-muted)] sm:text-[11px]">
-                TEAM / REDEEM
+          <div className="redeem-workspace-decor" aria-hidden="true">
+            <div className="redeem-telemetry-bar">
+              <span className="redeem-telemetry-label">
+                <i />
+                REDEMPTION WORKSPACE
               </span>
+              <span className="redeem-telemetry-track" />
+              <span className="redeem-telemetry-label">CPN / ACCESS</span>
             </div>
-            <div className="flex items-center gap-2 text-[10px] font-semibold text-[var(--redeem-accent)] sm:text-xs">
-              <span className="redeem-status-dot" />
-              通道在线
+            <span className="redeem-frame-corner is-top-left" />
+            <span className="redeem-frame-corner is-top-right" />
+            <span className="redeem-frame-corner is-bottom-left" />
+            <span className="redeem-frame-corner is-bottom-right" />
+            <div className="redeem-side-rail is-left">
+              <span>INPUT CHANNEL</span>
             </div>
+            <div className="redeem-side-rail is-right">
+              <span>SUPPORT CHANNEL</span>
+            </div>
+            <span className="redeem-frame-node is-left" />
+            <span className="redeem-frame-node is-right" />
           </div>
 
-          <div className="px-5 pt-6 sm:px-8 sm:pt-8 lg:px-9">
-            <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-[var(--redeem-accent)]">
-              ACCESS REQUEST
-            </p>
-            <h1 className="mt-2 text-2xl font-semibold tracking-[-0.02em] sm:text-[28px]">
-              兑换 Team 席位
-            </h1>
-            <div className="redeem-trust-strip" aria-label="服务保障">
-              <span><ShieldCheck />人工核验</span>
-              <span><Clock3 />进度可查</span>
-              <span><MessageCircle />售后可联系</span>
-            </div>
-          </div>
-
-          <Form {...form}>
-            <form
-              onSubmit={form.handleSubmit(reviewSubmission)}
-              className="grid gap-5 px-5 pb-6 pt-6 sm:px-8 sm:pb-8 lg:px-9 lg:pb-9"
-            >
-              <FormField
-                control={form.control}
-                name="redeem_code"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="redeem-field-label">
-                      <span className="redeem-field-index">01</span>
-                      兑换码
-                    </FormLabel>
-                    <FormControl>
-                      <div className="relative">
-                        <TicketCheck className="redeem-input-icon" />
-                        <Input
-                          autoComplete="off"
-                          placeholder="CPN-XXXX-XXXX-XXXX"
-                          className="redeem-input h-14 pl-11 font-mono tracking-[0.04em]"
-                          {...field}
-                        />
-                      </div>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <div className="grid gap-6 md:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="customer_email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="redeem-field-label">
-                        <span className="redeem-field-index">02</span>
-                        GPT 邮箱
-                      </FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <Mail className="redeem-input-icon" />
-                          <Input
-                            type="email"
-                            autoComplete="email"
-                            placeholder="name@example.com"
-                            className="redeem-input h-[52px] pl-11"
-                            {...field}
-                          />
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="customer_contact"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="redeem-field-label">
-                        <span className="redeem-field-index">03</span>
-                        微信号
-                      </FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <MessageCircle className="redeem-input-icon" />
-                          <Input
-                            autoComplete="username"
-                            placeholder="请输入常用微信号"
-                            className="redeem-input h-[52px] pl-11"
-                            {...field}
-                          />
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+          <Card className="redeem-terminal overflow-hidden p-0">
+            <div className="redeem-terminal-bar">
+              <div className="flex items-center gap-2">
+                <span className="redeem-window-dot bg-[#ff6b63]" />
+                <span className="redeem-window-dot bg-[#e9bd4e]" />
+                <span className="redeem-window-dot bg-[var(--redeem-accent)]" />
+                <span className="ml-2 font-mono text-[10px] font-medium tracking-[0.08em] text-[var(--redeem-muted)] sm:text-[11px]">
+                  TEAM / REDEEM
+                </span>
               </div>
+              <div className="flex items-center gap-2 text-[10px] font-semibold text-[var(--redeem-accent)] sm:text-xs">
+                <span className="redeem-status-dot" />
+                通道在线
+              </div>
+            </div>
 
-              <Button
-                type="submit"
-                className="redeem-submit-button h-14 w-full"
-                disabled={submitMutation.isPending}
+            <div className="px-5 pt-6 sm:px-8 sm:pt-8 lg:px-9">
+              <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-[var(--redeem-accent)]">
+                ACCESS REQUEST
+              </p>
+              <h1 className="mt-2 text-2xl font-semibold tracking-[-0.02em] sm:text-[28px]">
+                兑换 Team 席位
+              </h1>
+              <div className="redeem-trust-strip" aria-label="服务保障">
+                <span><ShieldCheck />人工核验</span>
+                <span><Clock3 />进度可查</span>
+                <span><MessageCircle />售后可联系</span>
+              </div>
+            </div>
+
+            <Form {...form}>
+              <form
+                onSubmit={form.handleSubmit(reviewSubmission)}
+                className="flex flex-1 flex-col gap-5 px-5 pb-6 pt-6 sm:px-8 sm:pb-8 lg:px-9 lg:pb-9"
               >
-                {submitMutation.isPending ? (
-                  <>
-                    <LoaderCircle data-slot="icon" className="animate-spin" />
-                    正在建立兑换请求
-                  </>
-                ) : (
-                  <>
-                    <span>核对兑换信息</span>
-                    <ArrowRight data-slot="icon" className="ml-auto" />
-                  </>
-                )}
-              </Button>
-            </form>
-          </Form>
+                <FormField
+                  control={form.control}
+                  name="redeem_code"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="redeem-field-label">
+                        <span className="redeem-field-index">01</span>
+                        兑换码
+                      </FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <TicketCheck className="redeem-input-icon" />
+                          <Input
+                            autoComplete="off"
+                            placeholder="CPN-XXXX-XXXX-XXXX"
+                            className="redeem-input h-14 pl-11 font-mono tracking-[0.04em]"
+                            {...field}
+                          />
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
 
+                <div className="grid gap-6 md:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="customer_email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="redeem-field-label">
+                          <span className="redeem-field-index">02</span>
+                          GPT 邮箱
+                        </FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <Mail className="redeem-input-icon" />
+                            <Input
+                              type="email"
+                              autoComplete="email"
+                              placeholder="name@example.com"
+                              className="redeem-input h-[52px] pl-11"
+                              {...field}
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="customer_contact"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="redeem-field-label">
+                          <span className="redeem-field-index">03</span>
+                          微信号
+                        </FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <MessageCircle className="redeem-input-icon" />
+                            <Input
+                              autoComplete="username"
+                              placeholder="请输入常用微信号"
+                              className="redeem-input h-[52px] pl-11"
+                              {...field}
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <Button
+                  type="submit"
+                  className="redeem-submit-button h-14 w-full"
+                  disabled={submitMutation.isPending}
+                >
+                  {submitMutation.isPending ? (
+                    <>
+                      <LoaderCircle data-slot="icon" className="animate-spin" />
+                      正在建立兑换请求
+                    </>
+                  ) : (
+                    <>
+                      <span>核对兑换信息</span>
+                      <ArrowRight data-slot="icon" className="ml-auto" />
+                    </>
+                  )}
+                </Button>
+
+                <div className="redeem-flow-footer">
+                  <div className="redeem-flow-heading">
+                    <span>兑换流程</span>
+                    <span>SUBMISSION FLOW</span>
+                  </div>
+                  <ol className="redeem-flow-rail" aria-label="提交后的兑换流程">
+                    <li>
+                      <span>01</span>
+                      <strong>提交核验</strong>
+                    </li>
+                    <li>
+                      <span>02</span>
+                      <strong>发送邀请</strong>
+                    </li>
+                    <li>
+                      <span>03</span>
+                      <strong>邮箱加入</strong>
+                    </li>
+                  </ol>
+                </div>
+              </form>
+            </Form>
           </Card>
 
           {settingsQuery.isPending ? (
