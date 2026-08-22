@@ -699,7 +699,7 @@ export default {
       trendChange: "较上月",
       trendPeriodTotal: "近 6 月累计",
       workbench: {
-        title: "运营驾驶舱",
+        title: "仪表盘",
         monthSummary: "本月经营摘要",
         collectedMonth: "本月已收",
         collectedHint: "{{count}} 笔到账，已扣除本月退款",
@@ -1156,7 +1156,7 @@ export default {
       testNotifyAction: "发送",
     },
     accounts: {
-      title: "账号与车位",
+      title: "账号列表",
       desc: "为每个共享账号设置车位数量（容量）；活跃订阅和退订冻结中的席位都会占用名额。",
       newAccount: "新建账号",
       empty: "还没有账号。先创建账号并设置车位数量，再挂订阅。",

@@ -263,11 +263,6 @@ function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
         <div className="redeem-support-qr-shell mt-5">
           <WechatQrBlock settings={settings} compact />
         </div>
-
-        <div className="mt-5 flex items-start gap-2.5 border-t border-[var(--redeem-line)] pt-4 text-xs leading-5 text-[var(--redeem-muted)]">
-          <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[var(--redeem-accent)]" />
-          <p>兑换异常、续期提醒或邮箱核对，都可以通过客服微信获得协助。</p>
-        </div>
       </div>
     </aside>
   )
@@ -450,10 +445,8 @@ function RedemptionFlowDialog({
             <div className="mb-1 grid size-11 place-items-center rounded-lg border border-brand/15 bg-brand/10 text-brand">
               <TicketCheck className="size-5" />
             </div>
-            <DialogTitle className="text-xl leading-tight sm:text-2xl">请核对兑换信息</DialogTitle>
-            <DialogDescription className="leading-6">
-              管理员会按照以下资料发送 Team 邀请，提交前请确认信息准确无误。
-            </DialogDescription>
+            <DialogTitle className="text-xl leading-tight sm:text-2xl">确认兑换信息</DialogTitle>
+            <DialogDescription className="leading-6">请确认邮箱无误，邀请会发往该账号。</DialogDescription>
           </DialogHeader>
 
           <div className="divide-y overflow-hidden rounded-lg border bg-muted/20">
@@ -722,10 +715,10 @@ export function RedeemPage() {
             <BrandIcon className="size-8 rounded-md shadow-none sm:size-9" />
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold leading-none sm:text-[15px]">{APP_NAME}</p>
-              <div className="mt-1.5 flex items-center gap-2 whitespace-nowrap font-mono text-[9px] font-semibold tracking-[0.14em] text-[var(--redeem-muted)] sm:text-[10px]">
-                <span className="hidden sm:inline">REDEEM GATEWAY</span>
+              <div className="mt-1.5 flex items-center gap-2 whitespace-nowrap text-[10px] font-medium text-[var(--redeem-muted)]">
+                <span className="hidden sm:inline">Team 席位兑换</span>
                 <span className="redeem-status-dot" aria-hidden="true" />
-                <span className="text-[var(--redeem-accent)]">ONLINE</span>
+                <span className="text-[var(--redeem-accent)]">在线</span>
               </div>
             </div>
             {sandboxMode ? (
@@ -740,102 +733,49 @@ export function RedeemPage() {
         </div>
       </header>
 
-      <section className="relative mx-auto w-full max-w-[1200px] px-4 pb-8 pt-7 sm:px-6 sm:pb-10 sm:pt-10 lg:px-8 lg:pb-12 lg:pt-12">
-        <div className="redeem-overview grid gap-8 animate-fade-up lg:grid-cols-[minmax(300px,0.78fr)_minmax(0,1.22fr)] lg:items-end lg:gap-12">
-          <div>
-            <div className="flex items-center gap-2 font-mono text-[10px] font-semibold tracking-[0.18em] text-[var(--redeem-accent)]">
-              <span className="h-px w-7 bg-[var(--redeem-accent)]" aria-hidden="true" />
-              ACCESS / REDEEM
-            </div>
-            <h1 className="mt-3 max-w-[560px] text-[30px] font-semibold leading-[1.14] tracking-[-0.035em] sm:text-[38px] lg:text-[40px]">
-              兑换你的 <span className="text-[var(--redeem-accent)]">Team 席位</span>
-            </h1>
-            <p className="mt-3 max-w-[560px] text-sm leading-6 text-[var(--redeem-muted)] sm:text-[15px] sm:leading-7">
-              填写兑换凭证与接收账号，提交后处理状态会自动同步，无需重复刷新。
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="redeem-mini-chip">
-                <Clock3 className="size-3.5" /> 约 1–2 分钟
-              </span>
-              <span className="redeem-mini-chip">
-                <ShieldCheck className="size-3.5" /> 提交前可核对
-              </span>
-            </div>
-          </div>
-
-          <div className="hidden lg:block">
-            <div className="mb-3 flex items-center justify-between font-mono text-[10px] font-semibold tracking-[0.16em] text-[var(--redeem-muted)]">
-              <span>PROCESS SEQUENCE</span>
-              <span>03 STEPS</span>
-            </div>
-            <ol className="redeem-process-grid">
-              {[
-                ["01", "验证兑换凭证", "填写兑换码与账号信息", "READY"],
-                ["02", "进入处理队列", "管理员核验并发送邀请", "QUEUE"],
-                ["03", "获取空间权限", "前往邮箱确认加入 Team", "ACCESS"],
-              ].map(([number, title, description, state], index) => (
-                <li key={number} className={cn("redeem-process-card", index === 0 && "is-active")}>
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="redeem-process-number">{number}</span>
-                    <span className="font-mono text-[9px] tracking-[0.12em] text-[var(--redeem-muted)]">
-                      {state}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-sm font-semibold">{title}</p>
-                  <p className="mt-1 text-[11px] leading-5 text-[var(--redeem-muted)]">
-                    {description}
-                  </p>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </div>
-
+      <section className="relative mx-auto w-full max-w-[1120px] px-4 pb-8 pt-6 sm:px-6 sm:pb-10 sm:pt-8 lg:px-8 lg:pb-12 lg:pt-10">
         <div
           className={cn(
-            "mt-7 grid items-start gap-6 sm:mt-8",
+            "grid items-start gap-6 animate-fade-up",
             supportColumnVisible
-              ? "lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_350px]"
-              : "mx-auto max-w-[880px]",
+              ? "lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_340px]"
+              : "mx-auto max-w-[760px]",
           )}
         >
-        <Card className="redeem-terminal animate-fade-up overflow-hidden p-0 [animation-delay:80ms]">
+          <Card className="redeem-terminal overflow-hidden p-0">
           <div className="redeem-terminal-bar">
             <div className="flex items-center gap-2">
               <span className="redeem-window-dot bg-[#ff6b63]" />
               <span className="redeem-window-dot bg-[#e9bd4e]" />
               <span className="redeem-window-dot bg-[var(--redeem-accent)]" />
               <span className="ml-2 font-mono text-[10px] font-medium tracking-[0.08em] text-[var(--redeem-muted)] sm:text-[11px]">
-                redemption.request
+                TEAM / REDEEM
               </span>
             </div>
-            <div className="flex items-center gap-2 font-mono text-[9px] font-semibold tracking-[0.14em] text-[var(--redeem-accent)] sm:text-[10px]">
+            <div className="flex items-center gap-2 text-[10px] font-semibold text-[var(--redeem-accent)] sm:text-xs">
               <span className="redeem-status-dot" />
-              SYSTEM READY
+              通道在线
             </div>
           </div>
 
-          <div className="px-5 pb-1 pt-6 sm:px-8 sm:pt-8 lg:px-10 lg:pt-10">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="font-mono text-[10px] font-semibold tracking-[0.18em] text-[var(--redeem-accent)]">
-                  NEW ACCESS REQUEST
-                </p>
-                <h2 className="mt-2 text-xl font-semibold tracking-[-0.02em] sm:text-2xl">
-                  提交兑换申请
-                </h2>
-                <p className="mt-2 text-xs leading-5 text-[var(--redeem-muted)] sm:text-sm">
-                  三项信息填写完成后，你还可以在提交前进行最终核对。
-                </p>
-              </div>
-              <span className="redeem-required-badge hidden sm:inline-flex">3 REQUIRED</span>
+          <div className="px-5 pt-6 sm:px-8 sm:pt-8 lg:px-9">
+            <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-[var(--redeem-accent)]">
+              ACCESS REQUEST
+            </p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-[-0.02em] sm:text-[28px]">
+              兑换 Team 席位
+            </h1>
+            <div className="redeem-trust-strip" aria-label="服务保障">
+              <span><ShieldCheck />人工核验</span>
+              <span><Clock3 />进度可查</span>
+              <span><MessageCircle />售后可联系</span>
             </div>
           </div>
 
           <Form {...form}>
             <form
               onSubmit={form.handleSubmit(reviewSubmission)}
-              className="grid gap-6 px-5 pb-6 pt-6 sm:px-8 sm:pb-8 lg:gap-7 lg:px-10 lg:pb-10"
+              className="grid gap-5 px-5 pb-6 pt-6 sm:px-8 sm:pb-8 lg:px-9 lg:pb-9"
             >
               <FormField
                 control={form.control}
@@ -845,7 +785,6 @@ export function RedeemPage() {
                     <FormLabel className="redeem-field-label">
                       <span className="redeem-field-index">01</span>
                       兑换码
-                      <span className="redeem-field-code">REDEEM TOKEN</span>
                     </FormLabel>
                     <FormControl>
                       <div className="relative">
@@ -872,7 +811,6 @@ export function RedeemPage() {
                       <FormLabel className="redeem-field-label">
                         <span className="redeem-field-index">02</span>
                         GPT 邮箱
-                        <span className="redeem-field-code">INVITE TARGET</span>
                       </FormLabel>
                       <FormControl>
                         <div className="relative">
@@ -899,7 +837,6 @@ export function RedeemPage() {
                       <FormLabel className="redeem-field-label">
                         <span className="redeem-field-index">03</span>
                         微信号
-                        <span className="redeem-field-code">SUPPORT ID</span>
                       </FormLabel>
                       <FormControl>
                         <div className="relative">
@@ -918,13 +855,6 @@ export function RedeemPage() {
                 />
               </div>
 
-              <div className="redeem-form-notice">
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-[var(--redeem-accent)]" />
-                <p>
-                  提交前会再次展示全部信息供你核对；确认后请保持页面打开，进度会自动更新。
-                </p>
-              </div>
-
               <Button
                 type="submit"
                 className="redeem-submit-button h-14 w-full"
@@ -937,10 +867,7 @@ export function RedeemPage() {
                   </>
                 ) : (
                   <>
-                    <span>开始兑换</span>
-                    <span className="hidden font-mono text-[10px] font-semibold tracking-[0.12em] opacity-70 sm:inline">
-                      INITIATE REQUEST
-                    </span>
+                    <span>核对兑换信息</span>
                     <ArrowRight data-slot="icon" className="ml-auto" />
                   </>
                 )}
@@ -948,26 +875,15 @@ export function RedeemPage() {
             </form>
           </Form>
 
-          <div className="redeem-terminal-footer">
-            <span className="flex items-center gap-2">
-              <ShieldCheck className="size-3.5" /> SECURE INPUT
-            </span>
-            <span>STATUS SYNC · 5S</span>
-          </div>
-        </Card>
+          </Card>
 
           {settingsQuery.isPending ? (
-            <aside className="hidden h-[560px] animate-pulse rounded-[14px] border border-[var(--redeem-line)] bg-[var(--redeem-panel)] lg:block" />
+            <aside className="hidden h-[500px] animate-pulse rounded-[8px] border border-[var(--redeem-line)] bg-[var(--redeem-panel)] lg:block" />
           ) : (
             <SupportWechatPanel settings={redeemSettings} />
           )}
         </div>
       </section>
-
-      <footer className="relative mx-auto flex w-full max-w-[1200px] items-center justify-between gap-4 border-t border-[var(--redeem-line)] px-4 py-5 font-mono text-[9px] tracking-[0.12em] text-[var(--redeem-muted)] sm:px-6 lg:px-8">
-        <span>CARPOOL NOTIFY PLUS / REDEMPTION SERVICE</span>
-        <span className="hidden sm:inline">PRIVACY MODE · SYSTEM OPERATIONAL</span>
-      </footer>
     </main>
   )
 }
