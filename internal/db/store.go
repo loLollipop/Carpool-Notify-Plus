@@ -294,6 +294,17 @@ func (store *Store) migrate() error {
 			ON customer_benefits(benefit_date DESC, id DESC);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_benefits_delivery
 			ON customer_benefits(subscription_id, benefit_date, benefit_type, benefit_name);`,
+		`CREATE TABLE IF NOT EXISTS operating_expenses (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			category TEXT NOT NULL,
+			occurred_on TEXT NOT NULL,
+			amount_cents INTEGER NOT NULL CHECK(amount_cents > 0),
+			note TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_operating_expenses_date
+			ON operating_expenses(occurred_on DESC, id DESC);`,
 		`CREATE TABLE IF NOT EXISTS redemption_applications (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			tracking_token TEXT NOT NULL UNIQUE,

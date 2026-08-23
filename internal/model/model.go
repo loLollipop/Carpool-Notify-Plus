@@ -251,6 +251,22 @@ type CustomerBenefit struct {
 	CreatedAt                 time.Time `json:"created_at"`
 }
 
+const OperatingExpenseCategoryXianyuPromotion = "xianyu_promotion"
+
+// OperatingExpense is one owner-entered business expense that is not tied to
+// a Team account or Plus billing period. Keeping acquisition spend in its own
+// ledger makes cumulative profit and monthly forecasting auditable without
+// distorting the cost of an individual account or subscription.
+type OperatingExpense struct {
+	ID          int64     `json:"id"`
+	Category    string    `json:"category"`
+	OccurredOn  string    `json:"occurred_on"`
+	AmountCents int64     `json:"amount_cents"`
+	Note        string    `json:"note"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // Seat is a named parking slot under an account. At most one active subscription may occupy a seat.
 type Seat struct {
 	ID        int64     `json:"id"`
@@ -468,6 +484,7 @@ type ExportPayload struct {
 	Accounts                           []ExportAccount      `json:"accounts"`
 	Subscriptions                      []ExportSubscription `json:"subscriptions"`
 	CustomerBenefits                   []CustomerBenefit    `json:"customer_benefits"`
+	OperatingExpenses                  []OperatingExpense   `json:"operating_expenses"`
 }
 
 // ExportAccount is one account with seats in an export file.

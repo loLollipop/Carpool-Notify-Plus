@@ -58,29 +58,35 @@ type BillView struct {
 
 // BillsSummary is the top KPI + chart model for the bills page.
 type BillsSummary struct {
-	BillCount              int                `json:"bill_count"`
-	ActiveCount            int                `json:"active_count"`
-	ArchivedCount          int                `json:"archived_count"`
-	ResaleBillCount        int                `json:"resale_bill_count"`
-	TotalAmountYuan        string             `json:"total_amount_yuan"`
-	TotalRefundYuan        string             `json:"total_refund_yuan"`
-	NetAmountYuan          string             `json:"net_amount_yuan"`
-	TotalCostCents         int64              `json:"total_cost_cents"`
-	TotalCostYuan          string             `json:"total_cost_yuan"`
-	TotalProfitCents       int64              `json:"total_profit_cents"`
-	TotalProfitYuan        string             `json:"total_profit_yuan"`
-	TotalAgencyFeeYuan     string             `json:"total_agency_fee_yuan"`
-	ThisMonthCount         int                `json:"this_month_count"`
-	ThisMonthAmountYuan    string             `json:"this_month_amount_yuan"`
-	ThisMonthRefundYuan    string             `json:"this_month_refund_yuan"`
-	ThisMonthNetAmountYuan string             `json:"this_month_net_amount_yuan"`
-	ThisMonthAgencyFeeYuan string             `json:"this_month_agency_fee_yuan"`
-	AverageAmountYuan      string             `json:"average_amount_yuan"`
-	AmountBySubscription   []AmountBar        `json:"amount_by_subscription"`
-	Accounts               []AccountBreakdown `json:"accounts"`
-	RefundDetails          []RefundDetail     `json:"refund_details"`
-	MonthlyTrend           []MonthAmountBar   `json:"monthly_trend"`
-	MaxMonthCents          int64              `json:"max_month_cents"`
+	BillCount                           int                `json:"bill_count"`
+	ActiveCount                         int                `json:"active_count"`
+	ArchivedCount                       int                `json:"archived_count"`
+	ResaleBillCount                     int                `json:"resale_bill_count"`
+	TotalAmountYuan                     string             `json:"total_amount_yuan"`
+	TotalRefundYuan                     string             `json:"total_refund_yuan"`
+	NetAmountYuan                       string             `json:"net_amount_yuan"`
+	TotalCostCents                      int64              `json:"total_cost_cents"`
+	TotalCostYuan                       string             `json:"total_cost_yuan"`
+	TotalProfitCents                    int64              `json:"total_profit_cents"`
+	TotalProfitYuan                     string             `json:"total_profit_yuan"`
+	OperatingExpenseCents               int64              `json:"operating_expense_cents"`
+	OperatingExpenseYuan                string             `json:"operating_expense_yuan"`
+	ThisMonthOperatingExpenseCents      int64              `json:"this_month_operating_expense_cents"`
+	ThisMonthOperatingExpenseYuan       string             `json:"this_month_operating_expense_yuan"`
+	OperatingExpenseMonthlyAverageCents int64              `json:"operating_expense_monthly_average_cents"`
+	OperatingExpenseMonthlyAverageYuan  string             `json:"operating_expense_monthly_average_yuan"`
+	TotalAgencyFeeYuan                  string             `json:"total_agency_fee_yuan"`
+	ThisMonthCount                      int                `json:"this_month_count"`
+	ThisMonthAmountYuan                 string             `json:"this_month_amount_yuan"`
+	ThisMonthRefundYuan                 string             `json:"this_month_refund_yuan"`
+	ThisMonthNetAmountYuan              string             `json:"this_month_net_amount_yuan"`
+	ThisMonthAgencyFeeYuan              string             `json:"this_month_agency_fee_yuan"`
+	AverageAmountYuan                   string             `json:"average_amount_yuan"`
+	AmountBySubscription                []AmountBar        `json:"amount_by_subscription"`
+	Accounts                            []AccountBreakdown `json:"accounts"`
+	RefundDetails                       []RefundDetail     `json:"refund_details"`
+	MonthlyTrend                        []MonthAmountBar   `json:"monthly_trend"`
+	MaxMonthCents                       int64              `json:"max_month_cents"`
 }
 
 // RefundDetail is one completed refund row used to reconcile statistic
@@ -118,8 +124,9 @@ type MonthAmountBar struct {
 
 // BillsPage is the full bills page model.
 type BillsPage struct {
-	Bills   []BillView
-	Summary BillsSummary
+	Bills             []BillView
+	OperatingExpenses []OperatingExpenseView
+	Summary           BillsSummary
 }
 
 // BillEditInput is validated form input for editing a bill.
@@ -163,10 +170,25 @@ func (service *SubscriptionService) ListBillsPage() (BillsPage, error) {
 	for _, benefit := range benefits {
 		accountCostCents += benefit.ActualCostCents
 	}
+	expenses, err := service.Store.ListOperatingExpenses()
+	if err != nil {
+		return BillsPage{}, err
+	}
+	expenseViews := make([]OperatingExpenseView, 0, len(expenses))
+	for _, expense := range expenses {
+		expenseViews = append(expenseViews, buildOperatingExpenseView(expense))
+	}
 
 	return BillsPage{
-		Bills:   views,
-		Summary: buildBillsSummaryWithRefunds(views, afterSalesCases, accountCostCents, service.now()),
+		Bills:             views,
+		OperatingExpenses: expenseViews,
+		Summary: buildBillsSummaryWithOperatingExpenses(
+			views,
+			afterSalesCases,
+			accountCostCents,
+			expenses,
+			service.now(),
+		),
 	}, nil
 }
 
@@ -308,6 +330,22 @@ func buildBillsSummaryWithRefunds(
 	accountCostCents int64,
 	now time.Time,
 ) BillsSummary {
+	return buildBillsSummaryWithOperatingExpenses(
+		views,
+		afterSalesCases,
+		accountCostCents,
+		nil,
+		now,
+	)
+}
+
+func buildBillsSummaryWithOperatingExpenses(
+	views []BillView,
+	afterSalesCases []model.AfterSalesCase,
+	accountCostCents int64,
+	operatingExpenses []model.OperatingExpense,
+	now time.Time,
+) BillsSummary {
 	now = now.In(cycle.Location)
 	thisMonthKey := now.Format("2006-01")
 
@@ -316,7 +354,14 @@ func buildBillsSummaryWithRefunds(
 	var thisMonthCents int64
 	var thisMonthRefundCents int64
 	var totalAgencyFeeCents int64
-	totalCostCents := accountCostCents
+	operatingExpenseCents := operatingExpenseTotal(operatingExpenses)
+	var thisMonthOperatingExpenseCents int64
+	for _, expense := range operatingExpenses {
+		if monthFromDate(expense.OccurredOn) == thisMonthKey {
+			thisMonthOperatingExpenseCents += expense.AmountCents
+		}
+	}
+	totalCostCents := accountCostCents + operatingExpenseCents
 	var thisMonthAgencyFeeCents int64
 	thisMonthCount := 0
 	activeCount := 0
@@ -521,30 +566,37 @@ func buildBillsSummaryWithRefunds(
 	}
 
 	totalProfitCents := totalCents - totalRefundCents - totalCostCents
+	operatingExpenseMonthlyAverageCents := operatingExpenseMonthlyRunRate(operatingExpenses, now)
 	return BillsSummary{
-		BillCount:              len(views),
-		ActiveCount:            activeCount,
-		ArchivedCount:          archivedCount,
-		ResaleBillCount:        resaleBillCount,
-		TotalAmountYuan:        cycle.FormatCents(totalCents),
-		TotalRefundYuan:        cycle.FormatCents(totalRefundCents),
-		NetAmountYuan:          cycle.FormatCents(totalCents - totalRefundCents),
-		TotalCostCents:         totalCostCents,
-		TotalCostYuan:          cycle.FormatCents(totalCostCents),
-		TotalProfitCents:       totalProfitCents,
-		TotalProfitYuan:        cycle.FormatCents(totalProfitCents),
-		TotalAgencyFeeYuan:     cycle.FormatCents(totalAgencyFeeCents),
-		ThisMonthCount:         thisMonthCount,
-		ThisMonthAmountYuan:    cycle.FormatCents(thisMonthCents),
-		ThisMonthRefundYuan:    cycle.FormatCents(thisMonthRefundCents),
-		ThisMonthNetAmountYuan: cycle.FormatCents(thisMonthCents - thisMonthRefundCents),
-		ThisMonthAgencyFeeYuan: cycle.FormatCents(thisMonthAgencyFeeCents),
-		AverageAmountYuan:      averageYuan,
-		AmountBySubscription:   amountBars,
-		Accounts:               accounts,
-		RefundDetails:          refundDetails,
-		MonthlyTrend:           monthlyTrend,
-		MaxMonthCents:          maxMonthCents,
+		BillCount:                           len(views),
+		ActiveCount:                         activeCount,
+		ArchivedCount:                       archivedCount,
+		ResaleBillCount:                     resaleBillCount,
+		TotalAmountYuan:                     cycle.FormatCents(totalCents),
+		TotalRefundYuan:                     cycle.FormatCents(totalRefundCents),
+		NetAmountYuan:                       cycle.FormatCents(totalCents - totalRefundCents),
+		TotalCostCents:                      totalCostCents,
+		TotalCostYuan:                       cycle.FormatCents(totalCostCents),
+		TotalProfitCents:                    totalProfitCents,
+		TotalProfitYuan:                     cycle.FormatCents(totalProfitCents),
+		OperatingExpenseCents:               operatingExpenseCents,
+		OperatingExpenseYuan:                cycle.FormatCents(operatingExpenseCents),
+		ThisMonthOperatingExpenseCents:      thisMonthOperatingExpenseCents,
+		ThisMonthOperatingExpenseYuan:       cycle.FormatCents(thisMonthOperatingExpenseCents),
+		OperatingExpenseMonthlyAverageCents: operatingExpenseMonthlyAverageCents,
+		OperatingExpenseMonthlyAverageYuan:  cycle.FormatCents(operatingExpenseMonthlyAverageCents),
+		TotalAgencyFeeYuan:                  cycle.FormatCents(totalAgencyFeeCents),
+		ThisMonthCount:                      thisMonthCount,
+		ThisMonthAmountYuan:                 cycle.FormatCents(thisMonthCents),
+		ThisMonthRefundYuan:                 cycle.FormatCents(thisMonthRefundCents),
+		ThisMonthNetAmountYuan:              cycle.FormatCents(thisMonthCents - thisMonthRefundCents),
+		ThisMonthAgencyFeeYuan:              cycle.FormatCents(thisMonthAgencyFeeCents),
+		AverageAmountYuan:                   averageYuan,
+		AmountBySubscription:                amountBars,
+		Accounts:                            accounts,
+		RefundDetails:                       refundDetails,
+		MonthlyTrend:                        monthlyTrend,
+		MaxMonthCents:                       maxMonthCents,
 	}
 }
 

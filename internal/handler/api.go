@@ -371,7 +371,11 @@ func (server *Server) getBills(context *gin.Context) {
 		respondError(context, http.StatusInternalServerError, err.Error())
 		return
 	}
-	respondOK(context, gin.H{"bills": page.Bills, "summary": page.Summary})
+	respondOK(context, gin.H{
+		"bills":              page.Bills,
+		"operating_expenses": page.OperatingExpenses,
+		"summary":            page.Summary,
+	})
 }
 
 type channelSettingDTO struct {
@@ -1161,6 +1165,66 @@ func (server *Server) postAfterSalesReassign(context *gin.Context) {
 }
 
 // ---- Bill mutations ------------------------------------------------------------
+
+type operatingExpenseRequest struct {
+	OccurredOn string `json:"occurred_on"`
+	AmountYuan string `json:"amount_yuan"`
+	Note       string `json:"note"`
+}
+
+func (request operatingExpenseRequest) toInput() service.OperatingExpenseInput {
+	return service.OperatingExpenseInput{
+		OccurredOn: request.OccurredOn,
+		AmountYuan: request.AmountYuan,
+		Note:       request.Note,
+	}
+}
+
+func (server *Server) postCreateOperatingExpense(context *gin.Context) {
+	var request operatingExpenseRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	expenseID, err := server.Service.CreateOperatingExpense(request.toInput())
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{
+		"message":    "闲鱼推流支出已登记，并计入经营成本",
+		"expense_id": expenseID,
+	})
+}
+
+func (server *Server) putOperatingExpense(context *gin.Context) {
+	expenseID, ok := parseIDParam(context, "id", "无效的推流支出 ID")
+	if !ok {
+		return
+	}
+	var request operatingExpenseRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的请求")
+		return
+	}
+	if err := server.Service.UpdateOperatingExpense(expenseID, request.toInput()); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "闲鱼推流支出已更新"})
+}
+
+func (server *Server) deleteOperatingExpense(context *gin.Context) {
+	expenseID, ok := parseIDParam(context, "id", "无效的推流支出 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.DeleteOperatingExpense(expenseID); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "闲鱼推流支出已删除，利润统计已同步恢复"})
+}
 
 func (server *Server) putUpdateBill(context *gin.Context) {
 	billID, ok := parseIDParam(context, "id", "无效的账单 ID")

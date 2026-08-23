@@ -487,6 +487,11 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 	for _, benefit := range benefits {
 		totalCostCents += benefit.ActualCostCents
 	}
+	operatingExpenses, err := service.Store.ListOperatingExpenses()
+	if err != nil {
+		return Dashboard{}, err
+	}
+	totalCostCents += operatingExpenseTotal(operatingExpenses)
 	bills, err := service.Store.ListBills()
 	if err != nil {
 		return Dashboard{}, err
@@ -2213,6 +2218,10 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 	if err != nil {
 		return model.ExportPayload{}, err
 	}
+	operatingExpenses, err := service.Store.ListOperatingExpenses()
+	if err != nil {
+		return model.ExportPayload{}, err
+	}
 
 	exportAccounts := make([]model.ExportAccount, 0, len(accounts))
 	for _, account := range accounts {
@@ -2255,6 +2264,7 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 		Accounts:                           exportAccounts,
 		Subscriptions:                      make([]model.ExportSubscription, 0, len(subscriptions)),
 		CustomerBenefits:                   benefits,
+		OperatingExpenses:                  operatingExpenses,
 	}
 	for _, subscription := range subscriptions {
 		profitCents := countedProfitCents(subscription)

@@ -21,6 +21,7 @@ import {
   Eye,
   HandCoins,
   Hash,
+  Megaphone,
   Pencil,
   ReceiptText,
   Search,
@@ -68,6 +69,7 @@ import { cn } from "@/lib/utils"
 import { AMOUNT_MASK, VALUE_MASK, maskAmount, maskValue } from "@/lib/amount-privacy"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { BillEditDialog } from "./BillEditDialog"
+import { OperatingExpenseDialog } from "./OperatingExpenseDialog"
 import { SubscriptionViewDialog } from "./SubscriptionViewDialog"
 
 const CHART_COLORS = [
@@ -715,6 +717,7 @@ export function BillsPage() {
   const [viewingBill, setViewingBill] = React.useState<BillView | null>(null)
   const [deleteTarget, setDeleteTarget] = React.useState<BillView | null>(null)
   const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
+  const [expenseDialogOpen, setExpenseDialogOpen] = React.useState(false)
   const [search, setSearch] = React.useState("")
   const [typeFilter, setTypeFilter] = React.useState<BillBusinessFilter>("all")
   const [page, setPage] = React.useState(1)
@@ -725,6 +728,10 @@ export function BillsPage() {
 
   const billsData = billsQuery.data?.bills
   const bills = React.useMemo(() => billsData ?? [], [billsData])
+  const operatingExpenses = React.useMemo(
+    () => billsQuery.data?.operating_expenses ?? [],
+    [billsQuery.data?.operating_expenses],
+  )
   const summary = billsQuery.data?.summary
 
   const filteredBills = React.useMemo(() => {
@@ -805,10 +812,24 @@ export function BillsPage() {
       const plusCostCents = bills
         .filter((bill) => bill.business_type === "plus")
         .reduce((sum, bill) => sum + bill.cost_cents, 0)
-      const sharedCostCents = Math.max(0, summary.total_cost_cents - plusCostCents)
+      const sharedCostCents = Math.max(
+        0,
+        summary.total_cost_cents - plusCostCents - summary.operating_expense_cents,
+      )
       items = bills
         .filter((bill) => bill.business_type === "plus" && bill.cost_cents > 0)
         .map((bill) => ({ ...baseItem(bill, visibleAmount(bill.cost_yuan)), valueTone: "warning" }))
+      items.push(
+        ...operatingExpenses.map((expense) => ({
+          id: `operating-expense:${expense.id}`,
+          title: t("bills.promotion.categoryLabel"),
+          subtitle: expense.note || t("bills.promotion.noNote"),
+          meta: [expense.occurred_on, expense.created_at_label],
+          value: visibleAmount(expense.amount_yuan),
+          valueTone: "warning" as const,
+          searchText: `${t("bills.promotion.categoryLabel")} ${expense.note} ${expense.occurred_on}`,
+        })),
+      )
       if (sharedCostCents > 0) {
         items.unshift({
           id: "shared-cost",
@@ -825,7 +846,10 @@ export function BillsPage() {
         .filter((bill) => bill.business_type !== "plus")
         .reduce((sum, bill) => sum + bill.net_amount_cents, 0)
       const plusCostCents = plusBills.reduce((sum, bill) => sum + bill.cost_cents, 0)
-      const sharedCostCents = Math.max(0, summary.total_cost_cents - plusCostCents)
+      const sharedCostCents = Math.max(
+        0,
+        summary.total_cost_cents - plusCostCents - summary.operating_expense_cents,
+      )
       items = [
         {
           id: "team-profit",
@@ -841,6 +865,18 @@ export function BillsPage() {
           ),
           valueTone: "success" as const,
         })),
+        ...(summary.operating_expense_cents > 0
+          ? [{
+              id: "operating-expense-deduction",
+              title: t("bills.promotion.profitDeduction"),
+              subtitle: t("bills.promotion.profitDeductionHint"),
+              value: maskAmount(
+                amountsHidden,
+                `-${formatCents(summary.operating_expense_cents)}`,
+              ),
+              valueTone: "danger" as const,
+            }]
+          : []),
         ...refundDetails.filter((refund) => refund.bill_id <= 0).map((refund) => refundItem(refund, true)),
       ]
     } else if (key === "month") {
@@ -871,7 +907,7 @@ export function BillsPage() {
     }
 
     setStatDetail({ title, description: t("bills.detailDialogHint"), items })
-  }, [amountsHidden, bills, summary, t])
+  }, [amountsHidden, bills, operatingExpenses, summary, t])
 
   return (
     <>
@@ -879,6 +915,12 @@ export function BillsPage() {
         title={t("bills.title")}
         titleAccessory={
           <AmountPrivacyToggle amountsHidden={amountsHidden} onToggle={toggleAmounts} />
+        }
+        actions={
+          <Button onClick={() => setExpenseDialogOpen(true)}>
+            <Megaphone data-slot="icon" />
+            {t("bills.promotion.manageAction")}
+          </Button>
         }
       />
 
@@ -1216,6 +1258,15 @@ export function BillsPage() {
         bill={viewingBill}
         amountsHidden={amountsHidden}
       />
+      {summary ? (
+        <OperatingExpenseDialog
+          open={expenseDialogOpen}
+          onOpenChange={setExpenseDialogOpen}
+          expenses={operatingExpenses}
+          summary={summary}
+          amountsHidden={amountsHidden}
+        />
+      ) : null}
       <StatDetailDialog
         open={statDetail !== null}
         onOpenChange={(open) => {

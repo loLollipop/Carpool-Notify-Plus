@@ -550,6 +550,12 @@ export interface BillsSummary {
   total_cost_yuan: string
   total_profit_cents: number
   total_profit_yuan: string
+  operating_expense_cents: number
+  operating_expense_yuan: string
+  this_month_operating_expense_cents: number
+  this_month_operating_expense_yuan: string
+  operating_expense_monthly_average_cents: number
+  operating_expense_monthly_average_yuan: string
   this_month_count: number
   this_month_amount_yuan: string
   this_month_refund_yuan: string
@@ -560,6 +566,16 @@ export interface BillsSummary {
   refund_details: RefundDetail[] | null
   monthly_trend: MonthAmountBar[]
   max_month_cents: number
+}
+
+export interface OperatingExpenseView {
+  id: number
+  category: "xianyu_promotion" | string
+  occurred_on: string
+  amount_cents: number
+  amount_yuan: string
+  note: string
+  created_at_label: string
 }
 
 export interface RefundDetail {
@@ -1100,6 +1116,12 @@ export interface AccountInput {
 }
 
 export interface BillInput {
+  amount_yuan: string
+  note: string
+}
+
+export interface OperatingExpenseInput {
+  occurred_on: string
   amount_yuan: string
   note: string
 }

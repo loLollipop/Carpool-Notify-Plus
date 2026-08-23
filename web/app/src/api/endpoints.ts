@@ -19,6 +19,8 @@ import type {
   GoalCenter,
   ManualNextPricesInput,
   OperationsOverview,
+  OperatingExpenseInput,
+  OperatingExpenseView,
   ReminderPreview,
   RedemptionApplicationView,
   RedemptionCodeGenerateInput,
@@ -137,7 +139,15 @@ export function fetchAccountOptions(includeSeatId = 0) {
 }
 
 export function fetchBills() {
-  return api<{ bills: BillView[] | null; summary: BillsSummary }>("/api/bills")
+  return api<{
+    bills: BillView[] | null
+    operating_expenses: OperatingExpenseView[] | null
+    summary: BillsSummary
+  }>("/api/bills").then((result) => ({
+    ...result,
+    bills: result.bills ?? [],
+    operating_expenses: result.operating_expenses ?? [],
+  }))
 }
 
 export function fetchSettings() {
@@ -387,6 +397,21 @@ export function updateBill(id: number, input: BillInput) {
 
 export function deleteBill(id: number) {
   return api<MessageResult>(`/api/bills/${id}`, { method: "DELETE" })
+}
+
+export function createOperatingExpense(input: OperatingExpenseInput) {
+  return api<MessageResult & { expense_id: number }>("/api/operating-expenses", {
+    method: "POST",
+    body: input,
+  })
+}
+
+export function updateOperatingExpense(id: number, input: OperatingExpenseInput) {
+  return api<MessageResult>(`/api/operating-expenses/${id}`, { method: "PUT", body: input })
+}
+
+export function deleteOperatingExpense(id: number) {
+  return api<MessageResult>(`/api/operating-expenses/${id}`, { method: "DELETE" })
 }
 
 // ---- Settings mutations ----

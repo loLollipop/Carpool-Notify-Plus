@@ -155,6 +155,9 @@ func (server *Server) registerBusinessRoutes(routes *gin.RouterGroup) {
 	routes.POST("/after-sales/:id/reassign", server.postAfterSalesReassign)
 
 	routes.GET("/bills", server.getBills)
+	routes.POST("/operating-expenses", server.postCreateOperatingExpense)
+	routes.PUT("/operating-expenses/:id", server.putOperatingExpense)
+	routes.DELETE("/operating-expenses/:id", server.deleteOperatingExpense)
 	routes.PUT("/bills/:id", server.putUpdateBill)
 	routes.DELETE("/bills/:id", server.deleteBill)
 }

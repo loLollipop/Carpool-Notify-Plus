@@ -541,6 +541,15 @@ func (service *SubscriptionService) buildProfitTrend(monthCount int) ([]ProfitMo
 			months[index].CostCents += benefit.ActualCostCents
 		}
 	}
+	operatingExpenses, err := service.Store.ListOperatingExpenses()
+	if err != nil {
+		return nil, err
+	}
+	for _, expense := range operatingExpenses {
+		if index, exists := monthIndex[monthFromDate(expense.OccurredOn)]; exists {
+			months[index].CostCents += expense.AmountCents
+		}
+	}
 
 	afterSalesCases, err := service.Store.ListAfterSalesCases()
 	if err != nil {
@@ -609,6 +618,11 @@ func (service *SubscriptionService) activeMonthlyProfitRunRate() (int64, int, er
 			monthlyProfitCents -= account.CostCents
 		}
 	}
+	operatingExpenses, err := service.Store.ListOperatingExpenses()
+	if err != nil {
+		return 0, 0, err
+	}
+	monthlyProfitCents -= operatingExpenseMonthlyRunRate(operatingExpenses, service.now())
 	return monthlyProfitCents, activeRecurringCount, nil
 }
 
