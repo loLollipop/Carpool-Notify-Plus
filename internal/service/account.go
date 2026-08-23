@@ -26,16 +26,17 @@ type AccountView struct {
 
 // SeatView is one seat with optional active subscription occupancy.
 type SeatView struct {
-	Seat                   model.Seat `json:"seat"`
-	Occupied               bool       `json:"occupied"`
-	Frozen                 bool       `json:"frozen"`
-	FrozenUntil            string     `json:"frozen_until"`
-	FrozenUntilLabel       string     `json:"frozen_until_label"`
-	FrozenSubscriptionName string     `json:"frozen_subscription_name"`
-	FrozenCustomerEmail    string     `json:"frozen_customer_email"`
-	ActiveSubscriptionID   int64      `json:"active_subscription_id"`
-	ActiveSubscriptionName string     `json:"active_subscription_name"`
-	ActiveBusinessType     string     `json:"active_business_type"`
+	Seat                    model.Seat `json:"seat"`
+	Occupied                bool       `json:"occupied"`
+	Frozen                  bool       `json:"frozen"`
+	FrozenUntil             string     `json:"frozen_until"`
+	FrozenUntilLabel        string     `json:"frozen_until_label"`
+	FrozenReleaseActionable bool       `json:"frozen_release_actionable"`
+	FrozenSubscriptionName  string     `json:"frozen_subscription_name"`
+	FrozenCustomerEmail     string     `json:"frozen_customer_email"`
+	ActiveSubscriptionID    int64      `json:"active_subscription_id"`
+	ActiveSubscriptionName  string     `json:"active_subscription_name"`
+	ActiveBusinessType      string     `json:"active_business_type"`
 	// Edit form fields for the occupying subscription (empty when free).
 	ActivePriceYuan                 string `json:"active_price_yuan"`
 	ActiveNextPriceYuan             string `json:"active_next_price_yuan"`
@@ -213,19 +214,21 @@ func (service *SubscriptionService) buildSeatView(seat model.Seat) (SeatView, er
 	} else if err != sql.ErrNoRows {
 		return SeatView{}, err
 	} else {
+		now := service.now()
 		frozenSubscription, frozenErr := service.Store.GetFrozenSubscriptionBySeatID(
 			seat.ID,
-			service.now(),
+			now,
 		)
 		if frozenErr == nil {
 			view.Frozen = true
 			view.FrozenSubscriptionName = frozenSubscription.Name
 			view.FrozenCustomerEmail = frozenSubscription.CustomerEmail
 			if frozenSubscription.SeatFrozenUntil != nil {
-				view.FrozenUntil = frozenSubscription.SeatFrozenUntil.UTC().Format(time.RFC3339)
-				view.FrozenUntilLabel = frozenSubscription.SeatFrozenUntil.
-					In(cycle.Location).
-					Format("2006-01-02 15:04")
+				frozenUntil := frozenSubscription.SeatFrozenUntil.In(cycle.Location)
+				view.FrozenUntil = frozenUntil.UTC().Format(time.RFC3339)
+				view.FrozenUntilLabel = frozenUntil.Format("2006-01-02 15:04")
+				daysRemaining := cycle.DaysRemaining(frozenUntil, now)
+				view.FrozenReleaseActionable = daysRemaining >= 0 && daysRemaining <= 7
 			}
 		} else if frozenErr != sql.ErrNoRows {
 			return SeatView{}, frozenErr

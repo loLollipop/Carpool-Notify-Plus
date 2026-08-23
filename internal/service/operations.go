@@ -202,9 +202,8 @@ func (service *SubscriptionService) GetOperationsOverview() (OperationsOverview,
 			addUnreadOperationTask(&overview.Unread, overview.Tasks[index])
 		}
 	}
-	sort.SliceStable(overview.Tasks, func(left, right int) bool {
-		return overview.Tasks[left].Unread && !overview.Tasks[right].Unread
-	})
+	// Tasks remain ordered by operational priority. Whether an item was viewed
+	// must never push unresolved work below routine records.
 	overview.Notifications = append([]OperationTask(nil), overview.Tasks...)
 	if len(overview.Tasks) > operationsTaskLimit {
 		overview.Tasks = overview.Tasks[:operationsTaskLimit]

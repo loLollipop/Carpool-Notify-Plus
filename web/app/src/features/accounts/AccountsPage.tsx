@@ -23,7 +23,6 @@ import { useAccounts } from "@/api/queries"
 import type { AccountView } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { PageHeader } from "@/components/page-header"
-import { OperationUnreadBadge } from "@/components/operation-unread-badge"
 import {
   StatDetailDialog,
   type StatDetailState,
@@ -42,7 +41,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
-import { useOperationNotifications } from "@/hooks/use-operation-notifications"
 import { SubscriptionDialog } from "@/features/subscriptions/SubscriptionDialog"
 import {
   prefillFromSeat,
@@ -297,8 +295,6 @@ function AccountMobileCard({
   onEdit,
   onBan,
   onDelete,
-  unreadCount,
-  onAcknowledge,
 }: {
   view: AccountView
   isExpanded: boolean
@@ -309,8 +305,6 @@ function AccountMobileCard({
   onEdit: () => void
   onBan: () => void
   onDelete: () => void
-  unreadCount: number
-  onAcknowledge: () => void
 }) {
   const { t } = useTranslation()
   const occupants = (view.seats ?? []).filter((seat) => seat.occupied || seat.frozen)
@@ -319,13 +313,7 @@ function AccountMobileCard({
   const showAccountEmail = accountEmail !== "" && accountEmail !== accountName
 
   return (
-    <Card
-      onClick={unreadCount > 0 ? onAcknowledge : undefined}
-      className={cn(
-        "relative gap-0 overflow-hidden p-0 animate-fade-up",
-        unreadCount > 0 && "cursor-pointer ring-1 ring-destructive/15",
-      )}
-    >
+    <Card className="relative gap-0 overflow-hidden p-0 animate-fade-up">
       <span
         className={cn(
           "absolute inset-y-0 left-0 w-1",
@@ -359,7 +347,6 @@ function AccountMobileCard({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            <OperationUnreadBadge count={unreadCount} />
             <AccountStatus view={view} />
           </div>
         </div>
@@ -508,7 +495,6 @@ function AccountMobileCard({
 export function AccountsPage() {
   const { t } = useTranslation()
   const accountsQuery = useAccounts()
-  const { notifications, acknowledge } = useOperationNotifications()
 
   const [expanded, setExpanded] = React.useState<Set<number>>(new Set())
   const [accountDialogOpen, setAccountDialogOpen] = React.useState(false)
@@ -523,16 +509,6 @@ export function AccountsPage() {
   const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
   const [renewalTarget, setRenewalTarget] = React.useState<AccountRenewalTarget | null>(null)
   const [page, setPage] = React.useState(1)
-  const unreadTasksByAccount = React.useMemo(() => {
-    const tasks = new Map<number, typeof notifications>()
-    for (const task of notifications) {
-      if (!task.account_id || (task.kind !== "account_renewal" && task.kind !== "seat_release")) continue
-      const current = tasks.get(task.account_id) ?? []
-      current.push(task)
-      tasks.set(task.account_id, current)
-    }
-    return tasks
-  }, [notifications])
 
   const deleteMutation = useAppMutation((id: number) => deleteAccount(id), {
     onSuccess: () => setDeleteTarget(null),
@@ -702,11 +678,13 @@ export function AccountsPage() {
         ...seatFields,
       ].some((field) => field?.toLowerCase().includes(query))
     })
-    return matches.sort((left, right) =>
-      (unreadTasksByAccount.get(right.account.id)?.length ?? 0) -
-      (unreadTasksByAccount.get(left.account.id)?.length ?? 0),
+    const needsAttention = (view: AccountView) =>
+      view.renewal_actionable ||
+      (view.seats ?? []).some((seat) => seat.frozen_release_actionable)
+    return matches.sort(
+      (left, right) => Number(needsAttention(right)) - Number(needsAttention(left)),
     )
-  }, [accounts, renewalDates, search, statsFilter, unreadTasksByAccount])
+  }, [accounts, renewalDates, search, statsFilter])
 
   const pageCount = Math.max(1, Math.ceil(filteredAccounts.length / ACCOUNTS_PER_PAGE))
   const safePage = Math.min(page, pageCount)
@@ -826,8 +804,6 @@ export function AccountsPage() {
                 onDelete={() =>
                   setDeleteTarget({ id: view.account.id, name: view.account.name })
                 }
-                unreadCount={unreadTasksByAccount.get(view.account.id)?.length ?? 0}
-                onAcknowledge={() => acknowledge(unreadTasksByAccount.get(view.account.id) ?? [])}
               />
             ))}
           </div>
@@ -858,11 +834,6 @@ export function AccountsPage() {
                 return (
                   <TableRow
                     key={view.account.id}
-                    onClick={
-                      unreadTasksByAccount.has(view.account.id)
-                        ? () => acknowledge(unreadTasksByAccount.get(view.account.id) ?? [])
-                        : undefined
-                    }
                     className={cn(
                       "border-l-2",
                       view.account.banned_at
@@ -882,9 +853,6 @@ export function AccountsPage() {
                             <div className="min-w-0 truncate font-medium" title={view.account.name}>
                               {view.account.name}
                             </div>
-                            <OperationUnreadBadge
-                              count={unreadTasksByAccount.get(view.account.id)?.length ?? 0}
-                            />
                           </div>
                           {showAccountEmail ? (
                             <div className="mt-1 truncate text-xs text-muted-foreground" title={accountEmail}>

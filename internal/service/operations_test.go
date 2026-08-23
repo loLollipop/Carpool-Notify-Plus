@@ -153,7 +153,7 @@ func TestOperationsOverviewWorkCountsAreNotCappedWithTaskList(t *testing.T) {
 		t.Fatalf("unread counts = %#v, want all subscription tasks", overview.Unread)
 	}
 
-	acknowledgedID := overview.Notifications[len(overview.Notifications)-1].ID
+	acknowledgedID := overview.Notifications[0].ID
 	if count, err := subscriptionService.AcknowledgeOperationTasks([]string{acknowledgedID}); err != nil || count != 1 {
 		t.Fatalf("acknowledge task = %d, %v, want 1, nil", count, err)
 	}
@@ -163,6 +163,9 @@ func TestOperationsOverviewWorkCountsAreNotCappedWithTaskList(t *testing.T) {
 	}
 	if overview.Unread.CalendarCount != 25 {
 		t.Fatalf("calendar unread after acknowledgement = %d, want 25", overview.Unread.CalendarCount)
+	}
+	if overview.Tasks[0].ID != acknowledgedID {
+		t.Fatalf("viewed task lost its operational priority: first=%q, want %q", overview.Tasks[0].ID, acknowledgedID)
 	}
 	if overview.Work.PlusDueCount != 25 || overview.Work.TeamDueCount != 1 {
 		t.Fatalf("business work changed after acknowledgement: %#v", overview.Work)

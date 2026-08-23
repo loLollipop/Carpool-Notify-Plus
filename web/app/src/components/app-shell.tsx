@@ -44,7 +44,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useAuth } from "@/features/auth/auth-state"
 import { useSandboxMode } from "@/hooks/use-sandbox-mode"
 import { preloadRoute } from "@/route-pages"
-import { useOperationsOverview } from "@/api/queries"
 
 const SIDEBAR_STORAGE_KEY = "carpool-notify:sidebar-collapsed"
 
@@ -143,7 +142,6 @@ export function AppShell() {
   const { t } = useTranslation()
   const { logout } = useAuth()
   const sandbox = useSandboxMode()
-  const operationsOverviewQuery = useOperationsOverview()
   const navigate = useNavigate()
   const location = useLocation()
   const [openNavTooltip, setOpenNavTooltip] = React.useState<{
@@ -178,29 +176,6 @@ export function AppShell() {
       item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to),
     ) ?? navItems[0]
 
-  const navigationBadge = (to: string) => {
-    const overview = operationsOverviewQuery.data
-    if (!overview) return 0
-    switch (to) {
-      case "/":
-        return overview.unread.dashboard_count
-      case "/calendar":
-        return overview.unread.calendar_count
-      case "/users":
-        return overview.unread.team_count
-      case "/plus-rentals":
-        return overview.unread.plus_count
-      case "/redemptions":
-        return overview.unread.redemption_count
-      case "/accounts":
-        return overview.unread.account_count
-      case "/after-sales":
-        return overview.unread.after_sales_count
-      default:
-        return 0
-    }
-  }
-
   React.useEffect(() => {
     try {
       window.localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed))
@@ -224,7 +199,6 @@ export function AppShell() {
   const renderNavItems = (items: typeof navItems) =>
     items.map((item) => {
       const Icon = item.icon
-      const badge = navigationBadge(item.to)
       return (
         <Tooltip
           key={item.to}
@@ -249,7 +223,7 @@ export function AppShell() {
             <NavLink
               to={item.to}
               end={item.end}
-              aria-label={badge > 0 ? `${item.label}，${badge} 项待处理` : item.label}
+              aria-label={item.label}
               onFocus={() => preloadRoute(item.to)}
               onPointerEnter={() => preloadRoute(item.to)}
               onClick={() => setOpenNavTooltip(null)}
@@ -274,16 +248,6 @@ export function AppShell() {
                     <Icon className="size-[17px]" />
                   </span>
                   <span className={cn("truncate", sidebarCollapsed && "hidden")}>{item.label}</span>
-                  {badge > 0 ? (
-                    <span
-                      className={cn(
-                        "ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-destructive px-1.5 py-0.5 text-[10px] font-semibold leading-none text-destructive-foreground tabular-nums",
-                        sidebarCollapsed && "absolute right-1 top-1 size-2 min-w-0 p-0 text-transparent",
-                      )}
-                    >
-                      {badge > 99 ? "99+" : badge}
-                    </span>
-                  ) : null}
                   {isActive && !sidebarCollapsed ? (
                     <span className="ml-1 h-4 w-0.5 rounded-full bg-brand" aria-hidden="true" />
                   ) : null}

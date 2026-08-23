@@ -28,7 +28,6 @@ import { AmountPrivacyToggle } from "@/components/amount-privacy-toggle"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DueStatusBadge } from "@/components/due-status-badge"
 import { NumberTicker } from "@/components/number-ticker"
-import { OperationUnreadBadge } from "@/components/operation-unread-badge"
 import { PageHeader } from "@/components/page-header"
 import {
   StatDetailDialog,
@@ -56,7 +55,6 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDialog"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
-import { useOperationNotifications } from "@/hooks/use-operation-notifications"
 import { maskAmount, maskValue } from "@/lib/amount-privacy"
 import { cn } from "@/lib/utils"
 import { prefillFromView, type SubscriptionPrefill } from "@/features/subscriptions/subscription-prefill"
@@ -113,8 +111,6 @@ function RentalCard({
   onArchive,
   onComplete,
   onGoAfterSales,
-  unreadCount,
-  onAcknowledge,
 }: {
   view: SubscriptionView
   archived: boolean
@@ -124,8 +120,6 @@ function RentalCard({
   onArchive: (view: SubscriptionView) => void
   onComplete: (view: SubscriptionView) => void
   onGoAfterSales: (caseId: number) => void
-  unreadCount: number
-  onAcknowledge: () => void
 }) {
   const { t } = useTranslation()
   const subscription = view.subscription
@@ -136,11 +130,9 @@ function RentalCard({
 
   return (
     <Card
-      onClick={unreadCount > 0 ? onAcknowledge : undefined}
       className={cn(
         "group relative gap-0 overflow-hidden p-0 transition-[border-color,box-shadow] hover:border-brand/25 hover:shadow-sm",
         cancellationPending && "border-dashed bg-muted/35",
-        unreadCount > 0 && "cursor-pointer ring-1 ring-destructive/15",
       )}
     >
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-brand/45 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
@@ -174,7 +166,6 @@ function RentalCard({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            <OperationUnreadBadge count={unreadCount} />
             {archived ? (
               <Badge variant="outline" className="shrink-0 text-muted-foreground">
                 <Archive className="size-3" />
@@ -357,7 +348,6 @@ export function PlusRentalsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const subscriptionsQuery = useSubscriptions()
-  const { notifications, acknowledge } = useOperationNotifications()
   const { refetch: refetchSubscriptions } = subscriptionsQuery
   const { amountsHidden, toggleAmounts } = useAmountPrivacy()
   const [dialogOpen, setDialogOpen] = React.useState(() => searchParams.get("create") === "1")
@@ -393,24 +383,16 @@ export function PlusRentalsPage() {
   )
 
   const isActionableDue = React.useCallback(
-    (view: SubscriptionView) => !view.cancellation_pending && view.days_remaining <= 7,
+    (view: SubscriptionView) =>
+      view.subscription.archived_at === null &&
+      !view.cancellation_pending &&
+      view.days_remaining <= 7,
     [],
   )
   const dueSoon = active.filter(isActionableDue)
   const rentCents = active.reduce((sum, view) => sum + view.subscription.price_per_person_cents, 0)
   const costCents = active.reduce((sum, view) => sum + view.subscription.cost_cents, 0)
   const profitCents = rentCents - costCents
-  const unreadTasksBySubscription = React.useMemo(() => {
-    const tasks = new Map<number, typeof notifications>()
-    for (const task of notifications) {
-      if (!task.subscription_id || !task.kind.startsWith("plus_")) continue
-      const current = tasks.get(task.subscription_id) ?? []
-      current.push(task)
-      tasks.set(task.subscription_id, current)
-    }
-    return tasks
-  }, [notifications])
-
   const openStatDetail = (key: "active" | "due" | "rent" | "profit") => {
     const source = key === "due" ? dueSoon : active
     const title = key === "active"
@@ -465,11 +447,15 @@ export function PlusRentalsPage() {
         view.next_due_date,
       ].some((value) => value?.toLowerCase().includes(query)),
     )
-    return [...matches].sort((left, right) =>
-      (unreadTasksBySubscription.get(right.subscription.id)?.length ?? 0) -
-      (unreadTasksBySubscription.get(left.subscription.id)?.length ?? 0),
-    )
-  }, [active, archived, filter, isActionableDue, search, unreadTasksBySubscription])
+    return [...matches].sort((left, right) => {
+      const actionableDelta = Number(isActionableDue(right)) - Number(isActionableDue(left))
+      if (actionableDelta !== 0) return actionableDelta
+      if (isActionableDue(left) && isActionableDue(right)) {
+        return left.days_remaining - right.days_remaining
+      }
+      return 0
+    })
+  }, [active, archived, filter, isActionableDue, search])
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / RENTALS_PER_PAGE))
   const safePage = Math.min(page, pageCount)
@@ -623,8 +609,6 @@ export function PlusRentalsPage() {
                 onArchive={setArchiveTarget}
                 onComplete={setCompleteTarget}
                 onGoAfterSales={(caseId) => navigate(`/after-sales?case=${caseId}`)}
-                unreadCount={unreadTasksBySubscription.get(view.subscription.id)?.length ?? 0}
-                onAcknowledge={() => acknowledge(unreadTasksBySubscription.get(view.subscription.id) ?? [])}
               />
             ))}
           </div>

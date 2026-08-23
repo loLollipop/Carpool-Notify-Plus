@@ -310,7 +310,7 @@ func TestAdministratorCanAdjustOneFrozenSeatDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(accountView.Seats) != 1 || !accountView.Seats[0].Frozen {
+	if len(accountView.Seats) != 1 || !accountView.Seats[0].Frozen || !accountView.Seats[0].FrozenReleaseActionable {
 		t.Fatalf("account view before adjustment = %#v", accountView)
 	}
 	seatID := accountView.Seats[0].Seat.ID
@@ -325,6 +325,9 @@ func TestAdministratorCanAdjustOneFrozenSeatDeadline(t *testing.T) {
 	}
 	if accountView.Seats[0].FrozenUntilLabel != "2026-08-20 18:30" {
 		t.Fatalf("adjusted seat view = %#v", accountView.Seats[0])
+	}
+	if accountView.Seats[0].FrozenReleaseActionable {
+		t.Fatalf("ten-day freeze should not be immediately actionable: %#v", accountView.Seats[0])
 	}
 	if err := subscriptionService.UpdateSeatFreeze(seatID, service.UpdateSeatFreezeInput{
 		FrozenUntil: "2026-08-10T11:59",
