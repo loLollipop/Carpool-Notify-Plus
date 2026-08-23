@@ -350,7 +350,6 @@ export interface SeatView {
   frozen: boolean
   frozen_until: string
   frozen_until_label: string
-  frozen_release_actionable: boolean
   frozen_subscription_name: string
   frozen_customer_email: string
   active_subscription_id: number

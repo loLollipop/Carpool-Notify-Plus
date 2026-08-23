@@ -678,11 +678,8 @@ export function AccountsPage() {
         ...seatFields,
       ].some((field) => field?.toLowerCase().includes(query))
     })
-    const needsAttention = (view: AccountView) =>
-      view.renewal_actionable ||
-      (view.seats ?? []).some((seat) => seat.frozen_release_actionable)
     return matches.sort(
-      (left, right) => Number(needsAttention(right)) - Number(needsAttention(left)),
+      (left, right) => Number(right.renewal_actionable) - Number(left.renewal_actionable),
     )
   }, [accounts, renewalDates, search, statsFilter])
 
