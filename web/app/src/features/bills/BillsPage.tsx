@@ -4,6 +4,9 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
   XAxis,
@@ -424,7 +427,7 @@ function AmountDistributionCard({
         <p className="py-10 text-center text-sm text-muted-foreground">{t("bills.chartEmpty")}</p>
       ) : (
         <div className="grid gap-3">
-          <div className="grid gap-3 py-1">
+          <div className="grid min-h-[248px] content-start gap-3 py-1">
             {pagedData.map((item, index) => {
               const width = Math.max(5, (item.cents / maxCents) * 100)
               return (
@@ -497,6 +500,9 @@ function AccountDonutCard({
 }) {
   const { t } = useTranslation()
   const [page, setPage] = React.useState(1)
+  const [reduceMotion, setReduceMotion] = React.useState(() =>
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  )
   const data = (summary.accounts ?? []).map((item) => ({
     key: item.key,
     name: item.account_name,
@@ -508,10 +514,13 @@ function AccountDonutCard({
   const safePage = Math.min(page, pageCount)
   const pageStartIndex = (safePage - 1) * ACCOUNT_ITEMS_PER_PAGE
   const pagedData = data.slice(pageStartIndex, pageStartIndex + ACCOUNT_ITEMS_PER_PAGE)
-  const totalCents = Math.max(1, data.reduce((sum, item) => sum + item.cents, 0))
-  const pageShare = Math.round(
-    (pagedData.reduce((sum, item) => sum + item.cents, 0) / totalCents) * 100,
-  )
+
+  React.useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const handleChange = (event: MediaQueryListEvent) => setReduceMotion(event.matches)
+    media.addEventListener("change", handleChange)
+    return () => media.removeEventListener("change", handleChange)
+  }, [])
 
   return (
     <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "180ms" }}>
@@ -523,46 +532,51 @@ function AccountDonutCard({
         </p>
       ) : (
         <div className="grid gap-4">
-          <div>
-            <div className="flex h-3 overflow-hidden rounded-full bg-muted" aria-label={t("bills.chartAccountTitle")}>
-              {pagedData.map((item, index) => (
-                <span
-                  key={item.key}
-                  className="h-full first:rounded-l-full"
-                  style={{
-                    width: `${(item.cents / totalCents) * 100}%`,
-                    background: CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length],
-                  }}
-                />
-              ))}
+          <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:gap-5">
+            <div className="mx-auto h-[170px] w-[170px] shrink-0 sm:mx-0">
+              <PieChart width={170} height={170}>
+                <RechartsTooltip content={<ChartTooltip amountsHidden={amountsHidden} />} />
+                <Pie
+                  data={pagedData}
+                  dataKey="cents"
+                  nameKey="name"
+                  innerRadius={52}
+                  outerRadius={80}
+                  startAngle={90}
+                  endAngle={-270}
+                  paddingAngle={3}
+                  strokeWidth={0}
+                  isAnimationActive={!reduceMotion}
+                  animationBegin={120}
+                  animationDuration={1000}
+                  animationEasing="ease-out"
+                >
+                  {pagedData.map((item, index) => (
+                    <Cell
+                      key={item.key}
+                      fill={CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length]}
+                    />
+                  ))}
+                </Pie>
+              </PieChart>
             </div>
-            <p className="mt-1.5 text-right text-[10px] text-muted-foreground">
-              {t("bills.chartAccountCoverage", {
-                value: amountsHidden ? VALUE_MASK : `${pageShare}%`,
-              })}
-            </p>
-          </div>
-          <ul className="grid min-w-0 gap-2.5">
-            {pagedData.map((item, index) => (
-              <li key={item.key} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 text-xs">
-                <i
-                  className="size-2.5 shrink-0 rounded-[3px]"
-                  style={{ background: CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length] }}
-                />
-                <div className="min-w-0">
-                  <p className="truncate font-medium" title={item.name}>{item.name}</p>
-                  <p className="mt-0.5 text-[10px] text-muted-foreground">
-                    {amountsHidden ? VALUE_MASK : `${Math.round((item.cents / totalCents) * 100)}%`} · {t("bills.countSuffix", {
+            <ul className="grid min-h-[136px] min-w-0 flex-1 content-start gap-2">
+              {pagedData.map((item, index) => (
+                <li key={item.key} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-xs">
+                  <i
+                    className="size-2.5 shrink-0 rounded-[3px]"
+                    style={{ background: CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length] }}
+                  />
+                  <span className="truncate" title={item.name}>{item.name}</span>
+                  <span className="shrink-0 tabular-nums text-muted-foreground">
+                    {maskAmount(amountsHidden, `¥${item.yuan}`)} · {t("bills.countSuffix", {
                       count: maskValue(amountsHidden, item.count),
                     })}
-                  </p>
-                </div>
-                <span className="shrink-0 font-semibold tabular-nums">
-                  {maskAmount(amountsHidden, `¥${item.yuan}`)}
-                </span>
-              </li>
-            ))}
-          </ul>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
           {pageCount > 1 ? (
             <div className="flex items-center justify-end border-t pt-3 text-xs text-muted-foreground">
               <div className="flex items-center gap-1.5">
