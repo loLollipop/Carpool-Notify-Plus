@@ -1220,6 +1220,10 @@ export default {
       freezePresets: "From now",
       freezePresetDays: "{{days}} days",
       freezeSave: "Save cooling deadline",
+      freezeRelease: "Release now",
+      freezeReleaseConfirmTitle: "Release this seat now?",
+      freezeReleaseConfirmDesc:
+        "This ends the cooling protection for “{{customer}}” on “{{seat}}” and makes the seat immediately available for manual or automatic assignment. Subscription and billing history remains intact.",
       searchPlaceholder: "Search number, account, subscription, email, WeChat, notes…",
       searchEmpty: "No matching accounts",
       pageStatus: "Page {{page}} / {{pageCount}}",

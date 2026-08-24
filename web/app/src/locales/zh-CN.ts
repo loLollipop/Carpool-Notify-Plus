@@ -1219,6 +1219,10 @@ export default {
       freezePresets: "从现在起",
       freezePresetDays: "{{days}} 天",
       freezeSave: "保存冷却时间",
+      freezeRelease: "立即释放",
+      freezeReleaseConfirmTitle: "确认立即释放席位？",
+      freezeReleaseConfirmDesc:
+        "将结束「{{seat}}」原客户「{{customer}}」的冷却保护，并立即允许手动或自动分配。历史订阅和账单记录不会删除。",
       searchPlaceholder: "搜索序号 / 账号 / 订阅 / 邮箱 / 微信 / 备注…",
       searchEmpty: "没有匹配的账号",
       pageStatus: "第 {{page}} / {{pageCount}} 页",

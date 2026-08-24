@@ -27,9 +27,20 @@ func TestOperationsOverviewPrioritizesWorkAndSummarizesCapacity(t *testing.T) {
 		Email:                "owner@example.com",
 		OpenedAt:             "2026-07-25",
 		CostYuan:             "75.00",
-		ZeroRenewalNextMonth: true,
+		ZeroRenewalNextMonth: false,
 		SeatCount:            2,
 	}); err != nil {
+		t.Fatal(err)
+	}
+	zeroAccountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+		Name:                 "zero-renewal@example.com",
+		Email:                "zero-renewal@example.com",
+		OpenedAt:             "2026-07-25",
+		CostYuan:             "75.00",
+		ZeroRenewalNextMonth: true,
+		SeatCount:            1,
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
@@ -54,8 +65,8 @@ func TestOperationsOverviewPrioritizesWorkAndSummarizesCapacity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if overview.Capacity.SeatTotal != 2 || overview.Capacity.SeatUsed != 1 || overview.Capacity.SeatFree != 1 {
-		t.Fatalf("capacity = %#v, want total=2 used=1 free=1", overview.Capacity)
+	if overview.Capacity.SeatTotal != 3 || overview.Capacity.SeatUsed != 1 || overview.Capacity.SeatFree != 2 {
+		t.Fatalf("capacity = %#v, want total=3 used=1 free=2", overview.Capacity)
 	}
 	if overview.Work.OverdueCount != 1 || overview.Work.OverdueAmountYuan != "100.00" {
 		t.Fatalf("overdue summary = %#v, want one ¥100 task", overview.Work)
@@ -69,6 +80,7 @@ func TestOperationsOverviewPrioritizesWorkAndSummarizesCapacity(t *testing.T) {
 
 	foundOverdue := false
 	foundAccountRenewal := false
+	foundZeroRenewal := false
 	for _, task := range overview.Tasks {
 		switch task.Kind {
 		case "team_overdue":
@@ -76,11 +88,12 @@ func TestOperationsOverviewPrioritizesWorkAndSummarizesCapacity(t *testing.T) {
 		case "account_renewal":
 			foundAccountRenewal = task.AccountID == accountID &&
 				task.DueDate == "2026-08-25" &&
-				task.AmountYuan == "0.00"
+				task.AmountYuan == "75.00"
+			foundZeroRenewal = foundZeroRenewal || task.AccountID == zeroAccountID
 		}
 	}
-	if !foundOverdue || !foundAccountRenewal {
-		t.Fatalf("tasks = %#v, want overdue subscription and upcoming account renewal", overview.Tasks)
+	if !foundOverdue || !foundAccountRenewal || foundZeroRenewal {
+		t.Fatalf("tasks = %#v, want paid renewal work and no $0 renewal task", overview.Tasks)
 	}
 
 	inserted, err := subscriptionService.MarkAccountRenewed(accountID, "2026-08-25")

@@ -174,8 +174,13 @@ func (service *SubscriptionService) buildAccountView(account model.Account) (Acc
 		if !renewalAt.IsZero() {
 			today := cycle.StartOfDay(service.now())
 			view.NextRenewalDate = cycle.FormatDate(renewalAt)
-			view.RenewalThisMonth = renewalAt.Year() == today.Year() && renewalAt.Month() == today.Month()
-			view.RenewalActionable = accountRenewalActionable(renewalAt, today)
+			// A flagged $0 renewal is accrued automatically by the scheduler. Keep
+			// its date visible as history/context, but do not present it as manual
+			// work or prioritize the account ahead of renewals that require payment.
+			if !account.ZeroRenewalNextMonth {
+				view.RenewalThisMonth = renewalAt.Year() == today.Year() && renewalAt.Month() == today.Month()
+				view.RenewalActionable = accountRenewalActionable(renewalAt, today)
+			}
 		}
 	}
 	return view, nil
@@ -552,6 +557,37 @@ func (service *SubscriptionService) UpdateSeatFreeze(
 	if err := service.Store.UpdateFrozenSubscriptionUntil(
 		frozenSubscription.ID,
 		frozenUntil,
+		now,
+	); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("冷却状态已发生变化，请刷新后重试")
+		}
+		return err
+	}
+	return nil
+}
+
+// ReleaseSeatFreeze ends one active cancellation cooling window immediately.
+// The archived subscription and its billing history remain intact; only the
+// seat reservation expires so the seat can be assigned again.
+func (service *SubscriptionService) ReleaseSeatFreeze(seatID int64) error {
+	if _, err := service.Store.GetSeat(seatID); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("车位不存在")
+		}
+		return err
+	}
+	now := service.now()
+	frozenSubscription, err := service.Store.GetFrozenSubscriptionBySeatID(seatID, now)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("该车位当前不在冷却期内")
+		}
+		return err
+	}
+	if err := service.Store.UpdateFrozenSubscriptionUntil(
+		frozenSubscription.ID,
+		now,
 		now,
 	); err != nil {
 		if err == sql.ErrNoRows {

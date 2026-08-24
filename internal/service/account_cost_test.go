@@ -26,6 +26,15 @@ func TestAccountCostRenewalsUseMonthlyAnniversaryAndConsumeZeroOnce(t *testing.T
 		t.Fatal(err)
 	}
 
+	now = time.Date(2026, time.February, 22, 12, 0, 0, 0, cycle.Location)
+	view, err := subscriptionService.GetAccountView(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.NextRenewalDate != "2026-02-28" || view.RenewalThisMonth || view.RenewalActionable {
+		t.Fatalf("zero renewal manual state = %#v, want visible date without manual work", view)
+	}
+
 	now = time.Date(2026, time.March, 31, 12, 0, 0, 0, cycle.Location)
 	if err := subscriptionService.ProcessAccountCostRenewals(); err != nil {
 		t.Fatal(err)

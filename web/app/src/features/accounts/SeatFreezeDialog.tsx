@@ -1,9 +1,10 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { CalendarClock, Snowflake } from "lucide-react"
+import { CalendarClock, CircleParking, Snowflake } from "lucide-react"
 
-import { updateSeatFreeze } from "@/api/endpoints"
+import { releaseSeatFreeze, updateSeatFreeze } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
+import { ConfirmDialog } from "@/components/confirm-dialog"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -73,12 +74,20 @@ function SeatFreezeDialogContent({
   const { t } = useTranslation()
   const [frozenUntil, setFrozenUntil] = React.useState(() => initialDeadline(target))
   const [openedAt] = React.useState(() => new Date())
+  const [releaseConfirmOpen, setReleaseConfirmOpen] = React.useState(false)
 
-  const mutation = useAppMutation(
+  const updateMutation = useAppMutation(
     (input: { seatId: number; frozenUntil: string }) =>
       updateSeatFreeze(input.seatId, { frozen_until: input.frozenUntil }),
     { onSuccess: () => onOpenChange(false) },
   )
+  const releaseMutation = useAppMutation((seatId: number) => releaseSeatFreeze(seatId), {
+    onSuccess: () => {
+      setReleaseConfirmOpen(false)
+      onOpenChange(false)
+    },
+  })
+  const pending = updateMutation.isPending || releaseMutation.isPending
 
   const applyPreset = (days: number) => {
     const deadline = new Date(openedAt.getTime() + days * 24 * 60 * 60 * 1000)
@@ -86,86 +95,113 @@ function SeatFreezeDialogContent({
   }
 
   return (
-    <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <span className="grid size-9 place-items-center rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300">
-              <Snowflake className="size-4" />
+    <>
+      <Dialog open onOpenChange={onOpenChange}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="grid size-9 place-items-center rounded-lg bg-sky-500/10 text-sky-700 dark:text-sky-300">
+                <Snowflake className="size-4" />
+              </span>
+              {t("accounts.freezeDialogTitle")}
+            </DialogTitle>
+            <DialogDescription>{t("accounts.freezeDialogDesc")}</DialogDescription>
+          </DialogHeader>
+
+          <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 rounded-xl border border-sky-500/15 bg-sky-500/[0.05] px-4 py-3 text-sm">
+            <span className="text-muted-foreground">{t("accounts.freezeSeat")}</span>
+            <span className="truncate font-medium">{target.seatName || "—"}</span>
+            <span className="text-muted-foreground">{t("accounts.freezeCustomer")}</span>
+            <span className="truncate font-medium">{target.customer || "—"}</span>
+            <span className="text-muted-foreground">{t("accounts.freezeCurrentUntil")}</span>
+            <span className="font-mono text-xs font-semibold text-sky-700 tabular-nums dark:text-sky-300">
+              {target.frozenUntilLabel || "—"}
             </span>
-            {t("accounts.freezeDialogTitle")}
-          </DialogTitle>
-          <DialogDescription>{t("accounts.freezeDialogDesc")}</DialogDescription>
-        </DialogHeader>
-
-        <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 rounded-xl border border-sky-500/15 bg-sky-500/[0.05] px-4 py-3 text-sm">
-          <span className="text-muted-foreground">{t("accounts.freezeSeat")}</span>
-          <span className="truncate font-medium">{target.seatName || "—"}</span>
-          <span className="text-muted-foreground">{t("accounts.freezeCustomer")}</span>
-          <span className="truncate font-medium">{target.customer || "—"}</span>
-          <span className="text-muted-foreground">{t("accounts.freezeCurrentUntil")}</span>
-          <span className="font-mono text-xs font-semibold text-sky-700 tabular-nums dark:text-sky-300">
-            {target.frozenUntilLabel || "—"}
-          </span>
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="seat-freeze-until">{t("accounts.freezeNewUntil")}</Label>
-          <div className="relative">
-            <CalendarClock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="seat-freeze-until"
-              type="datetime-local"
-              value={frozenUntil}
-              min={shanghaiDateTimeLocal(new Date(openedAt.getTime() + 60 * 1000))}
-              onChange={(event) => setFrozenUntil(event.target.value)}
-              className="pl-9 font-mono tabular-nums"
-            />
           </div>
-          <p className="text-xs leading-5 text-muted-foreground">
-            {t("accounts.freezeDeadlineHint")}
-          </p>
-        </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="mr-1 text-xs text-muted-foreground">
-            {t("accounts.freezePresets")}
-          </span>
-          {[1, 3, 7].map((days) => (
+          <div className="grid gap-2">
+            <Label htmlFor="seat-freeze-until">{t("accounts.freezeNewUntil")}</Label>
+            <div className="relative">
+              <CalendarClock className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="seat-freeze-until"
+                type="datetime-local"
+                value={frozenUntil}
+                min={shanghaiDateTimeLocal(new Date(openedAt.getTime() + 60 * 1000))}
+                onChange={(event) => setFrozenUntil(event.target.value)}
+                className="pl-9 font-mono tabular-nums"
+              />
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">
+              {t("accounts.freezeDeadlineHint")}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="mr-1 text-xs text-muted-foreground">
+              {t("accounts.freezePresets")}
+            </span>
+            {[1, 3, 7].map((days) => (
+              <Button
+                key={days}
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={() => applyPreset(days)}
+              >
+                {t("accounts.freezePresetDays", { days })}
+              </Button>
+            ))}
+          </div>
+
+          <DialogFooter>
             <Button
-              key={days}
+              type="button"
+              variant="destructive"
+              className="sm:mr-auto"
+              disabled={pending}
+              onClick={() => setReleaseConfirmOpen(true)}
+            >
+              <CircleParking data-slot="icon" />
+              {t("accounts.freezeRelease")}
+            </Button>
+            <Button
               type="button"
               variant="outline"
-              size="xs"
-              onClick={() => applyPreset(days)}
+              disabled={pending}
+              onClick={() => onOpenChange(false)}
             >
-              {t("accounts.freezePresetDays", { days })}
+              {t("common.cancel")}
             </Button>
-          ))}
-        </div>
-
-        <DialogFooter>
-          <Button
-            type="button"
-            variant="outline"
-            disabled={mutation.isPending}
-            onClick={() => onOpenChange(false)}
-          >
-            {t("common.cancel")}
-          </Button>
-          <Button
-            type="button"
-            disabled={!target || !frozenUntil || mutation.isPending}
-            onClick={() => {
-              if (!target) return
-              mutation.mutate({ seatId: target.seatId, frozenUntil })
-            }}
-          >
-            <CalendarClock data-slot="icon" />
-            {t("accounts.freezeSave")}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+            <Button
+              type="button"
+              disabled={!target || !frozenUntil || pending}
+              onClick={() => {
+                if (!target) return
+                updateMutation.mutate({ seatId: target.seatId, frozenUntil })
+              }}
+            >
+              <CalendarClock data-slot="icon" />
+              {t("accounts.freezeSave")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <ConfirmDialog
+        open={releaseConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open && !releaseMutation.isPending) setReleaseConfirmOpen(false)
+        }}
+        title={t("accounts.freezeReleaseConfirmTitle")}
+        description={t("accounts.freezeReleaseConfirmDesc", {
+          seat: target.seatName,
+          customer: target.customer,
+        })}
+        actionLabel={t("accounts.freezeRelease")}
+        destructive
+        pending={releaseMutation.isPending}
+        onConfirm={() => releaseMutation.mutate(target.seatId)}
+      />
+    </>
   )
 }

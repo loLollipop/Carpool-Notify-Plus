@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -335,6 +336,73 @@ func TestAdministratorCanAdjustOneFrozenSeatDeadline(t *testing.T) {
 	now = time.Date(2026, time.August, 20, 18, 30, 1, 0, cycle.Location)
 	if free, err := subscriptionService.Store.ListFreeSeatsAt(accountID, 0, now); err != nil || len(free) != 1 {
 		t.Fatalf("seat after adjusted deadline = %#v, %v", free, err)
+	}
+}
+
+func TestAdministratorCanReleaseFrozenSeatImmediately(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	accountID, subscriptionID := createWarrantyCustomer(
+		t,
+		subscriptionService,
+		"2026-08-01",
+		false,
+	)
+	request, err := subscriptionService.RequestCancellation(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SetAfterSalesCaseRefunded(request.CaseID, true); err != nil {
+		t.Fatal(err)
+	}
+	accountView, err := subscriptionService.GetAccountView(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(accountView.Seats) != 1 || !accountView.Seats[0].Frozen {
+		t.Fatalf("account view before release = %#v", accountView)
+	}
+	seatID := accountView.Seats[0].Seat.ID
+	overview, err := subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectedRoute := fmt.Sprintf("/accounts?action=freeze&seat=%d", seatID)
+	foundDeepLink := false
+	for _, task := range overview.Tasks {
+		if task.Kind == "seat_release" && task.SeatID == seatID && task.Route == expectedRoute {
+			foundDeepLink = true
+			break
+		}
+	}
+	if !foundDeepLink {
+		t.Fatalf("seat release task did not target dialog route %q: %#v", expectedRoute, overview.Tasks)
+	}
+
+	if err := subscriptionService.ReleaseSeatFreeze(seatID); err != nil {
+		t.Fatal(err)
+	}
+	accountView, err = subscriptionService.GetAccountView(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accountView.Seats[0].Frozen || accountView.SeatUsed != 0 {
+		t.Fatalf("account view after release = %#v", accountView)
+	}
+	if free, err := subscriptionService.Store.ListFreeSeatsAt(accountID, 0, now); err != nil || len(free) != 1 {
+		t.Fatalf("free seats after manual release = %#v, %v", free, err)
+	}
+	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.ArchivedAt == nil {
+		t.Fatalf("released seat lost archived history: %#v", archived)
+	}
+	if err := subscriptionService.ReleaseSeatFreeze(seatID); err == nil ||
+		!strings.Contains(err.Error(), "不在冷却期") {
+		t.Fatalf("repeated release error = %v", err)
 	}
 }
 

@@ -1054,6 +1054,18 @@ func (server *Server) putSeatFreeze(context *gin.Context) {
 	respondOK(context, gin.H{"message": "车位冷却时间已更新"})
 }
 
+func (server *Server) deleteSeatFreeze(context *gin.Context) {
+	seatID, ok := parseIDParam(context, "id", "无效的车位 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.ReleaseSeatFreeze(seatID); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "冻结席位已释放"})
+}
+
 func (server *Server) postBanAccount(context *gin.Context) {
 	accountID, ok := parseIDParam(context, "id", "无效的账号 ID")
 	if !ok {

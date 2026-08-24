@@ -364,6 +364,10 @@ export function updateSeatFreeze(id: number, input: { frozen_until: string }) {
   return api<MessageResult>(`/api/seats/${id}/freeze`, { method: "PUT", body: input })
 }
 
+export function releaseSeatFreeze(id: number) {
+  return api<MessageResult>(`/api/seats/${id}/freeze`, { method: "DELETE" })
+}
+
 export function banAccount(id: number, input: { banned_date: string; note: string }) {
   return api<MessageResult & { created_count: number }>(`/api/accounts/${id}/ban`, {
     method: "POST",

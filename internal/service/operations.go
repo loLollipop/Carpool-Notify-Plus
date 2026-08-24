@@ -316,7 +316,7 @@ func buildOperationsCapacity(
 				DueDate:       cycle.FormatDate(frozenUntil.In(cycle.Location)),
 				DueAtLabel:    seat.FrozenUntilLabel,
 				DaysRemaining: days,
-				Route:         "/accounts",
+				Route:         fmt.Sprintf("/accounts?action=freeze&seat=%d", seat.Seat.ID),
 			})
 		}
 	}
@@ -467,7 +467,7 @@ func buildAccountRenewalOperationTasks(
 	today := cycle.StartOfDay(now)
 	for _, view := range accounts {
 		account := view.Account
-		if account.BannedAt != "" || strings.TrimSpace(view.NextRenewalDate) == "" {
+		if account.BannedAt != "" || account.ZeroRenewalNextMonth || strings.TrimSpace(view.NextRenewalDate) == "" {
 			continue
 		}
 		renewalAt, err := time.ParseInLocation("2006-01-02", view.NextRenewalDate, cycle.Location)
@@ -479,10 +479,6 @@ func buildAccountRenewalOperationTasks(
 			continue
 		}
 		work.AccountRenewalCount++
-		amountCents := account.CostCents
-		if account.ZeroRenewalNextMonth {
-			amountCents = 0
-		}
 		*tasks = append(*tasks, OperationTask{
 			ID:            fmt.Sprintf("account-renewal:%d:%s", account.ID, cycle.FormatDate(renewalAt)),
 			Kind:          "account_renewal",
@@ -493,7 +489,7 @@ func buildAccountRenewalOperationTasks(
 			AccountName:   account.Name,
 			DueDate:       cycle.FormatDate(renewalAt),
 			DaysRemaining: days,
-			AmountYuan:    cycle.FormatCents(amountCents),
+			AmountYuan:    cycle.FormatCents(account.CostCents),
 			Route:         "/accounts",
 		})
 	}

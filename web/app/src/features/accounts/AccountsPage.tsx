@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
+import { useSearchParams } from "react-router-dom"
 import {
   CheckCircle2,
   ChevronDown,
@@ -63,6 +64,21 @@ interface AccountRenewalTarget {
 }
 
 const ACCOUNTS_PER_PAGE = 9
+
+function freezeTargetFromSeat(
+  seat: NonNullable<AccountView["seats"]>[number],
+): SeatFreezeTarget {
+  return {
+    seatId: seat.seat.id,
+    seatName: seat.seat.name,
+    customer:
+      seat.frozen_customer_email.trim() ||
+      seat.frozen_subscription_name.trim() ||
+      seat.seat.name,
+    frozenUntil: seat.frozen_until,
+    frozenUntilLabel: seat.frozen_until_label,
+  }
+}
 
 function formatCents(cents: number) {
   return (cents / 100).toFixed(2)
@@ -494,6 +510,7 @@ function AccountMobileCard({
 
 export function AccountsPage() {
   const { t } = useTranslation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const accountsQuery = useAccounts()
 
   const [expanded, setExpanded] = React.useState<Set<number>>(new Set())
@@ -551,20 +568,55 @@ export function AccountsPage() {
   }
 
   const openFreezeEditor = (seat: NonNullable<AccountView["seats"]>[number]) => {
-    const customer =
-      seat.frozen_customer_email.trim() ||
-      seat.frozen_subscription_name.trim() ||
-      seat.seat.name
-    setFreezeTarget({
-      seatId: seat.seat.id,
-      seatName: seat.seat.name,
-      customer,
-      frozenUntil: seat.frozen_until,
-      frozenUntilLabel: seat.frozen_until_label,
-    })
+    setFreezeTarget(freezeTargetFromSeat(seat))
   }
 
   const accounts = React.useMemo(() => accountsQuery.data ?? [], [accountsQuery.data])
+  const requestedAction = searchParams.get("action")
+  const requestedSeat = searchParams.get("seat")
+
+  React.useEffect(() => {
+    if (accountsQuery.isPending || requestedAction !== "freeze") return
+
+    const seatID = Number(requestedSeat)
+    const validSeatID = Number.isSafeInteger(seatID) && seatID > 0
+    const matchedAccount = validSeatID
+      ? accounts.find((view) =>
+          (view.seats ?? []).some((seat) => seat.seat.id === seatID && seat.frozen),
+        )
+      : undefined
+    const matchedSeat = matchedAccount?.seats?.find(
+      (seat) => seat.seat.id === seatID && seat.frozen,
+    )
+    const accountIndex = matchedAccount
+      ? [...accounts]
+          .sort(
+            (left, right) =>
+              Number(right.renewal_actionable) - Number(left.renewal_actionable),
+          )
+          .findIndex((view) => view.account.id === matchedAccount.account.id)
+      : -1
+    const timer = window.setTimeout(() => {
+      const nextParams = new URLSearchParams(searchParams)
+      nextParams.delete("action")
+      nextParams.delete("seat")
+      setSearchParams(nextParams, { replace: true })
+      if (!matchedAccount || !matchedSeat) return
+      setStatsFilter("all")
+      setSearch("")
+      setExpanded((previous) => new Set(previous).add(matchedAccount.account.id))
+      if (accountIndex >= 0) setPage(Math.floor(accountIndex / ACCOUNTS_PER_PAGE) + 1)
+      setFreezeTarget(freezeTargetFromSeat(matchedSeat))
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [
+    accounts,
+    accountsQuery.isPending,
+    requestedAction,
+    requestedSeat,
+    searchParams,
+    setSearchParams,
+  ])
   const openRenewal = (view: AccountView) => {
     if (!view.next_renewal_date || !view.renewal_actionable) return
     setStatDetail(null)

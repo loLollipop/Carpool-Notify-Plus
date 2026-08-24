@@ -148,6 +148,7 @@ func (server *Server) registerBusinessRoutes(routes *gin.RouterGroup) {
 	routes.POST("/accounts/:id/ban", server.postBanAccount)
 	routes.DELETE("/accounts/:id", server.deleteAccount)
 	routes.PUT("/seats/:id/freeze", server.putSeatFreeze)
+	routes.DELETE("/seats/:id/freeze", server.deleteSeatFreeze)
 
 	routes.GET("/after-sales", server.getAfterSales)
 	routes.PUT("/after-sales/:id", server.putAfterSalesCase)
