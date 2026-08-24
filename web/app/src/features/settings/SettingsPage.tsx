@@ -1356,7 +1356,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
         onValueChange={(value) => setActiveSection(value as SettingsSection)}
         className="gap-5"
       >
-        <div className="rounded-lg border bg-card p-1 shadow-[0_1px_3px_color-mix(in_oklab,var(--foreground)_6%,transparent)]">
+        <div className="sticky top-[72px] z-20 rounded-lg border bg-card/95 p-1 shadow-card backdrop-blur-md">
           <TabsList className="grid h-auto w-full grid-cols-2 gap-1 border-0 bg-transparent p-0 sm:grid-cols-3 lg:grid-cols-5">
             <TabsTrigger
               value="templates"
@@ -1453,9 +1453,10 @@ function SettingsForm({ settings }: { settings: Settings }) {
       </Tabs>
 
       {activeSection !== "tools" ? (
-        <div className="flex justify-end rounded-lg border border-[var(--sidebar-border)] bg-[var(--sidebar)] p-3 shadow-sm">
+        <div className="sticky bottom-3 z-20 flex items-center justify-between gap-4 rounded-lg border border-brand/15 bg-card/95 p-3 shadow-lift backdrop-blur-md">
+          <p className="hidden text-xs text-muted-foreground sm:block">{t("settings.saveHint")}</p>
           <Button type="submit" className="w-full sm:w-auto" disabled={saveMutation.isPending}>
-            {t("settings.saveSettings")}
+            {saveMutation.isPending ? t("common.saving") : t("settings.saveSettings")}
           </Button>
         </div>
       ) : null}

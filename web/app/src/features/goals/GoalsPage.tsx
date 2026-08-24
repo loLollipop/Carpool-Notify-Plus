@@ -3885,6 +3885,9 @@ export function GoalsPage() {
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [completeOpen, setCompleteOpen] = React.useState(false)
   const [workspaceTab, setWorkspaceTab] = React.useState("overview")
+  const [visitedTabs, setVisitedTabs] = React.useState<Set<string>>(
+    () => new Set(["overview"]),
+  )
   const [pricingEntry, setPricingEntry] = React.useState<{
     filter: PricingFilter
     requestId: number
@@ -3904,6 +3907,15 @@ export function GoalsPage() {
     recommendedPricingCount
   const hasGoalHistory = (query.data?.history?.length ?? 0) > 0
   const recommendedCareCount = query.data?.customer_care?.summary.recommended_count ?? 0
+  const changeWorkspaceTab = (value: string) => {
+    setWorkspaceTab(value)
+    setVisitedTabs((current) => {
+      if (current.has(value)) return current
+      const next = new Set(current)
+      next.add(value)
+      return next
+    })
+  }
 
   return (
     <div className="space-y-4 pb-4">
@@ -3949,9 +3961,9 @@ export function GoalsPage() {
             <EmptyGoal onCreate={() => setDialogOpen(true)} />
           )}
 
-          <Tabs value={workspaceTab} onValueChange={setWorkspaceTab} className="gap-3">
+          <Tabs value={workspaceTab} onValueChange={changeWorkspaceTab} className="gap-3">
             <TabsList
-              className="grid h-11 w-full grid-cols-4 bg-muted/70 p-1 sm:w-fit sm:min-w-[700px]"
+              className="sticky top-[72px] z-20 grid h-11 w-full grid-cols-4 border bg-card/95 p-1 shadow-card backdrop-blur-md sm:w-fit sm:min-w-[700px]"
               aria-label={t("goals.workspaceNav")}
             >
               <TabsTrigger value="overview" className="h-9 px-3 text-xs sm:px-4 sm:text-sm">
@@ -3989,7 +4001,7 @@ export function GoalsPage() {
 
             <TabsContent
               value="overview"
-              forceMount
+              forceMount={visitedTabs.has("overview") ? true : undefined}
               className="mt-0 data-[state=inactive]:hidden animate-fade-in"
             >
               <div
@@ -4028,7 +4040,7 @@ export function GoalsPage() {
 
             <TabsContent
               value="analysis"
-              forceMount
+              forceMount={visitedTabs.has("analysis") ? true : undefined}
               className="mt-0 data-[state=inactive]:hidden animate-fade-in"
             >
               <RepricingAnalysisPanel
@@ -4039,14 +4051,14 @@ export function GoalsPage() {
                     filter: tier === "all" ? "recommended" : tier,
                     requestId: current.requestId + 1,
                   }))
-                  setWorkspaceTab("repricing")
+                  changeWorkspaceTab("repricing")
                 }}
               />
             </TabsContent>
 
             <TabsContent
               value="repricing"
-              forceMount
+              forceMount={visitedTabs.has("repricing") ? true : undefined}
               className="mt-0 data-[state=inactive]:hidden animate-fade-in"
             >
               <BulkPricingPanel
@@ -4059,7 +4071,7 @@ export function GoalsPage() {
 
             <TabsContent
               value="care"
-              forceMount
+              forceMount={visitedTabs.has("care") ? true : undefined}
               className="mt-0 data-[state=inactive]:hidden animate-fade-in"
             >
               <CustomerCarePanel data={query.data} amountsHidden={amountsHidden} />

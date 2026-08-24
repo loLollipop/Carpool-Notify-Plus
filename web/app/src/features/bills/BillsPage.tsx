@@ -4,9 +4,6 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
   XAxis,
@@ -82,7 +79,7 @@ const CHART_COLORS = [
 
 const BILLS_PER_PAGE = 9
 const AMOUNT_ITEMS_PER_PAGE = 6
-const ACCOUNT_ITEMS_PER_PAGE = 10
+const ACCOUNT_ITEMS_PER_PAGE = 6
 type BillBusinessFilter = "all" | "team" | "plus"
 
 function billIdentity(bill: BillView) {
@@ -110,14 +107,6 @@ function formatAxisCents(cents: number) {
     minimumFractionDigits: 0,
     maximumFractionDigits: Math.abs(yuan) < 10 ? 2 : 1,
   })}`
-}
-
-function compactChartLabel(value: string, maxLength = 12) {
-  const characters = Array.from(value)
-  if (characters.length <= maxLength) return value
-  const suffixLength = Math.min(4, maxLength - 2)
-  const prefixLength = maxLength - suffixLength - 1
-  return `${characters.slice(0, prefixLength).join("")}…${characters.slice(-suffixLength).join("")}`
 }
 
 function getChartScale(values: number[]) {
@@ -199,6 +188,7 @@ function KpiCard({
   delay,
   tone,
   onClick,
+  compact = false,
 }: {
   label: string
   value: string | number
@@ -207,6 +197,7 @@ function KpiCard({
   delay: number
   tone: "brand" | "success" | "gold"
   onClick: () => void
+  compact?: boolean
 }) {
   const toneClass = {
     brand: "bg-brand/10 text-brand",
@@ -222,16 +213,19 @@ function KpiCard({
         type="button"
         onClick={onClick}
         aria-label={label}
-        className="w-full p-5 text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-inset"
+        className={cn(
+          "w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-inset",
+          compact ? "p-4" : "p-5",
+        )}
       >
         <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
           <span>{label}</span>
           <span className={cn("grid size-8 place-items-center rounded-md", toneClass)}>{icon}</span>
         </div>
-        <div className="display-numeral mt-4 text-[27px] leading-none">
+        <div className={cn("display-numeral leading-none", compact ? "mt-2.5 text-xl" : "mt-4 text-[27px]")}>
           <NumberTicker value={value} />
         </div>
-        <div className="mt-2.5 text-xs text-muted-foreground">{hint}</div>
+        <div className={cn("truncate text-xs text-muted-foreground", compact ? "mt-1.5" : "mt-2.5")}>{hint}</div>
         <span className="absolute inset-x-0 bottom-0 h-0.5 origin-left scale-x-0 bg-brand transition-transform duration-300 group-hover:scale-x-100 group-focus-within:scale-x-100" />
       </button>
     </Card>
@@ -385,7 +379,7 @@ function AmountDistributionCard({
   const safePage = Math.min(page, pageCount)
   const pageStartIndex = (safePage - 1) * AMOUNT_ITEMS_PER_PAGE
   const pagedData = data.slice(pageStartIndex, pageStartIndex + AMOUNT_ITEMS_PER_PAGE)
-  const chartHeight = Math.max(128, pagedData.length * 40)
+  const maxCents = Math.max(1, ...pagedData.map((item) => item.cents))
 
   return (
     <Card className="gap-4 overflow-hidden p-5 animate-fade-up" style={{ animationDelay: "120ms" }}>
@@ -430,44 +424,31 @@ function AmountDistributionCard({
         <p className="py-10 text-center text-sm text-muted-foreground">{t("bills.chartEmpty")}</p>
       ) : (
         <div className="grid gap-3">
-          <div style={{ height: chartHeight }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={pagedData} layout="vertical" margin={{ top: 0, right: 56, bottom: 0, left: 0 }}>
-                <XAxis type="number" hide />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={124}
-                  axisLine={false}
-                  tickLine={false}
-                  tick={{ fontSize: 11, fill: "var(--muted-foreground)" }}
-                  tickFormatter={(value: string) => compactChartLabel(value)}
-                />
-                <RechartsTooltip
-                  cursor={{ fill: "var(--accent)" }}
-                  content={<ChartTooltip amountsHidden={amountsHidden} />}
-                />
-                <Bar
-                  dataKey="cents"
-                  radius={[3, 3, 3, 3]}
-                  barSize={14}
-                  label={{
-                    position: "right",
-                    fontSize: 11,
-                    fill: "var(--muted-foreground)",
-                    formatter: (value: unknown) =>
-                      amountsHidden ? AMOUNT_MASK : formatCents(Number(value)),
-                  }}
-                >
-                  {pagedData.map((item, index) => (
-                    <Cell
-                      key={item.key}
-                      fill={CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length]}
-                    />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          <div className="grid gap-3 py-1">
+            {pagedData.map((item, index) => {
+              const width = Math.max(5, (item.cents / maxCents) * 100)
+              return (
+                <div key={item.key} className="grid grid-cols-[24px_minmax(0,1fr)] items-center gap-3">
+                  <span className="font-mono text-[10px] font-semibold text-muted-foreground/70">
+                    {String(pageStartIndex + index + 1).padStart(2, "0")}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="mb-1.5 flex items-center justify-between gap-3 text-xs">
+                      <span className="truncate font-medium" title={item.name}>{item.name}</span>
+                      <span className="shrink-0 font-semibold tabular-nums">
+                        {amountsHidden ? AMOUNT_MASK : formatCents(item.cents)}
+                      </span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-brand/70 to-brand transition-[width] duration-500"
+                        style={{ width: `${width}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
 
           {pageCount > 1 ? (
@@ -516,9 +497,6 @@ function AccountDonutCard({
 }) {
   const { t } = useTranslation()
   const [page, setPage] = React.useState(1)
-  const [reduceMotion, setReduceMotion] = React.useState(() =>
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-  )
   const data = (summary.accounts ?? []).map((item) => ({
     key: item.key,
     name: item.account_name,
@@ -530,13 +508,10 @@ function AccountDonutCard({
   const safePage = Math.min(page, pageCount)
   const pageStartIndex = (safePage - 1) * ACCOUNT_ITEMS_PER_PAGE
   const pagedData = data.slice(pageStartIndex, pageStartIndex + ACCOUNT_ITEMS_PER_PAGE)
-
-  React.useEffect(() => {
-    const media = window.matchMedia("(prefers-reduced-motion: reduce)")
-    const handleChange = (event: MediaQueryListEvent) => setReduceMotion(event.matches)
-    media.addEventListener("change", handleChange)
-    return () => media.removeEventListener("change", handleChange)
-  }, [])
+  const totalCents = Math.max(1, data.reduce((sum, item) => sum + item.cents, 0))
+  const pageShare = Math.round(
+    (pagedData.reduce((sum, item) => sum + item.cents, 0) / totalCents) * 100,
+  )
 
   return (
     <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "180ms" }}>
@@ -548,51 +523,46 @@ function AccountDonutCard({
         </p>
       ) : (
         <div className="grid gap-4">
-          <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:gap-5">
-            <div className="mx-auto h-[170px] w-[170px] shrink-0 sm:mx-0">
-              <PieChart width={170} height={170}>
-                <RechartsTooltip content={<ChartTooltip amountsHidden={amountsHidden} />} />
-                <Pie
-                  data={pagedData}
-                  dataKey="cents"
-                  nameKey="name"
-                  innerRadius={52}
-                  outerRadius={80}
-                  startAngle={90}
-                  endAngle={-270}
-                  paddingAngle={3}
-                  strokeWidth={0}
-                  isAnimationActive={!reduceMotion}
-                  animationBegin={120}
-                  animationDuration={1000}
-                  animationEasing="ease-out"
-                >
-                  {pagedData.map((item, index) => (
-                    <Cell
-                      key={item.key}
-                      fill={CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length]}
-                    />
-                  ))}
-                </Pie>
-              </PieChart>
-            </div>
-            <ul className="grid min-w-0 flex-1 gap-2">
+          <div>
+            <div className="flex h-3 overflow-hidden rounded-full bg-muted" aria-label={t("bills.chartAccountTitle")}>
               {pagedData.map((item, index) => (
-                <li key={item.key} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-xs">
-                  <i
-                    className="size-2.5 shrink-0 rounded-[3px]"
-                    style={{ background: CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length] }}
-                  />
-                  <span className="truncate">{item.name}</span>
-                  <span className="shrink-0 tabular-nums text-muted-foreground">
-                    {maskAmount(amountsHidden, `¥${item.yuan}`)} · {t("bills.countSuffix", {
+                <span
+                  key={item.key}
+                  className="h-full first:rounded-l-full"
+                  style={{
+                    width: `${(item.cents / totalCents) * 100}%`,
+                    background: CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length],
+                  }}
+                />
+              ))}
+            </div>
+            <p className="mt-1.5 text-right text-[10px] text-muted-foreground">
+              {t("bills.chartAccountCoverage", {
+                value: amountsHidden ? VALUE_MASK : `${pageShare}%`,
+              })}
+            </p>
+          </div>
+          <ul className="grid min-w-0 gap-2.5">
+            {pagedData.map((item, index) => (
+              <li key={item.key} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 text-xs">
+                <i
+                  className="size-2.5 shrink-0 rounded-[3px]"
+                  style={{ background: CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length] }}
+                />
+                <div className="min-w-0">
+                  <p className="truncate font-medium" title={item.name}>{item.name}</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">
+                    {amountsHidden ? VALUE_MASK : `${Math.round((item.cents / totalCents) * 100)}%`} · {t("bills.countSuffix", {
                       count: maskValue(amountsHidden, item.count),
                     })}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
+                  </p>
+                </div>
+                <span className="shrink-0 font-semibold tabular-nums">
+                  {maskAmount(amountsHidden, `¥${item.yuan}`)}
+                </span>
+              </li>
+            ))}
+          </ul>
           {pageCount > 1 ? (
             <div className="flex items-center justify-end border-t pt-3 text-xs text-muted-foreground">
               <div className="flex items-center gap-1.5">
@@ -943,31 +913,14 @@ export function BillsPage() {
         </Card>
       ) : summary ? (
         <>
-          <section aria-label={t("bills.title")} className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <KpiCard
-              label={t("bills.kpiTotal")}
-              value={maskAmount(amountsHidden, `¥${summary.total_amount_yuan}`)}
-              hint={t("bills.kpiTotalHint")}
-              icon={<Wallet className="size-4" />}
-              delay={0}
-              tone="brand"
-              onClick={() => openStatDetail("total")}
-            />
-            <KpiCard
-              label={t("bills.kpiRefund")}
-              value={maskAmount(amountsHidden, `¥${summary.total_refund_yuan}`)}
-              hint={t("bills.kpiRefundHint")}
-              icon={<HandCoins className="size-4" />}
-              delay={40}
-              tone="gold"
-              onClick={() => openStatDetail("refund")}
-            />
+          <section aria-label={t("bills.title")} className="mb-4 grid gap-3">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <KpiCard
               label={t("bills.kpiNet")}
               value={maskAmount(amountsHidden, `¥${summary.net_amount_yuan}`)}
               hint={t("bills.kpiNetHint")}
               icon={<BadgeDollarSign className="size-4" />}
-              delay={80}
+              delay={0}
               tone="success"
               onClick={() => openStatDetail("net")}
             />
@@ -976,7 +929,7 @@ export function BillsPage() {
               value={maskAmount(amountsHidden, `¥${summary.total_cost_yuan}`)}
               hint={t("bills.kpiCostHint")}
               icon={<ReceiptText className="size-4" />}
-              delay={120}
+              delay={40}
               tone="gold"
               onClick={() => openStatDetail("cost")}
             />
@@ -985,7 +938,7 @@ export function BillsPage() {
               value={maskAmount(amountsHidden, `¥${summary.total_profit_yuan}`)}
               hint={t("bills.kpiProfitHint")}
               icon={<TrendingUp className="size-4" />}
-              delay={160}
+              delay={80}
               tone="success"
               onClick={() => openStatDetail("profit")}
             />
@@ -997,30 +950,55 @@ export function BillsPage() {
                 refund: amountsHidden ? VALUE_MASK : summary.this_month_refund_yuan,
               })}
               icon={<CalendarDays className="size-4" />}
-              delay={200}
+              delay={120}
               tone="brand"
               onClick={() => openStatDetail("month")}
             />
+            </div>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
             <KpiCard
+              compact
+              label={t("bills.kpiTotal")}
+              value={maskAmount(amountsHidden, `¥${summary.total_amount_yuan}`)}
+              hint={t("bills.kpiTotalHint")}
+              icon={<Wallet className="size-4" />}
+              delay={160}
+              tone="brand"
+              onClick={() => openStatDetail("total")}
+            />
+            <KpiCard
+              compact
+              label={t("bills.kpiRefund")}
+              value={maskAmount(amountsHidden, `¥${summary.total_refund_yuan}`)}
+              hint={t("bills.kpiRefundHint")}
+              icon={<HandCoins className="size-4" />}
+              delay={190}
+              tone="gold"
+              onClick={() => openStatDetail("refund")}
+            />
+            <KpiCard
+              compact
               label={t("bills.kpiCount")}
               value={maskValue(amountsHidden, summary.bill_count)}
               hint={t("bills.kpiCountHint", {
                 avg: amountsHidden ? VALUE_MASK : summary.average_amount_yuan,
               })}
               icon={<Hash className="size-4" />}
-              delay={240}
+              delay={220}
               tone="brand"
               onClick={() => openStatDetail("count")}
             />
             <KpiCard
+              compact
               label={t("bills.kpiActive")}
               value={maskValue(amountsHidden, summary.active_count)}
               hint={t("bills.kpiActiveHint")}
               icon={<CircleDot className="size-4" />}
-              delay={280}
+              delay={250}
               tone="brand"
               onClick={() => openStatDetail("active")}
             />
+            </div>
           </section>
 
           <div className="mb-4 grid gap-4 lg:grid-cols-2">

@@ -27,6 +27,7 @@ import { useAppMutation } from "@/api/mutations"
 import { useAccountOptions, useAfterSales } from "@/api/queries"
 import type { AfterSalesCaseView, AfterSalesStatus } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { EmptyState } from "@/components/empty-state"
 import { PageHeader } from "@/components/page-header"
 import {
   StatDetailDialog,
@@ -644,10 +645,12 @@ export function AfterSalesPage() {
           <Button variant="outline" onClick={() => query.refetch()}>{t("common.retry")}</Button>
         </Card>
       ) : filteredCases.length === 0 ? (
-        <Card className="flex-1 items-center justify-center py-16 text-center">
-          <ShieldAlert className="size-8 text-muted-foreground/50" />
-          <p className="text-sm text-muted-foreground">{t("afterSales.empty")}</p>
-        </Card>
+        <EmptyState
+          className="flex-1"
+          icon={<ShieldAlert className="size-5" />}
+          title={t("afterSales.empty")}
+          description={t("afterSales.emptyHint")}
+        />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           <div className="grid gap-3 md:hidden">

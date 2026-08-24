@@ -1281,6 +1281,18 @@
   .redeem-sandbox-badge {
     display: none;
   }
+
+  .redeem-trust-strip > span {
+    min-height: 40px;
+    gap: 0.25rem;
+    padding-inline: 0.2rem;
+    font-size: 10px;
+  }
+
+  .redeem-trust-strip svg {
+    width: 12px;
+    height: 12px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

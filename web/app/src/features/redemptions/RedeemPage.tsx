@@ -292,6 +292,17 @@ function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
           </div>
         </div>
 
+        <div className="mt-5 grid overflow-hidden rounded-md border border-[var(--redeem-line)] bg-[var(--redeem-panel-muted)] text-xs">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--redeem-line)] px-3.5 py-2.5">
+            <span className="text-[var(--redeem-muted)]">预计处理</span>
+            <strong className="font-medium">通常 1–2 分钟</strong>
+          </div>
+          <div className="flex items-center justify-between gap-3 px-3.5 py-2.5">
+            <span className="text-[var(--redeem-muted)]">信息用途</span>
+            <strong className="font-medium">仅用于邀请与售后</strong>
+          </div>
+        </div>
+
         <div className="redeem-support-qr-shell mt-5">
           <WechatQrBlock settings={settings} compact />
         </div>
@@ -350,7 +361,7 @@ function RedeemSafetyNoticeDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="sm:max-w-[520px]"
+        className="gap-4 sm:max-w-[480px] sm:p-6"
         onEscapeKeyDown={(event) => {
           if (!ready) event.preventDefault()
         }}
@@ -358,23 +369,25 @@ function RedeemSafetyNoticeDialog({
           if (!ready) event.preventDefault()
         }}
       >
-        <DialogHeader>
-          <div className="mb-2 grid size-11 place-items-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
-            <AlertTriangle className="size-6" />
+        <DialogHeader className="gap-2">
+          <div className="flex items-center gap-3">
+            <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
+              <AlertTriangle className="size-5" />
+            </span>
+            <DialogTitle className="text-xl leading-tight">{settings.announcement_title}</DialogTitle>
           </div>
-          <DialogTitle className="text-2xl leading-tight">{settings.announcement_title}</DialogTitle>
-          <DialogDescription className="leading-6">
+          <DialogDescription className="text-sm leading-5">
             {settings.announcement_intro}
           </DialogDescription>
         </DialogHeader>
 
-        <div className="divide-y overflow-hidden rounded-lg border text-sm leading-6">
+        <div className="grid gap-2 text-sm leading-5">
           {settings.announcement_items.map((item, index) => (
-            <div key={item} className="flex gap-3 p-4">
-              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">
+            <div key={item} className="flex gap-3 rounded-lg border bg-muted/20 px-3.5 py-3">
+              <span className="grid size-5 shrink-0 place-items-center rounded-full bg-brand/10 text-[10px] font-semibold text-brand">
                 {index + 1}
               </span>
-              <p>{item}</p>
+              <p className="text-muted-foreground">{item}</p>
             </div>
           ))}
         </div>
@@ -876,9 +889,9 @@ export function RedeemPage() {
                 兑换 Team 席位
               </h1>
               <div className="redeem-trust-strip" aria-label="服务保障">
-                <span><ShieldCheck />人工核验</span>
-                <span><Clock3 />进度可查</span>
-                <span><MessageCircle />售后可联系</span>
+                <span><Clock3 />通常 1–2 分钟</span>
+                <span><ShieldCheck />信息仅用于服务</span>
+                <span><MessageCircle />人工售后支持</span>
               </div>
             </div>
 

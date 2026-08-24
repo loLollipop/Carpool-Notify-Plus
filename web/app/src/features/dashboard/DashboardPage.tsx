@@ -22,10 +22,9 @@ import {
   WalletCards,
 } from "lucide-react"
 import {
-  Bar,
+  Area,
+  AreaChart,
   CartesianGrid,
-  ComposedChart,
-  Line,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
   XAxis,
@@ -161,8 +160,12 @@ function CashflowCard({
     grossCents: month.gross_amount_cents,
     refundCents: month.refund_cents,
   }))
-  const current = data.at(-1)?.netCents ?? 0
-  const previous = data.at(-2)?.netCents ?? 0
+  const firstActiveIndex = data.findIndex((point) => point.grossCents !== 0 || point.refundCents !== 0)
+  const visibleData = firstActiveIndex <= 0
+    ? data
+    : data.slice(Math.max(0, Math.min(firstActiveIndex - 1, data.length - 3)))
+  const current = visibleData.at(-1)?.netCents ?? 0
+  const previous = visibleData.at(-2)?.netCents ?? 0
   const change = previous === 0 ? null : Math.round(((current - previous) / Math.abs(previous)) * 100)
 
   return (
@@ -181,14 +184,21 @@ function CashflowCard({
           </div>
         </div>
       </div>
-      {data.length === 0 ? (
+      {visibleData.length === 0 ? (
         <div className="grid h-[260px] place-items-center rounded-lg border border-dashed text-sm text-muted-foreground">
           {t("dash.trendEmpty")}
         </div>
       ) : (
         <div className="h-[260px] min-w-0">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ top: 12, right: 10, bottom: 0, left: 0 }}>
+            <AreaChart data={visibleData} margin={{ top: 14, right: 10, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id="dashboardNetIncome" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--chart-1)" stopOpacity={0.34} />
+                  <stop offset="72%" stopColor="var(--chart-1)" stopOpacity={0.08} />
+                  <stop offset="100%" stopColor="var(--chart-1)" stopOpacity={0} />
+                </linearGradient>
+              </defs>
               <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 7" />
               <XAxis
                 dataKey="label"
@@ -205,27 +215,20 @@ function CashflowCard({
                 tickFormatter={(value: number) => (amountsHidden ? "***" : formatAxisCents(value))}
               />
               <RechartsTooltip
-                cursor={{ fill: "var(--muted)", opacity: 0.35 }}
+                cursor={{ stroke: "var(--border)", strokeWidth: 1 }}
                 content={<TrendTooltip amountsHidden={amountsHidden} />}
               />
-              <Bar
+              <Area
+                type="monotone"
                 dataKey="netCents"
                 name="净收入"
-                fill="var(--chart-1)"
-                fillOpacity={0.82}
-                radius={[4, 4, 0, 0]}
-                maxBarSize={32}
+                stroke="var(--chart-1)"
+                strokeWidth={2.5}
+                fill="url(#dashboardNetIncome)"
+                dot={{ r: 3.5, fill: "var(--card)", stroke: "var(--chart-1)", strokeWidth: 2 }}
+                activeDot={{ r: 5, fill: "var(--card)", stroke: "var(--chart-1)", strokeWidth: 2.5 }}
               />
-              <Line
-                type="monotone"
-                dataKey="grossCents"
-                name="原实收"
-                stroke="var(--chart-5)"
-                strokeWidth={2}
-                dot={{ r: 3, fill: "var(--card)", strokeWidth: 2 }}
-                activeDot={{ r: 5 }}
-              />
-            </ComposedChart>
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       )}

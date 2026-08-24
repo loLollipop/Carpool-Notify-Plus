@@ -156,21 +156,25 @@ export function AppShell() {
     }
   })
 
-  const operationsNav = [
+  const workbenchNav = [
     { to: "/", label: t("nav.dashboard"), icon: LayoutDashboard, end: true },
     { to: "/calendar", label: t("nav.calendar"), icon: CalendarDays, end: true },
     { to: "/goals", label: t("nav.goals"), icon: Target, end: true },
+  ]
+  const customerNav = [
     { to: "/users", label: t("nav.users"), icon: Users, end: true },
     { to: "/plus-rentals", label: t("nav.plusRentals"), icon: CircleDollarSign, end: true },
     { to: "/redemptions", label: t("nav.redemptions"), icon: TicketCheck, end: true },
-    { to: "/accounts", label: t("nav.accounts"), icon: KeyRound, end: true },
     { to: "/after-sales", label: t("nav.afterSales"), icon: HandCoins, end: true },
+  ]
+  const assetNav = [
+    { to: "/accounts", label: t("nav.accounts"), icon: KeyRound, end: true },
     { to: "/bills", label: t("nav.bills"), icon: ReceiptText, end: true },
   ]
   const systemNav = [
     { to: "/settings", label: t("nav.settings"), icon: Settings, end: true },
   ]
-  const navItems = [...operationsNav, ...systemNav]
+  const navItems = [...workbenchNav, ...customerNav, ...assetNav, ...systemNav]
   const currentItem =
     navItems.find((item) =>
       item.to === "/" ? location.pathname === "/" : location.pathname.startsWith(item.to),
@@ -281,13 +285,25 @@ export function AppShell() {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4" aria-label="Primary navigation">
-          <div className="space-y-1">
-            <p className={cn("mb-2 px-2.5 text-[11px] font-semibold text-[var(--sidebar-muted)]", sidebarCollapsed && "sr-only")}>
-              {t("nav.operations")}
-            </p>
-            {renderNavItems(operationsNav)}
-          </div>
-          <div className="mt-5 space-y-1 border-t border-[var(--sidebar-border)] pt-4">
+          {[
+            { label: t("nav.workbench"), items: workbenchNav },
+            { label: t("nav.customers"), items: customerNav },
+            { label: t("nav.assets"), items: assetNav },
+          ].map((group, index) => (
+            <div
+              key={group.label}
+              className={cn(
+                "space-y-1",
+                index > 0 && "mt-3 border-t border-[var(--sidebar-border)]/80 pt-3",
+              )}
+            >
+              <p className={cn("mb-1.5 px-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--sidebar-muted)]", sidebarCollapsed && "sr-only")}>
+                {group.label}
+              </p>
+              {renderNavItems(group.items)}
+            </div>
+          ))}
+          <div className="mt-3 space-y-1 border-t border-[var(--sidebar-border)] pt-3">
             <p className={cn("mb-2 px-2.5 text-[11px] font-semibold text-[var(--sidebar-muted)]", sidebarCollapsed && "sr-only")}>
               {t("nav.system")}
             </p>

@@ -38,6 +38,7 @@ import type {
   SeatOption,
 } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
+import { EmptyState } from "@/components/empty-state"
 import { PageHeader } from "@/components/page-header"
 import {
   StatDetailDialog,
@@ -968,10 +969,16 @@ export function RedemptionsPage() {
               </Button>
             </Card>
           ) : filtered.length === 0 ? (
-            <Card className="flex-1 items-center justify-center gap-3 py-16 text-center animate-fade-up">
-              <TicketCheck className="size-8 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">暂无兑换申请</p>
-            </Card>
+            <EmptyState
+              className="flex-1"
+              icon={<TicketCheck className="size-5" />}
+              title={redemptions.length === 0 ? "暂无兑换申请" : "当前筛选没有匹配申请"}
+              description={
+                redemptions.length === 0
+                  ? "客户提交后会自动出现在这里，待处理申请会排在最前。"
+                  : "可以调整状态筛选或搜索条件查看其他申请。"
+              }
+            />
           ) : (
             <div className="flex min-h-0 flex-1 flex-col gap-4">
               <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
