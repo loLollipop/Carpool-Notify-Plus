@@ -81,7 +81,7 @@ const CHART_COLORS = [
 ]
 
 const BILLS_PER_PAGE = 9
-const AMOUNT_ITEMS_PER_PAGE = 6
+const AMOUNT_ITEMS_PER_PAGE = 4
 const ACCOUNT_ITEMS_PER_PAGE = 6
 type BillBusinessFilter = "all" | "team" | "plus"
 
@@ -382,7 +382,7 @@ function AmountDistributionCard({
   const safePage = Math.min(page, pageCount)
   const pageStartIndex = (safePage - 1) * AMOUNT_ITEMS_PER_PAGE
   const pagedData = data.slice(pageStartIndex, pageStartIndex + AMOUNT_ITEMS_PER_PAGE)
-  const maxCents = Math.max(1, ...pagedData.map((item) => item.cents))
+  const maxCents = Math.max(1, ...data.map((item) => item.cents))
 
   return (
     <Card className="gap-4 overflow-hidden p-5 animate-fade-up" style={{ animationDelay: "120ms" }}>
@@ -427,7 +427,7 @@ function AmountDistributionCard({
         <p className="py-10 text-center text-sm text-muted-foreground">{t("bills.chartEmpty")}</p>
       ) : (
         <div className="grid gap-3">
-          <div className="grid min-h-[248px] content-start gap-3 py-1">
+          <div className="grid min-h-[164px] content-start gap-3 py-1">
             {pagedData.map((item, index) => {
               const width = Math.max(5, (item.cents / maxCents) * 100)
               return (
