@@ -483,6 +483,9 @@ func buildBillsSummaryWithOperatingExpenses(
 
 	amountBars := make([]AmountBar, 0, len(subscriptionTotals))
 	for _, bar := range subscriptionTotals {
+		if bar.AmountCents == 0 {
+			continue
+		}
 		amountBars = append(amountBars, *bar)
 	}
 	sort.Slice(amountBars, func(left int, right int) bool {

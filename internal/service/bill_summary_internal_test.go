@@ -132,3 +132,66 @@ func TestBillsSummarySeparatesSameNamedAccountsAndStabilizesDuplicateLabels(t *t
 		t.Fatalf("duplicate-label subscription order is unstable: %#v", summary.AmountBySubscription)
 	}
 }
+
+func TestBillsSummaryOmitsFullyRefundedSubscriptionFromAmountDistributionAfterSeatReuse(t *testing.T) {
+	processedAt := time.Date(2026, time.August, 24, 16, 22, 0, 0, cycle.Location)
+	summary := buildBillsSummaryWithRefunds([]BillView{
+		{
+			ID:               51,
+			SubscriptionID:   48,
+			SubscriptionName: "refunded-customer",
+			BusinessType:     model.SubscriptionBusinessTeam,
+			AccountID:        26,
+			AccountName:      "owner",
+			SeatID:           48,
+			SeatName:         "seat-1",
+			DueDate:          "2026-08-24",
+			AmountCents:      12000,
+			RefundCents:      12000,
+			NetAmountCents:   0,
+			NetAmountYuan:    "0.00",
+			Archived:         true,
+		},
+		{
+			ID:               54,
+			SubscriptionID:   51,
+			SubscriptionName: "replacement-customer",
+			BusinessType:     model.SubscriptionBusinessTeam,
+			AccountID:        26,
+			AccountName:      "owner",
+			SeatID:           48,
+			SeatName:         "seat-1",
+			DueDate:          "2026-08-24",
+			AmountCents:      11500,
+			NetAmountCents:   11500,
+			NetAmountYuan:    "115.00",
+		},
+	}, []model.AfterSalesCase{
+		{
+			ID:                2,
+			BillID:            51,
+			SubscriptionID:    48,
+			BusinessType:      model.SubscriptionBusinessTeam,
+			PaidAmountCents:   12000,
+			RefundAmountCents: 12000,
+			Status:            model.AfterSalesStatusRefunded,
+			ProcessedAt:       &processedAt,
+		},
+	}, 0, processedAt)
+
+	if len(summary.AmountBySubscription) != 1 ||
+		summary.AmountBySubscription[0].SubscriptionID != 51 ||
+		summary.AmountBySubscription[0].AmountCents != 11500 {
+		t.Fatalf("amount distribution = %#v, want only replacement subscription at 11500", summary.AmountBySubscription)
+	}
+	if summary.BillCount != 2 || summary.TotalAmountYuan != "235.00" ||
+		summary.TotalRefundYuan != "120.00" || summary.NetAmountYuan != "115.00" {
+		t.Fatalf(
+			"financial history = bills %d gross %s refund %s net %s, want 2 / 235.00 / 120.00 / 115.00",
+			summary.BillCount,
+			summary.TotalAmountYuan,
+			summary.TotalRefundYuan,
+			summary.NetAmountYuan,
+		)
+	}
+}
