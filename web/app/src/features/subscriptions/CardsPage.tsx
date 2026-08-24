@@ -438,13 +438,6 @@ export function CardsPage() {
     [subscriptionsQuery.data?.archived],
   )
   const calendar = calendarQuery.data
-  const isActionableSubscription = React.useCallback(
-    (view: SubscriptionView) =>
-      view.subscription.archived_at === null &&
-      !view.cancellation_pending &&
-      view.days_remaining <= 7,
-    [],
-  )
 
   const nextCancellationExpiry = React.useMemo(() => {
     const expiries = activeViews
@@ -551,21 +544,12 @@ export function CardsPage() {
         ...(view.channel_labels ?? []),
       ].some((field) => field?.toLowerCase().includes(query)),
     )
-    return [...matches].sort((left, right) => {
-      const actionableDelta =
-        Number(isActionableSubscription(right)) - Number(isActionableSubscription(left))
-      if (actionableDelta !== 0) return actionableDelta
-      if (isActionableSubscription(left) && isActionableSubscription(right)) {
-        return left.days_remaining - right.days_remaining
-      }
-      return 0
-    })
+    return matches
   }, [
     activeViews,
     archivedViews,
     filter,
     focusedSubscriptionId,
-    isActionableSubscription,
     search,
     teamRenewalStats.renewedSubscriptionIds,
   ])
