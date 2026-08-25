@@ -82,7 +82,6 @@ const CHART_COLORS = [
 
 const BILLS_PER_PAGE = 9
 const AMOUNT_ITEMS_PER_PAGE = 4
-const ACCOUNT_ITEMS_PER_PAGE = 6
 type BillBusinessFilter = "all" | "team" | "plus"
 
 function billIdentity(bill: BillView) {
@@ -445,7 +444,7 @@ function AmountDistributionCard({
                     <div className="h-2 overflow-hidden rounded-full bg-muted">
                       <div
                         className="h-full rounded-full bg-gradient-to-r from-brand/70 to-brand transition-[width] duration-500"
-                        style={{ width: `${width}%` }}
+                        style={{ width: `${width}%`, opacity: Math.max(0.55, 1 - index * 0.15) }}
                       />
                     </div>
                   </div>
@@ -491,29 +490,34 @@ function AmountDistributionCard({
 
 // ---- 所属账号 donut ----------------------------------------------------------------
 
+const DONUT_TOP_ITEMS = 5
+
 function AccountDonutCard({
   summary,
   amountsHidden,
+  onSelectAccount,
 }: {
   summary: BillsSummary
   amountsHidden: boolean
+  onSelectAccount: (accountName: string) => void
 }) {
   const { t } = useTranslation()
-  const [page, setPage] = React.useState(1)
   const [reduceMotion, setReduceMotion] = React.useState(() =>
     window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   )
-  const data = (summary.accounts ?? []).map((item) => ({
-    key: item.key,
-    name: item.account_name,
-    cents: item.amount_cents,
-    yuan: item.amount_yuan,
-    count: item.count,
-  }))
-  const pageCount = Math.max(1, Math.ceil(data.length / ACCOUNT_ITEMS_PER_PAGE))
-  const safePage = Math.min(page, pageCount)
-  const pageStartIndex = (safePage - 1) * ACCOUNT_ITEMS_PER_PAGE
-  const pagedData = data.slice(pageStartIndex, pageStartIndex + ACCOUNT_ITEMS_PER_PAGE)
+  const rankedAccounts = React.useMemo(
+    () =>
+      (summary.accounts ?? [])
+        .filter((item) => item.amount_cents > 0)
+        .map((item) => ({
+          key: item.key,
+          name: item.account_name,
+          cents: item.amount_cents,
+          count: item.count,
+        }))
+        .sort((accountA, accountB) => accountB.cents - accountA.cents),
+    [summary.accounts],
+  )
 
   React.useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -522,90 +526,122 @@ function AccountDonutCard({
     return () => media.removeEventListener("change", handleChange)
   }, [])
 
+  const totalCents = rankedAccounts.reduce((sum, item) => sum + item.cents, 0)
+  const topAccounts = rankedAccounts.slice(0, DONUT_TOP_ITEMS)
+  const restAccounts = rankedAccounts.slice(DONUT_TOP_ITEMS)
+
+  // 构成图必须基于全量数据：前 5 名单独成扇区，其余聚合为"其他"，
+  // 避免按分页切扇区导致每页 donut 比例失真。
+  const donutRows = topAccounts.map((item, index) => ({
+    ...item,
+    fill: CHART_COLORS[index % CHART_COLORS.length],
+    muted: false,
+  }))
+  if (restAccounts.length > 0) {
+    donutRows.push({
+      key: "__others__",
+      name: t("bills.chartAccountOthers", { count: restAccounts.length }),
+      cents: restAccounts.reduce((sum, item) => sum + item.cents, 0),
+      count: restAccounts.reduce((sum, item) => sum + item.count, 0),
+      fill: "var(--muted-foreground)",
+      muted: true,
+    })
+  }
+
   return (
     <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "180ms" }}>
-      <h2 className="panel-heading text-sm font-semibold">{t("bills.chartAccountTitle")}</h2>
+      <div>
+        <h2 className="panel-heading text-sm font-semibold">{t("bills.chartAccountTitle")}</h2>
+        <p className="mt-1 text-xs text-muted-foreground">{t("bills.chartAccountDesc")}</p>
+      </div>
 
-      {data.length === 0 ? (
+      {rankedAccounts.length === 0 ? (
         <p className="py-10 text-center text-sm text-muted-foreground">
           {t("bills.chartEmptyAccounts")}
         </p>
       ) : (
-        <div className="grid gap-4">
-          <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:gap-5">
-            <div className="mx-auto h-[170px] w-[170px] shrink-0 sm:mx-0">
-              <PieChart width={170} height={170}>
-                <RechartsTooltip content={<ChartTooltip amountsHidden={amountsHidden} />} />
-                <Pie
-                  data={pagedData}
-                  dataKey="cents"
-                  nameKey="name"
-                  innerRadius={52}
-                  outerRadius={80}
-                  startAngle={90}
-                  endAngle={-270}
-                  paddingAngle={3}
-                  strokeWidth={0}
-                  isAnimationActive={!reduceMotion}
-                  animationBegin={120}
-                  animationDuration={1000}
-                  animationEasing="ease-out"
-                >
-                  {pagedData.map((item, index) => (
-                    <Cell
-                      key={item.key}
-                      fill={CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length]}
-                    />
-                  ))}
-                </Pie>
-              </PieChart>
+        <div className="flex flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:gap-5">
+          <div className="relative mx-auto h-[170px] w-[170px] shrink-0 sm:mx-0 [&_.recharts-pie-sector]:cursor-pointer">
+            <PieChart width={170} height={170}>
+              <RechartsTooltip content={<ChartTooltip amountsHidden={amountsHidden} />} />
+              <Pie
+                data={donutRows}
+                dataKey="cents"
+                nameKey="name"
+                innerRadius={52}
+                outerRadius={80}
+                startAngle={90}
+                endAngle={-270}
+                paddingAngle={3}
+                strokeWidth={0}
+                isAnimationActive={!reduceMotion}
+                animationBegin={120}
+                animationDuration={1000}
+                animationEasing="ease-out"
+                onClick={(entry: { name?: string; muted?: boolean }) => {
+                  // “其他”是多账号聚合扇区，无法映射到单一搜索词，不触发下钻
+                  if (entry?.name && !entry.muted) onSelectAccount(entry.name)
+                }}
+              >
+                {donutRows.map((item) => (
+                  <Cell
+                    key={item.key}
+                    fill={item.fill}
+                    fillOpacity={item.muted ? 0.35 : 1}
+                  />
+                ))}
+              </Pie>
+            </PieChart>
+            <div className="pointer-events-none absolute inset-0 grid place-items-center">
+              <div className="grid gap-0.5 text-center">
+                <span className="text-[10px] text-muted-foreground">
+                  {t("bills.chartAccountTotal")}
+                </span>
+                <span className="display-numeral text-sm font-semibold tabular-nums">
+                  {maskAmount(amountsHidden, formatCents(totalCents))}
+                </span>
+              </div>
             </div>
-            <ul className="grid min-h-[136px] min-w-0 flex-1 content-start gap-2">
-              {pagedData.map((item, index) => (
-                <li key={item.key} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-xs">
+          </div>
+          <ul className="grid min-h-[136px] min-w-0 flex-1 content-start gap-2">
+            {donutRows.map((item) => {
+              const sharePercent = totalCents > 0 ? (item.cents / totalCents) * 100 : 0
+              const rowContent = (
+                <>
                   <i
                     className="size-2.5 shrink-0 rounded-[3px]"
-                    style={{ background: CHART_COLORS[(pageStartIndex + index) % CHART_COLORS.length] }}
+                    style={{ background: item.fill, opacity: item.muted ? 0.35 : 1 }}
                   />
                   <span className="truncate" title={item.name}>{item.name}</span>
                   <span className="shrink-0 tabular-nums text-muted-foreground">
-                    {maskAmount(amountsHidden, `¥${item.yuan}`)} · {t("bills.countSuffix", {
-                      count: maskValue(amountsHidden, item.count),
-                    })}
+                    {maskAmount(amountsHidden, formatCents(item.cents))} ·{" "}
+                    {t("bills.countSuffix", { count: maskValue(amountsHidden, item.count) })} ·{" "}
+                    {amountsHidden ? VALUE_MASK : `${sharePercent.toFixed(1)}%`}
                   </span>
+                </>
+              )
+              const rowClassName =
+                "grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-xs"
+              return (
+                <li key={item.key}>
+                  {item.muted ? (
+                    <span className={rowClassName}>{rowContent}</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className={cn(
+                        rowClassName,
+                        "-mx-1.5 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-accent",
+                      )}
+                      onClick={() => onSelectAccount(item.name)}
+                    >
+                      {rowContent}
+                    </button>
+                  )}
                 </li>
-              ))}
-            </ul>
-          </div>
-          {pageCount > 1 ? (
-            <div className="flex items-center justify-end border-t pt-3 text-xs text-muted-foreground">
-              <div className="flex items-center gap-1.5">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label={t("cards.prevPage")}
-                  disabled={safePage <= 1}
-                  onClick={() => setPage(safePage - 1)}
-                >
-                  <ChevronLeft />
-                </Button>
-                <span className="min-w-12 text-center tabular-nums">
-                  {maskValue(amountsHidden, safePage)} / {maskValue(amountsHidden, pageCount)}
-                </span>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon-sm"
-                  aria-label={t("cards.nextPage")}
-                  disabled={safePage >= pageCount}
-                  onClick={() => setPage(safePage + 1)}
-                >
-                  <ChevronRight />
-                </Button>
-              </div>
-            </div>
-          ) : null}
+              )
+            })}
+          </ul>
         </div>
       )}
     </Card>
@@ -634,7 +670,10 @@ function MonthlyTrendCard({
 
   return (
     <Card className="h-[280px] gap-4 overflow-hidden p-5 animate-fade-up" style={{ animationDelay: "240ms" }}>
-      <h2 className="panel-heading text-sm font-semibold">{t("bills.chartTrendTitle")}</h2>
+      <div>
+        <h2 className="panel-heading text-sm font-semibold">{t("bills.chartTrendTitle")}</h2>
+        <p className="mt-1 text-xs text-muted-foreground">{t("bills.chartTrendDesc")}</p>
+      </div>
 
       {data.every((item) => item.grossCents === 0 && item.refundCents === 0) ? (
         <p className="py-10 text-center text-sm text-muted-foreground">
@@ -678,8 +717,13 @@ function MonthlyTrendCard({
                   position: "top",
                   fontSize: 10,
                   fill: "var(--muted-foreground)",
+                  // 零收入月份不显示数值标签，避免一排 ¥0.00 悬浮在空白区域
                   formatter: (value: unknown) =>
-                    amountsHidden ? AMOUNT_MASK : formatCents(Number(value)),
+                    Number(value) === 0
+                      ? ""
+                      : amountsHidden
+                        ? AMOUNT_MASK
+                        : formatCents(Number(value)),
                 }}
               />
             </BarChart>
@@ -705,10 +749,19 @@ export function BillsPage() {
   const [search, setSearch] = React.useState("")
   const [typeFilter, setTypeFilter] = React.useState<BillBusinessFilter>("all")
   const [page, setPage] = React.useState(1)
+  const billListRef = React.useRef<HTMLDivElement | null>(null)
 
   const deleteMutation = useAppMutation((id: number) => deleteBill(id), {
     onSuccess: () => setDeleteTarget(null),
   })
+
+  // donut 下钻：用账号名填充搜索框并滚到列表，复用现有过滤逻辑
+  const handleSelectAccount = React.useCallback((accountName: string) => {
+    if (!accountName.trim()) return
+    setSearch(accountName)
+    setPage(1)
+    billListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }, [])
 
   const billsData = billsQuery.data?.bills
   const bills = React.useMemo(() => billsData ?? [], [billsData])
@@ -1017,11 +1070,18 @@ export function BillsPage() {
 
           <div className="mb-4 grid gap-4 lg:grid-cols-2">
             <AmountDistributionCard summary={summary} amountsHidden={amountsHidden} />
-            <AccountDonutCard summary={summary} amountsHidden={amountsHidden} />
+            <AccountDonutCard
+              summary={summary}
+              amountsHidden={amountsHidden}
+              onSelectAccount={handleSelectAccount}
+            />
           </div>
           <MonthlyTrendCard summary={summary} amountsHidden={amountsHidden} />
 
-          <div className="mt-8 mb-4 flex flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between animate-fade-up">
+          <div
+            ref={billListRef}
+            className="mt-8 mb-4 flex scroll-mt-20 flex-col gap-3 border-t pt-6 sm:flex-row sm:items-center sm:justify-between animate-fade-up"
+          >
             <h2 className="panel-heading text-lg font-semibold">{t("bills.listTitle")}</h2>
             <div className="flex flex-wrap items-center gap-3">
               <div className="relative">

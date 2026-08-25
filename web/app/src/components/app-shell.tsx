@@ -253,7 +253,10 @@ export function AppShell() {
                   </span>
                   <span className={cn("truncate", sidebarCollapsed && "hidden")}>{item.label}</span>
                   {isActive && !sidebarCollapsed ? (
-                    <span className="ml-1 h-4 w-0.5 rounded-full bg-brand" aria-hidden="true" />
+                    <span
+                      className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand"
+                      aria-hidden="true"
+                    />
                   ) : null}
                 </>
               )}
@@ -304,7 +307,7 @@ export function AppShell() {
             </div>
           ))}
           <div className="mt-3 space-y-1 border-t border-[var(--sidebar-border)] pt-3">
-            <p className={cn("mb-2 px-2.5 text-[11px] font-semibold text-[var(--sidebar-muted)]", sidebarCollapsed && "sr-only")}>
+            <p className={cn("mb-1.5 px-2.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--sidebar-muted)]", sidebarCollapsed && "sr-only")}>
               {t("nav.system")}
             </p>
             {renderNavItems(systemNav)}

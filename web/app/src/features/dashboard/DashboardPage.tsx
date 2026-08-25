@@ -106,6 +106,34 @@ interface TrendPoint {
   refundCents: number
 }
 
+// 有退款的月份在数据点上方叠加红色小圆点，让退款异常一眼可见
+function renderCashflowDot(props: { cx?: number; cy?: number; payload?: TrendPoint }) {
+  const { cx = 0, cy = 0, payload } = props
+  const hasRefund = (payload?.refundCents ?? 0) > 0
+  return (
+    <g key={`cashflow-dot-${payload?.label ?? cx}`}>
+      <circle
+        cx={cx}
+        cy={cy}
+        r={3.5}
+        fill="var(--card)"
+        stroke="var(--chart-1)"
+        strokeWidth={2}
+      />
+      {hasRefund ? (
+        <circle
+          cx={cx}
+          cy={cy - 9}
+          r={2.5}
+          fill="var(--destructive)"
+          stroke="var(--card)"
+          strokeWidth={1.5}
+        />
+      ) : null}
+    </g>
+  )
+}
+
 function TrendTooltip({
   active,
   payload,
@@ -164,6 +192,7 @@ function CashflowCard({
   const visibleData = firstActiveIndex <= 0
     ? data
     : data.slice(Math.max(0, Math.min(firstActiveIndex - 1, data.length - 3)))
+  const hasVisibleRefunds = visibleData.some((point) => point.refundCents > 0)
   const current = visibleData.at(-1)?.netCents ?? 0
   const previous = visibleData.at(-2)?.netCents ?? 0
   const change = previous === 0 ? null : Math.round(((current - previous) / Math.abs(previous)) * 100)
@@ -218,6 +247,20 @@ function CashflowCard({
                 cursor={{ stroke: "var(--border)", strokeWidth: 1 }}
                 content={<TrendTooltip amountsHidden={amountsHidden} />}
               />
+              {hasVisibleRefunds ? (
+                <Area
+                  type="monotone"
+                  dataKey="refundCents"
+                  name="退款"
+                  stroke="var(--destructive)"
+                  strokeOpacity={0.55}
+                  strokeWidth={1.5}
+                  fill="var(--destructive)"
+                  fillOpacity={0.08}
+                  dot={false}
+                  activeDot={false}
+                />
+              ) : null}
               <Area
                 type="monotone"
                 dataKey="netCents"
@@ -225,7 +268,7 @@ function CashflowCard({
                 stroke="var(--chart-1)"
                 strokeWidth={2.5}
                 fill="url(#dashboardNetIncome)"
-                dot={{ r: 3.5, fill: "var(--card)", stroke: "var(--chart-1)", strokeWidth: 2 }}
+                dot={renderCashflowDot}
                 activeDot={{ r: 5, fill: "var(--card)", stroke: "var(--chart-1)", strokeWidth: 2.5 }}
               />
             </AreaChart>

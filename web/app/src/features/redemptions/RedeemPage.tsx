@@ -558,7 +558,12 @@ function RedemptionFlowDialog({
             >
               返回修改
             </Button>
-            <Button type="button" className="sm:min-w-44" disabled={submitting} onClick={onConfirm}>
+            <Button
+              type="button"
+              className="group sm:min-w-44"
+              disabled={submitting}
+              onClick={onConfirm}
+            >
               {submitting ? (
                 <>
                   <LoaderCircle data-slot="icon" className="animate-spin" />
@@ -567,7 +572,10 @@ function RedemptionFlowDialog({
               ) : (
                 <>
                   确认无误，继续兑换
-                  <ArrowRight data-slot="icon" />
+                  <ArrowRight
+                    data-slot="icon"
+                    className="transition-transform duration-300 group-hover:translate-x-0.5"
+                  />
                 </>
               )}
             </Button>
@@ -651,6 +659,29 @@ function RedemptionFlowDialog({
               </div>
             ) : null}
 
+            {invited ? (
+              <div className="rounded-lg border bg-muted/20 px-4 py-3.5">
+                <p className="text-xs font-semibold text-muted-foreground">接下来三步完成加入</p>
+                <ol className="mt-2.5 grid gap-2 text-sm leading-5">
+                  {[
+                    "查收邀请邮件，收件箱里没有就看一下垃圾邮件",
+                    "点击邮件中的「Join Team / 接受邀请」按钮",
+                    "登录 ChatGPT，在左侧切换到 Team 工作空间",
+                  ].map((stepText, stepIndex) => (
+                    <li key={stepText} className="flex items-start gap-2.5">
+                      <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full bg-success/10 text-[11px] font-semibold text-success">
+                        {stepIndex + 1}
+                      </span>
+                      <span>{stepText}</span>
+                    </li>
+                  ))}
+                </ol>
+                <p className="mt-3 border-t pt-2.5 text-xs leading-5 text-muted-foreground">
+                  超过 10 分钟仍未收到？添加页面上的客服微信，请管理员补发邀请。
+                </p>
+              </div>
+            ) : null}
+
             <Button
               type="button"
               variant="outline"
@@ -680,6 +711,7 @@ export function RedeemPage() {
   )
   const [flowDialogOpen, setFlowDialogOpen] = React.useState(() => trackingToken !== "")
   const [reviewValues, setReviewValues] = React.useState<FormValues | null>(null)
+  const [lastSubmission, setLastSubmission] = React.useState<FormValues | null>(null)
   const [preloadedSupportQR, setPreloadedSupportQR] = React.useState("")
 
   const settingsQuery = useQuery({
@@ -748,11 +780,13 @@ export function RedeemPage() {
   })
 
   const reviewSubmission = (values: FormValues) => {
-    setReviewValues({
+    const trimmedValues = {
       customer_email: values.customer_email.trim(),
       customer_contact: values.customer_contact.trim(),
       redeem_code: values.redeem_code.trim(),
-    })
+    }
+    setLastSubmission(trimmedValues)
+    setReviewValues(trimmedValues)
     setFlowStep("review")
     setFlowDialogOpen(true)
   }
@@ -769,15 +803,19 @@ export function RedeemPage() {
   }
 
   const resetApplication = () => {
+    // 已成功邀请的兑换码会被消耗，重新兑换时不再预填；驳回或记录失效则保留，方便修正后重新提交
+    const keepRedeemCode = statusQuery.data?.status !== "invited"
     setTrackingToken("")
     writeStoredToken(tokenStorageKey, "")
     setFlowDialogOpen(false)
     setFlowStep("review")
     setReviewValues(null)
     form.reset({
-      customer_email: sandboxMode ? "sandbox-customer@example.com" : "",
-      redeem_code: "",
-      customer_contact: sandboxMode ? "sandbox_wechat" : "",
+      customer_email:
+        lastSubmission?.customer_email ?? (sandboxMode ? "sandbox-customer@example.com" : ""),
+      redeem_code: keepRedeemCode ? (lastSubmission?.redeem_code ?? "") : "",
+      customer_contact:
+        lastSubmission?.customer_contact ?? (sandboxMode ? "sandbox_wechat" : ""),
     })
   }
 
@@ -980,7 +1018,7 @@ export function RedeemPage() {
 
                 <Button
                   type="submit"
-                  className="redeem-submit-button h-14 w-full"
+                  className="redeem-submit-button group h-14 w-full"
                   disabled={submitMutation.isPending}
                 >
                   {submitMutation.isPending ? (
@@ -991,7 +1029,10 @@ export function RedeemPage() {
                   ) : (
                     <>
                       <span>核对兑换信息</span>
-                      <ArrowRight data-slot="icon" className="ml-auto" />
+                      <ArrowRight
+                        data-slot="icon"
+                        className="ml-auto transition-transform duration-300 group-hover:translate-x-1"
+                      />
                     </>
                   )}
                 </Button>
