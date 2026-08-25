@@ -182,13 +182,13 @@ export function SubscriptionDialog({
     resolver: zodResolver(schema),
     defaultValues: defaultValues(),
   })
+  const resetForm = form.reset
 
   React.useEffect(() => {
     if (open) {
-      form.reset(defaultValues())
+      resetForm(defaultValues())
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, prefill])
+  }, [open, defaultValues, resetForm])
 
   const cronExpr = useWatch({ control: form.control, name: "cron_expr" })
   const boardedAt = useWatch({ control: form.control, name: "boarded_at" })

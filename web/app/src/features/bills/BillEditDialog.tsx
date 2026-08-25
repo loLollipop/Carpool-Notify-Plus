@@ -64,17 +64,17 @@ export function BillEditDialog({
     resolver: zodResolver(schema),
     defaultValues: { amount_yuan: "", note: "" },
   })
+  const resetForm = form.reset
 
   React.useEffect(() => {
     if (open && bill) {
-      form.reset({ amount_yuan: bill.amount_yuan, note: bill.note })
+      resetForm({ amount_yuan: bill.amount_yuan, note: bill.note })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, bill])
+  }, [open, bill, resetForm])
 
   const saveMutation = useAppMutation(
-    (values: FormValues) =>
-      updateBill(bill!.id, { amount_yuan: values.amount_yuan.trim(), note: values.note.trim() }),
+    ({ billId, values }: { billId: number; values: FormValues }) =>
+      updateBill(billId, { amount_yuan: values.amount_yuan.trim(), note: values.note.trim() }),
     {
       onSuccess: () => onOpenChange(false),
     },
@@ -93,7 +93,9 @@ export function BillEditDialog({
 
         <Form {...form}>
           <form
-            onSubmit={form.handleSubmit((values) => saveMutation.mutate(values))}
+            onSubmit={form.handleSubmit((values) => {
+              if (bill) saveMutation.mutate({ billId: bill.id, values })
+            })}
             className="grid gap-5"
           >
             <FormField
@@ -127,7 +129,7 @@ export function BillEditDialog({
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 {t("common.cancel")}
               </Button>
-              <Button type="submit" disabled={saveMutation.isPending}>
+              <Button type="submit" disabled={!bill || saveMutation.isPending}>
                 {t("common.save")}
               </Button>
             </DialogFooter>
