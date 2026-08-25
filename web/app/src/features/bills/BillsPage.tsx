@@ -553,7 +553,13 @@ function AccountDonutCard({
   const donutPaddingAngle = donutRows.length > 16 ? 0.45 : donutRows.length > 8 ? 1 : 2.2
 
   return (
-    <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "180ms" }}>
+    <Card
+      className={cn(
+        "relative gap-4 p-5 animate-fade-up",
+        detailsPageCount > 1 && "pb-14",
+      )}
+      style={{ animationDelay: "180ms" }}
+    >
       <div>
         <h2 className="panel-heading text-sm font-semibold">{t("bills.chartAccountTitle")}</h2>
         <p className="mt-1 text-xs text-muted-foreground">{t("bills.chartAccountDesc")}</p>
@@ -602,7 +608,7 @@ function AccountDonutCard({
               </div>
             </div>
           </div>
-          <div className="grid min-h-[170px] min-w-0 flex-1 grid-rows-[1fr_auto] gap-2">
+          <div className="min-h-[170px] min-w-0 flex-1 sm:pt-3">
             <ul className="grid min-h-[136px] content-start gap-2">
               {visibleAccounts.map((item) => {
                 const sharePercent = totalCents > 0 ? (item.cents / totalCents) * 100 : 0
@@ -632,36 +638,36 @@ function AccountDonutCard({
                 )
               })}
             </ul>
-            {detailsPageCount > 1 ? (
-              <div className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={t("cards.prevPage")}
-                  disabled={safeDetailsPage <= 1}
-                  onClick={() => setDetailsPage(safeDetailsPage - 1)}
-                >
-                  <ChevronLeft />
-                </Button>
-                <span className="min-w-12 text-center tabular-nums" aria-live="polite">
-                  {safeDetailsPage} / {detailsPageCount}
-                </span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={t("cards.nextPage")}
-                  disabled={safeDetailsPage >= detailsPageCount}
-                  onClick={() => setDetailsPage(safeDetailsPage + 1)}
-                >
-                  <ChevronRight />
-                </Button>
-              </div>
-            ) : null}
           </div>
         </div>
       )}
+      {detailsPageCount > 1 ? (
+        <div className="absolute right-5 bottom-4 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("cards.prevPage")}
+            disabled={safeDetailsPage <= 1}
+            onClick={() => setDetailsPage(safeDetailsPage - 1)}
+          >
+            <ChevronLeft />
+          </Button>
+          <span className="min-w-12 text-center tabular-nums" aria-live="polite">
+            {safeDetailsPage} / {detailsPageCount}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("cards.nextPage")}
+            disabled={safeDetailsPage >= detailsPageCount}
+            onClick={() => setDetailsPage(safeDetailsPage + 1)}
+          >
+            <ChevronRight />
+          </Button>
+        </div>
+      ) : null}
     </Card>
   )
 }

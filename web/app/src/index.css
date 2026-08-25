@@ -1093,7 +1093,7 @@
   }
 
   .redeem-submit-button {
-    justify-content: flex-start;
+    justify-content: center;
     border: 1px solid color-mix(in oklab, var(--redeem-accent) 78%, black);
     border-radius: 7px;
     padding-inline: 1.1rem;

@@ -1018,7 +1018,7 @@ export function RedeemPage() {
 
                 <Button
                   type="submit"
-                  className="redeem-submit-button group h-14 w-full"
+                  className="redeem-submit-button h-14 w-full justify-center"
                   disabled={submitMutation.isPending}
                 >
                   {submitMutation.isPending ? (
@@ -1027,13 +1027,7 @@ export function RedeemPage() {
                       正在建立兑换请求
                     </>
                   ) : (
-                    <>
-                      <span>核对兑换信息</span>
-                      <ArrowRight
-                        data-slot="icon"
-                        className="ml-auto transition-transform duration-300 group-hover:translate-x-1"
-                      />
-                    </>
+                    <span>开始兑换</span>
                   )}
                 </Button>
 
