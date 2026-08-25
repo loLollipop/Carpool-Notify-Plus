@@ -2,10 +2,14 @@ import * as React from "react"
 import { useLocation, useNavigate, Navigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import {
+  CalendarClock,
+  Database,
   Eye,
   EyeOff,
   LoaderCircle,
   LockKeyhole,
+  ReceiptText,
+  UsersRound,
 } from "lucide-react"
 
 import { login } from "@/api/endpoints"
@@ -24,6 +28,13 @@ export function LoginPage() {
   const [error, setError] = React.useState("")
   const [submitting, setSubmitting] = React.useState(false)
   const [showPassword, setShowPassword] = React.useState(false)
+
+  const ambientSignals = [
+    { key: "users", label: t("nav.users"), icon: UsersRound, position: "is-top-left" },
+    { key: "bills", label: t("nav.bills"), icon: ReceiptText, position: "is-bottom-left" },
+    { key: "accounts", label: t("nav.accounts"), icon: Database, position: "is-top-right" },
+    { key: "calendar", label: t("nav.calendar"), icon: CalendarClock, position: "is-bottom-right" },
+  ]
 
   const from = (location.state as { from?: { pathname: string } } | null)?.from?.pathname ?? "/"
 
@@ -50,6 +61,62 @@ export function LoginPage() {
     <div className="login-stage relative flex min-h-dvh items-center justify-center overflow-clip px-4 py-8 sm:px-8">
       <span className="login-stage-glow is-top" aria-hidden="true" />
       <span className="login-stage-glow is-bottom" aria-hidden="true" />
+
+      <div className="login-ambient-network" aria-hidden="true">
+        <svg
+          className="login-network-map"
+          viewBox="0 0 1600 900"
+          preserveAspectRatio="none"
+          focusable="false"
+        >
+          <g className="login-network-orbits">
+            <ellipse cx="800" cy="450" rx="570" ry="350" />
+            <ellipse cx="800" cy="450" rx="660" ry="410" />
+          </g>
+
+          <g className="login-network-lines">
+            <path d="M0 188 H150 C238 188 252 282 354 282 H430" />
+            <path d="M0 716 H170 C258 716 272 626 372 626 H432" />
+            <path d="M1600 176 H1450 C1360 176 1348 270 1244 270 H1170" />
+            <path d="M1600 724 H1434 C1350 724 1334 632 1238 632 H1168" />
+          </g>
+
+          <g className="login-network-lines is-dashed">
+            <path d="M74 86 H300 L356 142" />
+            <path d="M1526 86 H1300 L1244 142" />
+            <path d="M74 814 H300 L356 758" />
+            <path d="M1526 814 H1300 L1244 758" />
+          </g>
+
+          <g className="login-network-packets">
+            <path pathLength="1" d="M0 188 H150 C238 188 252 282 354 282 H430" />
+            <path pathLength="1" d="M0 716 H170 C258 716 272 626 372 626 H432" />
+            <path pathLength="1" d="M1600 176 H1450 C1360 176 1348 270 1244 270 H1170" />
+            <path pathLength="1" d="M1600 724 H1434 C1350 724 1334 632 1238 632 H1168" />
+          </g>
+
+          <g className="login-network-nodes">
+            <circle cx="150" cy="188" r="4" />
+            <circle cx="354" cy="282" r="4" />
+            <circle cx="170" cy="716" r="4" />
+            <circle cx="372" cy="626" r="4" />
+            <circle cx="1450" cy="176" r="4" />
+            <circle cx="1244" cy="270" r="4" />
+            <circle cx="1434" cy="724" r="4" />
+            <circle cx="1238" cy="632" r="4" />
+          </g>
+        </svg>
+
+        {ambientSignals.map(({ key, label, icon: Icon, position }) => (
+          <span key={key} className={`login-ambient-chip ${position}`}>
+            <span className="login-ambient-chip-icon">
+              <Icon className="size-3.5" />
+            </span>
+            <span>{label}</span>
+            <span className="login-ambient-chip-pulse" />
+          </span>
+        ))}
+      </div>
 
       <main className="relative z-10 grid w-full max-w-[820px] overflow-hidden rounded-2xl border border-border/80 bg-card shadow-lift animate-rise lg:min-h-[430px] lg:grid-cols-[300px_minmax(0,1fr)]">
         <aside className="login-surface relative hidden overflow-hidden p-8 text-[var(--login-panel-foreground)] lg:flex lg:flex-col">
