@@ -490,7 +490,18 @@ function AmountDistributionCard({
 
 // ---- 所属账号 donut ----------------------------------------------------------------
 
-const DONUT_TOP_ITEMS = 5
+const DONUT_DETAILS_PER_PAGE = 5
+
+function getAccountDonutColor(index: number) {
+  const baseColor = CHART_COLORS[index % CHART_COLORS.length]
+  const tone = Math.floor(index / CHART_COLORS.length)
+
+  if (tone === 0) return baseColor
+
+  const blendColor = tone % 2 === 0 ? "var(--background)" : "var(--foreground)"
+  const baseWeight = Math.max(58, 82 - Math.floor((tone - 1) / 2) * 12)
+  return `color-mix(in oklch, ${baseColor} ${baseWeight}%, ${blendColor})`
+}
 
 function AccountDonutCard({
   summary,
@@ -502,6 +513,7 @@ function AccountDonutCard({
   onSelectAccount: (accountName: string) => void
 }) {
   const { t } = useTranslation()
+  const [detailsPage, setDetailsPage] = React.useState(1)
   const [reduceMotion, setReduceMotion] = React.useState(() =>
     window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   )
@@ -527,26 +539,18 @@ function AccountDonutCard({
   }, [])
 
   const totalCents = rankedAccounts.reduce((sum, item) => sum + item.cents, 0)
-  const topAccounts = rankedAccounts.slice(0, DONUT_TOP_ITEMS)
-  const restAccounts = rankedAccounts.slice(DONUT_TOP_ITEMS)
-
-  // 构成图必须基于全量数据：前 5 名单独成扇区，其余聚合为"其他"，
-  // 避免按分页切扇区导致每页 donut 比例失真。
-  const donutRows = topAccounts.map((item, index) => ({
+  // 圆环始终使用全量账号；分页只切换右侧明细，避免翻页后占比失真。
+  const donutRows = rankedAccounts.map((item, index) => ({
     ...item,
-    fill: CHART_COLORS[index % CHART_COLORS.length],
-    muted: false,
+    fill: getAccountDonutColor(index),
   }))
-  if (restAccounts.length > 0) {
-    donutRows.push({
-      key: "__others__",
-      name: t("bills.chartAccountOthers", { count: restAccounts.length }),
-      cents: restAccounts.reduce((sum, item) => sum + item.cents, 0),
-      count: restAccounts.reduce((sum, item) => sum + item.count, 0),
-      fill: "var(--muted-foreground)",
-      muted: true,
-    })
-  }
+  const detailsPageCount = Math.max(1, Math.ceil(donutRows.length / DONUT_DETAILS_PER_PAGE))
+  const safeDetailsPage = Math.min(detailsPage, detailsPageCount)
+  const visibleAccounts = donutRows.slice(
+    (safeDetailsPage - 1) * DONUT_DETAILS_PER_PAGE,
+    safeDetailsPage * DONUT_DETAILS_PER_PAGE,
+  )
+  const donutPaddingAngle = donutRows.length > 16 ? 0.45 : donutRows.length > 8 ? 1 : 2.2
 
   return (
     <Card className="gap-4 p-5 animate-fade-up" style={{ animationDelay: "180ms" }}>
@@ -572,23 +576,18 @@ function AccountDonutCard({
                 outerRadius={80}
                 startAngle={90}
                 endAngle={-270}
-                paddingAngle={3}
+                paddingAngle={donutPaddingAngle}
                 strokeWidth={0}
                 isAnimationActive={!reduceMotion}
                 animationBegin={120}
                 animationDuration={1000}
                 animationEasing="ease-out"
-                onClick={(entry: { name?: string; muted?: boolean }) => {
-                  // “其他”是多账号聚合扇区，无法映射到单一搜索词，不触发下钻
-                  if (entry?.name && !entry.muted) onSelectAccount(entry.name)
+                onClick={(entry: { name?: string }) => {
+                  if (entry?.name) onSelectAccount(entry.name)
                 }}
               >
                 {donutRows.map((item) => (
-                  <Cell
-                    key={item.key}
-                    fill={item.fill}
-                    fillOpacity={item.muted ? 0.35 : 1}
-                  />
+                  <Cell key={item.key} fill={item.fill} />
                 ))}
               </Pie>
             </PieChart>
@@ -603,45 +602,64 @@ function AccountDonutCard({
               </div>
             </div>
           </div>
-          <ul className="grid min-h-[136px] min-w-0 flex-1 content-start gap-2">
-            {donutRows.map((item) => {
-              const sharePercent = totalCents > 0 ? (item.cents / totalCents) * 100 : 0
-              const rowContent = (
-                <>
-                  <i
-                    className="size-2.5 shrink-0 rounded-[3px]"
-                    style={{ background: item.fill, opacity: item.muted ? 0.35 : 1 }}
-                  />
-                  <span className="truncate" title={item.name}>{item.name}</span>
-                  <span className="shrink-0 tabular-nums text-muted-foreground">
-                    {maskAmount(amountsHidden, formatCents(item.cents))} ·{" "}
-                    {t("bills.countSuffix", { count: maskValue(amountsHidden, item.count) })} ·{" "}
-                    {amountsHidden ? VALUE_MASK : `${sharePercent.toFixed(1)}%`}
-                  </span>
-                </>
-              )
-              const rowClassName =
-                "grid w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-xs"
-              return (
-                <li key={item.key}>
-                  {item.muted ? (
-                    <span className={rowClassName}>{rowContent}</span>
-                  ) : (
+          <div className="grid min-h-[170px] min-w-0 flex-1 grid-rows-[1fr_auto] gap-2">
+            <ul className="grid min-h-[136px] content-start gap-2">
+              {visibleAccounts.map((item) => {
+                const sharePercent = totalCents > 0 ? (item.cents / totalCents) * 100 : 0
+                return (
+                  <li key={item.key}>
                     <button
                       type="button"
                       className={cn(
-                        rowClassName,
-                        "-mx-1.5 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-accent",
+                        "-mx-1.5 grid w-[calc(100%+0.75rem)] min-w-0",
+                        "grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md",
+                        "px-1.5 py-1 text-left text-xs transition-colors hover:bg-accent",
                       )}
                       onClick={() => onSelectAccount(item.name)}
                     >
-                      {rowContent}
+                      <i
+                        className="size-2.5 shrink-0 rounded-[3px]"
+                        style={{ background: item.fill }}
+                      />
+                      <span className="truncate" title={item.name}>{item.name}</span>
+                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                        {maskAmount(amountsHidden, formatCents(item.cents))} ·{" "}
+                        {t("bills.countSuffix", { count: maskValue(amountsHidden, item.count) })} ·{" "}
+                        {amountsHidden ? VALUE_MASK : `${sharePercent.toFixed(1)}%`}
+                      </span>
                     </button>
-                  )}
-                </li>
-              )
-            })}
-          </ul>
+                  </li>
+                )
+              })}
+            </ul>
+            {detailsPageCount > 1 ? (
+              <div className="flex items-center justify-end gap-1.5 text-xs text-muted-foreground">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={t("cards.prevPage")}
+                  disabled={safeDetailsPage <= 1}
+                  onClick={() => setDetailsPage(safeDetailsPage - 1)}
+                >
+                  <ChevronLeft />
+                </Button>
+                <span className="min-w-12 text-center tabular-nums" aria-live="polite">
+                  {safeDetailsPage} / {detailsPageCount}
+                </span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={t("cards.nextPage")}
+                  disabled={safeDetailsPage >= detailsPageCount}
+                  onClick={() => setDetailsPage(safeDetailsPage + 1)}
+                >
+                  <ChevronRight />
+                </Button>
+              </div>
+            ) : null}
+          </div>
         </div>
       )}
     </Card>
