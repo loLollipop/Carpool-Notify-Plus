@@ -281,13 +281,53 @@
     color: var(--foreground);
   }
 
-  /* Login aside: brand-tinted gradient surface with warm/cool glows. */
+  /* Login: a compact private-console frame with restrained ambient depth. */
+  .login-stage {
+    background-color: var(--background);
+    background-image:
+      linear-gradient(color-mix(in oklab, var(--border) 32%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in oklab, var(--border) 32%, transparent) 1px, transparent 1px);
+    background-position: center;
+    background-size: 48px 48px;
+  }
+
+  .login-stage::after {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    content: "";
+    background: radial-gradient(circle at center, transparent 20%, var(--background) 78%);
+  }
+
+  .login-stage-glow {
+    position: absolute;
+    border-radius: 999px;
+    pointer-events: none;
+    filter: blur(1px);
+  }
+
+  .login-stage-glow.is-top {
+    top: -14rem;
+    right: -10rem;
+    width: 36rem;
+    height: 36rem;
+    background: color-mix(in oklab, var(--brand) 8%, transparent);
+  }
+
+  .login-stage-glow.is-bottom {
+    bottom: -18rem;
+    left: -12rem;
+    width: 40rem;
+    height: 40rem;
+    background: color-mix(in oklab, var(--gold) 6%, transparent);
+  }
+
   .login-surface {
     background-color: var(--login-panel);
     background-image:
-      radial-gradient(40rem 20rem at 85% -10%, color-mix(in oklab, var(--brand) 26%, transparent), transparent 62%),
-      radial-gradient(30rem 18rem at -10% 110%, color-mix(in oklab, var(--gold) 16%, transparent), transparent 58%),
-      linear-gradient(165deg, transparent, color-mix(in oklab, black 24%, transparent));
+      radial-gradient(22rem 18rem at 100% 0%, color-mix(in oklab, var(--brand) 23%, transparent), transparent 64%),
+      radial-gradient(18rem 14rem at 0% 100%, color-mix(in oklab, var(--gold) 13%, transparent), transparent 66%),
+      linear-gradient(160deg, transparent, color-mix(in oklab, black 18%, transparent));
   }
 
   .metric-rule {

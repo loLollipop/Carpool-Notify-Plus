@@ -2,18 +2,15 @@ import * as React from "react"
 import { useLocation, useNavigate, Navigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import {
-  ArrowRight,
   Eye,
   EyeOff,
   LoaderCircle,
   LockKeyhole,
-  ShieldCheck,
 } from "lucide-react"
 
 import { login } from "@/api/endpoints"
 import { BrandIcon } from "@/components/brand"
 import { Button } from "@/components/ui/button"
-import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { useAuth } from "./auth-state"
@@ -50,55 +47,35 @@ export function LoginPage() {
   }
 
   return (
-    <div className="grid min-h-dvh bg-background lg:grid-cols-[minmax(400px,0.9fr)_minmax(560px,1.1fr)]">
-      <aside className="login-surface relative hidden overflow-hidden border-r border-[var(--login-panel-border)] p-10 text-[var(--login-panel-foreground)] lg:flex lg:flex-col lg:justify-between xl:p-14">
-        <BrandIcon
-          className="pointer-events-none absolute -bottom-24 -right-24 size-80 opacity-[0.055] shadow-none"
-        />
+    <div className="login-stage relative flex min-h-dvh items-center justify-center overflow-clip px-4 py-8 sm:px-8">
+      <span className="login-stage-glow is-top" aria-hidden="true" />
+      <span className="login-stage-glow is-bottom" aria-hidden="true" />
 
-        <div className="relative flex items-center gap-3 animate-fade-up">
-          <BrandIcon className="size-11" />
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold">{t("common.appName")}</h1>
-            <p className="mt-1 text-xs text-[var(--login-panel-muted)]">
-              {t("auth.consoleLabel")}
-            </p>
+      <main className="relative z-10 grid w-full max-w-[820px] overflow-hidden rounded-2xl border border-border/80 bg-card shadow-lift animate-rise lg:min-h-[430px] lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside className="login-surface relative hidden overflow-hidden p-8 text-[var(--login-panel-foreground)] lg:flex lg:flex-col">
+          <div className="relative z-10 flex items-center gap-3">
+            <BrandIcon className="size-11" />
+            <div className="min-w-0">
+              <h1 className="truncate text-base font-semibold">{t("common.appName")}</h1>
+              <p className="mt-1 text-xs text-[var(--login-panel-muted)]">
+                {t("auth.consoleLabel")}
+              </p>
+            </div>
           </div>
-        </div>
 
-        <div className="relative max-w-[470px] animate-fade-up [animation-delay:90ms]">
-          <div className="mb-6 flex items-center gap-3 text-[11px] font-semibold text-[var(--login-panel-muted)]">
-            <span className="h-px w-8 bg-gold" aria-hidden="true" />
-            {t("auth.eyebrow")}
+          <div className="relative flex flex-1 items-center justify-center" aria-hidden="true">
+            <span className="absolute size-48 rounded-full border border-white/[0.07]" />
+            <span className="absolute size-32 rounded-full border border-white/[0.10]" />
+            <span className="absolute h-px w-56 bg-gradient-to-r from-transparent via-white/15 to-transparent" />
+            <span className="absolute h-56 w-px bg-gradient-to-b from-transparent via-white/10 to-transparent" />
+            <span className="absolute left-[19%] top-[32%] size-1.5 rounded-full bg-gold" />
+            <span className="absolute bottom-[30%] right-[18%] size-1 rounded-full bg-brand" />
+            <BrandIcon className="relative z-10 size-20 rounded-2xl shadow-[0_18px_44px_rgba(0,0,0,0.25)]" />
           </div>
-          <h2 className="max-w-[440px] text-[36px] font-semibold leading-[1.22] xl:text-[44px]">
-            {t("auth.heroTitle")}
-          </h2>
-          <p className="mt-5 max-w-md text-[15px] leading-7 text-[var(--login-panel-muted)]">
-            {t("auth.heroDescription")}
-          </p>
-          <p className="mt-8 border-l-2 border-gold pl-4 text-sm leading-6 text-[var(--login-panel-foreground)]/85">
-            {t("auth.heroNote")}
-          </p>
-        </div>
+        </aside>
 
-        <div className="relative flex items-center justify-between border-t border-[var(--login-panel-border)] pt-5 text-[11px] text-[var(--login-panel-muted)]">
-          <span className="font-semibold">{t("auth.privateConsole")}</span>
-          <span className="flex items-center gap-2">
-            <span className="size-1.5 rounded-full bg-gold" aria-hidden="true" />
-            {t("auth.secureAccess")}
-          </span>
-        </div>
-      </aside>
-
-      <main className="relative flex min-h-dvh items-center justify-center px-4 py-8 sm:px-8 lg:px-12">
-        <div className="absolute right-8 top-8 hidden items-center gap-2 text-xs text-muted-foreground lg:flex">
-          <ShieldCheck className="size-4 text-brand" />
-          {t("auth.secureAccess")}
-        </div>
-
-        <div className="w-full max-w-[440px]">
-          <div className="mb-8 flex items-center gap-3 lg:hidden animate-fade-up">
+        <section className="flex min-h-[420px] flex-col justify-center p-6 sm:p-10 lg:min-h-0 lg:px-12">
+          <div className="mb-10 flex items-center gap-3 lg:hidden">
             <BrandIcon className="size-11" />
             <div className="min-w-0">
               <h1 className="truncate text-base font-semibold">{t("common.appName")}</h1>
@@ -106,79 +83,60 @@ export function LoginPage() {
             </div>
           </div>
 
-          <Card
-            className="relative gap-0 overflow-hidden border-border/90 p-6 shadow-lift animate-fade-up sm:p-9"
-            style={{ animationDelay: "120ms" }}
-          >
-            <div>
-              <div className="mb-5 flex items-center gap-2 text-xs font-medium text-brand">
-                <span className="grid size-8 place-items-center rounded-md bg-brand/10">
-                  <LockKeyhole className="size-4" />
-                </span>
-                {t("auth.adminEntry")}
-              </div>
-              <h2 className="text-2xl font-semibold">{t("auth.welcome")}</h2>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                {t("auth.welcomeDescription")}
-              </p>
-            </div>
+          <div className="mb-7 flex items-center gap-3">
+            <span className="grid size-10 place-items-center rounded-lg border border-brand/15 bg-brand/[0.08] text-brand">
+              <LockKeyhole className="size-[18px]" />
+            </span>
+            <h2 className="text-2xl font-semibold tracking-tight">{t("auth.adminEntry")}</h2>
+          </div>
 
-            <form onSubmit={handleSubmit} className="mt-8 grid gap-5">
-              <div className="grid gap-2">
-                <Label htmlFor="password">{t("auth.password")}</Label>
-                <div className="relative">
-                  <LockKeyhole
-                    className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    autoComplete="current-password"
-                    autoFocus
-                    required
-                    value={password}
-                    placeholder={t("auth.passwordPlaceholder")}
-                    onChange={(event) => setPassword(event.target.value)}
-                    aria-invalid={error !== ""}
-                    className="h-12 pl-10 pr-11"
-                  />
-                  <button
-                    type="button"
-                    className="absolute right-1.5 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    onClick={() => setShowPassword((visible) => !visible)}
-                    aria-label={showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
-                  >
-                    {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                  </button>
-                </div>
-                {error ? (
-                  <p role="alert" className="text-sm text-destructive animate-fade-in">
-                    {error}
-                  </p>
-                ) : null}
+          <form onSubmit={handleSubmit} className="grid gap-5">
+            <div className="grid gap-2">
+              <Label htmlFor="password">{t("auth.password")}</Label>
+              <div className="relative">
+                <LockKeyhole
+                  className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  autoFocus
+                  required
+                  value={password}
+                  placeholder={t("auth.passwordPlaceholder")}
+                  onChange={(event) => setPassword(event.target.value)}
+                  aria-invalid={error !== ""}
+                  className="h-12 bg-background/60 pl-10 pr-11"
+                />
+                <button
+                  type="button"
+                  className="absolute right-1.5 top-1/2 grid size-9 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={showPassword ? t("auth.hidePassword") : t("auth.showPassword")}
+                >
+                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
               </div>
-              <Button type="submit" size="lg" className="group h-12 w-full" disabled={submitting}>
-                {submitting ? (
-                  <>
-                    <LoaderCircle className="size-4 animate-spin" />
-                    {t("auth.submitting")}
-                  </>
-                ) : (
-                  <>
-                    {t("auth.submit")}
-                    <ArrowRight className="size-4 transition-transform duration-300 group-hover:translate-x-1" />
-                  </>
-                )}
-              </Button>
-            </form>
-
-            <div className="mt-7 flex items-center gap-2 border-t pt-5 text-xs text-muted-foreground">
-              <ShieldCheck className="size-4 shrink-0 text-brand" />
-              {t("auth.restrictedAccess")}
+              {error ? (
+                <p role="alert" className="text-sm text-destructive animate-fade-in">
+                  {error}
+                </p>
+              ) : null}
             </div>
-          </Card>
-        </div>
+            <Button type="submit" size="lg" className="h-12 w-full" disabled={submitting}>
+              {submitting ? (
+                <>
+                  <LoaderCircle className="size-4 animate-spin" />
+                  {t("auth.submitting")}
+                </>
+              ) : (
+                t("auth.submit")
+              )}
+            </Button>
+          </form>
+        </section>
       </main>
     </div>
   )
