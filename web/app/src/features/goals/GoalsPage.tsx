@@ -27,7 +27,6 @@ import {
   Gift,
   HeartHandshake,
   History,
-  MessageCircle,
   Pencil,
   Plus,
   RefreshCw,
@@ -52,6 +51,7 @@ import {
 } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
 import { useGoals } from "@/api/queries"
+import { WeChatIcon } from "@/components/icons/wechat-icon"
 import type {
   BusinessGoal,
   BusinessGoalInput,
@@ -1785,12 +1785,12 @@ function RepricingAnalysisPanel({
                     <div className="mt-2.5">
                       {candidate.needs_contact_followup ? (
                         <Badge variant="warning" className="font-normal">
-                          <MessageCircle />
+                          <WeChatIcon />
                           {t("goals.repricing.contactMissing")}
                         </Badge>
                       ) : (
                         <p className="flex items-center gap-1.5 truncate text-[11px] text-muted-foreground">
-                          <MessageCircle className="size-3.5 shrink-0 text-success" />
+                          <WeChatIcon className="size-3.5 shrink-0 text-success" />
                           <span className="truncate">{candidate.customer_wechat}</span>
                         </p>
                       )}

@@ -40,6 +40,7 @@ import type {
 } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { EmailPreview } from "@/components/email-preview"
+import { WeChatIcon } from "@/components/icons/wechat-icon"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -630,7 +631,7 @@ function RedeemPageSettingsEditor({
         <Card className="content-start gap-5 p-5 sm:p-6">
           <div className="flex items-center gap-3 border-b pb-4">
             <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
-              <MessageSquare className="size-4" />
+              <WeChatIcon className="size-4" />
             </span>
             <h3 className="text-sm font-semibold">客服信息</h3>
           </div>

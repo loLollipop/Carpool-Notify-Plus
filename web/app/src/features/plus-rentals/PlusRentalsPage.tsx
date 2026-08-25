@@ -10,7 +10,6 @@ import {
   CircleDollarSign,
   Clock3,
   Mail,
-  MessageCircle,
   Pencil,
   Receipt,
   Search,
@@ -27,6 +26,7 @@ import type { SubscriptionView } from "@/api/types"
 import { AmountPrivacyToggle } from "@/components/amount-privacy-toggle"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DueStatusBadge } from "@/components/due-status-badge"
+import { WeChatIcon } from "@/components/icons/wechat-icon"
 import { NumberTicker } from "@/components/number-ticker"
 import { PageHeader } from "@/components/page-header"
 import {
@@ -194,7 +194,7 @@ function RentalCard({
             </span>
           </div>
           <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-muted/25 px-3 py-2 text-xs">
-            <MessageCircle className="size-3.5 shrink-0 text-success" />
+            <WeChatIcon className="size-3.5 shrink-0 text-success" />
             <span className="shrink-0 text-muted-foreground">{t("plusRentals.contactShort")}</span>
             <span className="ml-auto truncate" title={subscription.customer_wechat}>
               {subscription.customer_wechat || t("cards.contactMissing")}

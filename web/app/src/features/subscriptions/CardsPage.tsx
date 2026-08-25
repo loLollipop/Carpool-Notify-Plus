@@ -6,7 +6,6 @@ import {
   ChevronRight,
   Clock3,
   Mail,
-  MessageCircle,
   Pencil,
   Receipt,
   Search,
@@ -20,6 +19,7 @@ import { useCalendar, useDashboard, useSubscriptions } from "@/api/queries"
 import type { CalendarOccurrence, SubscriptionView } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DueStatusBadge } from "@/components/due-status-badge"
+import { WeChatIcon } from "@/components/icons/wechat-icon"
 import {
   KpiSection,
   KpiSectionSkeleton,
@@ -123,7 +123,7 @@ function CustomerContactRow({
         className="flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-md border border-success/10 bg-success/[0.06] px-2 text-xs text-muted-foreground"
         title={`${t("subscriptionDialog.customerWechat")}: ${wechat || t("cards.contactMissing")}`}
       >
-        <MessageCircle className="size-3.5 shrink-0" aria-hidden="true" />
+        <WeChatIcon className="size-3.5 shrink-0 text-success" />
         <span className="truncate">{wechat || t("cards.contactMissing")}</span>
       </span>
     </div>

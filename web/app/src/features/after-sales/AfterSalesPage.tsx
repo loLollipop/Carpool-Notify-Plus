@@ -9,7 +9,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Mail,
-  MessageCircle,
   Pencil,
   RotateCcw,
   Search,
@@ -28,6 +27,7 @@ import { useAccountOptions, useAfterSales } from "@/api/queries"
 import type { AfterSalesCaseView, AfterSalesStatus } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { EmptyState } from "@/components/empty-state"
+import { WeChatIcon } from "@/components/icons/wechat-icon"
 import { PageHeader } from "@/components/page-header"
 import {
   StatDetailDialog,
@@ -123,7 +123,7 @@ function ContactLines({ view }: { view: AfterSalesCaseView }) {
         </span>
       </div>
       <div className="flex min-w-0 items-center gap-1.5">
-        <MessageCircle className="size-3.5 shrink-0 text-success" />
+        <WeChatIcon className="size-3.5 shrink-0 text-success" />
         <span className="truncate" title={view.case.customer_wechat || undefined}>
           {view.case.customer_wechat || t("afterSales.missingContact")}
         </span>

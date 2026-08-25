@@ -29,6 +29,7 @@ import {
 } from "@/api/endpoints"
 import type { RedeemPageSettings, RedemptionStatus } from "@/api/types"
 import { APP_NAME, BrandIcon } from "@/components/brand"
+import { WeChatIcon } from "@/components/icons/wechat-icon"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import {
@@ -279,7 +280,7 @@ function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
       <div className="flex flex-1 flex-col p-5 xl:p-6">
         <div className="flex items-start gap-3">
           <span className="redeem-support-icon size-10">
-            <MessageCircle className="size-5" />
+            <WeChatIcon className="size-5" />
           </span>
           <div className="min-w-0">
             <p className="font-mono text-[9px] font-semibold tracking-[0.16em] text-[var(--redeem-accent)]">
@@ -326,7 +327,7 @@ function SupportWechatDialogButton({ settings }: { settings: RedeemPageSettings 
           aria-label="客服微信"
           className="redeem-nav-button lg:hidden"
         >
-          <MessageCircle data-slot="icon" />
+          <WeChatIcon data-slot="icon" />
           <span className="hidden sm:inline">客服</span>
         </Button>
       </DialogTrigger>
@@ -536,7 +537,7 @@ function RedemptionFlowDialog({
               mono
             />
             <ReviewItem
-              icon={<MessageCircle className="size-4 text-success" />}
+              icon={<WeChatIcon className="size-4 text-success" />}
               label="微信号"
               value={reviewValues.customer_contact}
             />
@@ -1001,7 +1002,7 @@ export function RedeemPage() {
                         </FormLabel>
                         <FormControl>
                           <div className="relative">
-                            <MessageCircle className="redeem-input-icon" />
+                            <WeChatIcon className="redeem-input-icon" />
                             <Input
                               autoComplete="username"
                               placeholder="请输入常用微信号"
