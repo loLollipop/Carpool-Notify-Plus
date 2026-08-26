@@ -172,6 +172,25 @@ func TestPriceIncreaseCustomerTemplatePreviewUsesDistinctPricesAndSubject(t *tes
 	}
 }
 
+func TestSandboxCustomerEmailTestNeverSendsRealMail(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/api/sandbox/settings/test-customer-email",
+		strings.NewReader(`{"recipient":"test@example.com","template_kind":"customer"}`),
+	)
+	context.Request.Header.Set("Content-Type", "application/json")
+	server := &Server{SandboxMode: true}
+
+	server.postSettingsTestCustomerEmail(context)
+
+	if recorder.Code != http.StatusBadRequest || !strings.Contains(recorder.Body.String(), "演练模式不会发送真实邮件") {
+		t.Fatalf("response = %d %s, want sandbox email rejection", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestCopySubscriptionRejectsMalformedJSON(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	recorder := httptest.NewRecorder()

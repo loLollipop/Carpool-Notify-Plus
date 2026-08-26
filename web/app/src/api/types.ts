@@ -641,6 +641,14 @@ export interface RedeemPageSettings {
   support_contact_label: string
   support_wechat_id: string
   support_qr_data_url: string
+  codex_plus_weekly_quota_usd: number
+  codex_team_weekly_quota_usd: number
+  web_primary_benefit_label: string
+  web_plus_primary_benefit: string
+  web_team_primary_benefit: string
+  web_secondary_benefit_label: string
+  web_plus_secondary_benefit: string
+  web_team_secondary_benefit: string
 }
 
 export interface DuePeriodOption {

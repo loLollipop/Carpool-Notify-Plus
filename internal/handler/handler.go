@@ -84,12 +84,14 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 			sandbox.GET("/status", server.getSandboxStatus)
 			sandbox.POST("/reset", server.postResetSandbox)
 			sandbox.POST("/settings/test-notify", sandboxServer.postSettingsTestNotify)
+			sandbox.POST("/settings/test-customer-email", sandboxServer.postSettingsTestCustomerEmail)
 			sandboxServer.registerBusinessRoutes(sandbox)
 		}
 
 		authorized.GET("/settings", server.getSettings)
 		authorized.PUT("/settings", server.putSettings)
 		authorized.POST("/settings/test-notify", server.postSettingsTestNotify)
+		authorized.POST("/settings/test-customer-email", server.postSettingsTestCustomerEmail)
 		authorized.POST("/settings/template-preview", server.postSettingsTemplatePreview)
 
 		authorized.GET("/cron/preview", server.getCronPreview)

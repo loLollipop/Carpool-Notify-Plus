@@ -1362,6 +1362,31 @@ func (server *Server) postSettingsTestNotify(context *gin.Context) {
 	respondOK(context, gin.H{"message": "测试通知已发送"})
 }
 
+func (server *Server) postSettingsTestCustomerEmail(context *gin.Context) {
+	if server.SandboxMode {
+		respondError(context, http.StatusBadRequest, "演练模式不会发送真实邮件")
+		return
+	}
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 8<<10)
+	var request struct {
+		Recipient    string `json:"recipient"`
+		TemplateKind string `json:"template_kind"`
+	}
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的邮件测试内容")
+		return
+	}
+	if err := server.Service.SendTestCustomerEmail(
+		context.Request.Context(),
+		request.Recipient,
+		request.TemplateKind,
+	); err != nil {
+		respondError(context, http.StatusBadRequest, "测试邮件发送失败: "+err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "测试邮件已发送，请检查收件箱和垃圾邮件"})
+}
+
 func (server *Server) postSettingsTemplatePreview(context *gin.Context) {
 	var request struct {
 		Kind     string `json:"kind"`

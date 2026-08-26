@@ -67,6 +67,7 @@ const SANDBOX_BUSINESS_PREFIXES = [
   "/api/bills",
   "/api/operating-expenses",
   "/api/settings/test-notify",
+  "/api/settings/test-customer-email",
 ]
 
 function scopeBusinessPath(path: string) {

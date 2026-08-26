@@ -120,14 +120,22 @@ const DefaultPriceIncreaseAdvanceNoticeCustomerEmailTemplate = DefaultPriceIncre
 
 // RedeemPageSettings is public, non-secret copy shown on the customer redemption page.
 type RedeemPageSettings struct {
-	AnnouncementTitle    string   `json:"announcement_title"`
-	AnnouncementIntro    string   `json:"announcement_intro"`
-	AnnouncementItems    []string `json:"announcement_items"`
-	SupportTitle         string   `json:"support_title"`
-	SupportDescription   string   `json:"support_description"`
-	SupportContactLabel  string   `json:"support_contact_label"`
-	SupportWechatID      string   `json:"support_wechat_id"`
-	SupportQRCodeDataURL string   `json:"support_qr_data_url"`
+	AnnouncementTitle        string   `json:"announcement_title"`
+	AnnouncementIntro        string   `json:"announcement_intro"`
+	AnnouncementItems        []string `json:"announcement_items"`
+	SupportTitle             string   `json:"support_title"`
+	SupportDescription       string   `json:"support_description"`
+	SupportContactLabel      string   `json:"support_contact_label"`
+	SupportWechatID          string   `json:"support_wechat_id"`
+	SupportQRCodeDataURL     string   `json:"support_qr_data_url"`
+	CodexPlusWeeklyQuotaUSD  int      `json:"codex_plus_weekly_quota_usd"`
+	CodexTeamWeeklyQuotaUSD  int      `json:"codex_team_weekly_quota_usd"`
+	WebPrimaryBenefitLabel   string   `json:"web_primary_benefit_label"`
+	WebPlusPrimaryBenefit    string   `json:"web_plus_primary_benefit"`
+	WebTeamPrimaryBenefit    string   `json:"web_team_primary_benefit"`
+	WebSecondaryBenefitLabel string   `json:"web_secondary_benefit_label"`
+	WebPlusSecondaryBenefit  string   `json:"web_plus_secondary_benefit"`
+	WebTeamSecondaryBenefit  string   `json:"web_team_secondary_benefit"`
 }
 
 // DefaultRedeemPageSettings keeps open-source installs free of operator-specific data.
@@ -139,11 +147,19 @@ var DefaultRedeemPageSettings = RedeemPageSettings{
 		"长期使用建议添加管理员微信，方便接收续费提醒、售后协助和异常通知。",
 		"到期后若未及时续费，账号可能会被移出 Team；未备份的工作空间内容可能无法找回。",
 	},
-	SupportTitle:         "客服微信",
-	SupportDescription:   "续费提醒与售后协助",
-	SupportContactLabel:  "微信号",
-	SupportWechatID:      "",
-	SupportQRCodeDataURL: "",
+	SupportTitle:             "客服微信",
+	SupportDescription:       "续费提醒与售后协助",
+	SupportContactLabel:      "微信号",
+	SupportWechatID:          "",
+	SupportQRCodeDataURL:     "",
+	CodexPlusWeeklyQuotaUSD:  150,
+	CodexTeamWeeklyQuotaUSD:  200,
+	WebPrimaryBenefitLabel:   "GPT-5.6 sol 极高",
+	WebPlusPrimaryBenefit:    "不支持",
+	WebTeamPrimaryBenefit:    "支持",
+	WebSecondaryBenefitLabel: "Pro 模型",
+	WebPlusSecondaryBenefit:  "—",
+	WebTeamSecondaryBenefit:  "15 次/月",
 }
 
 // Account is a carpool identity (e.g. a ChatGPT Team owner account) that owns seats.

@@ -34,6 +34,9 @@ const (
 	maxRedeemSupportContactLabelLength = 30
 	maxRedeemSupportWechatIDLength     = 80
 	maxRedeemQRCodeDataURLLength       = 1500000
+	maxRedeemBenefitLabelLength        = 80
+	maxRedeemBenefitValueLength        = 80
+	maxRedeemWeeklyQuotaUSD            = 100000
 )
 
 // SubscriptionService handles subscription CRUD and presentation helpers.
@@ -1856,6 +1859,30 @@ func redeemPageSettingsWithDefaults(input model.RedeemPageSettings) model.Redeem
 	if strings.TrimSpace(input.SupportContactLabel) == "" {
 		input.SupportContactLabel = defaults.SupportContactLabel
 	}
+	if input.CodexPlusWeeklyQuotaUSD <= 0 {
+		input.CodexPlusWeeklyQuotaUSD = defaults.CodexPlusWeeklyQuotaUSD
+	}
+	if input.CodexTeamWeeklyQuotaUSD <= 0 {
+		input.CodexTeamWeeklyQuotaUSD = defaults.CodexTeamWeeklyQuotaUSD
+	}
+	if strings.TrimSpace(input.WebPrimaryBenefitLabel) == "" {
+		input.WebPrimaryBenefitLabel = defaults.WebPrimaryBenefitLabel
+	}
+	if strings.TrimSpace(input.WebPlusPrimaryBenefit) == "" {
+		input.WebPlusPrimaryBenefit = defaults.WebPlusPrimaryBenefit
+	}
+	if strings.TrimSpace(input.WebTeamPrimaryBenefit) == "" {
+		input.WebTeamPrimaryBenefit = defaults.WebTeamPrimaryBenefit
+	}
+	if strings.TrimSpace(input.WebSecondaryBenefitLabel) == "" {
+		input.WebSecondaryBenefitLabel = defaults.WebSecondaryBenefitLabel
+	}
+	if strings.TrimSpace(input.WebPlusSecondaryBenefit) == "" {
+		input.WebPlusSecondaryBenefit = defaults.WebPlusSecondaryBenefit
+	}
+	if strings.TrimSpace(input.WebTeamSecondaryBenefit) == "" {
+		input.WebTeamSecondaryBenefit = defaults.WebTeamSecondaryBenefit
+	}
 	return input
 }
 
@@ -1895,6 +1922,30 @@ func normalizeRedeemPageSettings(input model.RedeemPageSettings) (model.RedeemPa
 	}
 	if input.SupportWechatID, err = trimLimited("客服微信号", input.SupportWechatID, maxRedeemSupportWechatIDLength); err != nil {
 		return model.RedeemPageSettings{}, err
+	}
+	if input.CodexPlusWeeklyQuotaUSD < 1 || input.CodexPlusWeeklyQuotaUSD > maxRedeemWeeklyQuotaUSD {
+		return model.RedeemPageSettings{}, fmt.Errorf("Plus Codex 周额度须为 1～%d 美元", maxRedeemWeeklyQuotaUSD)
+	}
+	if input.CodexTeamWeeklyQuotaUSD < 1 || input.CodexTeamWeeklyQuotaUSD > maxRedeemWeeklyQuotaUSD {
+		return model.RedeemPageSettings{}, fmt.Errorf("Team Codex 周额度须为 1～%d 美元", maxRedeemWeeklyQuotaUSD)
+	}
+	benefitFields := []struct {
+		label string
+		value *string
+		limit int
+	}{
+		{label: "网页端主要权益名称", value: &input.WebPrimaryBenefitLabel, limit: maxRedeemBenefitLabelLength},
+		{label: "Plus 网页端主要权益", value: &input.WebPlusPrimaryBenefit, limit: maxRedeemBenefitValueLength},
+		{label: "Team 网页端主要权益", value: &input.WebTeamPrimaryBenefit, limit: maxRedeemBenefitValueLength},
+		{label: "网页端附加权益名称", value: &input.WebSecondaryBenefitLabel, limit: maxRedeemBenefitLabelLength},
+		{label: "Plus 网页端附加权益", value: &input.WebPlusSecondaryBenefit, limit: maxRedeemBenefitValueLength},
+		{label: "Team 网页端附加权益", value: &input.WebTeamSecondaryBenefit, limit: maxRedeemBenefitValueLength},
+	}
+	for _, field := range benefitFields {
+		*field.value, err = trimRequiredLimited(field.label, *field.value, field.limit)
+		if err != nil {
+			return model.RedeemPageSettings{}, err
+		}
 	}
 	input.SupportQRCodeDataURL = strings.TrimSpace(input.SupportQRCodeDataURL)
 	if input.SupportQRCodeDataURL != "" {
@@ -2154,6 +2205,81 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 		title,
 		message,
 		notify.BuildCustomerEmailHTML(message),
+	)
+}
+
+// SendTestCustomerEmail sends one deliverability test using the same stored
+// template, HTML renderer and SMTP route as a real customer reminder. Synthetic
+// subscription data prevents real customer details from leaking into the test.
+func (service *SubscriptionService) SendTestCustomerEmail(
+	ctx context.Context,
+	recipient string,
+	templateKind string,
+) error {
+	recipient, err := normalizeCustomerEmail(recipient)
+	if err != nil || recipient == "" || len(recipient) > 254 {
+		return fmt.Errorf("测试邮箱格式无效")
+	}
+
+	var templateBody string
+	var subjectPrefix string
+	priceIncrease := false
+	switch templateKind {
+	case "customer":
+		templateBody, err = service.GetCustomerEmailTemplate()
+		subjectPrefix = "[测试] 拼车续费提醒 · "
+	case "customer_price_increase":
+		templateBody, err = service.GetPriceIncreaseCustomerEmailTemplate()
+		subjectPrefix = "[测试] 拼车续费价格调整通知 · "
+		priceIncrease = true
+	default:
+		return fmt.Errorf("无效的客户邮件模板类型")
+	}
+	if err != nil {
+		return err
+	}
+
+	dueAt := cycle.StartOfDay(service.now()).AddDate(0, 0, 7)
+	subscription := model.Subscription{
+		Name:                "邮件测试订阅",
+		PricePerPersonCents: 8800,
+		CronExpr:            "interval:30d",
+		BoardedAt:           cycle.FormatDate(service.now()),
+		CustomerEmail:       recipient,
+		CustomerWechat:      "test-contact",
+		AccountName:         "team-owner@example.com",
+		SeatName:            "车位 1",
+		Remark:              "邮件送达测试",
+	}
+	if priceIncrease {
+		nextPrice := int64(9800)
+		subscription.NextPriceCents = &nextPrice
+		subscription.NextPriceEffectiveDueDate = cycle.FormatDate(dueAt)
+	}
+	message, err := service.renderTemplateForDueDate(
+		"customer_email_test",
+		templateBody,
+		subscription,
+		dueAt,
+	)
+	if err != nil {
+		return err
+	}
+
+	configuration, registry := service.runtimeConfigSnapshot()
+	if !configuration.SMTPConfigured() {
+		return fmt.Errorf("SMTP 未配置（需 host/port/from/username/password）")
+	}
+	sender, ok := registry.Get(model.ChannelSMTP)
+	if !ok {
+		return fmt.Errorf("SMTP 发送器未就绪，请保存通知配置后重试")
+	}
+	return sendCustomerSMTP(
+		ctx,
+		sender,
+		recipient,
+		subjectPrefix+recipient,
+		message,
 	)
 }
 

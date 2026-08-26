@@ -428,6 +428,16 @@ export function testSettingsNotify() {
   return api<MessageResult>("/api/settings/test-notify", { method: "POST" })
 }
 
+export function testSettingsCustomerEmail(input: {
+  recipient: string
+  template_kind: "customer" | "customer_price_increase"
+}) {
+  return api<MessageResult>("/api/settings/test-customer-email", {
+    method: "POST",
+    body: input,
+  })
+}
+
 export function fetchSandboxStatus() {
   return api<{ sandbox: SandboxStatus }>("/api/sandbox/status").then((result) => result.sandbox)
 }

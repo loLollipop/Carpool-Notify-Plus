@@ -11,6 +11,7 @@ import {
   ExternalLink,
   Eye,
   FlaskConical,
+  Gauge,
   ImageUp,
   Mail,
   Megaphone,
@@ -18,6 +19,7 @@ import {
   Send,
   ShieldCheck,
   Snowflake,
+  Sparkles,
   Trash2,
 } from "lucide-react"
 
@@ -26,6 +28,7 @@ import {
   previewSettingsTemplate,
   resetSandbox,
   saveSettings,
+  testSettingsCustomerEmail,
   testSettingsNotify,
 } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
@@ -156,6 +159,7 @@ type TemplatePreviewState =
   | { status: "error"; message: string }
 
 const MAX_QR_UPLOAD_BYTES = 1024 * 1024
+const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
 const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
   announcement_title: "加入 ChatGPT Team 前请先确认",
@@ -171,6 +175,14 @@ const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
   support_contact_label: "微信号",
   support_wechat_id: "",
   support_qr_data_url: "",
+  codex_plus_weekly_quota_usd: 150,
+  codex_team_weekly_quota_usd: 200,
+  web_primary_benefit_label: "GPT-5.6 sol 极高",
+  web_plus_primary_benefit: "不支持",
+  web_team_primary_benefit: "支持",
+  web_secondary_benefit_label: "Pro 模型",
+  web_plus_secondary_benefit: "—",
+  web_team_secondary_benefit: "15 次/月",
 }
 
 function ChannelBadge({ channel }: { channel: ChannelSetting }) {
@@ -713,6 +725,136 @@ function RedeemPageSettingsEditor({
           </div>
         </Card>
       </div>
+
+      <Card className="gap-5 p-5 sm:p-6">
+        <div className="flex items-start gap-3 border-b pb-4">
+          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+            <Gauge className="size-4" />
+          </span>
+          <div>
+            <h3 className="text-sm font-semibold">权益参考卡</h3>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              保存后会同步到兑换页两侧的 Codex 额度与网页端模型权益卡。
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)]">
+          <section className="grid content-start gap-4 rounded-lg border bg-muted/20 p-4">
+            <div className="flex items-center gap-2">
+              <Gauge className="size-4 text-brand" />
+              <h4 className="text-sm font-semibold">Codex 周额度参考</h4>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label htmlFor="redeem-codex-plus-quota">Plus 周额度</Label>
+                <div className="relative">
+                  <Input
+                    id="redeem-codex-plus-quota"
+                    type="number"
+                    min={1}
+                    max={100000}
+                    step={1}
+                    inputMode="numeric"
+                    value={value.codex_plus_weekly_quota_usd}
+                    className="pr-14 tabular-nums"
+                    onChange={(event) =>
+                      update({ codex_plus_weekly_quota_usd: Number(event.target.value) })
+                    }
+                  />
+                  <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground">
+                    美元
+                  </span>
+                </div>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="redeem-codex-team-quota">Team 周额度</Label>
+                <div className="relative">
+                  <Input
+                    id="redeem-codex-team-quota"
+                    type="number"
+                    min={1}
+                    max={100000}
+                    step={1}
+                    inputMode="numeric"
+                    value={value.codex_team_weekly_quota_usd}
+                    className="pr-14 tabular-nums"
+                    onChange={(event) =>
+                      update({ codex_team_weekly_quota_usd: Number(event.target.value) })
+                    }
+                  />
+                  <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground">
+                    美元
+                  </span>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="grid content-start gap-4 rounded-lg border bg-muted/20 p-4">
+            <div className="flex items-center gap-2">
+              <Sparkles className="size-4 text-brand" />
+              <h4 className="text-sm font-semibold">网页端模型权益</h4>
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="grid gap-1.5">
+                <Label htmlFor="redeem-web-primary-label">权益名称</Label>
+                <Input
+                  id="redeem-web-primary-label"
+                  maxLength={80}
+                  value={value.web_primary_benefit_label}
+                  onChange={(event) => update({ web_primary_benefit_label: event.target.value })}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="redeem-web-plus-primary">Plus 权益</Label>
+                <Input
+                  id="redeem-web-plus-primary"
+                  maxLength={80}
+                  value={value.web_plus_primary_benefit}
+                  onChange={(event) => update({ web_plus_primary_benefit: event.target.value })}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="redeem-web-team-primary">Team 权益</Label>
+                <Input
+                  id="redeem-web-team-primary"
+                  maxLength={80}
+                  value={value.web_team_primary_benefit}
+                  onChange={(event) => update({ web_team_primary_benefit: event.target.value })}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="redeem-web-secondary-label">附加权益名称</Label>
+                <Input
+                  id="redeem-web-secondary-label"
+                  maxLength={80}
+                  value={value.web_secondary_benefit_label}
+                  onChange={(event) => update({ web_secondary_benefit_label: event.target.value })}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="redeem-web-plus-secondary">Plus 附加权益</Label>
+                <Input
+                  id="redeem-web-plus-secondary"
+                  maxLength={80}
+                  value={value.web_plus_secondary_benefit}
+                  onChange={(event) => update({ web_plus_secondary_benefit: event.target.value })}
+                />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="redeem-web-team-secondary">Team 附加权益</Label>
+                <Input
+                  id="redeem-web-team-secondary"
+                  maxLength={80}
+                  value={value.web_team_secondary_benefit}
+                  onChange={(event) => update({ web_team_secondary_benefit: event.target.value })}
+                />
+              </div>
+            </div>
+          </section>
+        </div>
+      </Card>
     </div>
   )
 }
@@ -1098,7 +1240,101 @@ function SandboxToolCard() {
   )
 }
 
-function SystemTools() {
+function CustomerEmailTestCard({ settings }: { settings: Settings }) {
+  const [recipient, setRecipient] = React.useState("")
+  const [templateKind, setTemplateKind] = React.useState<CustomerTemplateKind>("customer")
+  const smtp = settings.notification_config.smtp
+  const smtpConfigured =
+    smtp.host.trim() !== "" &&
+    smtp.port > 0 &&
+    smtp.username.trim() !== "" &&
+    smtp.from.trim() !== "" &&
+    smtp.password_set
+  const testMutation = useAppMutation(
+    (input: { recipient: string; template_kind: CustomerTemplateKind }) =>
+      testSettingsCustomerEmail(input),
+    { successToast: true },
+  )
+
+  const handleSend = () => {
+    const normalizedRecipient = recipient.trim()
+    if (!EMAIL_PATTERN.test(normalizedRecipient) || normalizedRecipient.length > 254) {
+      toast.error("请填写有效的测试邮箱")
+      return
+    }
+    testMutation.mutate({ recipient: normalizedRecipient, template_kind: templateKind })
+  }
+
+  return (
+    <Card className="gap-5 p-5 sm:p-6 lg:col-span-2">
+      <div className="flex flex-wrap items-start justify-between gap-3 border-b pb-4">
+        <div className="flex items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+            <Mail className="size-5" />
+          </span>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-semibold">客户邮件送达测试</h2>
+              <Badge variant={smtpConfigured ? "success" : "secondary"}>
+                {smtpConfigured ? "SMTP 已就绪" : "SMTP 未配置"}
+              </Badge>
+            </div>
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
+              使用当前已保存的正式模板和 SMTP 通道发送，可在目标邮箱确认邮件进入收件箱还是垃圾邮件。测试内容使用虚拟客户数据。
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid items-end gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(13rem,0.8fr)_auto]">
+        <div className="grid gap-1.5">
+          <Label htmlFor="customer-email-test-recipient">测试收件邮箱</Label>
+          <Input
+            id="customer-email-test-recipient"
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            maxLength={254}
+            value={recipient}
+            placeholder="name@example.com"
+            onChange={(event) => setRecipient(event.target.value)}
+          />
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="customer-email-test-template">邮件模板</Label>
+          <Select
+            value={templateKind}
+            onValueChange={(value) => setTemplateKind(value as CustomerTemplateKind)}
+          >
+            <SelectTrigger id="customer-email-test-template" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="customer">正常续费模板</SelectItem>
+              <SelectItem value="customer_price_increase">调价后邮件模板</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <Button
+          type="button"
+          className="w-full md:w-auto"
+          disabled={!smtpConfigured || testMutation.isPending}
+          onClick={handleSend}
+        >
+          <Send data-slot="icon" />
+          {testMutation.isPending ? "正在发送" : "发送测试邮件"}
+        </Button>
+      </div>
+      {!smtpConfigured ? (
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          请先在“通知渠道”中完整填写并保存 SMTP 配置。
+        </p>
+      ) : null}
+    </Card>
+  )
+}
+
+function SystemTools({ settings }: { settings: Settings }) {
   const { t } = useTranslation()
   const [testConfirmOpen, setTestConfirmOpen] = React.useState(false)
   const testMutation = useAppMutation(() => testSettingsNotify(), {
@@ -1108,6 +1344,8 @@ function SystemTools() {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <SandboxToolCard />
+
+      <CustomerEmailTestCard settings={settings} />
 
       <Card className="relative flex-col gap-4 overflow-hidden p-6 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3">
@@ -1307,6 +1545,18 @@ function SettingsForm({ settings }: { settings: Settings }) {
       return
     }
 
+    if (
+      !Number.isInteger(redeemPage.codex_plus_weekly_quota_usd) ||
+      !Number.isInteger(redeemPage.codex_team_weekly_quota_usd) ||
+      redeemPage.codex_plus_weekly_quota_usd < 1 ||
+      redeemPage.codex_team_weekly_quota_usd < 1 ||
+      redeemPage.codex_plus_weekly_quota_usd > 100000 ||
+      redeemPage.codex_team_weekly_quota_usd > 100000
+    ) {
+      toast.error("Codex 周额度必须是 1～100000 的整数")
+      return
+    }
+
     const smtpPort = Number(deliveryConfig.smtp.port)
     if (!Number.isInteger(smtpPort) || smtpPort < 1 || smtpPort > 65535) {
       toast.error(t("settings.validation.smtpPortInvalid"))
@@ -1449,7 +1699,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
         </TabsContent>
 
         <TabsContent value="tools" className="mt-0 animate-fade-in">
-          <SystemTools />
+          <SystemTools settings={settings} />
         </TabsContent>
       </Tabs>
 

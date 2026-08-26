@@ -71,6 +71,14 @@ const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
   support_contact_label: "微信号",
   support_wechat_id: "",
   support_qr_data_url: "",
+  codex_plus_weekly_quota_usd: 150,
+  codex_team_weekly_quota_usd: 200,
+  web_primary_benefit_label: "GPT-5.6 sol 极高",
+  web_plus_primary_benefit: "不支持",
+  web_team_primary_benefit: "支持",
+  web_secondary_benefit_label: "Pro 模型",
+  web_plus_secondary_benefit: "—",
+  web_team_secondary_benefit: "15 次/月",
 }
 const schema = z.object({
   customer_email: z
@@ -344,7 +352,14 @@ function SupportWechatDialogButton({ settings }: { settings: RedeemPageSettings 
   )
 }
 
-function CodexQuotaReferenceCard() {
+function CodexQuotaReferenceCard({ settings }: { settings: RedeemPageSettings }) {
+  const quotaMax = Math.max(
+    settings.codex_plus_weekly_quota_usd,
+    settings.codex_team_weekly_quota_usd,
+    1,
+  )
+  const quotaWidth = (value: number) => `${Math.max(4, Math.round((value / quotaMax) * 100))}%`
+
   return (
     <Card className="redeem-reference-card redeem-reference-quota p-0" aria-labelledby="codex-quota-title">
       <header className="redeem-reference-card-header">
@@ -362,21 +377,27 @@ function CodexQuotaReferenceCard() {
         <div className="redeem-quota-row">
           <div className="redeem-quota-plan">
             <span>PLUS</span>
-            <strong>≈ $150</strong>
+            <strong>≈ ${settings.codex_plus_weekly_quota_usd}</strong>
             <small>/ 周</small>
           </div>
           <span className="redeem-quota-meter" aria-hidden="true">
-            <i className="is-plus" />
+            <i
+              className="is-plus"
+              style={{ width: quotaWidth(settings.codex_plus_weekly_quota_usd) }}
+            />
           </span>
         </div>
         <div className="redeem-quota-row is-team">
           <div className="redeem-quota-plan">
             <span>TEAM</span>
-            <strong>≈ $200</strong>
+            <strong>≈ ${settings.codex_team_weekly_quota_usd}</strong>
             <small>/ 周</small>
           </div>
           <span className="redeem-quota-meter" aria-hidden="true">
-            <i className="is-team" />
+            <i
+              className="is-team"
+              style={{ width: quotaWidth(settings.codex_team_weekly_quota_usd) }}
+            />
           </span>
         </div>
       </div>
@@ -386,7 +407,21 @@ function CodexQuotaReferenceCard() {
   )
 }
 
-function WebModelReferenceCard() {
+function benefitUnavailable(value: string) {
+  return /^(?:不支持|无|暂无|—|-|0|none|not supported)$/i.test(value.trim())
+}
+
+function BenefitValue({ value, primary = false }: { value: string; primary?: boolean }) {
+  const unavailable = benefitUnavailable(value)
+  return (
+    <dd className={unavailable ? "is-muted" : primary ? "is-supported" : "is-highlighted"}>
+      {!unavailable && primary ? <CheckCircle2 /> : null}
+      {value}
+    </dd>
+  )
+}
+
+function WebModelReferenceCard({ settings }: { settings: RedeemPageSettings }) {
   return (
     <Card className="redeem-reference-card redeem-reference-model p-0" aria-labelledby="web-model-title">
       <header className="redeem-reference-card-header">
@@ -408,12 +443,12 @@ function WebModelReferenceCard() {
           </div>
           <dl>
             <div>
-              <dt>GPT-5.6 sol 极高</dt>
-              <dd className="is-muted">不支持</dd>
+              <dt>{settings.web_primary_benefit_label}</dt>
+              <BenefitValue value={settings.web_plus_primary_benefit} primary />
             </div>
             <div>
-              <dt>Pro 模型</dt>
-              <dd className="is-muted">—</dd>
+              <dt>{settings.web_secondary_benefit_label}</dt>
+              <BenefitValue value={settings.web_plus_secondary_benefit} />
             </div>
           </dl>
         </section>
@@ -424,12 +459,12 @@ function WebModelReferenceCard() {
           </div>
           <dl>
             <div>
-              <dt>GPT-5.6 sol 极高</dt>
-              <dd className="is-supported"><CheckCircle2 />支持</dd>
+              <dt>{settings.web_primary_benefit_label}</dt>
+              <BenefitValue value={settings.web_team_primary_benefit} primary />
             </div>
             <div>
-              <dt>Pro 模型</dt>
-              <dd className="is-highlighted">15 次/月</dd>
+              <dt>{settings.web_secondary_benefit_label}</dt>
+              <BenefitValue value={settings.web_team_secondary_benefit} />
             </div>
           </dl>
         </section>
@@ -1002,7 +1037,7 @@ export function RedeemPage() {
             <span className="redeem-frame-node is-right" />
           </div>
 
-          <CodexQuotaReferenceCard />
+          <CodexQuotaReferenceCard settings={redeemSettings} />
 
           <Card className="redeem-terminal overflow-hidden p-0">
             <div className="redeem-terminal-bar">
@@ -1162,7 +1197,7 @@ export function RedeemPage() {
             <SupportWechatPanel settings={redeemSettings} />
           )}
 
-          <WebModelReferenceCard />
+          <WebModelReferenceCard settings={redeemSettings} />
         </div>
       </section>
     </main>
