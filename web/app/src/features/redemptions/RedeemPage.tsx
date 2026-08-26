@@ -7,12 +7,14 @@ import {
   CheckCircle2,
   Clock3,
   Copy,
+  Gauge,
   LoaderCircle,
   Mail,
   Megaphone,
   MessageCircle,
   Moon,
   ShieldCheck,
+  Sparkles,
   Sun,
   TicketCheck,
 } from "lucide-react"
@@ -222,9 +224,9 @@ function WechatQrBlock({
   const qrDataURL = settings.support_qr_data_url.trim()
 
   return (
-    <div className="grid gap-4">
+    <div className="wechat-qr-block grid gap-4">
       {qrDataURL ? (
-        <div className="mx-auto w-full max-w-[260px] self-center rounded-lg border bg-white p-2.5 shadow-sm">
+        <div className="wechat-qr-image mx-auto w-full max-w-[260px] self-center rounded-lg border bg-white p-2.5 shadow-sm">
           <img
             src={qrDataURL}
             alt="客服微信二维码"
@@ -235,7 +237,7 @@ function WechatQrBlock({
         </div>
       ) : null}
       {wechatId ? (
-        <div className="flex items-center justify-between gap-3 border-t pt-4">
+        <div className="wechat-contact flex items-center justify-between gap-3 border-t pt-4">
           <div className="min-w-0">
             <p className="text-xs font-medium text-muted-foreground">
               {settings.support_contact_label || "微信号"}
@@ -277,7 +279,7 @@ function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
         <span className="redeem-online-label">ONLINE</span>
       </div>
 
-      <div className="flex flex-1 flex-col p-5 xl:p-6">
+      <div className="redeem-support-body flex flex-1 flex-col p-5 xl:p-6">
         <div className="flex items-start gap-3">
           <span className="redeem-support-icon size-10">
             <WeChatIcon className="size-5" />
@@ -293,7 +295,7 @@ function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
           </div>
         </div>
 
-        <div className="mt-5 grid overflow-hidden rounded-md border border-[var(--redeem-line)] bg-[var(--redeem-panel-muted)] text-xs">
+        <div className="redeem-support-meta mt-5 grid overflow-hidden rounded-md border border-[var(--redeem-line)] bg-[var(--redeem-panel-muted)] text-xs">
           <div className="flex items-center justify-between gap-3 border-b border-[var(--redeem-line)] px-3.5 py-2.5">
             <span className="text-[var(--redeem-muted)]">预计处理</span>
             <strong className="font-medium">通常 1–2 分钟</strong>
@@ -339,6 +341,102 @@ function SupportWechatDialogButton({ settings }: { settings: RedeemPageSettings 
         <WechatQrBlock settings={settings} compact />
       </DialogContent>
     </Dialog>
+  )
+}
+
+function CodexQuotaReferenceCard() {
+  return (
+    <Card className="redeem-reference-card redeem-reference-quota p-0" aria-labelledby="codex-quota-title">
+      <header className="redeem-reference-card-header">
+        <span className="redeem-reference-icon">
+          <Gauge className="size-[18px]" />
+        </span>
+        <div>
+          <p>CODEX CAPACITY</p>
+          <h2 id="codex-quota-title">Codex 周额度参考</h2>
+        </div>
+        <span className="redeem-reference-badge">EST.</span>
+      </header>
+
+      <div className="redeem-quota-list">
+        <div className="redeem-quota-row">
+          <div className="redeem-quota-plan">
+            <span>PLUS</span>
+            <strong>≈ $150</strong>
+            <small>/ 周</small>
+          </div>
+          <span className="redeem-quota-meter" aria-hidden="true">
+            <i className="is-plus" />
+          </span>
+        </div>
+        <div className="redeem-quota-row is-team">
+          <div className="redeem-quota-plan">
+            <span>TEAM</span>
+            <strong>≈ $200</strong>
+            <small>/ 周</small>
+          </div>
+          <span className="redeem-quota-meter" aria-hidden="true">
+            <i className="is-team" />
+          </span>
+        </div>
+      </div>
+
+      <p className="redeem-reference-note">近期额度折算，仅作使用强度参考，并非现金余额。</p>
+    </Card>
+  )
+}
+
+function WebModelReferenceCard() {
+  return (
+    <Card className="redeem-reference-card redeem-reference-model p-0" aria-labelledby="web-model-title">
+      <header className="redeem-reference-card-header">
+        <span className="redeem-reference-icon">
+          <Sparkles className="size-[18px]" />
+        </span>
+        <div>
+          <p>WEB MODEL ACCESS</p>
+          <h2 id="web-model-title">网页端模型权益</h2>
+        </div>
+        <span className="redeem-reference-badge">WEB</span>
+      </header>
+
+      <div className="redeem-model-plans" aria-label="Plus 与 Team 网页端模型权益对比">
+        <section className="redeem-model-plan">
+          <div className="redeem-model-plan-heading">
+            <strong>PLUS</strong>
+            <span>标准权益</span>
+          </div>
+          <dl>
+            <div>
+              <dt>GPT-5.6 sol 极高</dt>
+              <dd className="is-muted">不支持</dd>
+            </div>
+            <div>
+              <dt>Pro 模型</dt>
+              <dd className="is-muted">—</dd>
+            </div>
+          </dl>
+        </section>
+        <section className="redeem-model-plan is-team">
+          <div className="redeem-model-plan-heading">
+            <strong>TEAM</strong>
+            <span>增强权益</span>
+          </div>
+          <dl>
+            <div>
+              <dt>GPT-5.6 sol 极高</dt>
+              <dd className="is-supported"><CheckCircle2 />支持</dd>
+            </div>
+            <div>
+              <dt>Pro 模型</dt>
+              <dd className="is-highlighted">15 次/月</dd>
+            </div>
+          </dl>
+        </section>
+      </div>
+
+      <p className="redeem-reference-note">权益可能动态调整，以账号实际显示为准。</p>
+    </Card>
   )
 }
 
@@ -849,7 +947,7 @@ export function RedeemPage() {
       <RedeemAmbientField />
 
       <header className="redeem-topbar">
-        <div className="mx-auto flex h-16 w-full max-w-[1200px] items-center justify-between gap-4 px-4 sm:h-[72px] sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-16 w-full max-w-[1760px] items-center justify-between gap-4 px-4 sm:h-[72px] sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <BrandIcon className="size-8 rounded-md shadow-none sm:size-9" />
             <div className="min-w-0">
@@ -872,13 +970,13 @@ export function RedeemPage() {
         </div>
       </header>
 
-      <section className="relative mx-auto w-full max-w-[1120px] px-4 pb-8 pt-6 sm:px-6 sm:pb-10 sm:pt-8 lg:px-8 lg:pb-12 lg:pt-10">
+      <section className="relative mx-auto w-full max-w-[1760px] px-4 pb-8 pt-6 sm:px-6 sm:pb-10 sm:pt-8 lg:px-8 lg:pb-12 lg:pt-10">
         <div
           className={cn(
             "redeem-workspace grid items-stretch gap-6 animate-fade-up",
             supportColumnVisible
-              ? "lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_340px]"
-              : "mx-auto max-w-[760px]",
+              ? "has-support"
+              : "is-single",
           )}
         >
           <div className="redeem-workspace-decor" aria-hidden="true">
@@ -903,6 +1001,8 @@ export function RedeemPage() {
             <span className="redeem-frame-node is-left" />
             <span className="redeem-frame-node is-right" />
           </div>
+
+          <CodexQuotaReferenceCard />
 
           <Card className="redeem-terminal overflow-hidden p-0">
             <div className="redeem-terminal-bar">
@@ -1057,10 +1157,12 @@ export function RedeemPage() {
           </Card>
 
           {settingsQuery.isPending ? (
-            <aside className="hidden h-[500px] animate-pulse rounded-[8px] border border-[var(--redeem-line)] bg-[var(--redeem-panel)] lg:block" />
+            <aside className="redeem-support-placeholder hidden h-[500px] animate-pulse rounded-[8px] border border-[var(--redeem-line)] bg-[var(--redeem-panel)] lg:block" />
           ) : (
             <SupportWechatPanel settings={redeemSettings} />
           )}
+
+          <WebModelReferenceCard />
         </div>
       </section>
     </main>

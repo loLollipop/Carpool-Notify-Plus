@@ -1116,6 +1116,61 @@
     position: relative;
   }
 
+  .redeem-workspace.is-single {
+    max-width: 760px;
+    margin-inline: auto;
+  }
+
+  .redeem-terminal {
+    order: 1;
+  }
+
+  .redeem-reference-quota {
+    order: 2;
+  }
+
+  .redeem-reference-model {
+    order: 3;
+  }
+
+  .redeem-support-panel,
+  .redeem-support-placeholder {
+    order: 4;
+  }
+
+  @media (min-width: 768px) and (max-width: 1279px) {
+    .redeem-workspace {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .redeem-workspace .redeem-terminal,
+    .redeem-workspace .redeem-support-panel,
+    .redeem-workspace .redeem-support-placeholder {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @media (min-width: 1024px) and (max-width: 1279px) {
+    .redeem-workspace.has-support {
+      grid-template-columns: minmax(0, 1fr) 300px;
+    }
+
+    .redeem-workspace.has-support .redeem-terminal {
+      grid-column: 1;
+    }
+
+    .redeem-workspace.has-support .redeem-support-panel,
+    .redeem-workspace.has-support .redeem-support-placeholder {
+      grid-column: 2;
+      grid-row: 1;
+    }
+
+    .redeem-workspace.has-support .redeem-reference-quota,
+    .redeem-workspace.has-support .redeem-reference-model {
+      grid-row: 2;
+    }
+  }
+
   .redeem-workspace-decor {
     display: none;
     pointer-events: none;
@@ -1123,6 +1178,58 @@
   }
 
   @media (min-width: 1280px) {
+    .redeem-workspace {
+      align-items: center;
+      justify-content: center;
+      gap: clamp(0.75rem, 1.25vw, 1.5rem);
+    }
+
+    .redeem-workspace.has-support {
+      grid-template-columns:
+        minmax(11rem, 13rem)
+        minmax(30rem, 48rem)
+        minmax(16rem, 18rem)
+        minmax(11rem, 13rem);
+    }
+
+    .redeem-workspace.is-single {
+      max-width: 1200px;
+      grid-template-columns: minmax(11rem, 13rem) minmax(30rem, 48rem) minmax(11rem, 13rem);
+    }
+
+    .redeem-workspace .redeem-reference-quota {
+      grid-column: 1;
+    }
+
+    .redeem-workspace .redeem-terminal {
+      grid-column: 2;
+    }
+
+    .redeem-workspace.has-support .redeem-support-panel,
+    .redeem-workspace.has-support .redeem-support-placeholder {
+      grid-column: 3;
+    }
+
+    .redeem-workspace.has-support .redeem-reference-model {
+      grid-column: 4;
+    }
+
+    .redeem-workspace.is-single .redeem-reference-model {
+      grid-column: 3;
+    }
+
+    .redeem-workspace > :is(.redeem-reference-card, .redeem-terminal, .redeem-support-panel, .redeem-support-placeholder) {
+      grid-row: 1;
+    }
+
+    .redeem-reference-card {
+      align-self: center;
+    }
+
+    .redeem-support-panel {
+      align-self: stretch;
+    }
+
     .redeem-workspace-decor {
       position: absolute;
       z-index: 0;
@@ -1513,6 +1620,296 @@
     color: var(--redeem-text);
     font-weight: 650;
     white-space: nowrap;
+  }
+
+  .redeem-reference-card {
+    position: relative;
+    z-index: 1;
+    gap: 0;
+    overflow: hidden;
+    border-color: var(--redeem-line-strong);
+    border-radius: 8px;
+    background: color-mix(in oklab, var(--redeem-panel) 94%, transparent);
+    color: var(--redeem-text);
+    box-shadow:
+      0 1px 0 color-mix(in oklab, white 34%, transparent) inset,
+      0 20px 50px -38px color-mix(in oklab, #07110f 50%, transparent);
+  }
+
+  .redeem-reference-card::after {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 4.5rem;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--redeem-accent));
+    content: "";
+  }
+
+  .redeem-reference-card-header {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.7rem;
+    min-height: 62px;
+    border-bottom: 1px solid var(--redeem-line);
+    padding: 0.75rem 0.9rem;
+    background: var(--redeem-panel-muted);
+  }
+
+  .redeem-reference-icon {
+    display: grid;
+    width: 34px;
+    height: 34px;
+    place-items: center;
+    border: 1px solid color-mix(in oklab, var(--redeem-accent) 30%, var(--redeem-line));
+    border-radius: 6px;
+    background: var(--redeem-accent-soft);
+    color: var(--redeem-accent);
+  }
+
+  .redeem-reference-card-header p {
+    color: var(--redeem-accent);
+    font-family: var(--font-mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+  }
+
+  .redeem-reference-card-header h2 {
+    margin-top: 0.2rem;
+    color: var(--redeem-text);
+    font-size: 13px;
+    line-height: 1.25;
+  }
+
+  .redeem-reference-badge {
+    border: 1px solid var(--redeem-line);
+    border-radius: 4px;
+    padding: 0.25rem 0.4rem;
+    color: var(--redeem-muted);
+    font-family: var(--font-mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+
+  .redeem-quota-list {
+    display: grid;
+  }
+
+  .redeem-quota-row {
+    display: grid;
+    gap: 0.65rem;
+    padding: 1rem;
+  }
+
+  .redeem-quota-row + .redeem-quota-row {
+    border-top: 1px solid var(--redeem-line);
+  }
+
+  .redeem-quota-plan {
+    display: grid;
+    grid-template-columns: minmax(2.7rem, auto) 1fr;
+    align-items: end;
+    gap: 0.4rem;
+  }
+
+  .redeem-quota-plan > span {
+    min-width: 2.7rem;
+    color: var(--redeem-muted);
+    font-family: var(--font-mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+  }
+
+  .redeem-quota-plan strong {
+    color: var(--redeem-text);
+    font-size: 20px;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+  }
+
+  .redeem-quota-row.is-team .redeem-quota-plan strong {
+    color: var(--redeem-accent);
+  }
+
+  .redeem-quota-plan small {
+    grid-column: 2;
+    margin-top: -0.3rem;
+    color: var(--redeem-muted);
+    font-size: 9px;
+  }
+
+  .redeem-quota-meter {
+    height: 3px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--redeem-line);
+  }
+
+  .redeem-quota-meter i {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: color-mix(in oklab, var(--redeem-accent) 56%, var(--redeem-muted));
+  }
+
+  .redeem-quota-meter i.is-plus {
+    width: 75%;
+  }
+
+  .redeem-quota-meter i.is-team {
+    width: 100%;
+    background: var(--redeem-accent);
+    box-shadow: 0 0 10px color-mix(in oklab, var(--redeem-accent) 52%, transparent);
+  }
+
+  .redeem-reference-note {
+    border-top: 1px solid var(--redeem-line);
+    padding: 0.6rem 0.9rem;
+    color: var(--redeem-muted);
+    font-size: 9px;
+    line-height: 1.55;
+  }
+
+  .redeem-model-plans {
+    display: grid;
+  }
+
+  .redeem-model-plan {
+    padding: 0.85rem 0.9rem;
+    border-bottom: 1px solid var(--redeem-line);
+  }
+
+  .redeem-model-plan.is-team {
+    background: linear-gradient(135deg, var(--redeem-accent-soft), transparent 72%);
+  }
+
+  .redeem-model-plan-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.6rem;
+  }
+
+  .redeem-model-plan-heading strong {
+    color: var(--redeem-text);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 0.1em;
+  }
+
+  .redeem-model-plan.is-team .redeem-model-plan-heading strong {
+    color: var(--redeem-accent);
+  }
+
+  .redeem-model-plan-heading span {
+    color: var(--redeem-muted);
+    font-size: 8px;
+  }
+
+  .redeem-model-plan dl {
+    display: grid;
+    gap: 0.45rem;
+    font-size: 9px;
+  }
+
+  .redeem-model-plan dl > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .redeem-model-plan dt,
+  .redeem-model-plan dd {
+    min-width: 0;
+  }
+
+  .redeem-model-plan dt,
+  .redeem-model-plan .is-muted {
+    color: var(--redeem-muted);
+  }
+
+  .redeem-model-plan .is-supported,
+  .redeem-model-plan .is-highlighted {
+    color: var(--redeem-accent);
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .redeem-model-plan .is-supported {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+
+  .redeem-model-plan .is-supported svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  @media (min-width: 768px) {
+    .redeem-quota-list,
+    .redeem-model-plans {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .redeem-quota-row + .redeem-quota-row,
+    .redeem-model-plan + .redeem-model-plan {
+      border-top: 0;
+      border-left: 1px solid var(--redeem-line);
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .redeem-reference-card-header {
+      grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .redeem-reference-badge {
+      display: none;
+    }
+
+    .redeem-quota-list,
+    .redeem-model-plans {
+      grid-template-columns: 1fr;
+    }
+
+    .redeem-quota-row + .redeem-quota-row,
+    .redeem-model-plan + .redeem-model-plan {
+      border-top: 1px solid var(--redeem-line);
+      border-left: 0;
+    }
+
+    .redeem-support-body {
+      padding: 1rem;
+    }
+
+    .redeem-support-meta {
+      margin-top: 1rem;
+    }
+
+    .redeem-support-qr-shell {
+      margin-top: 1rem;
+      padding: 0.75rem;
+    }
+
+    .redeem-support-panel .wechat-qr-block {
+      gap: 0.75rem;
+    }
+
+    .redeem-support-panel .wechat-qr-image {
+      max-width: 190px;
+      padding: 0.45rem;
+    }
+
+    .redeem-support-panel .wechat-contact {
+      padding-top: 0.75rem;
+    }
   }
 
   @keyframes redeem-status-pulse {
