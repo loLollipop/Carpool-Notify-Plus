@@ -207,9 +207,9 @@ function TaskSummary({
 }) {
   const { t } = useTranslation()
   const { amountsHidden } = useAmountPrivacy()
-  const pending = (calendar.occurrences ?? []).filter((item) => !item.paid)
-  const overdue = pending.filter((item) => item.days_remaining < 0).length
-  const soon = pending.filter((item) => item.days_remaining >= 0 && item.days_remaining <= 7).length
+  const actionable = calendar.actionable_occurrences ?? []
+  const overdue = actionable.filter((item) => item.days_remaining < 0).length
+  const soon = actionable.filter((item) => item.days_remaining >= 0 && item.days_remaining <= 7).length
   const paid = calendar.paid_in_month_occurrences?.length ?? 0
   const items = [
     {
@@ -362,10 +362,11 @@ function TaskWorkspace({
   const [page, setPage] = React.useState(1)
   const occurrences = React.useMemo(() => {
     const pending = (calendar.occurrences ?? []).filter((item) => !item.paid)
+    const actionable = calendar.actionable_occurrences ?? []
     const filtered = filter === "overdue"
-      ? pending.filter((item) => item.days_remaining < 0)
+      ? actionable.filter((item) => item.days_remaining < 0)
       : filter === "soon"
-        ? pending.filter((item) => item.days_remaining >= 0 && item.days_remaining <= 7)
+        ? actionable.filter((item) => item.days_remaining >= 0 && item.days_remaining <= 7)
         : filter === "paid"
           ? calendar.paid_in_month_occurrences ?? []
           : pending
@@ -376,7 +377,7 @@ function TaskWorkspace({
       if (actionDelta !== 0) return actionDelta
       return left.days_remaining - right.days_remaining
     })
-  }, [calendar.occurrences, calendar.paid_in_month_occurrences, filter])
+  }, [calendar.actionable_occurrences, calendar.occurrences, calendar.paid_in_month_occurrences, filter])
   const pageCount = Math.max(1, Math.ceil(occurrences.length / TASKS_PER_PAGE))
   const currentPage = Math.min(page, pageCount)
   const pageOccurrences = occurrences.slice(

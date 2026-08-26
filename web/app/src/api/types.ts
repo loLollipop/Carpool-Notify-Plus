@@ -174,6 +174,7 @@ export interface CalendarMonth {
   current_month: string
   occurrences: CalendarOccurrence[] | null
   paid_in_month_occurrences: CalendarOccurrence[] | null
+  actionable_occurrences: CalendarOccurrence[] | null
   archived_subscriptions: SubscriptionView[] | null
   days: CalendarDay[]
   total_count: number

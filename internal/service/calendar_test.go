@@ -158,6 +158,49 @@ func TestCalendarPendingMonthRevenueExcludesPaidAndOtherMonths(t *testing.T) {
 	}
 }
 
+func TestCalendarActionableOccurrencesIncludeNextMonthDues(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 26, 12, 0, 0, 0, cycle.Location)
+	}
+	createTestSubscription(t, subscriptionService, "August due", "0 0 27 * *")
+	createTestSubscription(t, subscriptionService, "September due", "0 0 2 * *")
+	createTestSubscription(t, subscriptionService, "Later due", "0 0 10 * *")
+
+	view, err := subscriptionService.CalendarMonth(
+		time.Date(2026, time.August, 1, 0, 0, 0, 0, cycle.Location),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	upcoming := make([]string, 0)
+	for _, occurrence := range view.ActionableOccurrences {
+		if occurrence.DaysRemaining >= 0 {
+			upcoming = append(upcoming, occurrence.DueDate+":"+occurrence.Name)
+		}
+	}
+	want := []string{
+		"2026-08-27:August due",
+		"2026-09-02:September due",
+	}
+	if !reflect.DeepEqual(upcoming, want) {
+		t.Fatalf("actionable upcoming occurrences = %#v, want %#v", upcoming, want)
+	}
+
+	overview, err := subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Work.Due7DaysCount != len(upcoming) {
+		t.Fatalf(
+			"calendar upcoming count = %d, dashboard count = %d",
+			len(upcoming),
+			overview.Work.Due7DaysCount,
+		)
+	}
+}
+
 func TestSubscriptionViewsShowScheduledNotificationRoutes(t *testing.T) {
 	subscriptionService := openTestService(t)
 	subscriptionService.Clock = func() time.Time {

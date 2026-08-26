@@ -26,6 +26,10 @@ type CalendarMonthView struct {
 	Occurrences []CalendarOccurrenceView `json:"occurrences"`
 	// PaidInMonthOccurrences lists in-month paid rows for the「已交费」filter only.
 	PaidInMonthOccurrences []CalendarOccurrenceView `json:"paid_in_month_occurrences"`
+	// ActionableOccurrences follows the same first-unpaid-period rule as the
+	// dashboard queue. It includes overdue items and the next seven days even
+	// when that window crosses a calendar-month boundary.
+	ActionableOccurrences []CalendarOccurrenceView `json:"actionable_occurrences"`
 	// ArchivedSubscriptions are 已下车 items for the agenda tab (not on the month grid).
 	ArchivedSubscriptions []SubscriptionView `json:"archived_subscriptions"`
 	Days                  []CalendarDayView  `json:"days"`
@@ -362,6 +366,17 @@ func (service *SubscriptionService) NextUnpaidDueDate(subscriptionID int64, afte
 
 // CalendarMonth returns active subscription occurrences for the supplied month.
 func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMonthView, error) {
+	subscriptionViews, err := service.ListView()
+	if err != nil {
+		return CalendarMonthView{}, err
+	}
+	return service.calendarMonth(month, subscriptionViews)
+}
+
+func (service *SubscriptionService) calendarMonth(
+	month time.Time,
+	subscriptionViews []SubscriptionView,
+) (CalendarMonthView, error) {
 	month = month.In(cycle.Location)
 	monthStart := time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, cycle.Location)
 	monthEnd := monthStart.AddDate(0, 1, 0)
@@ -372,9 +387,9 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 	daysUntilSunday := (7 - int(lastDay.Weekday())) % 7
 	gridEnd := lastDay.AddDate(0, 0, daysUntilSunday+1)
 
-	subscriptions, err := service.Store.ListSubscriptions()
-	if err != nil {
-		return CalendarMonthView{}, err
+	subscriptions := make([]model.Subscription, 0, len(subscriptionViews))
+	for _, view := range subscriptionViews {
+		subscriptions = append(subscriptions, view.Subscription)
 	}
 	allocatedCosts, err := service.activeAllocatedCostCents(subscriptions)
 	if err != nil {
@@ -486,6 +501,13 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 	}
 
 	agendaOccurrences, paidInMonthOccurrences := buildAgendaOccurrences(monthOccurrences)
+	actionableOccurrences, err := service.buildActionableCalendarOccurrences(
+		subscriptionViews,
+		allocatedCosts,
+	)
+	if err != nil {
+		return CalendarMonthView{}, err
+	}
 
 	today := cycle.FormatDate(service.now())
 	days := make([]CalendarDayView, 0, int(gridEnd.Sub(gridStart).Hours()/24))
@@ -515,6 +537,7 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 		CurrentMonth:           service.now().Format("2006-01"),
 		Occurrences:            agendaOccurrences,
 		PaidInMonthOccurrences: paidInMonthOccurrences,
+		ActionableOccurrences:  actionableOccurrences,
 		ArchivedSubscriptions:  archivedViews,
 		Days:                   days,
 		TotalCount:             len(monthOccurrences),
@@ -524,6 +547,43 @@ func (service *SubscriptionService) CalendarMonth(month time.Time) (CalendarMont
 		PendingMonthAmountYuan: cycle.FormatCents(pendingMonthAmountCents),
 		ArchivedCount:          len(archivedViews),
 	}, nil
+}
+
+func (service *SubscriptionService) buildActionableCalendarOccurrences(
+	subscriptionViews []SubscriptionView,
+	allocatedCosts map[int64]int64,
+) ([]CalendarOccurrenceView, error) {
+	occurrences := make([]CalendarOccurrenceView, 0)
+	for _, view := range subscriptionViews {
+		if !isActionableSubscriptionDue(view) {
+			continue
+		}
+		dueAt, err := time.ParseInLocation("2006-01-02", view.NextDueDate, cycle.Location)
+		if err != nil {
+			return nil, fmt.Errorf("invalid actionable due date %q: %w", view.NextDueDate, err)
+		}
+		occurrence := service.buildOccurrenceView(
+			view.Subscription,
+			dueAt,
+			false,
+			model.Bill{},
+			allocatedCosts[view.Subscription.ID],
+		)
+		// Preserve the exact value that made this row actionable so the calendar
+		// and dashboard cannot disagree if a request crosses midnight.
+		occurrence.DaysRemaining = view.DaysRemaining
+		occurrences = append(occurrences, occurrence)
+	}
+	sort.Slice(occurrences, func(left int, right int) bool {
+		if occurrences[left].DaysRemaining == occurrences[right].DaysRemaining {
+			if occurrences[left].DueDate == occurrences[right].DueDate {
+				return occurrences[left].Name < occurrences[right].Name
+			}
+			return occurrences[left].DueDate < occurrences[right].DueDate
+		}
+		return occurrences[left].DaysRemaining < occurrences[right].DaysRemaining
+	})
+	return occurrences, nil
 }
 
 func (service *SubscriptionService) buildOccurrenceView(

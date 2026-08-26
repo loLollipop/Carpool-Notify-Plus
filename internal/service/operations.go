@@ -131,7 +131,7 @@ func (service *SubscriptionService) GetOperationsOverview() (OperationsOverview,
 
 	now := service.now().In(cycle.Location)
 	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, cycle.Location)
-	calendar, err := service.CalendarMonth(month)
+	calendar, err := service.calendarMonth(month, subscriptions)
 	if err != nil {
 		return OperationsOverview{}, err
 	}
@@ -334,7 +334,7 @@ func buildSubscriptionOperationTasks(
 	var overdueAmountCents int64
 	var dueAmountCents int64
 	for _, view := range views {
-		if view.CancellationPending || view.DaysRemaining > 7 {
+		if !isActionableSubscriptionDue(view) {
 			continue
 		}
 		plus := isPlusSubscription(view.Subscription)
@@ -392,6 +392,10 @@ func buildSubscriptionOperationTasks(
 	}
 	work.OverdueAmountYuan = cycle.FormatCents(overdueAmountCents)
 	work.Due7DaysAmountYuan = cycle.FormatCents(dueAmountCents)
+}
+
+func isActionableSubscriptionDue(view SubscriptionView) bool {
+	return !view.CancellationPending && view.DaysRemaining <= 7
 }
 
 func buildRedemptionOperationTasks(views []RedemptionApplicationView, tasks *[]OperationTask) {
