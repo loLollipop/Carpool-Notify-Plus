@@ -44,10 +44,6 @@
   --sidebar-foreground: #1f2933;
   --sidebar-muted: #60706c;
   --sidebar-border: #e1e9e7;
-  --login-panel: #12302d;
-  --login-panel-foreground: #f7f9fc;
-  --login-panel-muted: #b6cbc7;
-  --login-panel-border: #31514c;
   --radius: 0.625rem;
 }
 
@@ -91,10 +87,6 @@
   --sidebar-foreground: #eef3f2;
   --sidebar-muted: #a3b1ae;
   --sidebar-border: #293633;
-  --login-panel: #0d1715;
-  --login-panel-foreground: #f5f8fc;
-  --login-panel-muted: #a8bbb7;
-  --login-panel-border: #2c403c;
 }
 
 @theme inline {
@@ -281,225 +273,350 @@
     color: var(--foreground);
   }
 
-  /* Login: a compact private-console frame with restrained ambient depth. */
-  .login-stage {
-    isolation: isolate;
-    background-color: var(--background);
-    background-image:
-      linear-gradient(color-mix(in oklab, var(--border) 32%, transparent) 1px, transparent 1px),
-      linear-gradient(90deg, color-mix(in oklab, var(--border) 32%, transparent) 1px, transparent 1px);
-    background-position: center;
-    background-size: 48px 48px;
+  /* Shared authentication frame for the public login and protected-shell boot state. */
+  .auth-frame {
+    --auth-ink: #080908;
+    --auth-paper: #f7f5f0;
+    --auth-teal: #0f766e;
+    --auth-gold: #c28b34;
+    display: grid;
+    grid-template-columns: minmax(19rem, 0.9fr) minmax(0, 1.1fr);
+    min-height: 100dvh;
+    overflow: hidden;
+    color: #17201e;
+    background: var(--auth-paper);
   }
 
-  .login-stage::after {
+  .auth-brand-panel {
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    min-height: 100%;
+    flex-direction: column;
+    justify-content: space-between;
+    overflow: hidden;
+    padding: clamp(1.5rem, 4vw, 4rem);
+    color: #f7f8f5;
+    background: var(--auth-ink);
+  }
+
+  .auth-brand-panel::before,
+  .auth-brand-panel::after {
     position: absolute;
-    z-index: 0;
-    inset: 0;
+    z-index: -1;
     pointer-events: none;
     content: "";
-    background: radial-gradient(circle at center, transparent 22%, var(--background) 88%);
   }
 
-  .login-stage-glow {
-    position: absolute;
-    border-radius: 999px;
-    pointer-events: none;
-    filter: blur(1px);
-  }
-
-  .login-stage-glow.is-top {
-    top: -14rem;
-    right: -10rem;
-    width: 36rem;
-    height: 36rem;
-    background: color-mix(in oklab, var(--brand) 8%, transparent);
-  }
-
-  .login-stage-glow.is-bottom {
-    bottom: -18rem;
-    left: -12rem;
-    width: 40rem;
-    height: 40rem;
-    background: color-mix(in oklab, var(--gold) 6%, transparent);
-  }
-
-  .login-ambient-network {
-    display: none;
-  }
-
-  @media (min-width: 1200px) and (min-height: 680px) {
-    .login-ambient-network {
-      position: absolute;
-      z-index: 1;
-      inset: 0;
-      display: block;
-      overflow: hidden;
-      pointer-events: none;
-      user-select: none;
-    }
-
-    .login-network-map {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-    }
-
-    .login-network-orbits ellipse,
-    .login-network-lines path,
-    .login-network-packets path {
-      fill: none;
-      vector-effect: non-scaling-stroke;
-    }
-
-    .login-network-orbits ellipse {
-      stroke: color-mix(in oklab, var(--brand) 9%, transparent);
-      stroke-width: 1;
-    }
-
-    .login-network-orbits ellipse:last-child {
-      stroke: color-mix(in oklab, var(--gold) 8%, transparent);
-      stroke-dasharray: 3 12;
-    }
-
-    .login-network-lines path {
-      stroke: color-mix(in oklab, var(--brand) 22%, var(--border));
-      stroke-width: 1;
-    }
-
-    .login-network-lines.is-dashed path {
-      stroke: color-mix(in oklab, var(--foreground) 10%, transparent);
-      stroke-dasharray: 4 9;
-    }
-
-    .login-network-packets path {
-      stroke: var(--brand);
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-dasharray: 0.022 0.978;
-      animation: login-network-travel 9s linear infinite;
-      filter: drop-shadow(0 0 4px color-mix(in oklab, var(--brand) 52%, transparent));
-    }
-
-    .login-network-packets path:nth-child(2) {
-      animation-delay: -4.5s;
-    }
-
-    .login-network-packets path:nth-child(3) {
-      animation-delay: -2.25s;
-    }
-
-    .login-network-packets path:nth-child(4) {
-      animation-delay: -6.75s;
-    }
-
-    .login-network-nodes circle {
-      fill: var(--background);
-      stroke: color-mix(in oklab, var(--brand) 62%, var(--border));
-      stroke-width: 1;
-      vector-effect: non-scaling-stroke;
-    }
-
-    .login-ambient-chip {
-      position: absolute;
-      display: flex;
-      align-items: center;
-      gap: 0.55rem;
-      min-width: 8.75rem;
-      height: 2.5rem;
-      padding: 0 0.75rem;
-      border: 1px solid color-mix(in oklab, var(--brand) 18%, var(--border));
-      border-radius: 0.75rem;
-      color: color-mix(in oklab, var(--foreground) 78%, var(--muted-foreground));
-      background: color-mix(in oklab, var(--card) 76%, transparent);
-      box-shadow:
-        0 10px 28px -20px color-mix(in oklab, var(--foreground) 28%, transparent),
-        inset 0 1px color-mix(in oklab, white 60%, transparent);
-      backdrop-filter: blur(12px);
-      font-size: 0.6875rem;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-    }
-
-    .login-ambient-chip.is-top-left {
-      top: 17.5%;
-      left: max(3.5%, calc(50% - 650px));
-    }
-
-    .login-ambient-chip.is-bottom-left {
-      bottom: 17.5%;
-      left: max(5.5%, calc(50% - 620px));
-    }
-
-    .login-ambient-chip.is-top-right {
-      top: 16%;
-      right: max(4.5%, calc(50% - 630px));
-    }
-
-    .login-ambient-chip.is-bottom-right {
-      right: max(3.5%, calc(50% - 650px));
-      bottom: 16.5%;
-    }
-
-    .login-ambient-chip-icon {
-      display: grid;
-      width: 1.75rem;
-      height: 1.75rem;
-      flex: 0 0 auto;
-      place-items: center;
-      border-radius: 0.5rem;
-      color: var(--brand);
-      background: color-mix(in oklab, var(--brand) 10%, transparent);
-    }
-
-    .login-ambient-chip-pulse {
-      width: 0.375rem;
-      height: 0.375rem;
-      margin-left: auto;
-      border-radius: 999px;
-      background: var(--brand);
-      box-shadow: 0 0 0 4px color-mix(in oklab, var(--brand) 10%, transparent);
-      animation: login-network-pulse 2.8s ease-in-out infinite;
-    }
-
-    .login-ambient-chip.is-bottom-left .login-ambient-chip-icon,
-    .login-ambient-chip.is-bottom-right .login-ambient-chip-icon {
-      color: var(--gold);
-      background: color-mix(in oklab, var(--gold) 10%, transparent);
-    }
-
-    .login-ambient-chip.is-bottom-left .login-ambient-chip-pulse,
-    .login-ambient-chip.is-bottom-right .login-ambient-chip-pulse {
-      background: var(--gold);
-      box-shadow: 0 0 0 4px color-mix(in oklab, var(--gold) 10%, transparent);
-    }
-  }
-
-  @keyframes login-network-travel {
-    to {
-      stroke-dashoffset: -1;
-    }
-  }
-
-  @keyframes login-network-pulse {
-    0%,
-    100% {
-      opacity: 0.55;
-      transform: scale(0.78);
-    }
-    50% {
-      opacity: 1;
-      transform: scale(1);
-    }
-  }
-
-  .login-surface {
-    background-color: var(--login-panel);
+  .auth-brand-panel::before {
+    inset: 0;
+    opacity: 0.24;
     background-image:
-      radial-gradient(22rem 18rem at 100% 0%, color-mix(in oklab, var(--brand) 23%, transparent), transparent 64%),
-      radial-gradient(18rem 14rem at 0% 100%, color-mix(in oklab, var(--gold) 13%, transparent), transparent 66%),
-      linear-gradient(160deg, transparent, color-mix(in oklab, black 18%, transparent));
+      linear-gradient(to right, transparent 49.8%, rgba(255, 255, 255, 0.16) 50%, transparent 50.2%),
+      linear-gradient(to bottom, transparent 49.8%, rgba(255, 255, 255, 0.13) 50%, transparent 50.2%);
+    background-size: 7.5rem 7.5rem;
+    mask-image: linear-gradient(135deg, black 10%, transparent 82%);
+  }
+
+  .auth-brand-panel::after {
+    right: -7rem;
+    bottom: -8rem;
+    width: 23rem;
+    height: 23rem;
+    border: 1px solid rgba(194, 139, 52, 0.5);
+    border-radius: 50%;
+    box-shadow: 0 0 0 2.8rem rgba(194, 139, 52, 0.06), 0 0 0 5.6rem rgba(194, 139, 52, 0.035);
+  }
+
+  .auth-brand-lockup {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    min-width: 0;
+  }
+
+  .auth-brand-lockup > span {
+    display: grid;
+    gap: 0.15rem;
+    min-width: 0;
+  }
+
+  .auth-brand-name {
+    overflow: hidden;
+    color: #f6f7f4;
+    font-size: 0.9375rem;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .auth-brand-caption {
+    color: rgba(247, 248, 245, 0.52);
+    font-size: 0.6875rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .auth-wordmark {
+    display: grid;
+    gap: 0.04em;
+    margin: auto 0;
+    font-size: clamp(3.25rem, 8vw, 8.25rem);
+    font-weight: 700;
+    letter-spacing: 0;
+    line-height: 0.84;
+  }
+
+  .auth-wordmark span {
+    display: block;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+
+  .auth-wordmark .is-muted {
+    color: rgba(247, 248, 245, 0.42);
+  }
+
+  .auth-wordmark .is-accent {
+    color: var(--auth-gold);
+  }
+
+  .auth-brand-rail {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    color: rgba(247, 248, 245, 0.5);
+    font-size: 0.625rem;
+    font-weight: 650;
+    letter-spacing: 0.16em;
+  }
+
+  .auth-brand-rail-line {
+    width: 2.75rem;
+    height: 1px;
+    background: var(--auth-gold);
+  }
+
+  .auth-brand-rail-dot {
+    width: 0.4rem;
+    height: 0.4rem;
+    margin-left: auto;
+    border: 1px solid var(--auth-gold);
+    border-radius: 50%;
+  }
+
+  .auth-content {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    min-height: 100%;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: clamp(2rem, 6vw, 6rem);
+    background: var(--auth-paper);
+  }
+
+  .auth-content::before {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: min(42vw, 34rem);
+    height: 1px;
+    content: "";
+    background: var(--auth-gold);
+    opacity: 0.8;
+  }
+
+  .auth-content-logo {
+    position: absolute;
+    top: clamp(1.5rem, 4vw, 3.5rem);
+    right: clamp(1.5rem, 4vw, 4rem);
+  }
+
+  .auth-form-card,
+  .auth-loading-panel {
+    width: min(100%, 29rem);
+  }
+
+  .auth-form-card {
+    padding: clamp(1.5rem, 4vw, 2.75rem);
+    border: 1px solid #ddd8cd;
+    border-radius: 0.75rem;
+    background: rgba(255, 255, 255, 0.62);
+    box-shadow: 0 24px 70px -38px rgba(27, 32, 28, 0.42);
+  }
+
+  .auth-form-kicker {
+    color: var(--auth-teal);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+  }
+
+  .auth-form-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-top: 1.4rem;
+  }
+
+  .auth-form-heading h1 {
+    margin: 0;
+    color: #17201e;
+    font-size: clamp(1.55rem, 3vw, 2.05rem);
+    line-height: 1.15;
+  }
+
+  .auth-form-icon {
+    display: grid;
+    width: 2.5rem;
+    height: 2.5rem;
+    flex: 0 0 auto;
+    place-items: center;
+    color: var(--auth-teal);
+    border: 1px solid color-mix(in oklab, var(--auth-teal) 26%, #ddd8cd);
+    border-radius: 0.65rem;
+    background: #e8f2ef;
+  }
+
+  .auth-form-caption {
+    margin: 0.75rem 0 0;
+    color: #68736f;
+    font-size: 0.875rem;
+  }
+
+  .auth-form-rule {
+    display: block;
+    width: 100%;
+    height: 1px;
+    margin: 1.5rem 0;
+    background: #ddd8cd;
+  }
+
+  .auth-password-input {
+    border-color: #cfcac0;
+    box-shadow: none;
+  }
+
+  .auth-password-input:focus-visible {
+    border-color: var(--auth-teal);
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.14);
+  }
+
+  .auth-submit-button {
+    color: #fff;
+    background: #111514;
+    box-shadow: 0 12px 24px -15px rgba(17, 21, 20, 0.85);
+  }
+
+  .auth-submit-button:hover {
+    background: #242b28;
+  }
+
+  .auth-loading-panel {
+    padding: clamp(1.5rem, 4vw, 2.75rem) 0;
+  }
+
+  .auth-loading-title {
+    margin: 0;
+    color: #17201e;
+    font-size: clamp(1.4rem, 3vw, 1.9rem);
+    font-weight: 650;
+  }
+
+  .auth-loading-status {
+    margin: 0.55rem 0 0;
+    color: #68736f;
+    font-size: 0.875rem;
+  }
+
+  .auth-loading-line {
+    display: block;
+    position: relative;
+    width: 100%;
+    height: 2px;
+    margin-top: 2.25rem;
+    overflow: hidden;
+    background: #ddd8cd;
+  }
+
+  .auth-loading-line > span {
+    display: block;
+    width: 32%;
+    height: 100%;
+    background: var(--auth-teal);
+    animation: auth-loading-sweep 1.8s ease-in-out infinite;
+  }
+
+  @keyframes auth-loading-sweep {
+    0% {
+      transform: translateX(-120%);
+    }
+    50%,
+    100% {
+      transform: translateX(320%);
+    }
+  }
+
+  @media (max-width: 767px) {
+    .auth-frame {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto minmax(0, 1fr);
+      min-height: 100svh;
+    }
+
+    .auth-brand-panel {
+      min-height: 13.5rem;
+      padding: 1.25rem 1.25rem 1.5rem;
+    }
+
+    .auth-wordmark {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 0.42em;
+      margin: 2.25rem 0 0;
+      font-size: clamp(2.25rem, 12vw, 4.75rem);
+      line-height: 0.9;
+    }
+
+    .auth-brand-rail {
+      display: none;
+    }
+
+    .auth-content {
+      min-height: 0;
+      align-items: stretch;
+      padding: 3.75rem 1rem 1.5rem;
+    }
+
+    .auth-content::before {
+      width: 45%;
+    }
+
+    .auth-content-logo {
+      top: 1rem;
+      right: 1rem;
+    }
+
+    .auth-content-logo .size-\[4\.5rem\] {
+      width: 3rem;
+      height: 3rem;
+      border-radius: 0.8rem;
+    }
+
+    .auth-form-card {
+      width: 100%;
+      margin: auto 0;
+      padding: 1.25rem;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .auth-loading-line > span {
+      animation: none;
+      transform: translateX(0);
+    }
   }
 
   .metric-rule {

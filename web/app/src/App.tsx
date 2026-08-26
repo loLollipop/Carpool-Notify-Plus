@@ -2,6 +2,7 @@ import * as React from "react"
 import { Navigate, Route, Routes, useLocation } from "react-router-dom"
 
 import { Skeleton } from "@/components/ui/skeleton"
+import { AuthLoadingScreen } from "@/features/auth/AuthFrame"
 import { RequireAuth } from "@/features/auth/RequireAuth"
 import {
   AccountsPage,
@@ -73,11 +74,7 @@ export default function App() {
         element={
           <RequireAuth>
             <React.Suspense
-              fallback={
-                <div className="grid min-h-dvh place-items-center p-6">
-                  <Skeleton className="h-72 w-full max-w-6xl rounded-2xl" />
-                </div>
-              }
+              fallback={<AuthLoadingScreen />}
             >
               <AppShell />
             </React.Suspense>
