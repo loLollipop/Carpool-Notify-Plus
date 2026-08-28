@@ -341,7 +341,7 @@ function OperationsQueue({
   }
 
   return (
-    <Card className="min-h-0 gap-3 p-4">
+    <Card className="h-[430px] min-h-0 gap-3 overflow-hidden p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="panel-heading text-sm font-semibold">{t("dash.workbench.queueTitle")}</h2>
@@ -366,7 +366,7 @@ function OperationsQueue({
           </div>
         </div>
       ) : (
-        <div className="grid min-h-0 gap-1.5 overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">
           {tasks.map((task) => {
             const Icon = taskIcon(task)
             const identifier = task.customer_email || task.customer_wechat || task.name || task.account_name
@@ -689,7 +689,7 @@ export function DashboardPage() {
             />
           </section>
 
-          <section className="grid min-h-[430px] gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
+          <section className="grid min-h-[430px] gap-4 xl:h-[430px] xl:min-h-0 xl:grid-cols-[minmax(0,1.25fr)_minmax(360px,0.75fr)]">
             <CashflowCard overview={overview} amountsHidden={amountsHidden} />
             <OperationsQueue
               overview={overview}
