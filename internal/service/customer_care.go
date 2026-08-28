@@ -38,6 +38,7 @@ type CustomerBenefitCandidate struct {
 	CustomerTier           string `json:"customer_tier"`
 	SeatCount              int    `json:"seat_count"`
 	CurrentCycleValueCents int64  `json:"current_cycle_value_cents"`
+	MonthlyValueCents      int64  `json:"monthly_value_cents"`
 	RenewalCount           int    `json:"renewal_count"`
 	RelationshipDays       int    `json:"relationship_days"`
 	NextDueDate            string `json:"next_due_date"`
@@ -54,7 +55,10 @@ type CustomerBenefitCandidate struct {
 
 type CustomerBenefitView struct {
 	model.CustomerBenefit
-	Outcome string `json:"outcome"`
+	Outcome             string `json:"outcome"`
+	RenewedSeatCount    int    `json:"renewed_seat_count"`
+	ExpectedSeatCount   int    `json:"expected_seat_count"`
+	RetainedSeatPercent int    `json:"retained_seat_percent"`
 }
 
 type CustomerCareSummary struct {
@@ -66,6 +70,9 @@ type CustomerCareSummary struct {
 	TotalPerceivedValueCents int64 `json:"total_perceived_value_cents"`
 	EvaluatedBenefitCount    int   `json:"evaluated_benefit_count"`
 	RenewedAfterBenefitCount int   `json:"renewed_after_benefit_count"`
+	PartiallyRenewedCount    int   `json:"partially_renewed_count"`
+	RetainedSeatCount        int   `json:"retained_seat_count"`
+	ExpectedSeatCount        int   `json:"expected_seat_count"`
 }
 
 type ForecastModelReadiness struct {
@@ -202,8 +209,12 @@ func (service *SubscriptionService) buildCustomerCare(
 			continue
 		}
 		center.Summary.EvaluatedBenefitCount++
+		center.Summary.RetainedSeatCount += view.RenewedSeatCount
+		center.Summary.ExpectedSeatCount += view.ExpectedSeatCount
 		if view.Outcome == "renewed" {
 			center.Summary.RenewedAfterBenefitCount++
+		} else if view.Outcome == "partially_renewed" {
+			center.Summary.PartiallyRenewedCount++
 		}
 	}
 	return center, nil
@@ -274,17 +285,21 @@ func buildCustomerBenefitCandidate(
 		DisplayName:            representative.Name,
 		CustomerTier:           representative.CustomerTier,
 		SeatCount:              len(group.Members),
-		CurrentCycleValueCents: representative.CustomerGroupCurrentPriceCents,
+		CurrentCycleValueCents: representative.CustomerGroupMonthlyRevenueCents,
+		MonthlyValueCents:      representative.CustomerGroupMonthlyRevenueCents,
 		Selectable:             true,
 		Status:                 "hold",
 		ReasonCode:             "manual_review",
 		SuggestedBenefitType:   model.CustomerBenefitTypeManual,
 	}
-	if candidate.CurrentCycleValueCents <= 0 {
+	if candidate.MonthlyValueCents <= 0 {
 		for _, member := range group.Members {
-			candidate.CurrentCycleValueCents += maxInt64(member.CurrentPriceCents, 0)
+			candidate.MonthlyValueCents += maxInt64(member.MonthlyRevenueCents, 0)
 		}
 	}
+	// Keep the old field as a response alias while clients migrate. Both values
+	// now have one auditable meaning: normalized monthly customer revenue.
+	candidate.CurrentCycleValueCents = candidate.MonthlyValueCents
 	for _, member := range group.Members {
 		if candidate.CustomerEmail == "" && member.CustomerEmail != "" {
 			candidate.CustomerEmail = member.CustomerEmail
@@ -549,9 +564,22 @@ func buildCustomerBenefitViews(
 	views := make([]CustomerBenefitView, 0, len(benefits))
 	for _, benefit := range benefits {
 		outcome := customerBenefitOutcome(benefit, allSubscriptions, billsBySubscription, now)
-		views = append(views, CustomerBenefitView{CustomerBenefit: benefit, Outcome: outcome})
+		views = append(views, CustomerBenefitView{
+			CustomerBenefit:     benefit,
+			Outcome:             outcome.Status,
+			RenewedSeatCount:    outcome.RenewedSeatCount,
+			ExpectedSeatCount:   outcome.ExpectedSeatCount,
+			RetainedSeatPercent: outcome.RetainedSeatPercent,
+		})
 	}
 	return views
+}
+
+type customerBenefitOutcomeResult struct {
+	Status              string
+	RenewedSeatCount    int
+	ExpectedSeatCount   int
+	RetainedSeatPercent int
 }
 
 func customerBenefitOutcome(
@@ -559,15 +587,24 @@ func customerBenefitOutcome(
 	subscriptions []model.Subscription,
 	billsBySubscription map[int64][]model.Bill,
 	now time.Time,
-) string {
+) customerBenefitOutcomeResult {
+	expectedSeatCount := maxInt(benefit.CustomerGroupSizeSnapshot, 1)
+	result := customerBenefitOutcomeResult{
+		Status:            "pending",
+		ExpectedSeatCount: expectedSeatCount,
+	}
 	dueAt, err := time.ParseInLocation("2006-01-02", benefit.NextDueDateSnapshot, cycle.Location)
 	if err != nil {
-		return "pending"
+		return result
 	}
 	matchingSubscriptionIDs := map[int64]struct{}{benefit.SubscriptionID: {}}
 	email := normalizeCustomerIdentity(benefit.CustomerEmailSnapshot)
 	wechat := normalizeCustomerIdentity(benefit.CustomerWechatSnapshot)
 	for _, subscription := range subscriptions {
+		if subscription.ID != benefit.SubscriptionID &&
+			subscriptionStartedAfter(subscription, benefit.BenefitDate) {
+			continue
+		}
 		if (email != "" && normalizeCustomerIdentity(subscription.CustomerEmail) == email) ||
 			(wechat != "" && normalizeCustomerIdentity(subscription.CustomerWechat) == wechat) {
 			matchingSubscriptionIDs[subscription.ID] = struct{}{}
@@ -576,14 +613,39 @@ func customerBenefitOutcome(
 	for subscriptionID := range matchingSubscriptionIDs {
 		for _, bill := range billsBySubscription[subscriptionID] {
 			if bill.DueDate >= benefit.NextDueDateSnapshot {
-				return "renewed"
+				result.RenewedSeatCount++
+				break
 			}
 		}
 	}
-	if cycle.StartOfDay(now).Before(cycle.StartOfDay(dueAt).AddDate(0, 0, customerBenefitOutcomeGrace)) {
-		return "pending"
+	if result.RenewedSeatCount > expectedSeatCount {
+		result.RenewedSeatCount = expectedSeatCount
 	}
-	return "not_renewed"
+	result.RetainedSeatPercent = percentOf(
+		int64(result.RenewedSeatCount),
+		int64(expectedSeatCount),
+	)
+	if result.RenewedSeatCount >= expectedSeatCount {
+		result.Status = "renewed"
+		return result
+	}
+	if cycle.StartOfDay(now).Before(cycle.StartOfDay(dueAt).AddDate(0, 0, customerBenefitOutcomeGrace)) {
+		return result
+	}
+	if result.RenewedSeatCount > 0 {
+		result.Status = "partially_renewed"
+		return result
+	}
+	result.Status = "not_renewed"
+	return result
+}
+
+func subscriptionStartedAfter(subscription model.Subscription, date string) bool {
+	startedOn := strings.TrimSpace(subscription.BoardedAt)
+	if startedOn == "" && !subscription.CreatedAt.IsZero() {
+		startedOn = cycle.FormatDate(subscription.CreatedAt)
+	}
+	return startedOn != "" && startedOn > strings.TrimSpace(date)
 }
 
 func buildPredictionReadiness(
@@ -684,9 +746,17 @@ func buildPredictionReadiness(
 		survivalStatus = "collecting"
 		survivalDetail = "need_churn_variation"
 	} else if survivalStatus == "ready" {
-		survivalDetail = "primary_later"
+		// The cohort is large enough to fit a survival model, but this service
+		// does not execute one yet. Do not label an unimplemented model ready.
+		survivalStatus = "data_ready"
+		survivalDetail = "implementation_pending"
 	}
 	bgStatus := readinessStatus(readiness.RepeatCustomerCount, minimumBGNBDRepeatCustomers)
+	bgDetail := "value_auxiliary"
+	if bgStatus == "ready" {
+		bgStatus = "data_ready"
+		bgDetail = "implementation_pending"
+	}
 	upliftStatus := readinessStatus(evaluatedBenefits, minimumUpliftEvaluatedBenefits)
 	upliftDetail := "need_benefit_outcomes"
 	if upliftStatus == "ready" {
@@ -713,7 +783,7 @@ func buildPredictionReadiness(
 			Status:          bgStatus,
 			CurrentSamples:  readiness.RepeatCustomerCount,
 			RequiredSamples: minimumBGNBDRepeatCustomers,
-			DetailCode:      "value_auxiliary",
+			DetailCode:      bgDetail,
 		},
 		{
 			Key:             "uplift",
@@ -992,6 +1062,19 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	for _, candidate := range care.Candidates {
 		candidatesByID[candidate.SubscriptionID] = candidate
 	}
+	pricingCandidateByID := make(map[int64]PricingCandidate, len(pricingCandidates))
+	latestDueByCustomerGroup := make(map[int64]string)
+	for _, pricingCandidate := range pricingCandidates {
+		pricingCandidateByID[pricingCandidate.SubscriptionID] = pricingCandidate
+		groupID := pricingCandidate.CustomerGroupID
+		if groupID <= 0 {
+			groupID = pricingCandidate.SubscriptionID
+		}
+		latestDueByCustomerGroup[groupID] = laterDate(
+			latestDueByCustomerGroup[groupID],
+			pricingCandidate.NextDueDate,
+		)
+	}
 
 	createdAt := service.now().UTC()
 	batchID := fmt.Sprintf("care-%d", createdAt.UnixNano())
@@ -1005,6 +1088,14 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 		if getErr != nil {
 			return 0, fmt.Errorf("所选客户状态已变化，请刷新后重试")
 		}
+		outcomeDueDate := candidate.NextDueDate
+		if pricingCandidate, found := pricingCandidateByID[subscriptionID]; found {
+			groupID := pricingCandidate.CustomerGroupID
+			if groupID <= 0 {
+				groupID = pricingCandidate.SubscriptionID
+			}
+			outcomeDueDate = laterDate(outcomeDueDate, latestDueByCustomerGroup[groupID])
+		}
 		records = append(records, model.CustomerBenefit{
 			BatchID:                   batchID,
 			SubscriptionID:            subscriptionID,
@@ -1013,7 +1104,7 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 			ActualCostCents:           actualCostCents,
 			PerceivedValueCents:       perceivedValueCents,
 			BenefitDate:               benefitDate,
-			NextDueDateSnapshot:       candidate.NextDueDate,
+			NextDueDateSnapshot:       outcomeDueDate,
 			CustomerEmailSnapshot:     candidate.CustomerEmail,
 			CustomerWechatSnapshot:    candidate.CustomerWechat,
 			CustomerTierSnapshot:      candidate.CustomerTier,

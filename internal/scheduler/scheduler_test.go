@@ -27,7 +27,10 @@ func (client *schedulerMarketClient) Do(*http.Request) (*http.Response, error) {
 			"offers": [
 				{"sourceId":"a","sourceTitle":"ChatGPT Business 席位","price":110,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
 				{"sourceId":"b","sourceTitle":"ChatGPT Team 激活码","price":130,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
-				{"sourceId":"c","sourceTitle":"ChatGPT Business Slot","price":150,"currency":"CNY","status":"in_stock","effectiveStatus":"available"}
+				{"sourceId":"c","sourceTitle":"ChatGPT Business Slot","price":150,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
+				{"sourceId":"r1","sourceTitle":"ChatGPT Team 续费码","price":135,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
+				{"sourceId":"r2","sourceTitle":"ChatGPT Business renewal","price":145,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
+				{"sourceId":"r3","sourceTitle":"ChatGPT Team renew slot","price":155,"currency":"CNY","status":"in_stock","effectiveStatus":"available"}
 			]
 		}`)),
 	}, nil
@@ -79,7 +82,7 @@ func waitForMarketSnapshots(t *testing.T, store *db.Store, want int) {
 	ticker := time.NewTicker(5 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		snapshots, err := store.ListMarketPriceSnapshots("priceai", "chatgpt-team-business", 10)
+		snapshots, err := store.ListMarketPriceSnapshots("priceai", "chatgpt-team-business-renewal", 10)
 		if err != nil {
 			t.Fatal(err)
 		}

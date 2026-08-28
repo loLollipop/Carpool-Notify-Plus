@@ -161,6 +161,80 @@ func TestCustomerCareMergesMultiSeatIdentityAndStartsCooldown(t *testing.T) {
 	}
 }
 
+func TestCustomerCareNormalizesMixedBillingCyclesToMonthlyValue(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "mixed-cycle-owner",
+		OpenedAt:  "2026-06-01",
+		SeatNames: []string{"monthly", "quarterly"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 2 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	for index, input := range []struct {
+		price string
+		cycle string
+	}{
+		{price: "100.00", cycle: "interval:30d"},
+		{price: "330.00", cycle: "interval:90d"},
+	} {
+		if _, createErr := service.Create(CreateInput{
+			Name:             "mixed-cycle-customer",
+			PriceYuan:        input.price,
+			CronExpr:         input.cycle,
+			NotifyOffsetsRaw: "3,1,0",
+			SeatID:           seats[index].ID,
+			BoardedAt:        "2026-06-01",
+			CustomerEmail:    "mixed@example.com",
+			CustomerWechat:   "mixed-wechat",
+		}); createErr != nil {
+			t.Fatal(createErr)
+		}
+	}
+	candidates, err := service.buildPricingCandidates(nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	care, err := service.buildCustomerCare(candidates)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(care.Candidates) != 1 || care.Candidates[0].MonthlyValueCents != 21000 ||
+		care.Candidates[0].CurrentCycleValueCents != 21000 {
+		t.Fatalf("normalized customer value = %#v, want 21000 cents/month", care.Candidates)
+	}
+}
+
+func TestCustomerBenefitOutcomeTracksPartialMultiSeatRenewal(t *testing.T) {
+	benefit := model.CustomerBenefit{
+		SubscriptionID:            1,
+		NextDueDateSnapshot:       "2026-08-01",
+		CustomerWechatSnapshot:    "same-contact",
+		CustomerGroupSizeSnapshot: 2,
+	}
+	subscriptions := []model.Subscription{
+		{ID: 1, CustomerWechat: "same-contact"},
+		{ID: 2, CustomerWechat: "same-contact"},
+	}
+	billsBySubscription := map[int64][]model.Bill{
+		1: {{SubscriptionID: 1, DueDate: "2026-08-01", AmountCents: 10000}},
+	}
+	outcome := customerBenefitOutcome(
+		benefit,
+		subscriptions,
+		billsBySubscription,
+		time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location),
+	)
+	if outcome.Status != "partially_renewed" || outcome.RenewedSeatCount != 1 ||
+		outcome.ExpectedSeatCount != 2 || outcome.RetainedSeatPercent != 50 {
+		t.Fatalf("partial multi-seat outcome = %#v", outcome)
+	}
+}
+
 func TestCreateCustomerBenefitsRollsBackWholeBatch(t *testing.T) {
 	service := openGoalTestService(t)
 	ids := createCustomerCareTestSubscriptions(t, service, "atomic@example.com", "", 1)

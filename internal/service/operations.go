@@ -168,7 +168,10 @@ func (service *SubscriptionService) GetOperationsOverview() (OperationsOverview,
 
 	if goal, goalErr := service.Store.GetActiveBusinessGoal(); goalErr == nil {
 		progress := service.buildGoalProgress(goal, dashboard.TotalProfitCents)
-		forecast := service.buildProfitForecast(progress, runRateCents, recurringCount)
+		forecast, forecastErr := service.buildProfitForecast(progress)
+		if forecastErr != nil {
+			return OperationsOverview{}, forecastErr
+		}
 		overview.Goal = &OperationsGoalSummary{
 			Name:                        goal.Name,
 			TargetProfitCents:           goal.TargetProfitCents,

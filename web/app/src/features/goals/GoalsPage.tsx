@@ -585,7 +585,8 @@ function MarketPanel({
   const { t } = useTranslation()
   const pricing = data.pricing
   const market = data.market
-  const snapshot = market.snapshot
+  const snapshot = market.acquisition_snapshot ?? market.snapshot
+  const renewalSnapshot = market.renewal_snapshot ?? market.snapshot
   const utilization = Math.min(100, Math.max(0, pricing.utilization_percent || 0))
   const newSaleDiscount = Math.max(0, pricing.new_sale_discount_percent || 0)
   const benchmarkData = snapshot
@@ -620,6 +621,16 @@ function MarketPanel({
           value: snapshot.high_price_cents,
           color: "color-mix(in oklab, var(--success) 68%, var(--muted))",
         },
+        ...(renewalSnapshot
+          ? [
+              {
+                label: t("goals.renewalMedian"),
+                shortLabel: t("goals.renewalMedianAxis"),
+                value: renewalSnapshot.median_price_cents,
+                color: "var(--gold)",
+              },
+            ]
+          : []),
       ]
     : []
 
@@ -709,12 +720,14 @@ function MarketPanel({
         {snapshot ? (
           <div className="mt-3 border-t pt-2.5">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-[10px] font-medium text-muted-foreground">{t("goals.priceBenchmark")}</p>
+              <p className="text-[10px] font-medium text-muted-foreground">
+                {t("goals.acquisitionPriceBenchmark")}
+              </p>
               <p className="text-[9px] text-muted-foreground">
                 {t("goals.marketSamples", { count: snapshot.sample_count })}
               </p>
             </div>
-            <div className="mt-1 h-[118px] w-full">
+            <div className="mt-1 h-[132px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
                   data={benchmarkData}
@@ -1985,13 +1998,17 @@ function RepricingAnalysisPanel({
                 </div>
               </div>
 
-              {data.market.snapshot ? (
-                <div className="grid grid-cols-3 gap-2">
+              {(data.market.renewal_snapshot ?? data.market.snapshot) ? (
+                <div>
+                  <p className="mb-2 text-[10px] font-medium text-muted-foreground">
+                    {t("goals.renewalPriceBenchmark")}
+                  </p>
+                  <div className="grid grid-cols-3 gap-2">
                   {(
                     [
-                      ["low", data.market.snapshot.low_price_cents],
-                      ["median", data.market.snapshot.median_price_cents],
-                      ["high", data.market.snapshot.high_price_cents],
+                      ["low", (data.market.renewal_snapshot ?? data.market.snapshot)!.low_price_cents],
+                      ["median", (data.market.renewal_snapshot ?? data.market.snapshot)!.median_price_cents],
+                      ["high", (data.market.renewal_snapshot ?? data.market.snapshot)!.high_price_cents],
                     ] as const
                   ).map(([key, value]) => (
                     <div key={key} className="rounded-md border bg-muted/20 px-3 py-2 text-center">
@@ -2003,6 +2020,7 @@ function RepricingAnalysisPanel({
                       </p>
                     </div>
                   ))}
+                  </div>
                 </div>
               ) : (
                 <div className="rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
@@ -3089,9 +3107,11 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                     variant={
                       model.status === "ready"
                         ? "success"
-                        : model.status === "needs_control"
-                          ? "warning"
-                          : "secondary"
+                        : model.status === "data_ready"
+                          ? "brand"
+                          : model.status === "needs_control"
+                            ? "warning"
+                            : "secondary"
                     }
                   >
                     {t(`goals.care.prediction.status.${model.status}`)}
@@ -3207,13 +3227,23 @@ function CustomerBenefitHistoryDialog({
                       variant={
                         benefit.outcome === "renewed"
                           ? "success"
-                          : benefit.outcome === "not_renewed"
-                            ? "destructive"
-                            : "secondary"
+                          : benefit.outcome === "partially_renewed"
+                            ? "warning"
+                            : benefit.outcome === "not_renewed"
+                              ? "destructive"
+                              : "secondary"
                       }
                     >
                       {t(`goals.care.outcome.${benefit.outcome}`)}
                     </Badge>
+                    {benefit.outcome !== "pending" && benefit.expected_seat_count > 1 ? (
+                      <p className="text-[10px] tabular-nums text-muted-foreground">
+                        {t("goals.care.retainedSeats", {
+                          renewed: benefit.renewed_seat_count,
+                          expected: benefit.expected_seat_count,
+                        })}
+                      </p>
+                    ) : null}
                     <div className="text-right text-[11px] leading-5 text-muted-foreground">
                       <p className="tabular-nums">
                         {t("goals.care.costValue", {
@@ -3396,7 +3426,7 @@ function CustomerCarePanel({
     },
     {
       key: "observed",
-      value: `${care.summary.renewed_after_benefit_count}/${care.summary.evaluated_benefit_count}`,
+      value: `${care.summary.retained_seat_count}/${care.summary.expected_seat_count}`,
       icon: HeartHandshake,
     },
   ] as const
@@ -3420,7 +3450,9 @@ function CustomerCarePanel({
             ? "warning"
             : benefit.outcome === "renewed"
               ? "success"
-              : "danger",
+              : benefit.outcome === "partially_renewed"
+                ? "warning"
+                : "danger",
         })),
       })
       return
@@ -3435,7 +3467,7 @@ function CustomerCarePanel({
         title: candidate.customer_email || candidate.customer_wechat || candidate.display_name,
         subtitle: candidate.customer_wechat || candidate.display_name,
         meta: [candidate.recommended_date, candidate.next_due_date, t(`goals.care.reason.${candidate.reason_code}`)],
-        value: visibleYuan(candidate.current_cycle_value_cents, amountsHidden),
+        value: visibleYuan(candidate.monthly_value_cents, amountsHidden),
         valueTone: key === "recommended" ? "success" : "warning",
       })),
     })
@@ -3591,10 +3623,10 @@ function CustomerCarePanel({
                     </TableCell>
                     <TableCell className="tabular-nums">
                       <p className="font-semibold">
-                        {visibleYuan(candidate.current_cycle_value_cents, amountsHidden)}
+                        {visibleYuan(candidate.monthly_value_cents, amountsHidden)}
                       </p>
                       <p className="mt-0.5 text-[11px] text-muted-foreground">
-                        {t("goals.care.currentCycleValue")}
+                        {t("goals.care.monthlyValue")}
                       </p>
                     </TableCell>
                     <TableCell className="min-w-32 whitespace-normal">

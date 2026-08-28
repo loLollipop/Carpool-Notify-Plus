@@ -772,7 +772,7 @@ export interface ForecastScenario {
 }
 
 export interface ProfitForecast {
-  source: "run_rate" | "unavailable"
+  source: "cash_flow" | "run_rate" | "unavailable"
   active_recurring_count: number
   run_rate_monthly_profit_cents: number
   conservative: ForecastScenario
@@ -799,6 +799,10 @@ export interface MarketPriceView {
   source_url: string
   snapshot: MarketPriceSnapshot | null
   history: MarketPriceSnapshot[] | null
+  acquisition_snapshot: MarketPriceSnapshot | null
+  renewal_snapshot: MarketPriceSnapshot | null
+  acquisition_history: MarketPriceSnapshot[] | null
+  renewal_history: MarketPriceSnapshot[] | null
 }
 
 export interface PricingRecommendation {
@@ -961,6 +965,7 @@ export interface CustomerBenefitCandidate {
   customer_tier: "core" | "mainstay" | "optimize"
   seat_count: number
   current_cycle_value_cents: number
+  monthly_value_cents: number
   renewal_count: number
   relationship_days: number
   next_due_date: string
@@ -1004,7 +1009,10 @@ export interface CustomerBenefitView {
   recommendation_code: string
   note: string
   created_at: string
-  outcome: "pending" | "renewed" | "not_renewed"
+  outcome: "pending" | "renewed" | "partially_renewed" | "not_renewed"
+  renewed_seat_count: number
+  expected_seat_count: number
+  retained_seat_percent: number
 }
 
 export interface CustomerCareSummary {
@@ -1016,11 +1024,14 @@ export interface CustomerCareSummary {
   total_perceived_value_cents: number
   evaluated_benefit_count: number
   renewed_after_benefit_count: number
+  partially_renewed_count: number
+  retained_seat_count: number
+  expected_seat_count: number
 }
 
 export interface ForecastModelReadiness {
   key: "beta_binomial" | "discrete_survival" | "bg_nbd" | "uplift"
-  status: "collecting" | "ready" | "needs_control"
+  status: "collecting" | "ready" | "data_ready" | "needs_control"
   current_samples: number
   required_samples: number
   detail_code: string

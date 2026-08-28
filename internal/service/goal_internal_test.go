@@ -40,7 +40,10 @@ func (client *countingMarketClient) Do(*http.Request) (*http.Response, error) {
 			"offers": [
 				{"sourceId":"a","sourceTitle":"ChatGPT Business 席位","price":110,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
 				{"sourceId":"b","sourceTitle":"ChatGPT Team 激活码","price":130,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
-				{"sourceId":"c","sourceTitle":"ChatGPT Business Slot","price":150,"currency":"CNY","status":"in_stock","effectiveStatus":"available"}
+				{"sourceId":"c","sourceTitle":"ChatGPT Business Slot","price":150,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
+				{"sourceId":"r1","sourceTitle":"ChatGPT Team 续费码","price":135,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
+				{"sourceId":"r2","sourceTitle":"ChatGPT Business renewal","price":145,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
+				{"sourceId":"r3","sourceTitle":"ChatGPT Team renew slot","price":155,"currency":"CNY","status":"in_stock","effectiveStatus":"available"}
 			],
 			"generatedAt":"2026-08-15T04:00:00Z"
 		}`)),
@@ -89,7 +92,7 @@ func TestMarketRefreshIsCachedConcurrentAndRefreshesAfterTTL(t *testing.T) {
 				errorsByWorker <- refreshErr
 				return
 			}
-			if !view.Available || view.Snapshot == nil {
+			if !view.Available || view.AcquisitionSnapshot == nil || view.RenewalSnapshot == nil {
 				errorsByWorker <- fmt.Errorf("market view unavailable: %#v", view)
 			}
 		}()
@@ -105,6 +108,10 @@ func TestMarketRefreshIsCachedConcurrentAndRefreshesAfterTTL(t *testing.T) {
 	history, err := store.ListMarketPriceSnapshots(marketProvider, marketProduct, 10)
 	if err != nil || len(history) != 1 {
 		t.Fatalf("market history after concurrent refresh = %#v, err = %v", history, err)
+	}
+	acquisitionHistory, err := store.ListMarketPriceSnapshots(marketProvider, marketAcquisitionProduct, 10)
+	if err != nil || len(acquisitionHistory) != 1 {
+		t.Fatalf("acquisition history after concurrent refresh = %#v, err = %v", acquisitionHistory, err)
 	}
 
 	if _, err := service.RefreshMarketPriceIfStale(); err != nil {
@@ -124,6 +131,10 @@ func TestMarketRefreshIsCachedConcurrentAndRefreshesAfterTTL(t *testing.T) {
 	history, err = store.ListMarketPriceSnapshots(marketProvider, marketProduct, 10)
 	if err != nil || len(history) != 2 {
 		t.Fatalf("market history after TTL refresh = %#v, err = %v", history, err)
+	}
+	acquisitionHistory, err = store.ListMarketPriceSnapshots(marketProvider, marketAcquisitionProduct, 10)
+	if err != nil || len(acquisitionHistory) != 2 {
+		t.Fatalf("acquisition history after TTL refresh = %#v, err = %v", acquisitionHistory, err)
 	}
 }
 
@@ -428,16 +439,40 @@ func TestGoalForecastUsesActiveFutureRevenueAndScheduledPrices(t *testing.T) {
 	if center.Forecast == nil {
 		t.Fatal("forecast is nil")
 	}
-	// A 30-day cycle is normalized with 365/(30*12), then the monthly
-	// owner-account cost is deducted: 10800*365/360 - 3000 = 7950.
-	if center.Forecast.RunRateMonthlyProfitCents != 7950 {
-		t.Fatalf("run rate = %d, want 7950", center.Forecast.RunRateMonthlyProfitCents)
+	// The current run rate must keep the current price until the scheduled
+	// effective due date: 10000*365/360 - 3000 = 7138.
+	if center.Forecast.RunRateMonthlyProfitCents != 7138 {
+		t.Fatalf("run rate = %d, want 7138", center.Forecast.RunRateMonthlyProfitCents)
 	}
-	if center.Forecast.ActiveRecurringCount != 1 || center.Forecast.Source != "run_rate" {
+	if center.Forecast.ActiveRecurringCount != 1 || center.Forecast.Source != "cash_flow" {
 		t.Fatalf("forecast basis = %#v", center.Forecast)
 	}
-	if center.Forecast.Baseline.ProjectedDate == "" {
-		t.Fatalf("baseline forecast = %#v", center.Forecast.Baseline)
+	if center.Forecast.Optimistic.ProjectedDate == "" {
+		t.Fatalf("optimistic forecast = %#v", center.Forecast.Optimistic)
+	}
+}
+
+func TestCashflowForecastAppliesScheduledPriceOnlyFromEffectiveDueDate(t *testing.T) {
+	today := time.Date(2026, time.August, 15, 0, 0, 0, 0, cycle.Location)
+	nextPrice := int64(12000)
+	subscription := model.Subscription{
+		PricePerPersonCents:       10000,
+		NextPriceCents:            &nextPrice,
+		NextPriceEffectiveDueDate: "2026-10-14",
+		CronExpr:                  "interval:30d",
+		BoardedAt:                 "2026-08-15",
+	}
+	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dueDates := schedule.NextDueTimes(today.Add(-time.Minute), 3)
+	got := make([]int64, 0, len(dueDates))
+	for _, dueAt := range dueDates {
+		got = append(got, billAmountCentsForDueDate(subscription, cycle.FormatDate(dueAt)))
+	}
+	if len(got) != 3 || got[0] != 10000 || got[1] != 10000 || got[2] != 12000 {
+		t.Fatalf("dated prices = %#v, want [10000 10000 12000]", got)
 	}
 }
 
@@ -827,14 +862,17 @@ func TestComparableMarketPricesFiltersMixedProductsAndDeduplicates(t *testing.T)
 	offers := []priceAIOffer{
 		{SourceID: "seller-a", SourceTitle: "ChatGPT Business 标准席位", Price: 113, Currency: "CNY", Status: "in_stock", EffectiveStatus: "available", StockCount: &stock, SourceUpdatedAt: &older},
 		{SourceID: "seller-a", SourceTitle: "ChatGPT Business 标准席位", Price: 113, Currency: "CNY", Status: "in_stock", EffectiveStatus: "available", StockCount: &stock, SourceUpdatedAt: &newest},
-		{SourceID: "seller-b", SourceTitle: "ChatGPT Team 激活码", Price: 130, Currency: "CNY", Status: "low_stock", EffectiveStatus: "available", StockCount: &stock, SourceUpdatedAt: &newest},
+		{SourceID: "seller-b", SourceTitle: "ChatGPT Team 首次激活码，可无限续费", Price: 130, Currency: "CNY", Status: "low_stock", EffectiveStatus: "available", StockCount: &stock, SourceUpdatedAt: &newest},
 		{SourceID: "seller-c", SourceTitle: "ChatGPT Business Slot 30 days", Price: 150, Currency: "CNY", Status: "in_stock", EffectiveStatus: "available", StockCount: &stock, SourceUpdatedAt: &newest},
+		{SourceID: "renew-a", SourceTitle: "ChatGPT Business 续费码，初次请购买激活码", Price: 135, Currency: "CNY", Status: "in_stock", EffectiveStatus: "available", StockCount: &stock, SourceUpdatedAt: &older},
+		{SourceID: "renew-b", SourceTitle: "ChatGPT Team renewal", Price: 145, Currency: "CNY", Status: "in_stock", EffectiveStatus: "available", StockCount: &stock, SourceUpdatedAt: &newest},
+		{SourceID: "renew-c", SourceTitle: "ChatGPT Team renew slot", Price: 155, Currency: "CNY", Status: "in_stock", EffectiveStatus: "available", StockCount: &stock, SourceUpdatedAt: &newest},
 		{SourceID: "seller-d", SourceTitle: "ChatGPT Business Premium 高级席位", Price: 200, Currency: "CNY", Status: "in_stock", EffectiveStatus: "available", StockCount: &stock},
 		{SourceID: "seller-e", SourceTitle: "ChatGPT Team 2 席位母号", Price: 240, Currency: "CNY", Status: "in_stock", EffectiveStatus: "available", StockCount: &stock},
 		{SourceID: "seller-f", SourceTitle: "ChatGPT Business 席位", Price: 100, Currency: "CNY", Status: "out_of_stock", EffectiveStatus: "unavailable", StockCount: &zeroStock},
 	}
 
-	prices, updatedAt := comparableMarketPrices(offers)
+	prices, updatedAt := comparableMarketPrices(offers, marketOfferAcquisition)
 	if len(prices) != 3 || prices[0] != 11300 || prices[1] != 13000 || prices[2] != 15000 {
 		t.Fatalf("comparable prices = %#v", prices)
 	}
@@ -843,6 +881,13 @@ func TestComparableMarketPricesFiltersMixedProductsAndDeduplicates(t *testing.T)
 	}
 	if low, median, high := percentileCents(prices, 0.25), percentileCents(prices, 0.5), percentileCents(prices, 0.75); low != 12150 || median != 13000 || high != 14000 {
 		t.Fatalf("quartiles = %d/%d/%d, want 12150/13000/14000", low, median, high)
+	}
+	renewalPrices, renewalUpdatedAt := comparableMarketPrices(offers, marketOfferRenewal)
+	if len(renewalPrices) != 3 || renewalPrices[0] != 13500 || renewalPrices[1] != 14500 || renewalPrices[2] != 15500 {
+		t.Fatalf("renewal prices = %#v", renewalPrices)
+	}
+	if !renewalUpdatedAt.Equal(newest) {
+		t.Fatalf("renewal source updated at = %s, want %s", renewalUpdatedAt, newest)
 	}
 }
 

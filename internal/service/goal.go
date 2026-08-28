@@ -18,16 +18,18 @@ import (
 )
 
 const (
-	defaultMarketPriceURL  = "https://priceai.cc/api/products/chatgpt-team-business/offers?limit=100&offset=0&tags=team_official"
-	marketSourcePageURL    = "https://priceai.cc/products/chatgpt-team-business?back=platform%3DChatGPT&tags=team_official"
-	marketProvider         = "priceai"
-	marketProduct          = "chatgpt-team-business"
-	marketCacheTTL         = 6 * time.Hour
-	goalTrendMonths        = 6
-	goalHistoryLimit       = 20
-	marketHistoryLimit     = 24
-	defaultMarketTimeout   = 8 * time.Second
-	maxMarketResponseBytes = 2 << 20
+	defaultMarketPriceURL    = "https://priceai.cc/api/products/chatgpt-team-business/offers?limit=100&offset=0&tags=team_official"
+	marketSourcePageURL      = "https://priceai.cc/products/chatgpt-team-business?back=platform%3DChatGPT&tags=team_official"
+	marketProvider           = "priceai"
+	marketProduct            = "chatgpt-team-business-renewal"
+	marketAcquisitionProduct = "chatgpt-team-business-acquisition"
+	legacyMarketProduct      = "chatgpt-team-business"
+	marketCacheTTL           = 6 * time.Hour
+	goalTrendMonths          = 6
+	goalHistoryLimit         = 20
+	marketHistoryLimit       = 24
+	defaultMarketTimeout     = 8 * time.Second
+	maxMarketResponseBytes   = 2 << 20
 
 	// Repricing safeguards favor retention over extracting the full market gap
 	// immediately. The thresholds are intentionally conservative for monthly,
@@ -49,6 +51,7 @@ const (
 	maximumBulkPricingSelection        = 200
 	maximumPricingExemptionCycles      = 6
 	maximumPricingExemptionNoteRunes   = 500
+	forecastHorizonYears               = 10
 )
 
 // MarketHTTPDoer makes the external market client replaceable in tests.
@@ -100,12 +103,21 @@ type ProfitForecast struct {
 }
 
 type MarketPriceView struct {
-	Available bool                        `json:"available"`
-	Stale     bool                        `json:"stale"`
-	Warning   string                      `json:"warning"`
-	SourceURL string                      `json:"source_url"`
-	Snapshot  *model.MarketPriceSnapshot  `json:"snapshot"`
-	History   []model.MarketPriceSnapshot `json:"history"`
+	Available           bool                        `json:"available"`
+	Stale               bool                        `json:"stale"`
+	Warning             string                      `json:"warning"`
+	SourceURL           string                      `json:"source_url"`
+	Snapshot            *model.MarketPriceSnapshot  `json:"snapshot"`
+	History             []model.MarketPriceSnapshot `json:"history"`
+	AcquisitionSnapshot *model.MarketPriceSnapshot  `json:"acquisition_snapshot"`
+	RenewalSnapshot     *model.MarketPriceSnapshot  `json:"renewal_snapshot"`
+	AcquisitionHistory  []model.MarketPriceSnapshot `json:"acquisition_history"`
+	RenewalHistory      []model.MarketPriceSnapshot `json:"renewal_history"`
+}
+
+type marketPriceSnapshots struct {
+	Acquisition model.MarketPriceSnapshot
+	Renewal     model.MarketPriceSnapshot
 }
 
 type PricingRecommendation struct {
@@ -373,12 +385,11 @@ func (service *SubscriptionService) GetGoalCenter() (GoalCenter, error) {
 		}
 	}
 
-	runRateCents, activeRecurringCount, err := service.activeMonthlyProfitRunRate()
-	if err != nil {
-		return GoalCenter{}, err
-	}
 	if center.ActiveGoal != nil {
-		forecast := service.buildProfitForecast(*center.ActiveGoal, runRateCents, activeRecurringCount)
+		forecast, forecastErr := service.buildProfitForecast(*center.ActiveGoal)
+		if forecastErr != nil {
+			return GoalCenter{}, forecastErr
+		}
 		center.Forecast = &forecast
 	}
 
@@ -387,12 +398,20 @@ func (service *SubscriptionService) GetGoalCenter() (GoalCenter, error) {
 		market.Warning = marketErr.Error()
 	}
 	center.Market = market
-	center.Pricing, err = service.buildPricingRecommendation(market.Snapshot)
+	acquisitionSnapshot := market.AcquisitionSnapshot
+	if acquisitionSnapshot == nil {
+		acquisitionSnapshot = market.Snapshot
+	}
+	renewalSnapshot := market.RenewalSnapshot
+	if renewalSnapshot == nil {
+		renewalSnapshot = market.Snapshot
+	}
+	center.Pricing, err = service.buildPricingRecommendation(acquisitionSnapshot)
 	if err != nil {
 		return GoalCenter{}, err
 	}
 	minimumHealthyPrice := center.Pricing.SeatCostFloorCents * 120 / 100
-	center.Candidates, err = service.buildPricingCandidates(market.Snapshot, minimumHealthyPrice)
+	center.Candidates, err = service.buildPricingCandidates(renewalSnapshot, minimumHealthyPrice)
 	if err != nil {
 		return GoalCenter{}, err
 	}
@@ -599,11 +618,10 @@ func (service *SubscriptionService) activeMonthlyProfitRunRate() (int64, int, er
 		if factorDenominator <= 0 {
 			continue
 		}
-		futureAmountCents := countedAmountCents(subscription)
-		if !subscription.IsResale && subscription.NextPriceCents != nil {
-			futureAmountCents = *subscription.NextPriceCents
-		}
-		monthlyProfitCents += futureAmountCents * factorNumerator / factorDenominator
+		// A scheduled price is not current revenue. It belongs to the first due
+		// date on or after NextPriceEffectiveDueDate and is applied by the
+		// time-aware goal forecast below.
+		monthlyProfitCents += countedAmountCents(subscription) * factorNumerator / factorDenominator
 		if isPlusSubscription(subscription) {
 			monthlyProfitCents -= subscription.CostCents * factorNumerator / factorDenominator
 		}
@@ -691,42 +709,214 @@ func candidateMarketMonthlyPrice(candidate PricingCandidate) int64 {
 	return candidate.CurrentPriceCents
 }
 
+type forecastCashEvent struct {
+	Date              time.Time
+	RecurringNetCents int64
+	FixedCostCents    int64
+	RenewalNumber     int
+}
+
+// buildProfitForecast creates dated cash flows instead of multiplying one
+// monthly run rate forever. This keeps future prices behind their effective
+// due date, applies Plus costs only when the rental renews, and treats the next
+// zero-dollar Team account renewal as a one-time event.
 func (service *SubscriptionService) buildProfitForecast(
 	goal BusinessGoalProgress,
-	runRateCents int64,
-	activeRecurringCount int,
-) ProfitForecast {
-	baseMonthlyProfitCents := int64(0)
-	source := "unavailable"
-	if runRateCents > 0 && activeRecurringCount > 0 {
-		baseMonthlyProfitCents = runRateCents
-		source = "run_rate"
+) (ProfitForecast, error) {
+	runRateCents, _, err := service.activeMonthlyProfitRunRate()
+	if err != nil {
+		return ProfitForecast{}, err
 	}
-	conservativeMonthly := baseMonthlyProfitCents * 75 / 100
-	optimisticMonthly := baseMonthlyProfitCents * 125 / 100
+	subscriptions, err := service.Store.ListSubscriptions()
+	if err != nil {
+		return ProfitForecast{}, err
+	}
+	archivedSubscriptions, err := service.Store.ListArchivedSubscriptions()
+	if err != nil {
+		return ProfitForecast{}, err
+	}
+	bills, err := service.Store.ListBills()
+	if err != nil {
+		return ProfitForecast{}, err
+	}
+	afterSalesCases, err := service.Store.ListAfterSalesCases()
+	if err != nil {
+		return ProfitForecast{}, err
+	}
+	accounts, err := service.Store.ListAccounts()
+	if err != nil {
+		return ProfitForecast{}, err
+	}
+	operatingExpenses, err := service.Store.ListOperatingExpenses()
+	if err != nil {
+		return ProfitForecast{}, err
+	}
+
+	readiness := buildPredictionReadiness(
+		subscriptions,
+		archivedSubscriptions,
+		bills,
+		afterSalesCases,
+		nil,
+		service.now(),
+	)
+	conservativeRetention, baselineRetention, optimisticRetention := forecastRetentionPercents(readiness)
+	today := cycle.StartOfDay(service.now())
+	horizon := today.AddDate(forecastHorizonYears, 0, 0)
+	events := make([]forecastCashEvent, 0)
+	frozenSubscriptions := make(map[int64]struct{})
+	for _, caseItem := range afterSalesCases {
+		if caseItem.Status == model.AfterSalesStatusPending || caseItem.Status == model.AfterSalesStatusReview {
+			frozenSubscriptions[caseItem.SubscriptionID] = struct{}{}
+		}
+	}
+
+	activeRecurringCount := 0
+	for _, subscription := range subscriptions {
+		if _, frozen := frozenSubscriptions[subscription.ID]; frozen || cycle.IsOneMonthRentalExpression(subscription.CronExpr) {
+			continue
+		}
+		schedule, parseErr := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+		if parseErr != nil {
+			continue
+		}
+		activeRecurringCount++
+		cursor := today.Add(-time.Minute)
+		for renewalNumber := 1; renewalNumber <= 10_000; renewalNumber++ {
+			dueAt := schedule.NextDue(cursor)
+			if dueAt.IsZero() || !dueAt.After(cursor) || dueAt.After(horizon) {
+				break
+			}
+			dueDate := cycle.FormatDate(dueAt)
+			netCents := billAmountCentsForDueDate(subscription, dueDate)
+			if isPlusSubscription(subscription) {
+				netCents -= subscription.CostCents
+			}
+			events = append(events, forecastCashEvent{
+				Date:              cycle.StartOfDay(dueAt),
+				RecurringNetCents: netCents,
+				RenewalNumber:     renewalNumber,
+			})
+			cursor = dueAt
+		}
+	}
+
+	for _, account := range accounts {
+		if strings.TrimSpace(account.BannedAt) != "" || account.CostCents <= 0 {
+			continue
+		}
+		renewalAt, renewalErr := service.nextAccountCostRenewal(account)
+		if renewalErr != nil {
+			return ProfitForecast{}, renewalErr
+		}
+		freeNextRenewal := account.ZeroRenewalNextMonth
+		for !renewalAt.IsZero() && !renewalAt.After(horizon) {
+			costCents := account.CostCents
+			if freeNextRenewal {
+				costCents = 0
+				freeNextRenewal = false
+			}
+			events = append(events, forecastCashEvent{
+				Date:           cycle.StartOfDay(renewalAt),
+				FixedCostCents: costCents,
+			})
+			openedAt, parseErr := time.ParseInLocation("2006-01-02", account.OpenedAt, cycle.Location)
+			if parseErr != nil {
+				break
+			}
+			renewalAt = nextMonthlyAnniversary(openedAt, renewalAt)
+		}
+	}
+
+	monthlyOperatingCostCents := operatingExpenseMonthlyRunRate(operatingExpenses, service.now())
+	for costAt := nextMonthlyAnniversary(today, today); monthlyOperatingCostCents > 0 && !costAt.After(horizon); costAt = nextMonthlyAnniversary(today, costAt) {
+		events = append(events, forecastCashEvent{
+			Date:           costAt,
+			FixedCostCents: monthlyOperatingCostCents,
+		})
+	}
+
+	source := "cash_flow"
+	if activeRecurringCount == 0 && runRateCents <= 0 {
+		source = "unavailable"
+	}
 	return ProfitForecast{
 		Source:                    source,
 		ActiveRecurringCount:      activeRecurringCount,
 		RunRateMonthlyProfitCents: runRateCents,
-		Conservative:              service.buildForecastScenario(goal, conservativeMonthly),
-		Baseline:                  service.buildForecastScenario(goal, baseMonthlyProfitCents),
-		Optimistic:                service.buildForecastScenario(goal, optimisticMonthly),
-	}
+		Conservative:              buildCashflowForecastScenario(goal, events, conservativeRetention, today),
+		Baseline:                  buildCashflowForecastScenario(goal, events, baselineRetention, today),
+		Optimistic:                buildCashflowForecastScenario(goal, events, optimisticRetention, today),
+	}, nil
 }
 
-func (service *SubscriptionService) buildForecastScenario(goal BusinessGoalProgress, monthlyProfitCents int64) ForecastScenario {
-	scenario := ForecastScenario{MonthlyProfitCents: monthlyProfitCents}
+func forecastRetentionPercents(readiness PredictionReadiness) (int, int, int) {
+	if readiness.RenewalOutcomeCount <= 0 {
+		// Until the business has observed real renewal outcomes, use explicit
+		// planning assumptions rather than pretending that a statistical model
+		// has learned from an empty cohort.
+		return 80, 90, 98
+	}
+	mean, low, high := betaPosteriorApproximation(
+		readiness.RenewalSuccessCount,
+		readiness.ChurnOutcomeCount,
+	)
+	return clampPercent(low), clampPercent(mean), clampPercent(high)
+}
+
+func clampPercent(value int) int {
+	return maxInt(0, minInt(value, 100))
+}
+
+func buildCashflowForecastScenario(
+	goal BusinessGoalProgress,
+	events []forecastCashEvent,
+	retentionPercent int,
+	today time.Time,
+) ForecastScenario {
+	dailyProfit := make(map[string]int64)
+	firstYearEnd := today.AddDate(1, 0, 0)
+	var firstYearProfitCents int64
+	retention := float64(clampPercent(retentionPercent)) / 100
+	for _, event := range events {
+		expectedNetCents := event.RecurringNetCents
+		if event.RenewalNumber > 0 {
+			expectedNetCents = int64(math.Round(
+				float64(event.RecurringNetCents) * math.Pow(retention, float64(event.RenewalNumber)),
+			))
+		}
+		profitCents := expectedNetCents - event.FixedCostCents
+		day := cycle.FormatDate(event.Date)
+		dailyProfit[day] += profitCents
+		if !event.Date.After(firstYearEnd) {
+			firstYearProfitCents += profitCents
+		}
+	}
+	scenario := ForecastScenario{MonthlyProfitCents: firstYearProfitCents / 12}
 	if goal.RemainingProfitCents <= 0 {
-		scenario.ProjectedDate = cycle.FormatDate(service.now())
+		scenario.ProjectedDate = cycle.FormatDate(today)
 		return scenario
 	}
-	if monthlyProfitCents <= 0 {
-		return scenario
+	days := make([]string, 0, len(dailyProfit))
+	for day := range dailyProfit {
+		days = append(days, day)
 	}
-	daysNeeded := divideRoundUp(goal.RemainingProfitCents*30, monthlyProfitCents)
-	projected := cycle.StartOfDay(service.now()).AddDate(0, 0, int(daysNeeded))
-	scenario.MonthsNeeded = math.Round(float64(daysNeeded)/30*10) / 10
-	scenario.ProjectedDate = cycle.FormatDate(projected)
+	sort.Strings(days)
+	var accumulatedProfitCents int64
+	for _, day := range days {
+		accumulatedProfitCents += dailyProfit[day]
+		if accumulatedProfitCents < goal.RemainingProfitCents {
+			continue
+		}
+		projectedAt, err := time.ParseInLocation("2006-01-02", day, cycle.Location)
+		if err != nil {
+			return scenario
+		}
+		daysNeeded := int(cycle.StartOfDay(projectedAt).Sub(today).Hours() / 24)
+		scenario.MonthsNeeded = math.Round(float64(daysNeeded)/30.4375*10) / 10
+		scenario.ProjectedDate = day
+		break
+	}
 	return scenario
 }
 
@@ -734,48 +924,109 @@ func (service *SubscriptionService) loadMarketPrice(force bool) (MarketPriceView
 	service.marketRefreshMu.Lock()
 	defer service.marketRefreshMu.Unlock()
 
-	latest, latestErr := service.Store.LatestMarketPriceSnapshot(marketProvider, marketProduct)
-	if latestErr != nil && latestErr != sql.ErrNoRows {
-		return MarketPriceView{SourceURL: marketSourcePageURL}, latestErr
+	acquisition, acquisitionErr := service.Store.LatestMarketPriceSnapshot(
+		marketProvider,
+		marketAcquisitionProduct,
+	)
+	if acquisitionErr != nil && acquisitionErr != sql.ErrNoRows {
+		return MarketPriceView{SourceURL: marketSourcePageURL}, acquisitionErr
 	}
-	hasLatest := latestErr == nil
-	if !force && hasLatest && service.now().Sub(latest.CreatedAt.In(cycle.Location)) < marketCacheTTL {
+	renewal, renewalErr := service.Store.LatestMarketPriceSnapshot(marketProvider, marketProduct)
+	if renewalErr != nil && renewalErr != sql.ErrNoRows {
+		return MarketPriceView{SourceURL: marketSourcePageURL}, renewalErr
+	}
+	hasSplitSnapshots := acquisitionErr == nil && renewalErr == nil
+	latest := marketPriceSnapshots{Acquisition: acquisition, Renewal: renewal}
+	if !force && hasSplitSnapshots &&
+		service.now().Sub(acquisition.CreatedAt.In(cycle.Location)) < marketCacheTTL &&
+		service.now().Sub(renewal.CreatedAt.In(cycle.Location)) < marketCacheTTL {
 		return service.marketPriceView(latest, false, ""), nil
 	}
 
-	refreshed, err := service.fetchMarketPriceSnapshot()
+	refreshed, err := service.fetchMarketPriceSnapshots()
 	if err == nil {
-		if _, insertErr := service.Store.InsertMarketPriceSnapshot(refreshed); insertErr != nil {
+		if insertErr := service.Store.InsertMarketPriceSnapshots([]model.MarketPriceSnapshot{
+			refreshed.Acquisition,
+			refreshed.Renewal,
+		}); insertErr != nil {
 			return MarketPriceView{SourceURL: marketSourcePageURL}, insertErr
 		}
 		return service.marketPriceView(refreshed, false, ""), nil
 	}
-	if hasLatest {
+	if hasSplitSnapshots {
 		return service.marketPriceView(latest, true, "行情更新失败，当前显示最近一次缓存"), nil
+	}
+	if acquisitionErr == nil || renewalErr == nil {
+		fallback := acquisition
+		if renewalErr == nil {
+			fallback = renewal
+		}
+		partial := marketPriceSnapshots{Acquisition: fallback, Renewal: fallback}
+		if acquisitionErr == nil {
+			partial.Acquisition = acquisition
+		}
+		if renewalErr == nil {
+			partial.Renewal = renewal
+		}
+		return service.marketPriceView(
+			partial,
+			true,
+			"行情更新失败，暂时使用未完整拆分的新购/续费缓存",
+		), nil
+	}
+	legacy, legacyErr := service.Store.LatestMarketPriceSnapshot(marketProvider, legacyMarketProduct)
+	if legacyErr == nil {
+		legacySnapshots := marketPriceSnapshots{Acquisition: legacy, Renewal: legacy}
+		return service.marketPriceView(
+			legacySnapshots,
+			true,
+			"行情更新失败，暂时使用尚未拆分新购与续费的历史缓存",
+		), nil
+	}
+	if legacyErr != sql.ErrNoRows {
+		return MarketPriceView{SourceURL: marketSourcePageURL}, legacyErr
 	}
 	return MarketPriceView{SourceURL: marketSourcePageURL}, fmt.Errorf("暂时无法获取市场行情：%w", err)
 }
 
 func (service *SubscriptionService) marketPriceView(
-	snapshot model.MarketPriceSnapshot,
+	snapshots marketPriceSnapshots,
 	stale bool,
 	warning string,
 ) MarketPriceView {
-	history, err := service.Store.ListMarketPriceSnapshots(marketProvider, marketProduct, marketHistoryLimit)
-	if err != nil {
-		history = []model.MarketPriceSnapshot{snapshot}
+	acquisitionHistory := service.marketPriceHistory(
+		marketAcquisitionProduct,
+		snapshots.Acquisition,
+	)
+	renewalHistory := service.marketPriceHistory(marketProduct, snapshots.Renewal)
+	acquisition := snapshots.Acquisition
+	renewal := snapshots.Renewal
+	return MarketPriceView{
+		Available:           true,
+		Stale:               stale,
+		Warning:             warning,
+		SourceURL:           marketSourcePageURL,
+		Snapshot:            &renewal,
+		History:             renewalHistory,
+		AcquisitionSnapshot: &acquisition,
+		RenewalSnapshot:     &renewal,
+		AcquisitionHistory:  acquisitionHistory,
+		RenewalHistory:      renewalHistory,
+	}
+}
+
+func (service *SubscriptionService) marketPriceHistory(
+	product string,
+	fallback model.MarketPriceSnapshot,
+) []model.MarketPriceSnapshot {
+	history, err := service.Store.ListMarketPriceSnapshots(marketProvider, product, marketHistoryLimit)
+	if err != nil || len(history) == 0 {
+		history = []model.MarketPriceSnapshot{fallback}
 	}
 	for left, right := 0, len(history)-1; left < right; left, right = left+1, right-1 {
 		history[left], history[right] = history[right], history[left]
 	}
-	return MarketPriceView{
-		Available: true,
-		Stale:     stale,
-		Warning:   warning,
-		SourceURL: marketSourcePageURL,
-		Snapshot:  &snapshot,
-		History:   history,
-	}
+	return history
 }
 
 type priceAIOffersResponse struct {
@@ -795,14 +1046,14 @@ type priceAIOffer struct {
 	SourceUpdatedAt *time.Time `json:"sourceUpdatedAt"`
 }
 
-func (service *SubscriptionService) fetchMarketPriceSnapshot() (model.MarketPriceSnapshot, error) {
+func (service *SubscriptionService) fetchMarketPriceSnapshots() (marketPriceSnapshots, error) {
 	marketURL := strings.TrimSpace(service.MarketPriceURL)
 	if marketURL == "" {
 		marketURL = defaultMarketPriceURL
 	}
 	request, err := http.NewRequest(http.MethodGet, marketURL, nil)
 	if err != nil {
-		return model.MarketPriceSnapshot{}, err
+		return marketPriceSnapshots{}, err
 	}
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("User-Agent", "CarpoolNotify/1.0 market-monitor")
@@ -812,45 +1063,75 @@ func (service *SubscriptionService) fetchMarketPriceSnapshot() (model.MarketPric
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return model.MarketPriceSnapshot{}, err
+		return marketPriceSnapshots{}, err
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return model.MarketPriceSnapshot{}, fmt.Errorf("PriceAI returned HTTP %d", response.StatusCode)
+		return marketPriceSnapshots{}, fmt.Errorf("PriceAI returned HTTP %d", response.StatusCode)
 	}
 	var payload priceAIOffersResponse
 	decoder := json.NewDecoder(io.LimitReader(response.Body, maxMarketResponseBytes))
 	if err := decoder.Decode(&payload); err != nil {
-		return model.MarketPriceSnapshot{}, fmt.Errorf("decode PriceAI response: %w", err)
+		return marketPriceSnapshots{}, fmt.Errorf("decode PriceAI response: %w", err)
 	}
-	prices, sourceUpdatedAt := comparableMarketPrices(payload.Offers)
-	if len(prices) < 3 {
-		return model.MarketPriceSnapshot{}, fmt.Errorf("可比的在售 Team 单席位报价不足 3 条")
+	acquisitionPrices, acquisitionUpdatedAt := comparableMarketPrices(payload.Offers, marketOfferAcquisition)
+	renewalPrices, renewalUpdatedAt := comparableMarketPrices(payload.Offers, marketOfferRenewal)
+	if len(acquisitionPrices) < 3 {
+		return marketPriceSnapshots{}, fmt.Errorf("可比的新购 Team 单席位报价不足 3 条")
 	}
-	if sourceUpdatedAt.IsZero() {
-		sourceUpdatedAt = payload.GeneratedAt
+	if len(renewalPrices) < 3 {
+		return marketPriceSnapshots{}, fmt.Errorf("可比的续费 Team 单席位报价不足 3 条")
 	}
-	if sourceUpdatedAt.IsZero() {
-		sourceUpdatedAt = service.now().UTC()
+	if acquisitionUpdatedAt.IsZero() {
+		acquisitionUpdatedAt = payload.GeneratedAt
 	}
-	return model.MarketPriceSnapshot{
-		Provider:         marketProvider,
-		Product:          marketProduct,
-		LowPriceCents:    percentileCents(prices, 0.25),
-		MedianPriceCents: percentileCents(prices, 0.50),
-		HighPriceCents:   percentileCents(prices, 0.75),
-		SampleCount:      len(prices),
-		SourceUpdatedAt:  sourceUpdatedAt.UTC(),
-		CreatedAt:        service.now().UTC(),
+	if acquisitionUpdatedAt.IsZero() {
+		acquisitionUpdatedAt = service.now().UTC()
+	}
+	if renewalUpdatedAt.IsZero() {
+		renewalUpdatedAt = payload.GeneratedAt
+	}
+	if renewalUpdatedAt.IsZero() {
+		renewalUpdatedAt = service.now().UTC()
+	}
+	createdAt := service.now().UTC()
+	return marketPriceSnapshots{
+		Acquisition: model.MarketPriceSnapshot{
+			Provider:         marketProvider,
+			Product:          marketAcquisitionProduct,
+			LowPriceCents:    percentileCents(acquisitionPrices, 0.25),
+			MedianPriceCents: percentileCents(acquisitionPrices, 0.50),
+			HighPriceCents:   percentileCents(acquisitionPrices, 0.75),
+			SampleCount:      len(acquisitionPrices),
+			SourceUpdatedAt:  acquisitionUpdatedAt.UTC(),
+			CreatedAt:        createdAt,
+		},
+		Renewal: model.MarketPriceSnapshot{
+			Provider:         marketProvider,
+			Product:          marketProduct,
+			LowPriceCents:    percentileCents(renewalPrices, 0.25),
+			MedianPriceCents: percentileCents(renewalPrices, 0.50),
+			HighPriceCents:   percentileCents(renewalPrices, 0.75),
+			SampleCount:      len(renewalPrices),
+			SourceUpdatedAt:  renewalUpdatedAt.UTC(),
+			CreatedAt:        createdAt,
+		},
 	}, nil
 }
 
-func comparableMarketPrices(offers []priceAIOffer) ([]int64, time.Time) {
+type marketOfferSegment string
+
+const (
+	marketOfferAcquisition marketOfferSegment = "acquisition"
+	marketOfferRenewal     marketOfferSegment = "renewal"
+)
+
+func comparableMarketPrices(offers []priceAIOffer, segment marketOfferSegment) ([]int64, time.Time) {
 	prices := make([]int64, 0, len(offers))
 	seen := make(map[string]struct{})
 	var newest time.Time
 	for _, offer := range offers {
-		if !isComparableMarketOffer(offer) {
+		if !isComparableMarketOffer(offer) || marketSegmentForOffer(offer) != segment {
 			continue
 		}
 		priceCents := int64(math.Round(offer.Price * 100))
@@ -866,6 +1147,30 @@ func comparableMarketPrices(offers []priceAIOffer) ([]int64, time.Time) {
 	}
 	sort.Slice(prices, func(left int, right int) bool { return prices[left] < prices[right] })
 	return prices, newest
+}
+
+func marketSegmentForOffer(offer priceAIOffer) marketOfferSegment {
+	title := strings.ToLower(strings.TrimSpace(offer.SourceTitle))
+	// Strong product markers take precedence over incidental copy. Acquisition
+	// offers often advertise that they "can be renewed indefinitely", while a
+	// renewal-code offer may tell first-time buyers to purchase an activation
+	// code. Looking for the generic word "renew" first reverses both products.
+	for _, keyword := range []string{"续费码", "renewal code", "renew code"} {
+		if strings.Contains(title, keyword) {
+			return marketOfferRenewal
+		}
+	}
+	for _, keyword := range []string{"首次激活", "初次激活", "激活码", "新购", "activation code", "first activation"} {
+		if strings.Contains(title, keyword) {
+			return marketOfferAcquisition
+		}
+	}
+	for _, keyword := range []string{"续费", "renewal", "renew"} {
+		if strings.Contains(title, keyword) {
+			return marketOfferRenewal
+		}
+	}
+	return marketOfferAcquisition
 }
 
 func isComparableMarketOffer(offer priceAIOffer) bool {
@@ -885,7 +1190,7 @@ func isComparableMarketOffer(offer priceAIOffer) bool {
 			return false
 		}
 	}
-	for _, included := range []string{"席位", "slot", "激活码", "续费码"} {
+	for _, included := range []string{"席位", "slot", "激活码", "续费", "renewal", "renew"} {
 		if strings.Contains(title, included) {
 			return true
 		}
@@ -1086,6 +1391,16 @@ func (service *SubscriptionService) buildPricingCandidates(
 		return nil, err
 	}
 	billHistories := summarizePricingBillHistories(bills, refundedBillIDs)
+	paidDueDatesBySubscription := make(map[int64][]string)
+	for _, bill := range bills {
+		paidDueDatesBySubscription[bill.SubscriptionID] = append(
+			paidDueDatesBySubscription[bill.SubscriptionID],
+			strings.TrimSpace(bill.DueDate),
+		)
+	}
+	for subscriptionID := range paidDueDatesBySubscription {
+		sort.Strings(paidDueDatesBySubscription[subscriptionID])
+	}
 	exemptions, err := service.Store.ListPricingExemptions()
 	if err != nil {
 		return nil, err
@@ -1194,7 +1509,12 @@ func (service *SubscriptionService) buildPricingCandidates(
 				cycle.FormatDate(recoveryEndsAt),
 			)
 		}
-		view, viewErr := service.buildView(subscription, service.now(), "")
+		view, viewErr := service.buildViewWithPaidDueDates(
+			subscription,
+			service.now(),
+			"",
+			paidDueDatesBySubscription[subscription.ID],
+		)
 		if viewErr != nil {
 			block("invalid_schedule", "计费周期无效，无法确定下次续费日", "")
 		} else {

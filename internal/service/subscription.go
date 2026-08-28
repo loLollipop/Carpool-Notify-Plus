@@ -252,6 +252,19 @@ func (service *SubscriptionService) buildView(
 	now time.Time,
 	lastError string,
 ) (SubscriptionView, error) {
+	paidDueDates, err := service.Store.ListPaidDueDatesForSubscription(subscription.ID)
+	if err != nil {
+		return SubscriptionView{}, err
+	}
+	return service.buildViewWithPaidDueDates(subscription, now, lastError, paidDueDates)
+}
+
+func (service *SubscriptionService) buildViewWithPaidDueDates(
+	subscription model.Subscription,
+	now time.Time,
+	lastError string,
+	paidDueDates []string,
+) (SubscriptionView, error) {
 	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
 	if err != nil {
 		return SubscriptionView{}, err
@@ -283,10 +296,6 @@ func (service *SubscriptionService) buildView(
 	periodStart := nextDue
 	if hasLastDue {
 		periodStart = lastDue
-	}
-	paidDueDates, err := service.Store.ListPaidDueDatesForSubscription(subscription.ID)
-	if err != nil {
-		return SubscriptionView{}, err
 	}
 	paidDueSet := make(map[string]struct{}, len(paidDueDates))
 	for _, dueDate := range paidDueDates {

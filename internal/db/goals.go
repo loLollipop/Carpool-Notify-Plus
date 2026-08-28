@@ -141,6 +141,43 @@ func (store *Store) InsertMarketPriceSnapshot(snapshot model.MarketPriceSnapshot
 	return result.LastInsertId()
 }
 
+// InsertMarketPriceSnapshots stores one market refresh atomically. Acquisition
+// and renewal benchmarks must never come from different refreshes because the
+// goal center compares them side by side and uses them for different actions.
+func (store *Store) InsertMarketPriceSnapshots(snapshots []model.MarketPriceSnapshot) error {
+	if len(snapshots) == 0 {
+		return nil
+	}
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	for _, snapshot := range snapshots {
+		createdAt := snapshot.CreatedAt
+		if createdAt.IsZero() {
+			createdAt = time.Now().UTC()
+		}
+		if _, err := transaction.Exec(`
+			INSERT INTO market_price_snapshots (
+				provider, product, low_price_cents, median_price_cents,
+				high_price_cents, sample_count, source_updated_at, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			snapshot.Provider,
+			snapshot.Product,
+			snapshot.LowPriceCents,
+			snapshot.MedianPriceCents,
+			snapshot.HighPriceCents,
+			snapshot.SampleCount,
+			formatTime(snapshot.SourceUpdatedAt.UTC()),
+			formatTime(createdAt.UTC()),
+		); err != nil {
+			return err
+		}
+	}
+	return transaction.Commit()
+}
+
 func (store *Store) LatestMarketPriceSnapshot(provider string, product string) (model.MarketPriceSnapshot, error) {
 	row := store.database.QueryRow(`
 		SELECT id, provider, product, low_price_cents, median_price_cents,
