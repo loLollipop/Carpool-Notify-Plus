@@ -851,10 +851,11 @@ func (service *SubscriptionService) buildProfitForecast(
 }
 
 func forecastRetentionPercents(readiness PredictionReadiness) (int, int, int) {
-	if readiness.RenewalOutcomeCount <= 0 {
-		// Until the business has observed real renewal outcomes, use explicit
-		// planning assumptions rather than pretending that a statistical model
-		// has learned from an empty cohort.
+	if readiness.RenewalOutcomeCount < minimumBetaBinomialOutcomes {
+		// Keep the forecast aligned with PredictionReadiness: until the sample
+		// gate is met, a handful of early renewals or cancellations must not
+		// drive a statistically presented retention curve. Use explicit planning
+		// assumptions for the small-sample stage instead.
 		return 80, 90, 98
 	}
 	mean, low, high := betaPosteriorApproximation(

@@ -476,6 +476,61 @@ func TestCashflowForecastAppliesScheduledPriceOnlyFromEffectiveDueDate(t *testin
 	}
 }
 
+func TestForecastRetentionUsesPlanningAssumptionsUntilSampleGate(t *testing.T) {
+	testCases := []struct {
+		name       string
+		successes  int
+		churns     int
+		wantLow    int
+		wantBase   int
+		wantHigh   int
+	}{
+		{
+			name:      "no outcomes",
+			wantLow:   80,
+			wantBase:  90,
+			wantHigh:  98,
+		},
+		{
+			name:      "early mixed outcomes",
+			successes: 3,
+			churns:    2,
+			wantLow:   80,
+			wantBase:  90,
+			wantHigh:  98,
+		},
+		{
+			name:      "sample gate reached",
+			successes: 18,
+			churns:    2,
+			wantLow:   75,
+			wantBase:  88,
+			wantHigh:  100,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			low, baseline, high := forecastRetentionPercents(PredictionReadiness{
+				RenewalOutcomeCount: testCase.successes + testCase.churns,
+				RenewalSuccessCount: testCase.successes,
+				ChurnOutcomeCount:   testCase.churns,
+			})
+			if low != testCase.wantLow || baseline != testCase.wantBase || high != testCase.wantHigh {
+				t.Fatalf(
+					"retention = (%d, %d, %d), want (%d, %d, %d)",
+					low,
+					baseline,
+					high,
+					testCase.wantLow,
+					testCase.wantBase,
+					testCase.wantHigh,
+				)
+			}
+		})
+	}
+}
+
 func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) {
 	service := openGoalTestService(t)
 	accountID, err := service.CreateAccount(CreateAccountInput{
