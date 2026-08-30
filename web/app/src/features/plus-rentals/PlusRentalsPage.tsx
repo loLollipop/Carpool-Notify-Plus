@@ -475,6 +475,7 @@ export function PlusRentalsPage() {
     successMessage: t("plusRentals.ended"),
     onSuccess: (data) => {
       setArchiveTarget(null)
+      if (data.archived) return
       setCancellationResult({
         caseId: data.case_id ?? 0,
         expiresAtLabel: data.expires_at_label ?? "",
@@ -680,9 +681,21 @@ export function PlusRentalsPage() {
         onOpenChange={(open) => {
           if (!open) setArchiveTarget(null)
         }}
-        title={t("plusRentals.endTitle")}
-        description={t("plusRentals.endDesc", { name: archiveTarget?.subscription.name ?? "" })}
-        actionLabel={t("plusRentals.endAction")}
+        title={
+          archiveTarget && archiveTarget.days_remaining <= 0
+            ? t("confirms.naturalEndTitle")
+            : t("plusRentals.endTitle")
+        }
+        description={
+          archiveTarget && archiveTarget.days_remaining <= 0
+            ? t("confirms.naturalEndDesc", { name: archiveTarget.subscription.name })
+            : t("plusRentals.endDesc", { name: archiveTarget?.subscription.name ?? "" })
+        }
+        actionLabel={
+          archiveTarget && archiveTarget.days_remaining <= 0
+            ? t("confirms.naturalEndAction")
+            : t("plusRentals.endAction")
+        }
         destructive
         pending={archiveMutation.isPending}
         onConfirm={() => {

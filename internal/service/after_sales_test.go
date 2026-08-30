@@ -195,6 +195,76 @@ func TestCancellationFreezesSeatForDefaultWindowAfterRefund(t *testing.T) {
 	}
 }
 
+func TestCancellationOnUnpaidDueDateArchivesWithoutAfterSales(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 31, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	accountID, subscriptionID := createWarrantyCustomer(
+		t,
+		subscriptionService,
+		"2026-08-01",
+		true,
+	)
+
+	result, err := subscriptionService.RequestCancellation(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Archived || result.CaseID != 0 || result.ExpiresAt != "" {
+		t.Fatalf("natural-expiry result = %#v", result)
+	}
+	if _, err := subscriptionService.Store.GetSubscription(subscriptionID); err != sql.ErrNoRows {
+		t.Fatalf("active subscription after natural expiry error = %v, want sql.ErrNoRows", err)
+	}
+	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.ArchivedAt == nil || archived.SeatFrozenUntil != nil {
+		t.Fatalf("naturally expired subscription = %#v", archived)
+	}
+	afterSalesCount, err := subscriptionService.Store.CountAfterSalesCasesBySubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterSalesCount != 0 {
+		t.Fatalf("natural expiry created %d after-sales cases", afterSalesCount)
+	}
+	freeSeats, err := subscriptionService.Store.ListFreeSeatsAt(accountID, 0, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(freeSeats) != 1 {
+		t.Fatalf("natural expiry left %d free seats, want 1", len(freeSeats))
+	}
+}
+
+func TestCancellationOnPaidRenewalDateStillUsesAfterSales(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 31, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	_, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-08-01", true)
+	if err := subscriptionService.Store.SetDuePaid(subscriptionID, "2026-08-31", true, 3000); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := subscriptionService.RequestCancellation(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Archived || result.CaseID <= 0 || result.ExpiresAt == "" {
+		t.Fatalf("renewed-cycle cancellation result = %#v", result)
+	}
+	caseItem, err := subscriptionService.Store.GetAfterSalesCase(result.CaseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if caseItem.PeriodStart != "2026-08-31" || caseItem.PeriodEnd != "2026-09-30" ||
+		caseItem.RemainingDays != 30 || caseItem.RefundAmountCents != 3000 {
+		t.Fatalf("renewed-cycle after-sales case = %#v", caseItem)
+	}
+}
+
 func TestCancellationUsesConfiguredSeatFreezeWindow(t *testing.T) {
 	subscriptionService := openTestService(t)
 	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)

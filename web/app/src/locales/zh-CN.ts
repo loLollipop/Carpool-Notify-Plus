@@ -1141,6 +1141,9 @@ export default {
         "本次提醒已按调价后的 ¥{{next}} 生成（当前 ¥{{current}}，{{date}} 起生效）。",
     },
     confirms: {
+      naturalEndTitle: "确认到期结束？",
+      naturalEndDesc: "「{{name}}」当前周期已到期，将直接归档且不创建售后记录；历史账单会保留。",
+      naturalEndAction: "确认到期结束",
       archiveTitle: "确认退订？",
       archiveDesc:
         "「{{name}}」将进入售后待处理并停止发送提醒。处理完成前仍占用原车位；确认退款后正式归档，原车位按管理员设置进入冻结期。24 小时未处理将自动恢复订阅。",

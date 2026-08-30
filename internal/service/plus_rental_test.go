@@ -706,3 +706,44 @@ func TestOneMonthPlusRentalCompletesWithoutAfterSales(t *testing.T) {
 		t.Fatalf("after-sales count = %d, want 0", afterSalesCount)
 	}
 }
+
+func TestRecurringPlusRentalEndsWithoutAfterSalesOnDueDate(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.July, 31, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:           "Recurring Plus natural expiry",
+		BusinessType:   model.SubscriptionBusinessPlus,
+		PriceYuan:      "68.00",
+		CostYuan:       "20.00",
+		CronExpr:       "interval:30d",
+		CustomerEmail:  "recurring-plus-expiry@example.com",
+		CustomerWechat: "wx-recurring-plus-expiry",
+		BoardedAt:      "2026-07-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := subscriptionService.RequestCancellation(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Archived || result.CaseID != 0 {
+		t.Fatalf("Plus natural-expiry result = %#v", result)
+	}
+	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.ArchivedAt == nil || archived.SeatFrozenUntil != nil {
+		t.Fatalf("naturally expired Plus rental = %#v", archived)
+	}
+	afterSalesCount, err := subscriptionService.Store.CountAfterSalesCasesBySubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterSalesCount != 0 {
+		t.Fatalf("Plus natural expiry created %d after-sales cases", afterSalesCount)
+	}
+}

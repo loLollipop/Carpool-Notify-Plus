@@ -377,6 +377,7 @@ export function CardsPage() {
     id: number
     name: string
     plusRental: boolean
+    naturalEnd: boolean
   } | null>(null)
   const [cancellationResult, setCancellationResult] = React.useState<{
     caseId: number
@@ -715,6 +716,7 @@ export function CardsPage() {
                     id: item.subscription.id,
                     name: item.subscription.name,
                     plusRental: item.subscription.business_type === "plus",
+                    naturalEnd: item.days_remaining <= 0,
                   })
                 }
                 onGoAfterSales={(caseId) => navigate(`/after-sales?case=${caseId}`)}
@@ -782,17 +784,23 @@ export function CardsPage() {
           if (!open) setArchiveTarget(null)
         }}
         title={
-          archiveTarget?.plusRental
+          archiveTarget?.naturalEnd
+            ? t("confirms.naturalEndTitle")
+            : archiveTarget?.plusRental
             ? t("confirms.endRentalTitle")
             : t("confirms.archiveTitle")
         }
         description={
-          archiveTarget?.plusRental
+          archiveTarget?.naturalEnd
+            ? t("confirms.naturalEndDesc", { name: archiveTarget.name })
+            : archiveTarget?.plusRental
             ? t("confirms.endRentalDesc", { name: archiveTarget.name })
             : t("confirms.archiveDesc", { name: archiveTarget?.name ?? "" })
         }
         actionLabel={
-          archiveTarget?.plusRental
+          archiveTarget?.naturalEnd
+            ? t("confirms.naturalEndAction")
+            : archiveTarget?.plusRental
             ? t("confirms.endRentalAction")
             : t("confirms.archiveAction")
         }

@@ -1142,6 +1142,9 @@ export default {
         "This reminder uses the scheduled ¥{{next}} price (currently ¥{{current}}, effective {{date}}).",
     },
     confirms: {
+      naturalEndTitle: "Confirm natural expiry?",
+      naturalEndDesc: "“{{name}}” has reached the end of its paid period. It will be archived without an after-sales case, while billing history is retained.",
+      naturalEndAction: "Confirm expiry",
       archiveTitle: "Cancel this subscription?",
       archiveDesc:
         "“{{name}}” will enter after-sales review and reminders will pause. After the refund, the current seat remains reserved for the configured freeze window. Unresolved requests are restored automatically after 24 hours.",

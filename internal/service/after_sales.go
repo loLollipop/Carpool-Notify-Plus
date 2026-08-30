@@ -34,6 +34,7 @@ type CancellationRequestResult struct {
 	CaseID         int64  `json:"case_id"`
 	ExpiresAt      string `json:"expires_at"`
 	ExpiresAtLabel string `json:"expires_at_label"`
+	Archived       bool   `json:"archived"`
 }
 
 type AfterSalesSummary struct {
@@ -96,6 +97,27 @@ func (service *SubscriptionService) RequestCancellation(subscriptionID int64) (C
 		return CancellationRequestResult{}, err
 	}
 	requestedAt := service.now()
+	subscription, err := service.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return CancellationRequestResult{}, fmt.Errorf("订阅不存在或已经退订")
+		}
+		return CancellationRequestResult{}, err
+	}
+	view, err := service.buildView(subscription, requestedAt, "")
+	if err != nil {
+		return CancellationRequestResult{}, err
+	}
+	// The first unpaid due date is the end of the customer's paid service.
+	// Ending on or after that date is natural expiry, not an after-sales event.
+	// If that due date has already been paid, buildView advances to the next
+	// unpaid cycle and an immediate cancellation still follows after-sales.
+	if view.DaysRemaining <= 0 {
+		if err := service.Archive(subscriptionID); err != nil {
+			return CancellationRequestResult{}, err
+		}
+		return CancellationRequestResult{Archived: true}, nil
+	}
 	expiresAt := requestedAt.Add(cancellationGracePeriod)
 	caseItem, err := service.Store.RequestSubscriptionCancellation(
 		subscriptionID,

@@ -824,12 +824,24 @@ func (server *Server) postArchiveSubscription(context *gin.Context) {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
 	}
+	if result.Archived {
+		message := "订阅已到期结束，未创建售后记录"
+		if subscription.BusinessType == model.SubscriptionBusinessPlus {
+			message = "Plus 出租已到期结束，未创建售后记录"
+		}
+		respondOK(context, gin.H{
+			"message":  message,
+			"archived": true,
+		})
+		return
+	}
 	message := "已进入退订售后，退款完成后原车位将进入冻结期"
 	if subscription.BusinessType == model.SubscriptionBusinessPlus {
 		message = "Plus 出租已进入售后处理，确认退款后将自动归档"
 	}
 	respondOK(context, gin.H{
 		"message":          message,
+		"archived":         false,
 		"case_id":          result.CaseID,
 		"expires_at":       result.ExpiresAt,
 		"expires_at_label": result.ExpiresAtLabel,
