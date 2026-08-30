@@ -581,8 +581,13 @@ func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) 
 	if len(center.Candidates) != 2 || !center.Candidates[0].Recommended || center.Candidates[0].MarketPosition != "below_low" {
 		t.Fatalf("pricing candidates = %#v", center.Candidates)
 	}
-	if center.Candidates[0].SuggestedPriceCents != 9720 || center.Candidates[0].MaxIncreasePriceCents != 9720 {
+	if center.Candidates[0].SuggestedPriceCents != 9700 || center.Candidates[0].MaxIncreasePriceCents != 9700 {
 		t.Fatalf("first gradual suggestion = %#v", center.Candidates[0])
+	}
+	for _, candidate := range center.Candidates {
+		if candidate.SuggestedPriceCents%100 != 0 || candidate.MaxIncreasePriceCents%100 != 0 {
+			t.Fatalf("recommended prices must use whole yuan = %#v", candidate)
+		}
 	}
 	if center.Candidates[1].MarketPosition != "below_low" || !center.Candidates[1].Recommended {
 		t.Fatalf("second candidate = %#v", center.Candidates[1])
@@ -592,7 +597,7 @@ func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) 
 		t.Fatalf("goal-center customer tiers = %#v", center.Candidates)
 	}
 	if center.Repricing.RecommendedCount != 2 || center.Repricing.EligibleCount != 2 ||
-		center.Repricing.BelowMarketCount != 2 || center.Repricing.EstimatedMonthlyUpliftCents != 1476 ||
+		center.Repricing.BelowMarketCount != 2 || center.Repricing.EstimatedMonthlyUpliftCents != 1418 ||
 		len(center.Repricing.Windows) != 5 || center.Repricing.Windows[0].Key != "ready" ||
 		center.Repricing.Windows[0].Count != 2 || center.Repricing.RiskSegments[1].Count != 2 ||
 		center.Repricing.RelationshipSegments[2].Count != 2 {
@@ -704,8 +709,11 @@ func TestQuarterlyPricingUsesMonthlyComparablePriceWithoutChangingCycleAmounts(t
 		t.Fatalf("quarterly market comparison = %#v", candidate)
 	}
 	if candidate.SuggestedPriceCents != 34200 || candidate.SuggestedMonthlyPriceCents != 11400 ||
-		candidate.MaxIncreasePriceCents != 35640 {
+		candidate.MaxIncreasePriceCents != 35600 {
 		t.Fatalf("quarterly cycle suggestion = %#v", candidate)
+	}
+	if candidate.SuggestedPriceCents%100 != 0 || candidate.MaxIncreasePriceCents%100 != 0 {
+		t.Fatalf("quarterly recommendations must use whole-yuan cycle prices = %#v", candidate)
 	}
 	if candidate.VerifiedPriceCents != 33000 || candidate.VerifiedMonthlyPriceCents != 11000 ||
 		candidate.VerifiedPriceIndex == nil || *candidate.VerifiedPriceIndex != 92 {

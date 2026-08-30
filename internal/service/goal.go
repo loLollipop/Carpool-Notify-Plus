@@ -1443,8 +1443,12 @@ func (service *SubscriptionService) buildPricingCandidates(
 				marketFactorDenominator,
 				marketFactorNumerator,
 			)
-			maxIncreasePriceCents = maxInt64(maxIncreasePriceCents, subscription.PricePerPersonCents)
 		}
+		// The operator charges whole-yuan cycle amounts. Round the final cycle
+		// ceiling down so monthly and multi-month subscriptions both keep the
+		// gradual-increase safeguard without producing decimal recommendations.
+		maxIncreasePriceCents = roundPriceDownToYuan(maxIncreasePriceCents)
+		maxIncreasePriceCents = maxInt64(maxIncreasePriceCents, subscription.PricePerPersonCents)
 		candidate := PricingCandidate{
 			SubscriptionID:          subscription.ID,
 			Name:                    subscription.Name,
@@ -1584,7 +1588,9 @@ func (service *SubscriptionService) buildPricingCandidates(
 					marketFactorNumerator,
 				)
 			}
-			candidate.SuggestedPriceCents = minInt64(financiallyHealthyCycleTarget, candidate.MaxIncreasePriceCents)
+			candidate.SuggestedPriceCents = roundPriceDownToYuan(
+				minInt64(financiallyHealthyCycleTarget, candidate.MaxIncreasePriceCents),
+			)
 			if candidate.SuggestedPriceCents < subscription.PricePerPersonCents {
 				candidate.SuggestedPriceCents = subscription.PricePerPersonCents
 			}
