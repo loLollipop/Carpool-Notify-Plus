@@ -60,25 +60,16 @@ type CardsFilter = "all" | "due" | "pending" | "paid" | "archived"
 
 const EMPTY_SUBSCRIPTION_VIEWS: SubscriptionView[] = []
 const USERS_PER_PAGE = 9
-const TEAM_ACCOUNT_BORDER_TONES = [
-  "border-brand/35 hover:border-brand/60",
-  "border-chart-2/35 hover:border-chart-2/60",
-  "border-violet/35 hover:border-violet/60",
-  "border-coral/35 hover:border-coral/60",
-  "border-gold/35 hover:border-gold/60",
-  "border-cyan/35 hover:border-cyan/60",
-  "border-success/35 hover:border-success/60",
-] as const
 
-function teamAccountBorderTone(accountId: number) {
+function teamAccountBadgeStyle(accountId: number): React.CSSProperties {
   const stableAccountId = Math.max(1, Math.abs(accountId))
-  return TEAM_ACCOUNT_BORDER_TONES[(stableAccountId - 1) % TEAM_ACCOUNT_BORDER_TONES.length]
-}
-
-function teamAccountKey(view: SubscriptionView) {
-  return view.account_id > 0
-    ? `account-${view.account_id}`
-    : `subscription-${view.subscription.id}`
+  const hue = Math.round((174 + (stableAccountId - 1) * 137.508) % 360)
+  return {
+    "--team-account-color": `hsl(${hue} 68% 48%)`,
+    backgroundColor: "color-mix(in oklab, var(--team-account-color) 14%, transparent)",
+    color: "color-mix(in oklab, var(--team-account-color) 72%, var(--foreground))",
+    boxShadow: "inset 0 0 0 1px color-mix(in oklab, var(--team-account-color) 28%, transparent)",
+  } as React.CSSProperties
 }
 
 function compareTeamSubscriptionViews(left: SubscriptionView, right: SubscriptionView) {
@@ -92,39 +83,6 @@ function compareTeamSubscriptionViews(left: SubscriptionView, right: Subscriptio
   if (accountNameOrder !== 0) return accountNameOrder
   if (left.seat_id !== right.seat_id) return left.seat_id - right.seat_id
   return left.subscription.id - right.subscription.id
-}
-
-function paginateTeamSubscriptions(views: SubscriptionView[], pageSize: number) {
-  if (views.length === 0 || pageSize <= 0) return []
-
-  const groups = new Map<string, SubscriptionView[]>()
-  for (const view of views) {
-    const key = teamAccountKey(view)
-    const group = groups.get(key)
-    if (group) group.push(view)
-    else groups.set(key, [view])
-  }
-
-  const pages: SubscriptionView[][] = []
-  let currentPage: SubscriptionView[] = []
-  for (const group of groups.values()) {
-    if (
-      currentPage.length > 0 &&
-      (group.length > pageSize || currentPage.length + group.length > pageSize)
-    ) {
-      pages.push(currentPage)
-      currentPage = []
-    }
-    for (const view of group) {
-      if (currentPage.length === pageSize) {
-        pages.push(currentPage)
-        currentPage = []
-      }
-      currentPage.push(view)
-    }
-  }
-  if (currentPage.length > 0) pages.push(currentPage)
-  return pages
 }
 
 function normalizeCardsFilter(value: string | null): CardsFilter {
@@ -260,7 +218,7 @@ function SubscriptionCard({
   const cancellationPending = view.cancellation_pending
   const displayedCostYuan = view.allocated_cost_yuan || view.cost_yuan
   const displayedProfitYuan = view.allocated_profit_yuan || view.profit_yuan
-  const accountBorderTone = teamAccountBorderTone(view.account_id)
+  const accountBadgeStyle = teamAccountBadgeStyle(view.account_id)
   const accentClass = archived || cancellationPending
     ? "bg-muted-foreground/35"
     : view.days_remaining <= 0
@@ -272,8 +230,7 @@ function SubscriptionCard({
   return (
     <Card
       className={cn(
-        "group relative gap-0 overflow-hidden p-5 transition-[border-color,background-color] duration-200 animate-fade-up hover:bg-accent/25",
-        accountBorderTone,
+        "group relative gap-0 overflow-hidden p-5 transition-[border-color,background-color] duration-200 animate-fade-up hover:border-input hover:bg-accent/25",
         cancellationPending && "border-dashed bg-muted/55 text-muted-foreground hover:bg-muted/55",
       )}
       style={{ animationDelay: `${Math.min(index * 40, 320)}ms` }}
@@ -284,7 +241,8 @@ function SubscriptionCard({
           <h3 className="flex min-w-0 items-center gap-2 text-[15px] font-semibold">
             {!plusRental && view.account_id > 0 ? (
               <span
-                className="grid size-6 shrink-0 place-items-center rounded-md bg-brand/10 font-mono text-[11px] font-bold text-brand tabular-nums"
+                className="grid size-6 shrink-0 place-items-center rounded-md font-mono text-[11px] font-bold tabular-nums"
+                style={accountBadgeStyle}
                 title={t("accounts.serialTitle", { number: view.account_id })}
               >
                 {view.account_id}
@@ -636,13 +594,10 @@ export function CardsPage() {
     teamRenewalStats.renewedSubscriptionIds,
   ])
 
-  const groupedPages = React.useMemo(
-    () => paginateTeamSubscriptions(filteredViews, USERS_PER_PAGE),
-    [filteredViews],
-  )
-  const pageCount = Math.max(1, groupedPages.length)
+  const pageCount = Math.max(1, Math.ceil(filteredViews.length / USERS_PER_PAGE))
   const safePage = Math.min(currentPage, pageCount)
-  const pagedViews = groupedPages[safePage - 1] ?? []
+  const pageStartIndex = (safePage - 1) * USERS_PER_PAGE
+  const pagedViews = filteredViews.slice(pageStartIndex, pageStartIndex + USERS_PER_PAGE)
 
   const teamSubscriptionIDs = new Set(activeViews.map((view) => view.subscription.id))
   const teamNotificationActivity = (dashboardQuery.data?.notification_activity_30d ?? [])
