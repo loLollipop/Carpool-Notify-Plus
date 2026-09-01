@@ -214,8 +214,8 @@ func TestManualReminderTargetsScheduledPricePeriod(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if subscription.NextPriceEffectiveDueDate != "2026-10-02" {
-		t.Fatalf("effective due date = %q, want 2026-10-02", subscription.NextPriceEffectiveDueDate)
+	if subscription.NextPriceEffectiveDueDate != "2026-09-02" {
+		t.Fatalf("effective due date = %q, want 2026-09-02", subscription.NextPriceEffectiveDueDate)
 	}
 	if err := subscriptionService.SaveCustomerEmailTemplate(
 		"普通续费模板：¥{{.AmountDue}}，到期日 {{.NextDueDate}}",
@@ -236,9 +236,9 @@ func TestManualReminderTargetsScheduledPricePeriod(t *testing.T) {
 		!strings.Contains(body, "调价续费模板") ||
 		!strings.Contains(body, "90.00") ||
 		!strings.Contains(body, "95.00") ||
-		!strings.Contains(body, "2026-10-02") ||
+		!strings.Contains(body, "2026-09-02") ||
 		strings.Contains(body, "普通续费模板") ||
-		strings.Contains(body, "2026-09-02") {
+		strings.Contains(body, "2026-10-02") {
 		t.Fatalf("manual price-increase reminder = subject %q body %q", subject, body)
 	}
 
@@ -248,6 +248,76 @@ func TestManualReminderTargetsScheduledPricePeriod(t *testing.T) {
 	}
 	if rendered != body {
 		t.Fatalf("rendered manual email differs from preview: rendered %q preview %q", rendered, body)
+	}
+
+	periods, err := subscriptionService.ListDuePeriodOptions(subscriptionID, "2026-09-02")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var nextPeriod *service.DuePeriodOption
+	for index := range periods {
+		if periods[index].StartDate == "2026-09-02" {
+			nextPeriod = &periods[index]
+			break
+		}
+	}
+	if nextPeriod == nil || nextPeriod.PriceYuan != "95.00" || !nextPeriod.PriceChangeApplies {
+		t.Fatalf("next billing period did not use scheduled price: %#v", periods)
+	}
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-09-02", true); err != nil {
+		t.Fatal(err)
+	}
+	bill, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-09-02")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bill.AmountCents != 9500 {
+		t.Fatalf("next-period bill amount = %d, want 9500", bill.AmountCents)
+	}
+}
+
+func TestNormalizeScheduledNextPriceRepairsPreviouslyPostponedPeriod(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.September, 1, 10, 0, 0, 0, cycle.Location)
+	}
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "历史延期调价账号", "车位1")
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "历史延期调价用户",
+		PriceYuan:        "90.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "legacy-scheduled@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-08-03",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscription, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextPrice := int64(9500)
+	subscription.NextPriceCents = &nextPrice
+	subscription.NextPriceEffectiveDueDate = "2026-10-02"
+	if err := subscriptionService.Store.UpdateSubscription(subscription); err != nil {
+		t.Fatal(err)
+	}
+
+	repaired, err := subscriptionService.NormalizeScheduledNextPriceEffectiveDates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repaired != 1 {
+		t.Fatalf("repaired = %d, want 1", repaired)
+	}
+	corrected, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if corrected.NextPriceEffectiveDueDate != "2026-09-02" {
+		t.Fatalf("corrected effective date = %q, want 2026-09-02", corrected.NextPriceEffectiveDueDate)
 	}
 }
 

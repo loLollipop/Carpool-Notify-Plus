@@ -50,6 +50,18 @@ func main() {
 		Store:  sandboxStore,
 		Config: configuration,
 	}
+	for label, currentService := range map[string]*service.SubscriptionService{
+		"database":         subscriptionService,
+		"sandbox database": sandboxService,
+	} {
+		repaired, repairErr := currentService.NormalizeScheduledNextPriceEffectiveDates()
+		if repairErr != nil {
+			log.Fatalf("%s scheduled next prices: %v", label, repairErr)
+		}
+		if repaired > 0 {
+			log.Printf("%s: corrected %d postponed next-price effective date(s)", label, repaired)
+		}
+	}
 
 	workingDirectory, err := os.Getwd()
 	if err != nil {

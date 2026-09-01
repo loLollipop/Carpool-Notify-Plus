@@ -1989,6 +1989,42 @@ func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscript
 	return transaction.Commit()
 }
 
+// CorrectNextPriceEffectiveDueDate performs a compare-and-swap update for a
+// scheduled price date. It is used by startup normalization so a concurrent
+// operator edit can never be overwritten by a stale repair decision.
+func (store *Store) CorrectNextPriceEffectiveDueDate(
+	subscriptionID int64,
+	previousDueDate string,
+	correctedDueDate string,
+) (bool, error) {
+	previousDueDate = strings.TrimSpace(previousDueDate)
+	correctedDueDate = strings.TrimSpace(correctedDueDate)
+	if subscriptionID <= 0 || correctedDueDate == "" {
+		return false, fmt.Errorf("invalid scheduled price correction")
+	}
+	result, err := store.database.Exec(`
+		UPDATE subscriptions
+		SET next_price_effective_due_date = ?, updated_at = ?
+		WHERE id = ?
+		  AND deleted_at IS NULL
+		  AND archived_at IS NULL
+		  AND next_price_cents IS NOT NULL
+		  AND TRIM(COALESCE(next_price_effective_due_date, '')) = ?`,
+		correctedDueDate,
+		formatTime(time.Now().UTC()),
+		subscriptionID,
+		previousDueDate,
+	)
+	if err != nil {
+		return false, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return affected == 1, nil
+}
+
 // UpdateSubscriptionAndMoveInitialBill atomically updates a subscription's
 // schedule and re-keys its single initial bill to the corrected first period.
 func (store *Store) UpdateSubscriptionAndMoveInitialBill(

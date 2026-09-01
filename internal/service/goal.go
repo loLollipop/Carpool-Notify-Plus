@@ -2638,9 +2638,6 @@ func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInp
 		if err := service.configureNextPrice(previous, &updated, false); err != nil {
 			return 0, fmt.Errorf("%s：%w", previous.Name, err)
 		}
-		if err := service.ensureMinimumPriceIncreaseNotice(&updated); err != nil {
-			return 0, fmt.Errorf("%s：%w", previous.Name, err)
-		}
 		updates = append(updates, updated)
 	}
 	if len(updates) == 0 {
@@ -2658,7 +2655,8 @@ func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInp
 // ScheduleManualNextPrices lets the operator arrange per-seat future prices
 // from a customer profile. It deliberately bypasses algorithmic timing gates
 // (protection, cooldown, and recovery observation), while retaining hard
-// operational safeguards, atomic writes, and the 30-day advance-notice rule.
+// operational safeguards and atomic writes. A confirmed "next price" always
+// starts at the immediately following unpaid billing period.
 func (service *SubscriptionService) ScheduleManualNextPrices(input ManualNextPricesInput) (int, error) {
 	if len(input.Items) == 0 {
 		return 0, fmt.Errorf("请至少填写一个人工调价价格")
@@ -2728,9 +2726,6 @@ func (service *SubscriptionService) ScheduleManualNextPrices(input ManualNextPri
 		updated := previous
 		updated.NextPriceCents = &nextPriceCents
 		if err := service.configureNextPrice(previous, &updated, false); err != nil {
-			return 0, fmt.Errorf("%s：%w", previous.Name, err)
-		}
-		if err := service.ensureMinimumPriceIncreaseNotice(&updated); err != nil {
 			return 0, fmt.Errorf("%s：%w", previous.Name, err)
 		}
 		updates = append(updates, updated)
@@ -2871,27 +2866,6 @@ func pricingExemptionReviewDate(
 		reviewAt = schedule.NextDue(reviewAt)
 	}
 	return cycle.FormatDate(reviewAt), nil
-}
-
-func (service *SubscriptionService) ensureMinimumPriceIncreaseNotice(subscription *model.Subscription) error {
-	effectiveAt, err := time.ParseInLocation(
-		"2006-01-02",
-		strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
-		cycle.Location,
-	)
-	if err != nil {
-		return fmt.Errorf("无法确定调价生效日")
-	}
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
-	if err != nil {
-		return err
-	}
-	minimumEffectiveAt := cycle.StartOfDay(service.now()).AddDate(0, 0, minimumPriceIncreaseNoticeDays)
-	for effectiveAt.Before(minimumEffectiveAt) {
-		effectiveAt = schedule.NextDue(effectiveAt)
-	}
-	subscription.NextPriceEffectiveDueDate = cycle.FormatDate(effectiveAt)
-	return nil
 }
 
 func monthFromDate(raw string) string {

@@ -213,8 +213,21 @@ function SubscriptionCard({
       <span className={cn("absolute inset-y-0 left-0 w-1", accentClass)} />
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 className="truncate text-[15px] font-semibold">
-            {view.account_name || subscription.name}
+          <h3 className="flex min-w-0 items-center gap-2 text-[15px] font-semibold">
+            {!plusRental && view.account_id > 0 ? (
+              <span
+                className="grid size-6 shrink-0 place-items-center rounded-md bg-brand/10 font-mono text-[11px] font-bold text-brand tabular-nums"
+                title={t("accounts.serialTitle", { number: view.account_id })}
+              >
+                {view.account_id}
+              </span>
+            ) : null}
+            <span
+              className="min-w-0 truncate"
+              title={view.account_name || subscription.name}
+            >
+              {view.account_name || subscription.name}
+            </span>
           </h3>
           {plusRental || view.next_price_yuan ? (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">

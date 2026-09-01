@@ -959,16 +959,68 @@ func (service *SubscriptionService) configureNextPrice(
 			return nil
 		}
 	}
-	view, err := service.buildView(*subscription, service.now(), "")
+	effectiveDueDate, err := nextPriceEffectiveDueDate(*subscription, service.now())
 	if err != nil {
 		return err
 	}
-	effectiveDueDate := strings.TrimSpace(view.NextDueDate)
 	if effectiveDueDate == "" {
 		return fmt.Errorf("暂时无法确定下一个续费周期，请检查开始日期和计费周期")
 	}
 	subscription.NextPriceEffectiveDueDate = effectiveDueDate
 	return nil
+}
+
+func nextPriceEffectiveDueDate(subscription model.Subscription, now time.Time) (string, error) {
+	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	if err != nil {
+		return "", err
+	}
+	// A price change must never rewrite an overdue or already-started period.
+	// NextDue is strictly after now, which is the next billing boundary.
+	return cycle.FormatDate(schedule.NextDue(now)), nil
+}
+
+// NormalizeScheduledNextPriceEffectiveDates repairs records created by older
+// goal-center logic that postponed a confirmed "next price" by one or more
+// billing periods to enforce a notice window. Repricing eligibility controls
+// when an adjustment may be proposed; once confirmed, the price belongs to the
+// immediately following billing period and is never retroactive.
+func (service *SubscriptionService) NormalizeScheduledNextPriceEffectiveDates() (int, error) {
+	subscriptions, err := service.Store.ListSubscriptions()
+	if err != nil {
+		return 0, err
+	}
+	repaired := 0
+	for _, subscription := range subscriptions {
+		if subscription.NextPriceCents == nil {
+			continue
+		}
+		intendedDueDate, dueErr := nextPriceEffectiveDueDate(subscription, service.now())
+		if dueErr != nil {
+			return repaired, fmt.Errorf("订阅 %d 无法校正下期价格生效日: %w", subscription.ID, dueErr)
+		}
+		storedDueDate := strings.TrimSpace(subscription.NextPriceEffectiveDueDate)
+		if intendedDueDate == "" || storedDueDate == intendedDueDate {
+			continue
+		}
+		// Only pull a missing or incorrectly postponed date forward. An earlier
+		// date may represent an overdue unpaid period and must not be skipped.
+		if storedDueDate != "" && storedDueDate < intendedDueDate {
+			continue
+		}
+		updated, updateErr := service.Store.CorrectNextPriceEffectiveDueDate(
+			subscription.ID,
+			storedDueDate,
+			intendedDueDate,
+		)
+		if updateErr != nil {
+			return repaired, updateErr
+		}
+		if updated {
+			repaired++
+		}
+	}
+	return repaired, nil
 }
 
 func currentPeriodBillDueDate(subscription model.Subscription, now time.Time) (string, error) {
@@ -2708,9 +2760,9 @@ func (service *SubscriptionService) planPriceIncreaseAdvanceNotice(
 	dueAt time.Time,
 	now time.Time,
 ) error {
-	// Very late manual changes rely on the normal renewal reminder to avoid
-	// sending two near-identical emails a few days apart. Goal-center changes
-	// are separately guaranteed a full 30-day notice window.
+	// Very late changes rely on the normal renewal reminder to avoid sending two
+	// near-identical emails a few days apart. Earlier changes receive an advance
+	// notice, sent immediately when the ideal 30-day send date has already passed.
 	if cycle.DaysRemaining(dueAt, now) < 14 {
 		return nil
 	}

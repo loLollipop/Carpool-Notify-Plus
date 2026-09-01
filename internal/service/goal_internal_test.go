@@ -1451,7 +1451,7 @@ func TestManualNextPriceBypassesAlgorithmicTimingAndIncreaseCap(t *testing.T) {
 	}
 	stored, err := service.Store.GetSubscription(subscriptionID)
 	if err != nil || stored.NextPriceCents == nil || *stored.NextPriceCents != 10000 ||
-		stored.NextPriceEffectiveDueDate != "2026-09-30" {
+		stored.NextPriceEffectiveDueDate != "2026-08-31" {
 		t.Fatalf("manual pricing state = %#v, err = %v", stored, err)
 	}
 }
