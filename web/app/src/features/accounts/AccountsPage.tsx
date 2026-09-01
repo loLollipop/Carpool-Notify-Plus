@@ -41,7 +41,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { cn } from "@/lib/utils"
+import { cn, compareISODateStrings } from "@/lib/utils"
 import { SubscriptionDialog } from "@/features/subscriptions/SubscriptionDialog"
 import {
   prefillFromSeat,
@@ -660,9 +660,18 @@ export function AccountsPage() {
           : nextFilter === "full"
             ? t("accounts.statusFull")
             : t("accounts.statusFree")
+    const orderedAccounts = nextFilter === "renewal"
+      ? [...selectedAccounts].sort((left, right) => {
+          const renewalDateOrder = compareISODateStrings(
+            renewalDates.get(left.account.id) ?? "",
+            renewalDates.get(right.account.id) ?? "",
+          )
+          return renewalDateOrder || left.account.id - right.account.id
+        })
+      : selectedAccounts
     setStatDetail({
       title,
-      items: selectedAccounts.map((view) => ({
+      items: orderedAccounts.map((view) => ({
         id: view.account.id,
         title: `${view.account.id} · ${view.account.email || view.account.name}`,
         subtitle: view.account.email && view.account.email !== view.account.name
@@ -730,9 +739,17 @@ export function AccountsPage() {
         ...seatFields,
       ].some((field) => field?.toLowerCase().includes(query))
     })
-    return matches.sort(
-      (left, right) => Number(right.renewal_actionable) - Number(left.renewal_actionable),
-    )
+    return matches.sort((left, right) => {
+      if (statsFilter === "renewal") {
+        const renewalDateOrder = compareISODateStrings(
+          renewalDates.get(left.account.id) ?? "",
+          renewalDates.get(right.account.id) ?? "",
+        )
+        if (renewalDateOrder !== 0) return renewalDateOrder
+      }
+      const actionableOrder = Number(right.renewal_actionable) - Number(left.renewal_actionable)
+      return actionableOrder || left.account.id - right.account.id
+    })
   }, [accounts, renewalDates, search, statsFilter])
 
   const pageCount = Math.max(1, Math.ceil(filteredAccounts.length / ACCOUNTS_PER_PAGE))

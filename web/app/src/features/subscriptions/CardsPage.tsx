@@ -51,7 +51,7 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDialog"
-import { cn } from "@/lib/utils"
+import { cn, compareISODateStrings } from "@/lib/utils"
 import { ReminderPreviewDialog } from "./ReminderPreviewDialog"
 import { SubscriptionDialog } from "./SubscriptionDialog"
 import { prefillFromView, type SubscriptionPrefill } from "./subscription-prefill"
@@ -659,9 +659,15 @@ export function CardsPage() {
         : key === "renewed"
           ? t("dashboard.monthRenewed")
           : t("dashboard.archived")
+    const orderedSource = key === "pending"
+      ? [...source].sort((left, right) => {
+          const dueDateOrder = compareISODateStrings(left.next_due_date, right.next_due_date)
+          return dueDateOrder || compareTeamSubscriptionViews(left, right)
+        })
+      : source
     setStatDetail({
       title,
-      items: source.map((view) => ({
+      items: orderedSource.map((view) => ({
         id: view.subscription.id,
         title: view.subscription.customer_email || view.subscription.name,
         subtitle: view.subscription.customer_wechat || view.account_name,

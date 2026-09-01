@@ -56,7 +56,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDialog"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { maskAmount, maskValue } from "@/lib/amount-privacy"
-import { cn } from "@/lib/utils"
+import { cn, compareISODateStrings } from "@/lib/utils"
 import { prefillFromView, type SubscriptionPrefill } from "@/features/subscriptions/subscription-prefill"
 import { PlusRentalDialog } from "./PlusRentalDialog"
 import { isOneMonthRentalCron } from "./rental-mode"
@@ -395,6 +395,12 @@ export function PlusRentalsPage() {
   const profitCents = rentCents - costCents
   const openStatDetail = (key: "active" | "due" | "rent" | "profit") => {
     const source = key === "due" ? dueSoon : active
+    const orderedSource = key === "due"
+      ? [...source].sort((left, right) => {
+          const dueDateOrder = compareISODateStrings(left.next_due_date, right.next_due_date)
+          return dueDateOrder || left.subscription.id - right.subscription.id
+        })
+      : source
     const title = key === "active"
       ? t("plusRentals.activeCount")
       : key === "due"
@@ -404,7 +410,7 @@ export function PlusRentalsPage() {
           : t("plusRentals.currentProfit")
     setStatDetail({
       title,
-      items: source.map((view) => ({
+      items: orderedSource.map((view) => ({
         id: view.subscription.id,
         title: view.subscription.customer_email || view.subscription.name,
         subtitle: view.subscription.customer_wechat || view.subscription.name,

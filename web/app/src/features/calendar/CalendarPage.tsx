@@ -330,14 +330,14 @@ function TaskRow({
               ? t("dueStatus.today")
               : t("dueStatus.days", { count: occurrence.days_remaining })}
       </span>
-      <div className="ml-auto flex items-center gap-1.5 sm:ml-0">
+      <div className="ml-auto flex items-center gap-1.5 sm:ml-0 lg:grid lg:w-[17.5rem] lg:grid-cols-[7.5rem_9.5rem]">
         {!occurrence.paid && !oneMonthRental ? (
-          <Button size="sm" className="h-8" onClick={() => onPaid(occurrence)}>
+          <Button size="sm" className="h-8 lg:w-full" onClick={() => onPaid(occurrence)}>
             <ReceiptText />
             {t(plus ? "calendar.work.recordRenewal" : "calendar.work.recordPaid")}
           </Button>
         ) : null}
-        <Button asChild variant="outline" size="sm" className="h-8">
+        <Button asChild variant="outline" size="sm" className="h-8 lg:col-start-2 lg:w-full">
           <Link to={route}>
             {plus ? t("calendar.work.contact") : t("calendar.manageUser")}
             <ArrowRight />
