@@ -504,6 +504,9 @@ function DecisionCard({
 }) {
   const { t } = useTranslation()
   const goal = overview.goal
+  const nextSeatReleaseTask = (overview.notifications ?? []).find(
+    (task) => task.kind === "seat_release",
+  )
   const actions = [
     {
       icon: TicketCheck,
@@ -521,7 +524,7 @@ function DecisionCard({
       icon: Snowflake,
       label: t("dash.workbench.releasingSeats"),
       value: overview.capacity.seat_releasing_7d,
-      to: "/accounts",
+      to: nextSeatReleaseTask?.route || "/accounts",
     },
   ]
 
