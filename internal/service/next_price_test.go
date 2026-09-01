@@ -178,6 +178,79 @@ func TestScheduledNextPriceProtectsCurrentPeriodAndAppliesOnRenewal(t *testing.T
 	}
 }
 
+func TestManualReminderTargetsScheduledPricePeriod(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.September, 1, 10, 0, 0, 0, cycle.Location)
+	}
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "跨周期调价账号", "车位1")
+
+	input := service.CreateInput{
+		Name:             "跨周期调价用户",
+		PriceYuan:        "90.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "scheduled@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-08-03",
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedCount, err := subscriptionService.ScheduleManualNextPrices(service.ManualNextPricesInput{
+		Items: []service.ManualNextPriceItemInput{{
+			SubscriptionID: subscriptionID,
+			NextPriceYuan:  "95.00",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updatedCount != 1 {
+		t.Fatalf("updated count = %d, want 1", updatedCount)
+	}
+	subscription, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subscription.NextPriceEffectiveDueDate != "2026-10-02" {
+		t.Fatalf("effective due date = %q, want 2026-10-02", subscription.NextPriceEffectiveDueDate)
+	}
+	if err := subscriptionService.SaveCustomerEmailTemplate(
+		"普通续费模板：¥{{.AmountDue}}，到期日 {{.NextDueDate}}",
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SavePriceIncreaseCustomerEmailTemplate(
+		"调价续费模板：原价 ¥{{.PreviousPrice}} / 新价 ¥{{.AmountDue}}，生效日 {{.NextDueDate}}",
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	_, subject, body, err := subscriptionService.PreviewCustomerEmail(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(subject, "价格调整通知") ||
+		!strings.Contains(body, "调价续费模板") ||
+		!strings.Contains(body, "90.00") ||
+		!strings.Contains(body, "95.00") ||
+		!strings.Contains(body, "2026-10-02") ||
+		strings.Contains(body, "普通续费模板") ||
+		strings.Contains(body, "2026-09-02") {
+		t.Fatalf("manual price-increase reminder = subject %q body %q", subject, body)
+	}
+
+	rendered, err := subscriptionService.RenderCustomerEmail(subscription)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rendered != body {
+		t.Fatalf("rendered manual email differs from preview: rendered %q preview %q", rendered, body)
+	}
+}
+
 func TestScheduledPriceIncreaseSendsAdvanceNotice(t *testing.T) {
 	subscriptionService := openTestService(t)
 	clock := time.Date(2026, time.July, 2, 9, 0, 0, 0, cycle.Location)

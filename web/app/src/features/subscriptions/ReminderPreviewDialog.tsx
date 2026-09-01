@@ -103,7 +103,9 @@ export function ReminderPreviewDialog({
             onClick={() => sendMutation.mutate(undefined)}
           >
             <Send data-slot="icon" />
-            {t("reminder.send")}
+            {sendMutation.isPending
+              ? t("reminder.sending")
+              : t("reminder.confirmSend")}
           </Button>
         </DialogFooter>
       </DialogContent>

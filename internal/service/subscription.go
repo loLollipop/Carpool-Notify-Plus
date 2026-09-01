@@ -2001,11 +2001,8 @@ func (service *SubscriptionService) RenderMessage(subscription model.Subscriptio
 
 // RenderCustomerEmail renders the customer email template for a subscription.
 func (service *SubscriptionService) RenderCustomerEmail(subscription model.Subscription) (string, error) {
-	dueAt, err := service.nextDueForTemplate(subscription)
-	if err != nil {
-		return "", err
-	}
-	return service.renderCustomerEmailForDueDate(subscription, dueAt)
+	_, message, err := service.manualCustomerEmailContent(subscription)
+	return message, err
 }
 
 func (service *SubscriptionService) renderMessageForDueDate(subscription model.Subscription, dueAt time.Time) (string, error) {
@@ -2067,6 +2064,37 @@ func (service *SubscriptionService) nextDueForTemplate(subscription model.Subscr
 		return time.Time{}, err
 	}
 	return schedule.NextDue(service.now()), nil
+}
+
+// manualCustomerEmailDueDate targets an already scheduled price change when
+// the operator explicitly previews or sends an email. Automatic reminders
+// continue to pass their own occurrence date, so an earlier unchanged billing
+// period still receives the regular renewal template.
+func (service *SubscriptionService) manualCustomerEmailDueDate(subscription model.Subscription) (time.Time, error) {
+	if subscription.NextPriceCents != nil {
+		effectiveDueDate := strings.TrimSpace(subscription.NextPriceEffectiveDueDate)
+		if effectiveDueDate != "" {
+			return parseTemplateDueDate(effectiveDueDate)
+		}
+	}
+	return service.nextDueForTemplate(subscription)
+}
+
+// manualCustomerEmailContent is the single source of truth shared by preview
+// and actual SMTP delivery. Keeping both paths together prevents the operator
+// from confirming one template while a different template is sent.
+func (service *SubscriptionService) manualCustomerEmailContent(
+	subscription model.Subscription,
+) (subject string, message string, err error) {
+	dueAt, err := service.manualCustomerEmailDueDate(subscription)
+	if err != nil {
+		return "", "", err
+	}
+	message, err = service.renderCustomerEmailForDueDate(subscription, dueAt)
+	if err != nil {
+		return "", "", err
+	}
+	return customerEmailSubjectForDueDate(subscription, dueAt), message, nil
 }
 
 func (service *SubscriptionService) renderTemplateForDueDate(
@@ -2192,11 +2220,7 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 	if !configuration.SMTPConfigured() {
 		return fmt.Errorf("SMTP 未配置（需 host/port/from/username/password）")
 	}
-	dueAt, err := service.nextDueForTemplate(subscription)
-	if err != nil {
-		return err
-	}
-	message, err := service.renderCustomerEmailForDueDate(subscription, dueAt)
+	title, message, err := service.manualCustomerEmailContent(subscription)
 	if err != nil {
 		return err
 	}
@@ -2207,7 +2231,6 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 		Password: configuration.SMTPPassword,
 		From:     configuration.SMTPFrom,
 	}
-	title := customerEmailSubjectForDueDate(subscription, dueAt)
 	return sender.SendHTMLTo(
 		ctx,
 		[]string{subscription.CustomerEmail},
@@ -2481,15 +2504,11 @@ func (service *SubscriptionService) PreviewCustomerEmail(subscriptionID int64) (
 	if strings.TrimSpace(subscription.CustomerEmail) == "" {
 		return "", "", "", fmt.Errorf("该订阅未填写客户邮箱")
 	}
-	dueAt, dueErr := service.nextDueForTemplate(subscription)
-	if dueErr != nil {
-		return "", "", "", dueErr
-	}
-	body, err = service.renderCustomerEmailForDueDate(subscription, dueAt)
+	subject, body, err = service.manualCustomerEmailContent(subscription)
 	if err != nil {
 		return "", "", "", err
 	}
-	return subscription.CustomerEmail, customerEmailSubjectForDueDate(subscription, dueAt), body, nil
+	return subscription.CustomerEmail, subject, body, nil
 }
 
 func (service *SubscriptionService) sendToEnabledChannels(ctx context.Context, title string, message string, subscriptionID int64) error {
