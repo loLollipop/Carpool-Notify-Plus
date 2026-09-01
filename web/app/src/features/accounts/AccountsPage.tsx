@@ -631,7 +631,7 @@ export function AccountsPage() {
     const dates = new Map<number, string>()
     for (const view of accounts) {
       if (view.account.banned_at) continue
-      if (view.renewal_this_month && view.next_renewal_date) {
+      if (view.renewal_actionable && view.next_renewal_date) {
         dates.set(view.account.id, view.next_renewal_date)
       }
     }

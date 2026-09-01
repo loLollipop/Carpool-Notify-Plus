@@ -1539,7 +1539,9 @@ function RepricingAnalysisPanel({
       value,
       parsedCents,
       blocked,
-      invalid: value !== "" && (parsedCents === null || parsedCents <= candidate.current_price_cents),
+      invalid:
+        value !== "" &&
+        (parsedCents === null || parsedCents === candidate.current_price_cents),
     }
   })
   const manualEntries = manualRows.filter(
@@ -2253,11 +2255,13 @@ function BulkPricingPanel({
   const parsedNextPriceCents = /^\d+(\.\d{1,2})?$/.test(nextPrice.trim())
     ? Math.round(Number(nextPrice) * 100)
     : 0
-  const hasNonIncrease = selectedCandidates.some(
-    (candidate) => candidate.current_price_cents >= parsedNextPriceCents,
+  const hasSamePrice = selectedCandidates.some(
+    (candidate) => candidate.current_price_cents === parsedNextPriceCents,
   )
   const hasAboveSafeCap = selectedCandidates.some(
-    (candidate) => parsedNextPriceCents > candidate.max_increase_price_cents,
+    (candidate) =>
+      parsedNextPriceCents > candidate.current_price_cents &&
+      parsedNextPriceCents > candidate.max_increase_price_cents,
   )
   const sharedSuggestedPrice = selectedCandidates.length
     ? Math.min(...selectedCandidates.map((candidate) => candidate.suggested_price_cents))
@@ -2272,7 +2276,7 @@ function BulkPricingPanel({
   const canSubmit =
     selectedCandidates.length > 0 &&
     parsedNextPriceCents > 0 &&
-    !hasNonIncrease &&
+    !hasSamePrice &&
     !hasAboveSafeCap
   const recommendedCount = candidates.filter((candidate) => candidate.recommended).length
 
@@ -2713,8 +2717,8 @@ function BulkPricingPanel({
                     {t("goals.useMedian")}
                   </Button>
                 </div>
-                {hasNonIncrease ? (
-                  <p className="text-xs text-destructive">{t("goals.nonIncreaseWarning")}</p>
+                {hasSamePrice ? (
+                  <p className="text-xs text-destructive">{t("goals.samePriceWarning")}</p>
                 ) : null}
                 {hasAboveSafeCap ? (
                   <p className="text-xs text-destructive">{t("goals.aboveSafeCapWarning")}</p>

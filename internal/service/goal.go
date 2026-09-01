@@ -2618,15 +2618,15 @@ func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInp
 			return 0, fmt.Errorf("%s 不是可批量调价的 Team 席位", previous.Name)
 		}
 		if !candidate.Eligible {
-			return 0, fmt.Errorf("%s 暂不适合涨价：%s", previous.Name, candidate.BlockedReason)
+			return 0, fmt.Errorf("%s 暂不适合调价：%s", previous.Name, candidate.BlockedReason)
 		}
 		if err := service.ensureNoPendingAfterSales(subscriptionID, "安排调价"); err != nil {
 			return 0, fmt.Errorf("%s：%w", previous.Name, err)
 		}
-		if nextPriceCents <= previous.PricePerPersonCents {
-			return 0, fmt.Errorf("%s 的新价格须高于当前价格 ¥%s", previous.Name, cycle.FormatCents(previous.PricePerPersonCents))
+		if nextPriceCents == previous.PricePerPersonCents {
+			return 0, fmt.Errorf("%s 的新价格与当前价格相同，无需调价", previous.Name)
 		}
-		if nextPriceCents > candidate.MaxIncreasePriceCents {
+		if nextPriceCents > previous.PricePerPersonCents && nextPriceCents > candidate.MaxIncreasePriceCents {
 			return 0, fmt.Errorf(
 				"%s 单次涨幅过大，建议本次不超过 ¥%s",
 				previous.Name,
@@ -2715,11 +2715,10 @@ func (service *SubscriptionService) ScheduleManualNextPrices(input ManualNextPri
 		if parseErr != nil || nextPriceCents <= 0 {
 			return 0, fmt.Errorf("%s 的人工调价金额无效", previous.Name)
 		}
-		if nextPriceCents <= previous.PricePerPersonCents {
+		if nextPriceCents == previous.PricePerPersonCents {
 			return 0, fmt.Errorf(
-				"%s 的新价格须高于当前价格 ¥%s",
+				"%s 的新价格与当前价格相同，无需调价",
 				previous.Name,
-				cycle.FormatCents(previous.PricePerPersonCents),
 			)
 		}
 

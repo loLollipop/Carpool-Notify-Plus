@@ -430,7 +430,7 @@ export function testSettingsNotify() {
 
 export function testSettingsCustomerEmail(input: {
   recipient: string
-  template_kind: "customer" | "customer_price_increase"
+  template_kind: "customer" | "customer_price_increase" | "customer_price_decrease"
 }) {
   return api<MessageResult>("/api/settings/test-customer-email", {
     method: "POST",
@@ -449,7 +449,7 @@ export function resetSandbox() {
 }
 
 export function previewSettingsTemplate(
-  kind: "notify" | "customer" | "customer_price_increase",
+  kind: "notify" | "customer" | "customer_price_increase" | "customer_price_decrease",
   template: string,
 ) {
   return api<{ rendered: string; sample_name: string; subject: string; html: string }>(

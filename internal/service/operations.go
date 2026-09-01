@@ -482,7 +482,7 @@ func buildAccountRenewalOperationTasks(
 			continue
 		}
 		days := cycle.DaysRemaining(renewalAt, today)
-		if days < 0 || days > 7 {
+		if days > accountRenewalNoticeDays {
 			continue
 		}
 		work.AccountRenewalCount++

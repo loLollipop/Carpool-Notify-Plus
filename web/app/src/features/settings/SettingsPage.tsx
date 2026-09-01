@@ -73,7 +73,11 @@ import { cn } from "@/lib/utils"
 import { enterSandboxMode, exitSandboxMode } from "@/lib/sandbox-mode"
 import { useSandboxMode } from "@/hooks/use-sandbox-mode"
 
-type TemplateKind = "notify" | "customer" | "customer_price_increase"
+type TemplateKind =
+  | "notify"
+  | "customer"
+  | "customer_price_increase"
+  | "customer_price_decrease"
 type CustomerTemplateKind = Exclude<TemplateKind, "notify">
 type SettingsSection = "templates" | "delivery" | "redemption" | "operations" | "tools"
 
@@ -113,7 +117,7 @@ const DEFAULT_FIELDS: TemplateFieldKey[] = [
   "tradeURL",
 ]
 
-const PRICE_INCREASE_FIELDS: TemplateFieldKey[] = [
+const PRICE_CHANGE_FIELDS: TemplateFieldKey[] = [
   "customerEmail",
   "previousPrice",
   "amountDue",
@@ -125,7 +129,10 @@ const PRICE_INCREASE_FIELDS: TemplateFieldKey[] = [
 
 function templateFieldsForKind(kind: TemplateKind) {
   return TEMPLATE_FIELDS.filter(
-    (field) => field.key !== "previousPrice" || kind === "customer_price_increase",
+    (field) =>
+      field.key !== "previousPrice" ||
+      kind === "customer_price_increase" ||
+      kind === "customer_price_decrease",
   )
 }
 
@@ -212,14 +219,18 @@ function isChannelChecked(channel: ChannelSetting, enabledChannels: Set<string>)
 }
 
 function defaultTemplateDraft(kind: TemplateKind): VisualTemplateDraft {
-  if (kind === "customer_price_increase") {
+  if (kind === "customer_price_increase" || kind === "customer_price_decrease") {
+    const decrease = kind === "customer_price_decrease"
     return {
       title: "",
-      duePrefix: "您好，您的 ChatGPT Team 拼车续费价格已安排调整，",
+      duePrefix: decrease
+        ? "您好，您的 ChatGPT Team 拼车续费价格将进行优惠调整，"
+        : "您好，您的 ChatGPT Team 拼车续费价格已安排调整，",
       dueSuffix: "。",
-      fields: PRICE_INCREASE_FIELDS,
-      footer:
-        "综合近期同类服务价格以及账号、售后维护成本，经重新核算，自上述生效日期起将按调整后的价格续费。\n当前已支付周期与历史账单不受影响；完成本次续费后，后续周期将以调整后的价格为基准。\n如对调整有疑问，或不准备继续续费，请在生效日前联系管理员确认。",
+      fields: PRICE_CHANGE_FIELDS,
+      footer: decrease
+        ? "为感谢您的支持并提升续费体验，我们将结合近期运营安排与客户关系维护，对本次续费价格进行优惠调整，自上述生效日期起按调整后的价格续费。\n当前已支付周期与历史账单不受影响；完成本次续费后，后续周期将以调整后的价格为基准。\n如有任何疑问，请联系管理员。"
+        : "综合近期同类服务价格以及账号、售后维护成本，经重新核算，自上述生效日期起将按调整后的价格续费。\n当前已支付周期与历史账单不受影响；完成本次续费后，后续周期将以调整后的价格为基准。\n如对调整有疑问，或不准备继续续费，请在生效日前联系管理员确认。",
     }
   }
   if (kind === "customer") {
@@ -286,13 +297,13 @@ function fieldLine(key: TemplateFieldKey, kind: TemplateKind) {
     case "previousPrice":
       return "原每期价格：¥{{.PreviousPrice}}"
     case "amountDue":
-      return kind === "customer_price_increase"
+      return kind === "customer_price_increase" || kind === "customer_price_decrease"
         ? "调整后每期价格：¥{{.AmountDue}}"
         : "本期应收：¥{{.AmountDue}}"
     case "cycleDesc":
       return "计费周期：{{.CycleDesc}}"
     case "nextDueDate":
-      return kind === "customer_price_increase"
+      return kind === "customer_price_increase" || kind === "customer_price_decrease"
         ? "生效日期：{{.NextDueDate}}（{{.DueInText}}）"
         : "到期日期：{{.NextDueDate}}（{{.DueInText}}）"
     case "remark":
@@ -409,6 +420,9 @@ function TemplateEditor({
                 <SelectItem value="customer_price_increase">
                   {t("settings.customerTemplatePriceIncrease")}
                 </SelectItem>
+                <SelectItem value="customer_price_decrease">
+                  {t("settings.customerTemplatePriceDecrease")}
+                </SelectItem>
               </SelectContent>
             </Select>
           ) : null}
@@ -475,7 +489,7 @@ function TemplateEditor({
               />
               <span>
                 {t(
-                  kind === "customer_price_increase" && field.key === "amountDue"
+                  (kind === "customer_price_increase" || kind === "customer_price_decrease") && field.key === "amountDue"
                     ? "settings.templateFields.adjustedAmountDue"
                     : `settings.templateFields.${field.key}`,
                 )}
@@ -1312,6 +1326,7 @@ function CustomerEmailTestCard({ settings }: { settings: Settings }) {
             <SelectContent>
               <SelectItem value="customer">正常续费模板</SelectItem>
               <SelectItem value="customer_price_increase">调价后邮件模板</SelectItem>
+              <SelectItem value="customer_price_decrease">降价优惠模板</SelectItem>
             </SelectContent>
           </Select>
         </div>
@@ -1460,6 +1475,12 @@ function SettingsForm({ settings }: { settings: Settings }) {
       settings.price_increase_customer_email_template,
     ),
   )
+  const [priceDecreaseCustomerDraft, setPriceDecreaseCustomerDraft] = React.useState(() =>
+    draftFromTemplate(
+      "customer_price_decrease",
+      settings.price_decrease_customer_email_template ?? "",
+    ),
+  )
   const [customerTemplateKind, setCustomerTemplateKind] =
     React.useState<CustomerTemplateKind>("customer")
   const [enabledChannels, setEnabledChannels] = React.useState<Set<string>>(
@@ -1489,6 +1510,10 @@ function SettingsForm({ settings }: { settings: Settings }) {
     () => renderVisualTemplate("customer_price_increase", priceIncreaseCustomerDraft),
     [priceIncreaseCustomerDraft],
   )
+  const priceDecreaseCustomerTemplate = React.useMemo(
+    () => renderVisualTemplate("customer_price_decrease", priceDecreaseCustomerDraft),
+    [priceDecreaseCustomerDraft],
+  )
 
   const saveMutation = useAppMutation((input: SettingsInput) => saveSettings(input), {
     onSuccess: () =>
@@ -1508,7 +1533,9 @@ function SettingsForm({ settings }: { settings: Settings }) {
         ? notifyTemplate
         : kind === "customer_price_increase"
           ? priceIncreaseCustomerTemplate
-          : customerTemplate
+          : kind === "customer_price_decrease"
+            ? priceDecreaseCustomerTemplate
+            : customerTemplate
     previewSettingsTemplate(kind, template)
       .then((result) =>
         setPreview({
@@ -1539,7 +1566,8 @@ function SettingsForm({ settings }: { settings: Settings }) {
     if (
       notifyTemplate.trim() === "" ||
       customerTemplate.trim() === "" ||
-      priceIncreaseCustomerTemplate.trim() === ""
+      priceIncreaseCustomerTemplate.trim() === "" ||
+      priceDecreaseCustomerTemplate.trim() === ""
     ) {
       toast.error(t("settings.validation.templateRequired"))
       return
@@ -1577,6 +1605,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
       notify_template: notifyTemplate,
       customer_email_template: customerTemplate,
       price_increase_customer_email_template: priceIncreaseCustomerTemplate,
+      price_decrease_customer_email_template: priceDecreaseCustomerTemplate,
       channels: Array.from(enabledChannels),
       redeem_page: normalizeRedeemPageSettings(redeemPage),
       seat_freeze_days: parsedSeatFreezeDays,
@@ -1666,12 +1695,16 @@ function SettingsForm({ settings }: { settings: Settings }) {
               draft={
                 customerTemplateKind === "customer"
                   ? customerDraft
-                  : priceIncreaseCustomerDraft
+                  : customerTemplateKind === "customer_price_increase"
+                    ? priceIncreaseCustomerDraft
+                    : priceDecreaseCustomerDraft
               }
               onDraftChange={
                 customerTemplateKind === "customer"
                   ? setCustomerDraft
-                  : setPriceIncreaseCustomerDraft
+                  : customerTemplateKind === "customer_price_increase"
+                    ? setPriceIncreaseCustomerDraft
+                    : setPriceDecreaseCustomerDraft
               }
               onPreview={() => openPreview(customerTemplateKind)}
               customerTemplateKind={customerTemplateKind}

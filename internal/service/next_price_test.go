@@ -436,7 +436,7 @@ func TestWeeklyPriceIncreasePlansNoticeFromFutureEffectivePeriod(t *testing.T) {
 	}
 }
 
-func TestScheduledPriceDecreaseUsesRegularCustomerTemplate(t *testing.T) {
+func TestScheduledPriceDecreaseUsesDiscountCustomerTemplate(t *testing.T) {
 	subscriptionService := openTestService(t)
 	subscriptionService.Clock = func() time.Time {
 		return time.Date(2026, time.July, 8, 10, 0, 0, 0, cycle.Location)
@@ -458,6 +458,9 @@ func TestScheduledPriceDecreaseUsesRegularCustomerTemplate(t *testing.T) {
 	if err := subscriptionService.SaveCustomerEmailTemplate("常规客户模板：¥{{.AmountDue}}"); err != nil {
 		t.Fatal(err)
 	}
+	if err := subscriptionService.SavePriceDecreaseCustomerEmailTemplate("降价客户模板：原价 ¥{{.PreviousPrice}} / 新价 ¥{{.AmountDue}}"); err != nil {
+		t.Fatal(err)
+	}
 	input.NextPriceYuan = "25.00"
 	if err := subscriptionService.Update(subscriptionID, input); err != nil {
 		t.Fatal(err)
@@ -466,7 +469,7 @@ func TestScheduledPriceDecreaseUsesRegularCustomerTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(subject, "拼车续费提醒") || strings.Contains(subject, "价格调整") || body != "常规客户模板：¥25.00" {
+	if !strings.Contains(subject, "价格调整通知") || body != "降价客户模板：原价 ¥30.00 / 新价 ¥25.00" {
 		t.Fatalf("price-decrease preview = subject %q body %q", subject, body)
 	}
 }
@@ -609,5 +612,63 @@ func TestPlusNextPriceKeepsCostSnapshot(t *testing.T) {
 	}
 	if bill.AmountCents != 7800 || bill.CostCents != 2000 {
 		t.Fatalf("Plus renewal snapshot = amount %d cost %d, want 7800/2000", bill.AmountCents, bill.CostCents)
+	}
+}
+
+func TestScheduledNextPriceSupportsDecreaseAndUsesDiscountTemplate(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.July, 8, 10, 0, 0, 0, cycle.Location)
+	}
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "降价测试账号", "车位1")
+	input := service.CreateInput{
+		Name:             "降价客户",
+		PriceYuan:        "90.00",
+		CronExpr:         "0 0 * * 1",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "discount@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-07-01",
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SavePriceDecreaseCustomerEmailTemplate(
+		"优惠通知：原价 ¥{{.PreviousPrice}}，现价 ¥{{.AmountDue}}",
+	); err != nil {
+		t.Fatal(err)
+	}
+	input.NextPriceYuan = "80.00"
+	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.NextPriceCents == nil || *updated.NextPriceCents != 8000 ||
+		updated.NextPriceEffectiveDueDate != "2026-07-13" {
+		t.Fatalf("scheduled decrease = next %v effective %q", updated.NextPriceCents, updated.NextPriceEffectiveDueDate)
+	}
+	_, previewSubject, previewBody, err := subscriptionService.PreviewCustomerEmail(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(previewSubject, "价格调整通知") ||
+		!strings.Contains(previewBody, "优惠通知") ||
+		!strings.Contains(previewBody, "90.00") ||
+		!strings.Contains(previewBody, "80.00") {
+		t.Fatalf("decrease preview = subject %q body %q", previewSubject, previewBody)
+	}
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-13", true); err != nil {
+		t.Fatal(err)
+	}
+	bill, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-07-13")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bill.AmountCents != 8000 {
+		t.Fatalf("decrease renewal bill = %d, want 8000", bill.AmountCents)
 	}
 }

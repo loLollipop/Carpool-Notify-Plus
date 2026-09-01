@@ -119,6 +119,11 @@ func TestSendTestCustomerEmailUsesSelectedStoredTemplate(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
+	if err := service.SavePriceDecreaseCustomerEmailTemplate(
+		"优惠模板 {{.CustomerEmail}} ¥{{.PreviousPrice}} -> ¥{{.AmountDue}}",
+	); err != nil {
+		t.Fatal(err)
+	}
 
 	for _, testCase := range []struct {
 		kind         string
@@ -134,6 +139,11 @@ func TestSendTestCustomerEmailUsesSelectedStoredTemplate(t *testing.T) {
 			kind:         "customer_price_increase",
 			title:        "[测试] 拼车续费价格调整通知",
 			bodyContains: []string{"调价模板", "88.00", "98.00"},
+		},
+		{
+			kind:         "customer_price_decrease",
+			title:        "[测试] 拼车续费优惠通知",
+			bodyContains: []string{"优惠模板", "88.00", "78.00"},
 		},
 	} {
 		t.Run(testCase.kind, func(t *testing.T) {

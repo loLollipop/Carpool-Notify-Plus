@@ -406,6 +406,11 @@ func (server *Server) getSettings(context *gin.Context) {
 		respondError(context, http.StatusInternalServerError, err.Error())
 		return
 	}
+	priceDecreaseCustomerTemplate, err := server.Service.GetPriceDecreaseCustomerEmailTemplate()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
 	enabledChannels, err := server.Service.GetEnabledChannels()
 	if err != nil {
 		respondError(context, http.StatusInternalServerError, err.Error())
@@ -456,6 +461,7 @@ func (server *Server) getSettings(context *gin.Context) {
 		"notify_template":                        notifyTemplate,
 		"customer_email_template":                customerTemplate,
 		"price_increase_customer_email_template": priceIncreaseCustomerTemplate,
+		"price_decrease_customer_email_template": priceDecreaseCustomerTemplate,
 		"enabled_channels":                       enabledChannels,
 		"channels":                               channels,
 		"notification_config":                    configuration.NotificationConfig(),
@@ -1293,6 +1299,7 @@ func (server *Server) putSettings(context *gin.Context) {
 		NotifyTemplate                     string                          `json:"notify_template"`
 		CustomerEmailTemplate              string                          `json:"customer_email_template"`
 		PriceIncreaseCustomerEmailTemplate string                          `json:"price_increase_customer_email_template"`
+		PriceDecreaseCustomerEmailTemplate string                          `json:"price_decrease_customer_email_template"`
 		Channels                           []string                        `json:"channels"`
 		NotificationConfig                 *config.NotificationConfigInput `json:"notification_config"`
 		RedeemPage                         *model.RedeemPageSettings       `json:"redeem_page"`
@@ -1302,12 +1309,18 @@ func (server *Server) putSettings(context *gin.Context) {
 		respondError(context, http.StatusBadRequest, "无效的请求")
 		return
 	}
+	// Older clients do not send the optional lower-price template yet; keep
+	// their settings updates backward compatible while persisting the default.
+	if strings.TrimSpace(request.PriceDecreaseCustomerEmailTemplate) == "" {
+		request.PriceDecreaseCustomerEmailTemplate = model.DefaultPriceDecreaseCustomerEmailTemplate
+	}
 	server.settingsPageMu.Lock()
 	defer server.settingsPageMu.Unlock()
 	if err := server.Service.ValidateSettingsPage(
 		request.NotifyTemplate,
 		request.CustomerEmailTemplate,
 		request.PriceIncreaseCustomerEmailTemplate,
+		request.PriceDecreaseCustomerEmailTemplate,
 		request.RedeemPage,
 		request.SeatFreezeDays,
 	); err != nil {
@@ -1339,6 +1352,7 @@ func (server *Server) putSettings(context *gin.Context) {
 		request.NotifyTemplate,
 		request.CustomerEmailTemplate,
 		request.PriceIncreaseCustomerEmailTemplate,
+		request.PriceDecreaseCustomerEmailTemplate,
 		request.Channels,
 		request.RedeemPage,
 		request.SeatFreezeDays,
@@ -1421,6 +1435,9 @@ func (server *Server) postSettingsTemplatePreview(context *gin.Context) {
 	case "customer_price_increase":
 		name = "customer_price_increase"
 		subjectPrefix = "拼车续费价格调整通知 · "
+	case "customer_price_decrease":
+		name = "customer_price_decrease"
+		subjectPrefix = "拼车续费优惠通知 · "
 	default:
 		respondError(context, http.StatusBadRequest, "无效的模板类型")
 		return

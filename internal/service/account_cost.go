@@ -10,6 +10,8 @@ import (
 	"carpool-notify/internal/model"
 )
 
+const accountRenewalNoticeDays = 3
+
 // ProcessAccountCostRenewals accrues all owner-account renewals due through today.
 func (service *SubscriptionService) ProcessAccountCostRenewals() error {
 	accounts, err := service.Store.ListAccounts()
@@ -77,9 +79,8 @@ func (service *SubscriptionService) MarkAccountRenewed(accountID int64, periodDa
 		return false, fmt.Errorf("续费状态已变化，请刷新后重试")
 	}
 	today := cycle.StartOfDay(service.now())
-	thisMonth := periodAt.Year() == today.Year() && periodAt.Month() == today.Month()
-	if !thisMonth && periodAt.After(today.AddDate(0, 0, 7)) {
-		return false, fmt.Errorf("只能提前登记本月或未来 7 天内的续费")
+	if periodAt.After(today.AddDate(0, 0, accountRenewalNoticeDays)) {
+		return false, fmt.Errorf("只能在到期前 %d 天内或逾期后登记续费", accountRenewalNoticeDays)
 	}
 	return service.Store.AccrueAccountRenewal(accountID, cycle.FormatDate(periodAt))
 }
@@ -109,8 +110,7 @@ func (service *SubscriptionService) nextAccountCostRenewal(account model.Account
 
 func accountRenewalActionable(renewalAt time.Time, now time.Time) bool {
 	today := cycle.StartOfDay(now)
-	return renewalAt.Year() == today.Year() && renewalAt.Month() == today.Month() ||
-		!renewalAt.After(today.AddDate(0, 0, 7))
+	return !renewalAt.After(today.AddDate(0, 0, accountRenewalNoticeDays))
 }
 
 func nextMonthlyAnniversary(openedAt time.Time, after time.Time) time.Time {

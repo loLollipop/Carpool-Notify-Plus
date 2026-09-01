@@ -54,6 +54,7 @@ to = "operator@example.com"
 		"notify_template":                        model.DefaultNotifyTemplate,
 		"customer_email_template":                model.DefaultCustomerEmailTemplate,
 		"price_increase_customer_email_template": model.DefaultPriceIncreaseCustomerEmailTemplate,
+		"price_decrease_customer_email_template": model.DefaultPriceDecreaseCustomerEmailTemplate,
 		"channels":                               []string{"smtp"},
 		"notification_config": map[string]any{
 			"smtp": map[string]any{
@@ -105,6 +106,7 @@ func TestPutSettingsValidatesWholeRequestBeforePersisting(t *testing.T) {
 		"notify_template":                        "this must not be persisted",
 		"customer_email_template":                model.DefaultCustomerEmailTemplate,
 		"price_increase_customer_email_template": model.DefaultPriceIncreaseCustomerEmailTemplate,
+		"price_decrease_customer_email_template": model.DefaultPriceDecreaseCustomerEmailTemplate,
 		"channels":                               []string{"smtp"},
 		"notification_config": map[string]any{
 			"smtp":   map[string]any{"port": 70000},

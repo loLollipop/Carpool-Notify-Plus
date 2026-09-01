@@ -17,7 +17,8 @@ const (
 	NotificationKindScheduled = "scheduled"
 	NotificationKindTest      = "test"
 	// NotificationKindPriceIncreaseNotice is the advance notice sent before
-	// the normal renewal reminder for an approved future price increase.
+	// the normal renewal reminder for an approved future price change. The
+	// historical value is retained for compatibility with existing logs.
 	NotificationKindPriceIncreaseNotice = "price_increase_notice"
 
 	RedemptionStatusPending  = "pending"
@@ -31,6 +32,7 @@ const (
 	SettingNotifyTemplate                     = "notify_template"
 	SettingCustomerEmailTemplate              = "customer_email_template"
 	SettingPriceIncreaseCustomerEmailTemplate = "price_increase_customer_email_template"
+	SettingPriceDecreaseCustomerEmailTemplate = "price_decrease_customer_email_template"
 	SettingEnabledChannels                    = "enabled_channels"
 	SettingRedeemPageSettings                 = "redeem_page_settings"
 	SettingSeatFreezeDays                     = "seat_freeze_days"
@@ -112,6 +114,22 @@ const DefaultPriceIncreaseCustomerEmailTemplate = `您好，您的 ChatGPT Team 
 综合近期同类服务价格以及账号、售后维护成本，经重新核算，自上述生效日期起将按调整后的价格续费。
 当前已支付周期与历史账单不受影响；完成本次续费后，后续周期将以调整后的价格为基准。
 如对调整有疑问，或不准备继续续费，请在生效日前联系管理员确认。`
+
+// DefaultPriceDecreaseCustomerEmailTemplate is used before the first renewal
+// affected by a scheduled lower price.
+const DefaultPriceDecreaseCustomerEmailTemplate = `您好，您的 ChatGPT Team 拼车续费价格将进行优惠调整，{{.DueInText}}。
+
+客户邮箱：{{.CustomerEmail}}
+原每期价格：¥{{.PreviousPrice}}
+调整后每期价格：¥{{.AmountDue}}
+计费周期：{{.CycleDesc}}
+生效日期：{{.NextDueDate}}（{{.DueInText}}）
+{{if .Remark}}备注：{{.Remark}}{{end}}
+{{if .TradeURL}}续费链接：{{.TradeURL}}{{end}}
+
+为感谢您的支持并提升续费体验，我们将结合近期运营安排与客户关系维护，对本次续费价格进行优惠调整，自上述生效日期起按调整后的价格续费。
+当前已支付周期与历史账单不受影响；完成本次续费后，后续周期将以调整后的价格为基准。
+如有任何疑问，请联系管理员。`
 
 // DefaultPriceIncreaseAdvanceNoticeCustomerEmailTemplate is kept as a source
 // compatibility alias. Both price-increase notification timings now use the
@@ -494,6 +512,7 @@ type ExportPayload struct {
 	NotifyTemplate                     string               `json:"notify_template"`
 	CustomerEmailTemplate              string               `json:"customer_email_template"`
 	PriceIncreaseCustomerEmailTemplate string               `json:"price_increase_customer_email_template"`
+	PriceDecreaseCustomerEmailTemplate string               `json:"price_decrease_customer_email_template"`
 	EnabledChannels                    []string             `json:"enabled_channels"`
 	RedeemPageSettings                 RedeemPageSettings   `json:"redeem_page_settings"`
 	SeatFreezeDays                     int                  `json:"seat_freeze_days"`

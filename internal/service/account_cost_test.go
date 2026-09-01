@@ -70,9 +70,8 @@ func TestAccountCostRenewalsUseMonthlyAnniversaryAndConsumeZeroOnce(t *testing.T
 
 func TestMarkAccountRenewedUpdatesPendingStateAndIsIdempotent(t *testing.T) {
 	subscriptionService := openTestService(t)
-	subscriptionService.Clock = func() time.Time {
-		return time.Date(2026, time.August, 22, 12, 0, 0, 0, cycle.Location)
-	}
+	now := time.Date(2026, time.August, 22, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
 	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
 		Name:      "manual-renewal@example.com",
 		Email:     "manual-renewal@example.com",
@@ -84,7 +83,20 @@ func TestMarkAccountRenewedUpdatesPendingStateAndIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	now = time.Date(2026, time.August, 21, 12, 0, 0, 0, cycle.Location)
 	view, err := subscriptionService.GetAccountView(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !view.RenewalThisMonth || view.RenewalActionable {
+		t.Fatalf("renewal state four days early = %#v, want visible but not actionable", view)
+	}
+	if _, err := subscriptionService.MarkAccountRenewed(accountID, "2026-08-25"); err == nil {
+		t.Fatal("renewal was accepted four days early")
+	}
+
+	now = time.Date(2026, time.August, 22, 12, 0, 0, 0, cycle.Location)
+	view, err = subscriptionService.GetAccountView(accountID)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -921,6 +921,9 @@ func (service *SubscriptionService) configureNextPrice(
 		subscription.NextPriceEffectiveDueDate = ""
 		return nil
 	}
+	if *subscription.NextPriceCents <= 0 {
+		return fmt.Errorf("下周期价格必须大于 0")
+	}
 	if previous.IsResale {
 		return fmt.Errorf("历史代订记录不能安排下周期调价")
 	}
@@ -1499,6 +1502,17 @@ func priceIncreaseAppliesForDueDate(subscription model.Subscription, dueDate str
 		*subscription.NextPriceCents > subscription.PricePerPersonCents
 }
 
+func priceDecreaseAppliesForDueDate(subscription model.Subscription, dueDate string) bool {
+	return nextPriceAppliesForDueDate(subscription, dueDate) &&
+		subscription.NextPriceCents != nil &&
+		*subscription.NextPriceCents < subscription.PricePerPersonCents
+}
+
+func priceChangeAppliesForDueDate(subscription model.Subscription, dueDate string) bool {
+	return priceIncreaseAppliesForDueDate(subscription, dueDate) ||
+		priceDecreaseAppliesForDueDate(subscription, dueDate)
+}
+
 func billDefaultCostCents(subscription model.Subscription) int64 {
 	if isPlusSubscription(subscription) && subscription.CostCents > 0 {
 		return subscription.CostCents
@@ -1693,6 +1707,22 @@ func (service *SubscriptionService) GetPriceIncreaseCustomerEmailTemplate() (str
 	return raw, nil
 }
 
+// GetPriceDecreaseCustomerEmailTemplate returns the customer email used for
+// the first renewal whose bill adopts an approved lower price.
+func (service *SubscriptionService) GetPriceDecreaseCustomerEmailTemplate() (string, error) {
+	raw, err := service.Store.GetSetting(model.SettingPriceDecreaseCustomerEmailTemplate)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return model.DefaultPriceDecreaseCustomerEmailTemplate, nil
+		}
+		return "", err
+	}
+	if strings.TrimSpace(raw) == "" {
+		return model.DefaultPriceDecreaseCustomerEmailTemplate, nil
+	}
+	return raw, nil
+}
+
 // SavePriceIncreaseCustomerEmailTemplate validates and stores the first
 // increased-renewal email template.
 func (service *SubscriptionService) SavePriceIncreaseCustomerEmailTemplate(body string) error {
@@ -1701,6 +1731,16 @@ func (service *SubscriptionService) SavePriceIncreaseCustomerEmailTemplate(body 
 		return err
 	}
 	return service.Store.SetSetting(model.SettingPriceIncreaseCustomerEmailTemplate, body)
+}
+
+// SavePriceDecreaseCustomerEmailTemplate validates and stores the lower-price
+// renewal email template.
+func (service *SubscriptionService) SavePriceDecreaseCustomerEmailTemplate(body string) error {
+	body, err := validatePriceDecreaseCustomerEmailTemplate(body)
+	if err != nil {
+		return err
+	}
+	return service.Store.SetSetting(model.SettingPriceDecreaseCustomerEmailTemplate, body)
 }
 
 func validatePriceIncreaseCustomerEmailTemplate(body string) (string, error) {
@@ -1714,12 +1754,24 @@ func validatePriceIncreaseCustomerEmailTemplate(body string) (string, error) {
 	return body, nil
 }
 
+func validatePriceDecreaseCustomerEmailTemplate(body string) (string, error) {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return "", fmt.Errorf("降价续费邮件模板不能为空")
+	}
+	if _, err := template.New("customer_price_decrease").Parse(body); err != nil {
+		return "", fmt.Errorf("降价续费邮件模板语法错误: %w", err)
+	}
+	return body, nil
+}
+
 // ValidateSettingsPage checks the whole settings form before the first field is
 // persisted, preventing a later validation error from leaving a partial save.
 func (service *SubscriptionService) ValidateSettingsPage(
 	notifyTemplate string,
 	customerEmailTemplate string,
 	priceIncreaseCustomerEmailTemplate string,
+	priceDecreaseCustomerEmailTemplate string,
 	redeemPage *model.RedeemPageSettings,
 	seatFreezeDays *int,
 ) error {
@@ -1730,6 +1782,9 @@ func (service *SubscriptionService) ValidateSettingsPage(
 		return err
 	}
 	if _, err := validatePriceIncreaseCustomerEmailTemplate(priceIncreaseCustomerEmailTemplate); err != nil {
+		return err
+	}
+	if _, err := validatePriceDecreaseCustomerEmailTemplate(priceDecreaseCustomerEmailTemplate); err != nil {
 		return err
 	}
 	if redeemPage != nil {
@@ -1752,11 +1807,18 @@ func (service *SubscriptionService) SaveSettingsPage(
 	notifyTemplate string,
 	customerEmailTemplate string,
 	priceIncreaseCustomerEmailTemplate string,
+	priceDecreaseCustomerEmailTemplate string,
 	channels []string,
 	redeemPage *model.RedeemPageSettings,
 	seatFreezeDays *int,
 ) error {
 	notifyBody, err := validateNotifyTemplate(notifyTemplate)
+	if err != nil {
+		return err
+	}
+	priceDecreaseCustomerBody, err := validatePriceDecreaseCustomerEmailTemplate(
+		priceDecreaseCustomerEmailTemplate,
+	)
 	if err != nil {
 		return err
 	}
@@ -1778,6 +1840,7 @@ func (service *SubscriptionService) SaveSettingsPage(
 		model.SettingNotifyTemplate:                     notifyBody,
 		model.SettingCustomerEmailTemplate:              customerBody,
 		model.SettingPriceIncreaseCustomerEmailTemplate: priceIncreaseCustomerBody,
+		model.SettingPriceDecreaseCustomerEmailTemplate: priceDecreaseCustomerBody,
 		model.SettingEnabledChannels:                    string(encodedChannels),
 	}
 	if redeemPage != nil {
@@ -2068,9 +2131,13 @@ func (service *SubscriptionService) renderMessageForDueDate(subscription model.S
 func (service *SubscriptionService) renderCustomerEmailForDueDate(subscription model.Subscription, dueAt time.Time) (string, error) {
 	var templateBody string
 	var err error
-	if priceIncreaseAppliesForDueDate(subscription, cycle.FormatDate(dueAt)) {
+	dueDate := cycle.FormatDate(dueAt)
+	switch {
+	case priceIncreaseAppliesForDueDate(subscription, dueDate):
 		templateBody, err = service.GetPriceIncreaseCustomerEmailTemplate()
-	} else {
+	case priceDecreaseAppliesForDueDate(subscription, dueDate):
+		templateBody, err = service.GetPriceDecreaseCustomerEmailTemplate()
+	default:
 		templateBody, err = service.GetCustomerEmailTemplate()
 	}
 	if err != nil {
@@ -2083,10 +2150,11 @@ func (service *SubscriptionService) renderPriceIncreaseAdvanceNoticeForDueDate(
 	subscription model.Subscription,
 	dueAt time.Time,
 ) (string, error) {
-	if !priceIncreaseAppliesForDueDate(subscription, cycle.FormatDate(dueAt)) {
-		return "", fmt.Errorf("scheduled price increase no longer applies")
+	dueDate := cycle.FormatDate(dueAt)
+	if !priceChangeAppliesForDueDate(subscription, dueDate) {
+		return "", fmt.Errorf("scheduled price change no longer applies")
 	}
-	templateBody, err := service.GetPriceIncreaseCustomerEmailTemplate()
+	templateBody, err := service.priceChangeCustomerEmailTemplate(subscription, dueDate)
 	if err != nil {
 		return "", err
 	}
@@ -2096,6 +2164,16 @@ func (service *SubscriptionService) renderPriceIncreaseAdvanceNoticeForDueDate(
 		subscription,
 		dueAt,
 	)
+}
+
+func (service *SubscriptionService) priceChangeCustomerEmailTemplate(
+	subscription model.Subscription,
+	dueDate string,
+) (string, error) {
+	if priceDecreaseAppliesForDueDate(subscription, dueDate) {
+		return service.GetPriceDecreaseCustomerEmailTemplate()
+	}
+	return service.GetPriceIncreaseCustomerEmailTemplate()
 }
 
 func parseTemplateDueDate(value string) (time.Time, error) {
@@ -2207,8 +2285,11 @@ func (service *SubscriptionService) PreviewTemplate(name string, templateBody st
 	if err != nil {
 		return "", "", err
 	}
-	if name == "customer_price_increase" {
+	if name == "customer_price_increase" || name == "customer_price_decrease" {
 		previewPrice := subscription.PricePerPersonCents + 1000
+		if name == "customer_price_decrease" {
+			previewPrice = maxInt64(100, subscription.PricePerPersonCents-1000)
+		}
 		subscription.NextPriceCents = &previewPrice
 		subscription.NextPriceEffectiveDueDate = cycle.FormatDate(dueAt)
 	}
@@ -2307,7 +2388,7 @@ func (service *SubscriptionService) SendTestCustomerEmail(
 
 	var templateBody string
 	var subjectPrefix string
-	priceIncrease := false
+	priceChange := ""
 	switch templateKind {
 	case "customer":
 		templateBody, err = service.GetCustomerEmailTemplate()
@@ -2315,7 +2396,11 @@ func (service *SubscriptionService) SendTestCustomerEmail(
 	case "customer_price_increase":
 		templateBody, err = service.GetPriceIncreaseCustomerEmailTemplate()
 		subjectPrefix = "[测试] 拼车续费价格调整通知 · "
-		priceIncrease = true
+		priceChange = "increase"
+	case "customer_price_decrease":
+		templateBody, err = service.GetPriceDecreaseCustomerEmailTemplate()
+		subjectPrefix = "[测试] 拼车续费优惠通知 · "
+		priceChange = "decrease"
 	default:
 		return fmt.Errorf("无效的客户邮件模板类型")
 	}
@@ -2335,8 +2420,11 @@ func (service *SubscriptionService) SendTestCustomerEmail(
 		SeatName:            "车位 1",
 		Remark:              "邮件送达测试",
 	}
-	if priceIncrease {
+	if priceChange != "" {
 		nextPrice := int64(9800)
+		if priceChange == "decrease" {
+			nextPrice = int64(7800)
+		}
 		subscription.NextPriceCents = &nextPrice
 		subscription.NextPriceEffectiveDueDate = cycle.FormatDate(dueAt)
 	}
@@ -2372,7 +2460,7 @@ func customerEmailSubject(subscription model.Subscription) string {
 }
 
 func customerEmailSubjectForDueDate(subscription model.Subscription, dueAt time.Time) string {
-	if priceIncreaseAppliesForDueDate(subscription, cycle.FormatDate(dueAt)) {
+	if priceChangeAppliesForDueDate(subscription, cycle.FormatDate(dueAt)) {
 		return "拼车续费价格调整通知 · " + templateDisplayName(subscription)
 	}
 	return customerEmailSubject(subscription)
@@ -2384,7 +2472,7 @@ func customerEmailSubjectForNotification(
 	kind string,
 ) string {
 	if kind == model.NotificationKindPriceIncreaseNotice &&
-		priceIncreaseAppliesForDueDate(subscription, cycle.FormatDate(dueAt)) {
+		priceChangeAppliesForDueDate(subscription, cycle.FormatDate(dueAt)) {
 		return "拼车续费价格调整提前告知 · " + templateDisplayName(subscription)
 	}
 	return customerEmailSubjectForDueDate(subscription, dueAt)
@@ -2405,6 +2493,10 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 		return model.ExportPayload{}, err
 	}
 	priceIncreaseCustomerTemplateBody, err := service.GetPriceIncreaseCustomerEmailTemplate()
+	if err != nil {
+		return model.ExportPayload{}, err
+	}
+	priceDecreaseCustomerTemplateBody, err := service.GetPriceDecreaseCustomerEmailTemplate()
 	if err != nil {
 		return model.ExportPayload{}, err
 	}
@@ -2468,6 +2560,7 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 		NotifyTemplate:                     templateBody,
 		CustomerEmailTemplate:              customerTemplateBody,
 		PriceIncreaseCustomerEmailTemplate: priceIncreaseCustomerTemplateBody,
+		PriceDecreaseCustomerEmailTemplate: priceDecreaseCustomerTemplateBody,
 		EnabledChannels:                    enabledChannels,
 		RedeemPageSettings:                 redeemPageSettings,
 		SeatFreezeDays:                     seatFreezeDays,
@@ -2695,7 +2788,7 @@ func (service *SubscriptionService) planSubscription(
 	// due date (notably for weekly subscriptions). Plan from the persisted
 	// effective date itself so the 30-day notice is not discovered too late.
 	if subscription.NextPriceCents != nil &&
-		*subscription.NextPriceCents > subscription.PricePerPersonCents &&
+		*subscription.NextPriceCents != subscription.PricePerPersonCents &&
 		strings.TrimSpace(subscription.NextPriceEffectiveDueDate) != "" {
 		effectiveAt, parseErr := time.ParseInLocation(
 			"2006-01-02",
@@ -2893,7 +2986,7 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 			continue
 		}
 		if logEntry.Kind == model.NotificationKindPriceIncreaseNotice &&
-			!priceIncreaseAppliesForDueDate(subscription, logEntry.DueDate) {
+			!priceChangeAppliesForDueDate(subscription, logEntry.DueDate) {
 			// A failed or interrupted advance notice can outlive the pricing plan
 			// that created it. Close it instead of falling back to the ordinary
 			// renewal template and sending an unexpected email 30 days early.
