@@ -113,7 +113,7 @@ func (service *SubscriptionService) RequestCancellation(subscriptionID int64) (C
 	// If that due date has already been paid, buildView advances to the next
 	// unpaid cycle and an immediate cancellation still follows after-sales.
 	if view.DaysRemaining <= 0 {
-		if err := service.Archive(subscriptionID); err != nil {
+		if err := service.archiveNaturalExpiry(subscription, requestedAt); err != nil {
 			return CancellationRequestResult{}, err
 		}
 		return CancellationRequestResult{Archived: true}, nil

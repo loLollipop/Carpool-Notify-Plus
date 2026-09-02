@@ -2328,7 +2328,29 @@ func (store *Store) CountBillsForSubscription(subscriptionID int64) (int, error)
 // redemption application/code records that created this subscription.
 // Works for active non-deleted subscriptions; already-archived is a no-op success.
 func (store *Store) ArchiveSubscription(subscriptionID int64) error {
-	now := formatTime(time.Now().UTC())
+	return store.archiveSubscription(subscriptionID, time.Now(), nil)
+}
+
+// ArchiveSubscriptionWithSeatFreeze archives a naturally expired Team
+// subscription while keeping its former seat unavailable until freezeUntil.
+func (store *Store) ArchiveSubscriptionWithSeatFreeze(
+	subscriptionID int64,
+	archivedAt time.Time,
+	freezeUntil time.Time,
+) error {
+	return store.archiveSubscription(subscriptionID, archivedAt, &freezeUntil)
+}
+
+func (store *Store) archiveSubscription(
+	subscriptionID int64,
+	archivedAt time.Time,
+	freezeUntil *time.Time,
+) error {
+	now := formatTime(archivedAt.UTC())
+	var freezeUntilValue any
+	if freezeUntil != nil {
+		freezeUntilValue = formatTime(freezeUntil.UTC())
+	}
 	transaction, err := store.database.Begin()
 	if err != nil {
 		return err
@@ -2351,7 +2373,13 @@ func (store *Store) ArchiveSubscription(subscriptionID int64) error {
 		return ErrSubscriptionHasPendingAfterSales
 	}
 
-	if err := archiveSubscriptionInTransaction(transaction, subscriptionID, now, 0, nil); err != nil {
+	if err := archiveSubscriptionInTransaction(
+		transaction,
+		subscriptionID,
+		now,
+		0,
+		freezeUntilValue,
+	); err != nil {
 		return err
 	}
 

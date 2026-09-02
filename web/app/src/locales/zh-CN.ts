@@ -1142,7 +1142,7 @@ export default {
     },
     confirms: {
       naturalEndTitle: "确认到期结束？",
-      naturalEndDesc: "「{{name}}」当前周期已到期，将直接归档且不创建售后记录；历史账单会保留。",
+      naturalEndDesc: "「{{name}}」当前周期已到期，将归档且不创建售后记录；历史账单会保留，原车位按系统设置进入冷却期。",
       naturalEndAction: "确认到期结束",
       archiveTitle: "确认退订？",
       archiveDesc:

@@ -195,10 +195,13 @@ func TestCancellationFreezesSeatForDefaultWindowAfterRefund(t *testing.T) {
 	}
 }
 
-func TestCancellationOnUnpaidDueDateArchivesWithoutAfterSales(t *testing.T) {
+func TestCancellationOnUnpaidDueDateFreezesSeatWithoutAfterSales(t *testing.T) {
 	subscriptionService := openTestService(t)
 	now := time.Date(2026, time.August, 31, 12, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return now }
+	if err := subscriptionService.Store.SetSetting(model.SettingSeatFreezeDays, "3"); err != nil {
+		t.Fatal(err)
+	}
 	accountID, subscriptionID := createWarrantyCustomer(
 		t,
 		subscriptionService,
@@ -220,7 +223,9 @@ func TestCancellationOnUnpaidDueDateArchivesWithoutAfterSales(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if archived.ArchivedAt == nil || archived.SeatFrozenUntil != nil {
+	wantFrozenUntil := now.AddDate(0, 0, 3)
+	if archived.ArchivedAt == nil || archived.SeatFrozenUntil == nil ||
+		!archived.SeatFrozenUntil.Equal(wantFrozenUntil) {
 		t.Fatalf("naturally expired subscription = %#v", archived)
 	}
 	afterSalesCount, err := subscriptionService.Store.CountAfterSalesCasesBySubscription(subscriptionID)
@@ -234,8 +239,26 @@ func TestCancellationOnUnpaidDueDateArchivesWithoutAfterSales(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(freeSeats) != 0 {
+		t.Fatalf("natural expiry released %d seats during freeze, want 0", len(freeSeats))
+	}
+	accountView, err := subscriptionService.GetAccountView(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accountView.SeatUsed != 1 || len(accountView.Seats) != 1 || !accountView.Seats[0].Frozen {
+		t.Fatalf("natural-expiry frozen account view = %#v", accountView)
+	}
+	freeSeats, err = subscriptionService.Store.ListFreeSeatsAt(
+		accountID,
+		0,
+		wantFrozenUntil.Add(time.Second),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(freeSeats) != 1 {
-		t.Fatalf("natural expiry left %d free seats, want 1", len(freeSeats))
+		t.Fatalf("natural expiry left %d free seats after freeze, want 1", len(freeSeats))
 	}
 }
 

@@ -1143,7 +1143,7 @@ export default {
     },
     confirms: {
       naturalEndTitle: "Confirm natural expiry?",
-      naturalEndDesc: "“{{name}}” has reached the end of its paid period. It will be archived without an after-sales case, while billing history is retained.",
+      naturalEndDesc: "“{{name}}” has reached the end of its paid period. It will be archived without an after-sales case, billing history will be retained, and the former seat will enter the configured cooling period.",
       naturalEndAction: "Confirm expiry",
       archiveTitle: "Cancel this subscription?",
       archiveDesc:

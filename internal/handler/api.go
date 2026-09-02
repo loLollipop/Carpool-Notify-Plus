@@ -831,7 +831,7 @@ func (server *Server) postArchiveSubscription(context *gin.Context) {
 		return
 	}
 	if result.Archived {
-		message := "订阅已到期结束，未创建售后记录"
+		message := "订阅已到期结束，原车位已进入冷却期"
 		if subscription.BusinessType == model.SubscriptionBusinessPlus {
 			message = "Plus 出租已到期结束，未创建售后记录"
 		}
