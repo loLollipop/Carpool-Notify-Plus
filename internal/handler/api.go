@@ -831,17 +831,21 @@ func (server *Server) postArchiveSubscription(context *gin.Context) {
 		return
 	}
 	if result.Archived {
-		message := "订阅已到期结束，原车位已进入冷却期"
+		message := "订阅已到期结束，原车位已立即释放"
+		if result.SeatFrozen {
+			message = "订阅已到期结束，原车位已进入冷却期"
+		}
 		if subscription.BusinessType == model.SubscriptionBusinessPlus {
 			message = "Plus 出租已到期结束，未创建售后记录"
 		}
 		respondOK(context, gin.H{
-			"message":  message,
-			"archived": true,
+			"message":     message,
+			"archived":    true,
+			"seat_frozen": result.SeatFrozen,
 		})
 		return
 	}
-	message := "已进入退订售后，退款完成后原车位将进入冻结期"
+	message := "已进入退订售后，退款完成后将按母号近 30 天退订次数释放或冷却原车位"
 	if subscription.BusinessType == model.SubscriptionBusinessPlus {
 		message = "Plus 出租已进入售后处理，确认退款后将自动归档"
 	}

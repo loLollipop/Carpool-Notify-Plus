@@ -86,7 +86,7 @@ func TestBanAccountCalculatesThirtyDayWarrantyRefund(t *testing.T) {
 	}
 }
 
-func TestCancellationFreezesSeatForDefaultWindowAfterRefund(t *testing.T) {
+func TestCancellationImmediatelyReleasesFirstSeatDepartureAfterRefund(t *testing.T) {
 	subscriptionService := openTestService(t)
 	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return now }
@@ -136,55 +136,29 @@ func TestCancellationFreezesSeatForDefaultWindowAfterRefund(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if archived.ArchivedAt == nil || archived.CancellationCaseID != 0 || archived.SeatFrozenUntil == nil {
+	if archived.ArchivedAt == nil || archived.CancellationCaseID != 0 || archived.SeatFrozenUntil != nil {
 		t.Fatalf("archived subscription = %#v", archived)
 	}
-	wantFrozenUntil := now.AddDate(0, 0, model.DefaultSeatFreezeDays)
-	if !archived.SeatFrozenUntil.Equal(wantFrozenUntil) {
-		t.Fatalf("seat frozen until = %v, want %v", archived.SeatFrozenUntil, wantFrozenUntil)
-	}
-	freeSeats, err = subscriptionService.Store.ListFreeSeatsAt(accountID, 0, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(freeSeats) != 0 {
-		t.Fatalf("free seats during freeze = %d, want 0", len(freeSeats))
-	}
-	accountView, err := subscriptionService.GetAccountView(accountID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if accountView.SeatUsed != 1 || len(accountView.Seats) != 1 || !accountView.Seats[0].Frozen {
-		t.Fatalf("frozen account view = %#v", accountView)
-	}
-	_, fallbackSeatIDs := createTestAccountWithSeats(
-		t,
-		subscriptionService,
-		"冻结期备用母号",
-		"车位1",
-	)
-	firstFree, err := subscriptionService.Store.GetFirstFreeSeatByAccountImportOrderAt(now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if firstFree.ID != fallbackSeatIDs[0] {
-		t.Fatalf("auto assignment chose seat %d, want fallback %d", firstFree.ID, fallbackSeatIDs[0])
-	}
-
-	now = wantFrozenUntil.Add(time.Second)
 	freeSeats, err = subscriptionService.Store.ListFreeSeatsAt(accountID, 0, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(freeSeats) != 1 {
-		t.Fatalf("free seats after freeze = %d, want 1", len(freeSeats))
+		t.Fatalf("free seats after first departure = %d, want 1", len(freeSeats))
 	}
-	firstFree, err = subscriptionService.Store.GetFirstFreeSeatByAccountImportOrderAt(now)
+	accountView, err := subscriptionService.GetAccountView(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accountView.SeatUsed != 0 || len(accountView.Seats) != 1 || accountView.Seats[0].Frozen {
+		t.Fatalf("released account view = %#v", accountView)
+	}
+	firstFree, err := subscriptionService.Store.GetFirstFreeSeatByAccountImportOrderAt(now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if firstFree.ID != freeSeats[0].ID {
-		t.Fatalf("released seat ordering = %d, want original %d", firstFree.ID, freeSeats[0].ID)
+		t.Fatalf("auto assignment chose seat %d, want released seat %d", firstFree.ID, freeSeats[0].ID)
 	}
 	completed, err := subscriptionService.Store.GetAfterSalesCase(request.CaseID)
 	if err != nil {
@@ -195,25 +169,125 @@ func TestCancellationFreezesSeatForDefaultWindowAfterRefund(t *testing.T) {
 	}
 }
 
-func TestCancellationOnUnpaidDueDateFreezesSeatWithoutAfterSales(t *testing.T) {
+func TestDeparturesOutsideRollingWindowDoNotTriggerSeatFreeze(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	accountID, _ := createTestAccountWithSeats(t, subscriptionService, "滚动窗口母号", "车位1")
+
+	subscriptionService.Clock = func() time.Time { return now.AddDate(0, 0, -31) }
+	seedRecentTeamDepartures(
+		t,
+		subscriptionService,
+		accountID,
+		model.ImmediateTeamSeatReleasesPerWindow,
+	)
+	subscriptionService.Clock = func() time.Time { return now }
+
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "窗口外后新客户",
+		PriceYuan:        "30.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "0",
+		CustomerEmail:    "outside-window@example.com",
+		AccountID:        accountID,
+		BoardedAt:        "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := subscriptionService.RequestCancellation(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SetAfterSalesCaseRefunded(request.CaseID, true); err != nil {
+		t.Fatal(err)
+	}
+	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.SeatFrozenUntil != nil {
+		t.Fatalf("departure outside rolling window froze until %v", archived.SeatFrozenUntil)
+	}
+	if free, err := subscriptionService.Store.ListFreeSeatsAt(accountID, 0, now); err != nil || len(free) != 1 {
+		t.Fatalf("seat after expired allowance window = %#v, %v", free, err)
+	}
+}
+
+func TestSeatReleaseAllowanceIsSharedAcrossAccountSeats(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	accountID, seatIDs := createTestAccountWithSeats(
+		t,
+		subscriptionService,
+		"多车位母号",
+		"车位1",
+		"车位2",
+	)
+	seedRecentTeamDepartures(
+		t,
+		subscriptionService,
+		accountID,
+		model.ImmediateTeamSeatReleasesPerWindow,
+	)
+
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "第二车位客户",
+		PriceYuan:        "30.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "0",
+		CustomerEmail:    "second-seat@example.com",
+		SeatID:           seatIDs[1],
+		BoardedAt:        "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := subscriptionService.RequestCancellation(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SetAfterSalesCaseRefunded(request.CaseID, true); err != nil {
+		t.Fatal(err)
+	}
+	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantUntil := now.AddDate(0, 0, model.DefaultSeatFreezeDays)
+	if archived.SeatFrozenUntil == nil || !archived.SeatFrozenUntil.Equal(wantUntil) {
+		t.Fatalf("fifth account departure freeze = %v, want %v", archived.SeatFrozenUntil, wantUntil)
+	}
+	free, err := subscriptionService.Store.ListFreeSeatsAt(accountID, 0, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(free) != 1 || free[0].ID != seatIDs[0] {
+		t.Fatalf("account free seats = %#v, want only seat %d", free, seatIDs[0])
+	}
+}
+
+func TestFifthCancellationOnUnpaidDueDateFreezesSeatWithoutAfterSales(t *testing.T) {
 	subscriptionService := openTestService(t)
 	now := time.Date(2026, time.August, 31, 12, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return now }
 	if err := subscriptionService.Store.SetSetting(model.SettingSeatFreezeDays, "3"); err != nil {
 		t.Fatal(err)
 	}
-	accountID, subscriptionID := createWarrantyCustomer(
+	accountID, subscriptionID := createWarrantyCustomerAfterRecentDepartures(
 		t,
 		subscriptionService,
 		"2026-08-01",
 		true,
+		model.ImmediateTeamSeatReleasesPerWindow,
 	)
 
 	result, err := subscriptionService.RequestCancellation(subscriptionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Archived || result.CaseID != 0 || result.ExpiresAt != "" {
+	if !result.Archived || !result.SeatFrozen || result.CaseID != 0 || result.ExpiresAt != "" {
 		t.Fatalf("natural-expiry result = %#v", result)
 	}
 	if _, err := subscriptionService.Store.GetSubscription(subscriptionID); err != sql.ErrNoRows {
@@ -288,18 +362,19 @@ func TestCancellationOnPaidRenewalDateStillUsesAfterSales(t *testing.T) {
 	}
 }
 
-func TestCancellationUsesConfiguredSeatFreezeWindow(t *testing.T) {
+func TestFifthCancellationUsesConfiguredSeatFreezeWindow(t *testing.T) {
 	subscriptionService := openTestService(t)
 	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return now }
 	if err := subscriptionService.Store.SetSetting(model.SettingSeatFreezeDays, "3"); err != nil {
 		t.Fatal(err)
 	}
-	accountID, subscriptionID := createWarrantyCustomer(
+	accountID, subscriptionID := createWarrantyCustomerAfterRecentDepartures(
 		t,
 		subscriptionService,
 		"2026-08-01",
 		true,
+		model.ImmediateTeamSeatReleasesPerWindow,
 	)
 	request, err := subscriptionService.RequestCancellation(subscriptionID)
 	if err != nil {
@@ -336,7 +411,13 @@ func TestCancellationFreezeBlocksArchivedRecordDeletion(t *testing.T) {
 	subscriptionService := openTestService(t)
 	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return now }
-	_, subscriptionID := createWarrantyCustomer(t, subscriptionService, "2026-08-01", false)
+	_, subscriptionID := createWarrantyCustomerAfterRecentDepartures(
+		t,
+		subscriptionService,
+		"2026-08-01",
+		false,
+		model.ImmediateTeamSeatReleasesPerWindow,
+	)
 
 	request, err := subscriptionService.RequestCancellation(subscriptionID)
 	if err != nil {
@@ -387,11 +468,12 @@ func TestAdministratorCanAdjustOneFrozenSeatDeadline(t *testing.T) {
 	subscriptionService := openTestService(t)
 	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return now }
-	accountID, subscriptionID := createWarrantyCustomer(
+	accountID, subscriptionID := createWarrantyCustomerAfterRecentDepartures(
 		t,
 		subscriptionService,
 		"2026-08-01",
 		false,
+		model.ImmediateTeamSeatReleasesPerWindow,
 	)
 	request, err := subscriptionService.RequestCancellation(subscriptionID)
 	if err != nil {
@@ -436,11 +518,12 @@ func TestAdministratorCanReleaseFrozenSeatImmediately(t *testing.T) {
 	subscriptionService := openTestService(t)
 	now := time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return now }
-	accountID, subscriptionID := createWarrantyCustomer(
+	accountID, subscriptionID := createWarrantyCustomerAfterRecentDepartures(
 		t,
 		subscriptionService,
 		"2026-08-01",
 		false,
+		model.ImmediateTeamSeatReleasesPerWindow,
 	)
 	request, err := subscriptionService.RequestCancellation(subscriptionID)
 	if err != nil {
@@ -1310,6 +1393,12 @@ func TestAfterSalesReassignmentSkipsFrozenSeats(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedRecentTeamDepartures(
+		t,
+		subscriptionService,
+		replacementAccountID,
+		model.ImmediateTeamSeatReleasesPerWindow,
+	)
 	frozenSubscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
 		Name:             "canceled-customer",
 		PriceYuan:        "30.00",
@@ -1445,6 +1534,24 @@ func createWarrantyCustomer(
 	paid bool,
 	costYuan ...string,
 ) (int64, int64) {
+	return createWarrantyCustomerAfterRecentDepartures(
+		t,
+		subscriptionService,
+		boardedAt,
+		paid,
+		0,
+		costYuan...,
+	)
+}
+
+func createWarrantyCustomerAfterRecentDepartures(
+	t *testing.T,
+	subscriptionService *service.SubscriptionService,
+	boardedAt string,
+	paid bool,
+	recentDepartures int,
+	costYuan ...string,
+) (int64, int64) {
 	t.Helper()
 	monthlyCostYuan := ""
 	if len(costYuan) > 0 {
@@ -1460,6 +1567,8 @@ func createWarrantyCustomer(
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedRecentTeamDepartures(t, subscriptionService, accountID, recentDepartures)
+
 	input := service.CreateInput{
 		Name:             "质保客户",
 		PriceYuan:        "30.00",
@@ -1480,4 +1589,49 @@ func createWarrantyCustomer(
 		t.Fatal(err)
 	}
 	return accountID, subscriptionID
+}
+
+func seedRecentTeamDepartures(
+	t *testing.T,
+	subscriptionService *service.SubscriptionService,
+	accountID int64,
+	count int,
+) {
+	t.Helper()
+	if count <= 0 {
+		return
+	}
+	now := time.Now()
+	if subscriptionService.Clock != nil {
+		now = subscriptionService.Clock()
+	}
+	for index := 0; index < count; index++ {
+		subscriptionID, err := subscriptionService.Create(service.CreateInput{
+			Name:             fmt.Sprintf("近期已退订客户%d", index+1),
+			PriceYuan:        "30.00",
+			CronExpr:         "interval:30d",
+			NotifyOffsetsRaw: "0",
+			CustomerEmail:    fmt.Sprintf("departed-%d@example.com", index+1),
+			AccountID:        accountID,
+			BoardedAt:        cycle.FormatDate(now.AddDate(0, 0, -10)),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		archivedAt := now.Add(-time.Duration(count-index) * time.Hour)
+		if err := subscriptionService.Store.ArchiveSubscriptionWithSeatFreeze(
+			subscriptionID,
+			archivedAt,
+			archivedAt.AddDate(0, 0, model.DefaultSeatFreezeDays),
+		); err != nil {
+			t.Fatal(err)
+		}
+		archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if archived.SeatFrozenUntil != nil {
+			t.Fatalf("seed departure %d unexpectedly froze until %v", index+1, archived.SeatFrozenUntil)
+		}
+	}
 }

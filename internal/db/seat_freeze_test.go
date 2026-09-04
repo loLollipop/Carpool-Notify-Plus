@@ -57,6 +57,67 @@ func TestSoftDeleteArchivedSubscriptionWaitsForSeatFreezeExpiry(t *testing.T) {
 	}
 }
 
+func TestOpenReleasesLegacyFreezeWithinImmediateAllowance(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "legacy-immediate-release.db")
+	store, err := Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accountID, err := store.CreateAccount(model.Account{Name: "legacy owner"}, 0, "2026-08-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seatID, err := store.CreateSeat(model.Seat{AccountID: accountID, Name: "车位1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscriptionID, err := store.CreateSubscription(model.Subscription{
+		Name:                "legacy first departure",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 3000,
+		CronExpr:            "interval:30d",
+		NotifyOffsets:       []int{},
+		BoardedAt:           "2026-08-01",
+		AccountID:           accountID,
+		SeatID:              seatID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	archivedAt := time.Now().UTC().Add(-time.Hour)
+	legacyFrozenUntil := archivedAt.AddDate(0, 0, model.DefaultSeatFreezeDays)
+	if _, err := store.database.Exec(`
+		UPDATE subscriptions
+		SET archived_at = ?, seat_frozen_until = ?, updated_at = ?
+		WHERE id = ?`,
+		formatTime(archivedAt),
+		formatTime(legacyFrozenUntil),
+		formatTime(archivedAt),
+		subscriptionID,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store, err = Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	archived, err := store.GetSubscriptionIncludingArchived(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if archived.SeatFrozenUntil != nil {
+		t.Fatalf("legacy first departure remained frozen until %v", archived.SeatFrozenUntil)
+	}
+	if free, err := store.ListFreeSeatsAt(accountID, 0, archivedAt); err != nil || len(free) != 1 {
+		t.Fatalf("legacy first departure free seats = %#v, %v", free, err)
+	}
+}
+
 func TestOpenBackfillsCompletedCancellationFreezeFromOriginalRefundTime(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "legacy-completed-cancellation.db")
 	store, err := Open(databasePath)
@@ -71,6 +132,29 @@ func TestOpenBackfillsCompletedCancellationFreezeFromOriginalRefundTime(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
+	processedAt := time.Date(2026, time.August, 20, 4, 30, 0, 0, time.UTC)
+	for index := 0; index < model.ImmediateTeamSeatReleasesPerWindow; index++ {
+		previousID, createErr := store.CreateSubscription(model.Subscription{
+			Name:                "legacy previous customer",
+			BusinessType:        model.SubscriptionBusinessTeam,
+			PricePerPersonCents: 3000,
+			CronExpr:            "interval:30d",
+			NotifyOffsets:       []int{},
+			BoardedAt:           "2026-08-01",
+			AccountID:           accountID,
+			SeatID:              seatID,
+		})
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		archivedAt := processedAt.Add(-time.Duration(model.ImmediateTeamSeatReleasesPerWindow-index) * time.Hour)
+		if _, updateErr := store.database.Exec(`
+			UPDATE subscriptions
+			SET archived_at = ?, updated_at = ?
+			WHERE id = ?`, formatTime(archivedAt), formatTime(archivedAt), previousID); updateErr != nil {
+			t.Fatal(updateErr)
+		}
+	}
 	subscriptionID, err := store.CreateSubscription(model.Subscription{
 		Name:                "legacy canceled customer",
 		BusinessType:        model.SubscriptionBusinessTeam,
@@ -84,7 +168,6 @@ func TestOpenBackfillsCompletedCancellationFreezeFromOriginalRefundTime(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	processedAt := time.Date(2026, time.August, 20, 4, 30, 0, 0, time.UTC)
 	processedText := formatTime(processedAt)
 	if _, err := store.database.Exec(`
 		UPDATE subscriptions

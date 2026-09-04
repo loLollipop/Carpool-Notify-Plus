@@ -1142,11 +1142,11 @@ export default {
     },
     confirms: {
       naturalEndTitle: "确认到期结束？",
-      naturalEndDesc: "「{{name}}」当前周期已到期，将归档且不创建售后记录；历史账单会保留，原车位按系统设置进入冷却期。",
+      naturalEndDesc: "「{{name}}」当前周期已到期，将归档且不创建售后记录；历史账单会保留。该母号近 30 天前 4 次退订立即释放车位，第 5 次起进入冷却期。",
       naturalEndAction: "确认到期结束",
       archiveTitle: "确认退订？",
       archiveDesc:
-        "「{{name}}」将进入售后待处理并停止发送提醒。处理完成前仍占用原车位；确认退款后正式归档，原车位按管理员设置进入冻结期。24 小时未处理将自动恢复订阅。",
+        "「{{name}}」将进入售后待处理并停止发送提醒。处理完成前仍占用原车位；确认退款后正式归档，前 4 次退订立即释放，近 30 天第 5 次起按管理员设置进入冷却期。24 小时未处理将自动恢复订阅。",
       archiveAction: "发起退订",
       endRentalTitle: "确认结束出租？",
       endRentalDesc: "{{name}} 将立即归档，历史账单会保留。",
@@ -1329,7 +1329,7 @@ export default {
       notePlaceholder: "例如退款渠道、转账单号、人工核对结果",
       refundTitle: "确认退款已完成？",
       refundDesc: "确认已向「{{email}}」退款 ¥{{amount}}？确认后会记录处理时间。",
-      cancellationRefundDesc: "确认已向「{{email}}」退款 ¥{{amount}}？确认后将立即归档订阅、清理兑换记录，原车位按管理员设置进入冻结期；此操作不能在售后页撤销。",
+      cancellationRefundDesc: "确认已向「{{email}}」退款 ¥{{amount}}？确认后将立即归档订阅、清理兑换记录。该母号近 30 天前 4 次退订立即释放车位，第 5 次起按管理员设置进入冷却期；此操作不能在售后页撤销。",
       plusRefundDesc: "确认已向「{{customer}}」退款 ¥{{amount}}？确认后将立即归档这笔 Plus 出租并停止到期提醒，此操作不能在售后页撤销。",
       undoTitle: "撤销已退款状态？",
       undoDesc: "「{{email}}」将恢复为待处理，已保存的退款金额和备注不会丢失。",
@@ -1525,9 +1525,9 @@ export default {
       exportAction: "导出 JSON",
       seatFreezeTitle: "退订席位冻结",
       seatFreezeDescription:
-        "顾客退订并完成退款后，原 Team 席位会继续保留一段时间。冻结期间不会参与手动分配或兑换申请的自动分配，到期后自动恢复为空闲。",
+        "同一母号滚动 30 天内前 4 次退订会立即释放席位，第 5 次及以后才进入冷却。冷却期间不参与手动或自动分配，到期后自动恢复为空闲。",
       seatFreezeDays: "冻结时间",
-      seatFreezeHint: "默认 7 天，可设置 1～90 天；历史退订会按原退款完成时间补算，已超期的不会重新占位。",
+      seatFreezeHint: "第 5 次起默认冷却 7 天，可设置 1～90 天；历史退订按原处理时间校正，已人工释放的席位不会重新冻结。",
       daysUnit: "天",
       validation: {
         templateRequired: "模板不能为空",

@@ -354,13 +354,21 @@ func (store *Store) CompleteCancellationRefund(
 	if rowsAffected != 1 {
 		return ErrAfterSalesProcessed
 	}
-	freezeUntilText := formatTime(seatFreezeUntil.UTC())
+	freezeUntilValue, err := teamSeatFreezeDeadline(
+		transaction,
+		subscriptionID,
+		processedTime,
+		seatFreezeUntil,
+	)
+	if err != nil {
+		return err
+	}
 	if err := archiveSubscriptionInTransaction(
 		transaction,
 		subscriptionID,
 		nowText,
 		caseID,
-		freezeUntilText,
+		freezeUntilValue,
 	); err != nil {
 		return err
 	}

@@ -541,10 +541,10 @@ func (store *Store) migrate() error {
 	return nil
 }
 
-// backfillCancellationSeatFreezes applies the current protection window to
-// customer cancellations completed before seat_frozen_until was introduced.
-// The deadline is based on the original refund timestamp, so an old completed
-// cancellation is never given a fresh freeze window on upgrade.
+// backfillCancellationSeatFreezes reconciles legacy cancellation freezes with
+// the rolling account allowance. It releases the first four departures and
+// only backfills a deadline for the fifth and later departures. An explicitly
+// released freeze keeps its non-null, expired deadline and is not restarted.
 func (store *Store) backfillCancellationSeatFreezes() error {
 	freezeDays := model.DefaultSeatFreezeDays
 	raw, err := store.GetSetting(model.SettingSeatFreezeDays)
@@ -557,6 +557,40 @@ func (store *Store) backfillCancellationSeatFreezes() error {
 	}
 
 	now := formatTime(time.Now().UTC())
+	if _, err := store.database.Exec(`
+		UPDATE subscriptions
+		SET seat_frozen_until = NULL,
+			updated_at = ?
+		WHERE archived_at IS NOT NULL
+		  AND seat_id IS NOT NULL
+		  AND seat_frozen_until IS NOT NULL
+		  AND (
+			SELECT COUNT(1)
+			FROM subscriptions AS previous_subscription
+			JOIN seats AS previous_seat
+			  ON previous_seat.id = previous_subscription.seat_id
+			JOIN seats AS current_seat
+			  ON current_seat.id = subscriptions.seat_id
+			WHERE previous_subscription.id <> subscriptions.id
+			  AND previous_subscription.archived_at IS NOT NULL
+			  AND previous_seat.account_id = current_seat.account_id
+			  AND julianday(previous_subscription.archived_at) >=
+			      julianday(subscriptions.archived_at, printf('-%d days', ?))
+			  AND (
+				julianday(previous_subscription.archived_at) < julianday(subscriptions.archived_at)
+				OR (
+					julianday(previous_subscription.archived_at) = julianday(subscriptions.archived_at)
+					AND previous_subscription.id < subscriptions.id
+				)
+			  )
+		  ) < ?`,
+		now,
+		model.TeamSeatReleaseWindowDays,
+		model.ImmediateTeamSeatReleasesPerWindow,
+	); err != nil {
+		return fmt.Errorf("reconcile immediate cancellation seat releases: %w", err)
+	}
+
 	if _, err := store.database.Exec(`
 		UPDATE subscriptions
 		SET seat_frozen_until = (
@@ -574,6 +608,26 @@ func (store *Store) backfillCancellationSeatFreezes() error {
 		  AND archived_at IS NOT NULL
 		  AND seat_id IS NOT NULL
 		  AND seat_frozen_until IS NULL
+		  AND (
+			SELECT COUNT(1)
+			FROM subscriptions AS previous_subscription
+			JOIN seats AS previous_seat
+			  ON previous_seat.id = previous_subscription.seat_id
+			JOIN seats AS current_seat
+			  ON current_seat.id = subscriptions.seat_id
+			WHERE previous_subscription.id <> subscriptions.id
+			  AND previous_subscription.archived_at IS NOT NULL
+			  AND previous_seat.account_id = current_seat.account_id
+			  AND julianday(previous_subscription.archived_at) >=
+			      julianday(subscriptions.archived_at, printf('-%d days', ?))
+			  AND (
+				julianday(previous_subscription.archived_at) < julianday(subscriptions.archived_at)
+				OR (
+					julianday(previous_subscription.archived_at) = julianday(subscriptions.archived_at)
+					AND previous_subscription.id < subscriptions.id
+				)
+			  )
+		  ) >= ?
 		  AND EXISTS (
 			SELECT 1
 			FROM after_sales_cases AS after_sales
@@ -589,6 +643,8 @@ func (store *Store) backfillCancellationSeatFreezes() error {
 		model.AfterSalesStatusRefunded,
 		model.SubscriptionBusinessTeam,
 		now,
+		model.TeamSeatReleaseWindowDays,
+		model.ImmediateTeamSeatReleasesPerWindow,
 		model.AfterSalesSourceCustomerCancellation,
 		model.AfterSalesStatusRefunded,
 		model.SubscriptionBusinessTeam,
@@ -2347,10 +2403,6 @@ func (store *Store) archiveSubscription(
 	freezeUntil *time.Time,
 ) error {
 	now := formatTime(archivedAt.UTC())
-	var freezeUntilValue any
-	if freezeUntil != nil {
-		freezeUntilValue = formatTime(freezeUntil.UTC())
-	}
 	transaction, err := store.database.Begin()
 	if err != nil {
 		return err
@@ -2373,6 +2425,19 @@ func (store *Store) archiveSubscription(
 		return ErrSubscriptionHasPendingAfterSales
 	}
 
+	var freezeUntilValue any
+	if freezeUntil != nil {
+		freezeUntilValue, err = teamSeatFreezeDeadline(
+			transaction,
+			subscriptionID,
+			archivedAt,
+			*freezeUntil,
+		)
+		if err != nil {
+			return err
+		}
+	}
+
 	if err := archiveSubscriptionInTransaction(
 		transaction,
 		subscriptionID,
@@ -2384,6 +2449,57 @@ func (store *Store) archiveSubscription(
 	}
 
 	return transaction.Commit()
+}
+
+// teamSeatFreezeDeadline applies the rolling release allowance for one Team
+// account. The first four departures in 30 days release immediately; the
+// fifth and later departures keep their former seat until configuredUntil.
+// The count and archive run in the same transaction so concurrent departures
+// cannot consume the same allowance slot.
+func teamSeatFreezeDeadline(
+	transaction *sql.Tx,
+	subscriptionID int64,
+	archivedAt time.Time,
+	configuredUntil time.Time,
+) (any, error) {
+	var seatID sql.NullInt64
+	if err := transaction.QueryRow(`
+		SELECT seat_id
+		FROM subscriptions
+		WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL`,
+		subscriptionID,
+	).Scan(&seatID); err != nil {
+		return nil, err
+	}
+	if !seatID.Valid || seatID.Int64 <= 0 {
+		return nil, nil
+	}
+
+	windowStart := archivedAt.AddDate(0, 0, -model.TeamSeatReleaseWindowDays)
+	var recentDepartures int
+	if err := transaction.QueryRow(`
+		SELECT COUNT(1)
+		FROM subscriptions AS previous_subscription
+		JOIN seats AS previous_seat
+		  ON previous_seat.id = previous_subscription.seat_id
+		JOIN seats AS current_seat
+		  ON current_seat.id = ?
+		WHERE previous_subscription.id <> ?
+		  AND previous_subscription.archived_at IS NOT NULL
+		  AND previous_seat.account_id = current_seat.account_id
+		  AND julianday(previous_subscription.archived_at) >= julianday(?)
+		  AND julianday(previous_subscription.archived_at) <= julianday(?)`,
+		seatID.Int64,
+		subscriptionID,
+		formatTime(windowStart.UTC()),
+		formatTime(archivedAt.UTC()),
+	).Scan(&recentDepartures); err != nil {
+		return nil, err
+	}
+	if recentDepartures < model.ImmediateTeamSeatReleasesPerWindow {
+		return nil, nil
+	}
+	return formatTime(configuredUntil.UTC()), nil
 }
 
 // SetDuePaid marks or unmarks one subscription due date as paid via bills.

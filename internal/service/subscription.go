@@ -1104,16 +1104,16 @@ func (service *SubscriptionService) Archive(subscriptionID int64) error {
 func (service *SubscriptionService) archiveNaturalExpiry(
 	subscription model.Subscription,
 	archivedAt time.Time,
-) error {
+) (bool, error) {
 	if isPlusSubscription(subscription) {
-		return service.Archive(subscription.ID)
+		return false, service.Archive(subscription.ID)
 	}
 	if err := service.ensureNoPendingAfterSales(subscription.ID, "到期归档"); err != nil {
-		return err
+		return false, err
 	}
 	freezeDays, err := service.GetSeatFreezeDays()
 	if err != nil {
-		return err
+		return false, err
 	}
 	freezeUntil := archivedAt.AddDate(0, 0, freezeDays)
 	if err := service.Store.ArchiveSubscriptionWithSeatFreeze(
@@ -1121,9 +1121,13 @@ func (service *SubscriptionService) archiveNaturalExpiry(
 		archivedAt,
 		freezeUntil,
 	); err != nil {
-		return publicSubscriptionMutationError(err)
+		return false, publicSubscriptionMutationError(err)
 	}
-	return nil
+	archived, err := service.Store.GetSubscriptionIncludingArchived(subscription.ID)
+	if err != nil {
+		return false, err
+	}
+	return archived.SeatFrozenUntil != nil && archived.SeatFrozenUntil.After(archivedAt), nil
 }
 
 // CompleteOneMonthRental archives a naturally expired one-month Plus rental

@@ -266,6 +266,7 @@ export function archiveSubscription(id: number) {
   return api<
     MessageResult & {
       archived?: boolean
+      seat_frozen?: boolean
       case_id?: number
       expires_at?: string
       expires_at_label?: string

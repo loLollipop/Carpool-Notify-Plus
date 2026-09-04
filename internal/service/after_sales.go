@@ -35,6 +35,7 @@ type CancellationRequestResult struct {
 	ExpiresAt      string `json:"expires_at"`
 	ExpiresAtLabel string `json:"expires_at_label"`
 	Archived       bool   `json:"archived"`
+	SeatFrozen     bool   `json:"seat_frozen"`
 }
 
 type AfterSalesSummary struct {
@@ -113,10 +114,11 @@ func (service *SubscriptionService) RequestCancellation(subscriptionID int64) (C
 	// If that due date has already been paid, buildView advances to the next
 	// unpaid cycle and an immediate cancellation still follows after-sales.
 	if view.DaysRemaining <= 0 {
-		if err := service.archiveNaturalExpiry(subscription, requestedAt); err != nil {
+		seatFrozen, err := service.archiveNaturalExpiry(subscription, requestedAt)
+		if err != nil {
 			return CancellationRequestResult{}, err
 		}
-		return CancellationRequestResult{Archived: true}, nil
+		return CancellationRequestResult{Archived: true, SeatFrozen: seatFrozen}, nil
 	}
 	expiresAt := requestedAt.Add(cancellationGracePeriod)
 	caseItem, err := service.Store.RequestSubscriptionCancellation(

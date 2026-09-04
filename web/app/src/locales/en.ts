@@ -1143,11 +1143,11 @@ export default {
     },
     confirms: {
       naturalEndTitle: "Confirm natural expiry?",
-      naturalEndDesc: "“{{name}}” has reached the end of its paid period. It will be archived without an after-sales case, billing history will be retained, and the former seat will enter the configured cooling period.",
+      naturalEndDesc: "“{{name}}” has reached the end of its paid period. It will be archived without an after-sales case and billing history will be retained. The first four departures from this account in a rolling 30-day window release immediately; the fifth and later departures enter cooling.",
       naturalEndAction: "Confirm expiry",
       archiveTitle: "Cancel this subscription?",
       archiveDesc:
-        "“{{name}}” will enter after-sales review and reminders will pause. After the refund, the current seat remains reserved for the configured freeze window. Unresolved requests are restored automatically after 24 hours.",
+        "“{{name}}” will enter after-sales review and reminders will pause. The seat remains occupied until the refund is confirmed. The first four departures in a rolling 30-day window release immediately; the fifth and later departures enter the configured cooling period. Unresolved requests are restored automatically after 24 hours.",
       archiveAction: "Start cancellation",
       endRentalTitle: "End this rental?",
       endRentalDesc: "{{name}} will be archived immediately. Bills remain available.",
@@ -1330,7 +1330,7 @@ export default {
       notePlaceholder: "Refund channel, transaction number, or review result",
       refundTitle: "Confirm refund completed?",
       refundDesc: "Confirm ¥{{amount}} was refunded to {{email}}? The processing time will be recorded.",
-      cancellationRefundDesc: "Confirm ¥{{amount}} was refunded to {{email}}? This immediately archives the subscription, clears redemption records, and freezes the original seat for the configured window. It cannot be undone from after-sales.",
+      cancellationRefundDesc: "Confirm ¥{{amount}} was refunded to {{email}}? This immediately archives the subscription and clears redemption records. The account's first four departures in a rolling 30-day window release immediately; the fifth and later departures enter the configured cooling period. This cannot be undone from after-sales.",
       undoTitle: "Undo refunded status?",
       undoDesc: "{{email}} will return to processing; the amount and notes remain saved.",
       empty: "No after-sales cases",
@@ -1525,9 +1525,9 @@ export default {
       exportAction: "Export JSON",
       seatFreezeTitle: "Cancellation seat freeze",
       seatFreezeDescription:
-        "After a customer cancellation refund is completed, the original Team seat remains reserved. Frozen seats are excluded from manual and automatic assignment until the window expires.",
+        "The first four departures from the same Team account in a rolling 30-day window release immediately. The fifth and later departures enter cooling and are excluded from manual and automatic assignment until the window expires.",
       seatFreezeDays: "Freeze duration",
-      seatFreezeHint: "Defaults to 7 days and accepts 1–90 days. Historical cancellations are calculated from their original refund time, so expired windows are not restarted.",
+      seatFreezeHint: "Cooling defaults to 7 days from the fifth departure onward and accepts 1–90 days. Historical departures are reconciled from their original processing time; manually released seats are not frozen again.",
       daysUnit: "days",
       validation: {
         templateRequired: "Template cannot be empty",

@@ -68,6 +68,11 @@ const (
 	DefaultSeatFreezeDays     = 7
 	MinSeatFreezeDays         = 1
 	MaxSeatFreezeDays         = 90
+	// A Team account can immediately reuse a seat after its first four
+	// departures in a rolling 30-day window. Later departures are cooled down
+	// for the configured seat-freeze duration before the seat is reusable.
+	ImmediateTeamSeatReleasesPerWindow = 4
+	TeamSeatReleaseWindowDays          = 30
 )
 
 // DefaultEnabledChannels keeps new open-source installs from using unconfigured private channels.
