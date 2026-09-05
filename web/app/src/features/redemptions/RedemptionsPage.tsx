@@ -735,7 +735,7 @@ function RedemptionCard({
             />
             <DetailPill
               icon={<MessageCircle className="size-3.5" />}
-              label="微信/QQ"
+              label="微信/手机号"
               value={application.customer_contact}
             />
             <DetailPill

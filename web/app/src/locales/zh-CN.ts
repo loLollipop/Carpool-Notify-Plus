@@ -1455,7 +1455,7 @@ export default {
       sections: {
         templates: "通知模板",
         delivery: "通知渠道",
-        redemption: "兑换页面",
+        redemption: "兑换页与权益",
         operations: "业务规则",
         tools: "系统工具",
       },

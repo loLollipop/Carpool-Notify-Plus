@@ -1455,7 +1455,7 @@ export default {
       sections: {
         templates: "Templates",
         delivery: "Delivery",
-        redemption: "Redemption page",
+        redemption: "Redeem & benefits",
         operations: "Business rules",
         tools: "System tools",
       },

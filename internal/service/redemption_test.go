@@ -328,6 +328,49 @@ func TestRedemptionSubmitRequiresUnusedGeneratedCode(t *testing.T) {
 	}
 }
 
+func TestRedemptionSubmitRejectsUnsearchableCustomerContacts(t *testing.T) {
+	subscriptionService := openTestService(t)
+	tests := []struct {
+		name        string
+		contact     string
+		wantMessage string
+	}{
+		{
+			name:        "private wechat id",
+			contact:     "wxid_yiohp5o9zq7522",
+			wantMessage: "微信隐私号",
+		},
+		{
+			name:        "private wechat id with legacy label",
+			contact:     "微信：WXID_yiohp5o9zq7522",
+			wantMessage: "微信隐私号",
+		},
+		{
+			name:        "email address",
+			contact:     "another@example.com",
+			wantMessage: "不能填写邮箱",
+		},
+		{
+			name:        "email address with phone label",
+			contact:     "手机号：another@example.com",
+			wantMessage: "不能填写邮箱",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := subscriptionService.SubmitRedemptionApplication(service.RedemptionSubmitInput{
+				CustomerEmail:   "customer@example.com",
+				CustomerContact: test.contact,
+				RedeemCode:      "CPN-NOT-A-CODE",
+			})
+			if err == nil || !strings.Contains(err.Error(), test.wantMessage) {
+				t.Fatalf("submit error = %v, want message containing %q", err, test.wantMessage)
+			}
+		})
+	}
+}
+
 func TestRedemptionRejectReleasesCodeForCorrectedSubmission(t *testing.T) {
 	subscriptionService := openTestService(t)
 	codes, err := subscriptionService.GenerateRedemptionCodes(service.RedemptionCodeGenerateInput{

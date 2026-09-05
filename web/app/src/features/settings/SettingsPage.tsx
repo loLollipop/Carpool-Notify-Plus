@@ -599,7 +599,7 @@ function RedeemPageSettingsEditor({
           <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
             <Megaphone className="size-4" />
           </span>
-          <h2 className="panel-heading text-sm font-semibold">兑换页设置</h2>
+          <h2 className="panel-heading text-sm font-semibold">兑换页与权益设置</h2>
         </div>
         <Button type="button" variant="outline" size="sm" asChild>
           <a href="/redeem" target="_blank" rel="noopener noreferrer">
@@ -609,7 +609,7 @@ function RedeemPageSettingsEditor({
         </Button>
       </div>
 
-      <div className="grid items-stretch gap-4 lg:grid-cols-2">
+      <div className="order-2 grid items-stretch gap-4 lg:grid-cols-2">
         <Card className="content-start gap-5 p-5 sm:p-6">
           <div className="flex items-center gap-3 border-b pb-4">
             <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
@@ -740,13 +740,13 @@ function RedeemPageSettingsEditor({
         </Card>
       </div>
 
-      <Card className="gap-5 p-5 sm:p-6">
+      <Card className="order-1 gap-5 p-5 sm:p-6">
         <div className="flex items-start gap-3 border-b pb-4">
           <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
             <Gauge className="size-4" />
           </span>
           <div>
-            <h3 className="text-sm font-semibold">权益参考卡</h3>
+            <h3 className="text-sm font-semibold">兑换页权益卡</h3>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
               保存后会同步到兑换页两侧的 Codex 额度与网页端模型权益卡。
             </p>

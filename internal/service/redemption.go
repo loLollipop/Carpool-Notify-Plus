@@ -111,7 +111,7 @@ func (service *SubscriptionService) SubmitRedemptionApplication(input Redemption
 	if len([]rune(customerEmail)) > maxRedemptionEmailLength {
 		return RedemptionSubmitResult{}, fmt.Errorf("客户邮箱最多 %d 个字", maxRedemptionEmailLength)
 	}
-	customerContact, err := trimRequiredLimited("微信号 / QQ号", input.CustomerContact, maxRedemptionContactLength)
+	customerContact, err := normalizeRedemptionCustomerContact(input.CustomerContact)
 	if err != nil {
 		return RedemptionSubmitResult{}, err
 	}
@@ -557,6 +557,34 @@ func normalizeRedemptionCode(raw string) (string, error) {
 	value = strings.ReplaceAll(value, "－", "-")
 	value = strings.ReplaceAll(value, "—", "-")
 	value = strings.ReplaceAll(value, "–", "-")
+	return value, nil
+}
+
+func normalizeRedemptionCustomerContact(raw string) (string, error) {
+	value, err := trimRequiredLimited("微信或手机号", raw, maxRedemptionContactLength)
+	if err != nil {
+		return "", err
+	}
+
+	contactValue := strings.TrimSpace(value)
+	for _, prefix := range []string{
+		"微信/手机号：", "微信/手机号:", "微信 / 手机号：", "微信 / 手机号:",
+		"微信：", "微信:", "手机号：", "手机号:", "手机：", "手机:",
+	} {
+		if strings.HasPrefix(contactValue, prefix) {
+			contactValue = strings.TrimSpace(strings.TrimPrefix(contactValue, prefix))
+			break
+		}
+	}
+	if contactValue == "" {
+		return "", fmt.Errorf("请填写微信或手机号")
+	}
+	if strings.HasPrefix(strings.ToLower(contactValue), "wxid_") {
+		return "", fmt.Errorf("这是微信隐私号，无法通过搜索添加，请填写手机号")
+	}
+	if strings.Contains(contactValue, "@") {
+		return "", fmt.Errorf("这里请填写微信或手机号，不能填写邮箱")
+	}
 	return value, nil
 }
 

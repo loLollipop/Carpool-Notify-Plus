@@ -57,6 +57,12 @@ import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "carpool-notify:redemption-token"
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
+const PRIVATE_WECHAT_ID_PATTERN = /^wxid_/i
+const CONTACT_LABEL_PATTERN = /^(?:微信\s*\/\s*手机号|微信|手机号|手机)[：:]\s*/
+
+function contactValueForValidation(value: string) {
+  return value.trim().replace(CONTACT_LABEL_PATTERN, "")
+}
 const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
   announcement_title: "加入 ChatGPT Team 前请先确认",
   announcement_intro:
@@ -88,7 +94,17 @@ const schema = z.object({
     .regex(EMAIL_PATTERN, "邮箱格式不正确")
     .max(254, "邮箱太长"),
   redeem_code: z.string().trim().min(1, "请填写兑换码").max(120, "兑换码太长"),
-  customer_contact: z.string().trim().min(1, "请填写微信号").max(80, "微信号太长"),
+  customer_contact: z
+    .string()
+    .trim()
+    .min(1, "请填写微信或手机号")
+    .max(80, "微信或手机号太长")
+    .refine((value) => !PRIVATE_WECHAT_ID_PATTERN.test(contactValueForValidation(value)), {
+      message: "这是微信隐私号，无法通过搜索添加，请填写手机号",
+    })
+    .refine((value) => !contactValueForValidation(value).includes("@"), {
+      message: "这里请填写微信或手机号，不能填写邮箱",
+    }),
 })
 
 type FormValues = z.infer<typeof schema>
@@ -671,7 +687,7 @@ function RedemptionFlowDialog({
             />
             <ReviewItem
               icon={<WeChatIcon className="size-4 text-success" />}
-              label="微信号"
+              label="微信 / 手机号"
               value={reviewValues.customer_contact}
             />
           </div>
@@ -897,7 +913,7 @@ export function RedeemPage() {
     mutationFn: (values: FormValues) =>
       submitRedemptionApplication({
         customer_email: values.customer_email.trim(),
-        customer_contact: `微信：${values.customer_contact.trim()}`,
+        customer_contact: values.customer_contact.trim(),
         redeem_code: values.redeem_code.trim(),
         request_note: "",
       }, sandboxAccessToken),
@@ -1133,14 +1149,14 @@ export function RedeemPage() {
                       <FormItem>
                         <FormLabel className="redeem-field-label">
                           <span className="redeem-field-index">03</span>
-                          微信号
+                          微信 / 手机号
                         </FormLabel>
                         <FormControl>
                           <div className="relative">
                             <WeChatIcon className="redeem-input-icon" />
                             <Input
-                              autoComplete="username"
-                              placeholder="请输入常用微信号"
+                              autoComplete="off"
+                              placeholder="请输入可搜索的微信号或手机号"
                               className="redeem-input h-[52px] pl-11"
                               {...field}
                             />
