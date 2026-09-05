@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Clock3,
   Copy,
+  ExternalLink,
   KeyRound,
   Mail,
   MessageCircle,
@@ -882,7 +883,17 @@ export function RedemptionsPage() {
 
   return (
     <div className="flex flex-col xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:overflow-hidden">
-      <PageHeader title="兑换申请" />
+      <PageHeader
+        title="兑换申请"
+        actions={
+          <Button variant="outline" size="sm" asChild>
+            <a href="/redeem" target="_blank" rel="noopener noreferrer">
+              <ExternalLink data-slot="icon" />
+              前往兑换页
+            </a>
+          </Button>
+        }
+      />
 
       <Tabs
         value={section}
