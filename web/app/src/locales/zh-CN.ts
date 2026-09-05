@@ -59,6 +59,17 @@ export default {
       collapse: "收起侧栏",
       expand: "展开侧栏",
     },
+    profile: {
+      openMenu: "打开 {{name}} 的账户菜单",
+      role: "系统管理员",
+      edit: "编辑个人资料",
+      title: "个人资料",
+      description: "修改管理后台中显示的管理员名称。",
+      displayName: "显示名称",
+      displayNameHint: "仅用于管理后台展示，不会改变登录方式。",
+      authHint: "使用现有管理员密码登录",
+      updated: "个人资料已更新",
+    },
     goals: {
       title: "目标中心",
       workspaceNav: "目标中心工作区",

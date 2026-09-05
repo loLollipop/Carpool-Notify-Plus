@@ -59,6 +59,17 @@ export default {
       collapse: "Collapse sidebar",
       expand: "Expand sidebar",
     },
+    profile: {
+      openMenu: "Open the account menu for {{name}}",
+      role: "System administrator",
+      edit: "Edit profile",
+      title: "Profile",
+      description: "Change the administrator name shown in the management console.",
+      displayName: "Display name",
+      displayNameHint: "This only changes the console label, not the sign-in method.",
+      authHint: "Signs in with the existing administrator password",
+      updated: "Profile updated",
+    },
     goals: {
       title: "Goal center",
       workspaceNav: "Goal center workspace",

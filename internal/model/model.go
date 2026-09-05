@@ -36,6 +36,7 @@ const (
 	SettingEnabledChannels                    = "enabled_channels"
 	SettingRedeemPageSettings                 = "redeem_page_settings"
 	SettingSeatFreezeDays                     = "seat_freeze_days"
+	SettingAdminProfile                       = "admin_profile"
 
 	BusinessGoalStatusActive    = "active"
 	BusinessGoalStatusCompleted = "completed"
@@ -77,6 +78,14 @@ const (
 
 // DefaultEnabledChannels keeps new open-source installs from using unconfigured private channels.
 var DefaultEnabledChannels = []string{}
+
+// AdminProfile contains the small amount of operator identity shown in the
+// private management shell. Authentication remains password-only.
+type AdminProfile struct {
+	DisplayName string `json:"display_name"`
+}
+
+var DefaultAdminProfile = AdminProfile{DisplayName: "Admin"}
 
 // DefaultNotifyTemplate is the initial global operator message template.
 const DefaultNotifyTemplate = `【到期提醒】{{.CustomerEmail}}

@@ -77,6 +77,8 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 	authorized.Use(server.requireAPIAuth())
 	{
 		authorized.POST("/logout", server.postLogout)
+		authorized.GET("/profile", server.getAdminProfile)
+		authorized.PUT("/profile", server.putAdminProfile)
 
 		server.registerBusinessRoutes(authorized)
 		if sandboxServer != nil {

@@ -1,5 +1,9 @@
 // DTO types mirroring the Go JSON tags (internal/service + internal/model).
 
+export interface AdminProfile {
+  display_name: string
+}
+
 export type SubscriptionBusinessType = "team" | "plus"
 
 export interface Subscription {

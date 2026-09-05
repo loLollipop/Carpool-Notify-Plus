@@ -3,6 +3,7 @@ import type {
   AccountInput,
   AccountOption,
   AccountView,
+  AdminProfile,
   AfterSalesCaseInput,
   AfterSalesCaseView,
   AfterSalesSummary,
@@ -55,6 +56,17 @@ export function login(password: string) {
 
 export function logout() {
   return api<MessageResult>("/api/logout", { method: "POST" })
+}
+
+export function fetchAdminProfile() {
+  return api<{ profile: AdminProfile }>("/api/profile").then((result) => result.profile)
+}
+
+export function updateAdminProfile(profile: AdminProfile) {
+  return api<MessageResult & { profile: AdminProfile }>("/api/profile", {
+    method: "PUT",
+    body: profile,
+  })
 }
 
 // ---- Queries ----

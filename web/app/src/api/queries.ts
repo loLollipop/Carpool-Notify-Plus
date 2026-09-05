@@ -1,6 +1,7 @@
 import { useQuery, type QueryClient } from "@tanstack/react-query"
 
 import {
+  fetchAdminProfile,
   fetchAccountOptions,
   fetchAccounts,
   fetchAfterSales,
@@ -19,6 +20,7 @@ import {
 // invalidate the whole tree in one call (single-user app, cheap refetch).
 export const queryKeys = {
   data: ["data"] as const,
+  adminProfile: ["admin-profile"] as const,
   calendar: (month?: string) => ["data", "calendar", month ?? "current"] as const,
   dashboard: ["data", "dashboard"] as const,
   operationsOverview: ["data", "operations-overview"] as const,
@@ -32,6 +34,14 @@ export const queryKeys = {
   accountOptions: (includeSeatId: number) => ["data", "account-options", includeSeatId] as const,
   bills: ["data", "bills"] as const,
   settings: ["data", "settings"] as const,
+}
+
+export function useAdminProfile() {
+  return useQuery({
+    queryKey: queryKeys.adminProfile,
+    queryFn: fetchAdminProfile,
+    staleTime: Number.POSITIVE_INFINITY,
+  })
 }
 
 export function invalidateAppData(queryClient: QueryClient) {

@@ -21,6 +21,30 @@ import (
 
 // ---- Data queries -----------------------------------------------------------
 
+func (server *Server) getAdminProfile(context *gin.Context) {
+	profile, err := server.Service.GetAdminProfile()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"profile": profile})
+}
+
+func (server *Server) putAdminProfile(context *gin.Context) {
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
+	var request model.AdminProfile
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的个人资料")
+		return
+	}
+	profile, err := server.Service.SaveAdminProfile(request)
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "个人资料已更新", "profile": profile})
+}
+
 func (server *Server) getCalendar(context *gin.Context) {
 	now := cycle.Now()
 	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, cycle.Location)

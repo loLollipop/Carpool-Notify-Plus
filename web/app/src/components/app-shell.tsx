@@ -11,7 +11,6 @@ import {
   LayoutDashboard,
   HandCoins,
   KeyRound,
-  LogOut,
   Menu,
   Moon,
   PanelLeftClose,
@@ -29,6 +28,7 @@ import { supportedLanguages } from "@/lib/i18n"
 import { exitSandboxMode } from "@/lib/sandbox-mode"
 import { cn } from "@/lib/utils"
 import { APP_NAME, BrandIcon } from "@/components/brand"
+import { AdminAccountMenu } from "@/components/admin-account-menu"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -37,7 +37,6 @@ import {
   DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -315,18 +314,7 @@ export function AppShell() {
         </nav>
 
         <div className="space-y-1 border-t border-[var(--sidebar-border)] p-3">
-          <Button
-            variant="ghost"
-            className={cn(
-              "w-full justify-start text-[var(--sidebar-muted)] hover:bg-accent hover:text-[var(--sidebar-foreground)]",
-              sidebarCollapsed && "justify-center px-0",
-            )}
-            onClick={handleLogout}
-            aria-label={t("nav.logout")}
-          >
-            <LogOut className="size-4" />
-            <span className={cn(sidebarCollapsed && "hidden")}>{t("nav.logout")}</span>
-          </Button>
+          <AdminAccountMenu collapsed={sidebarCollapsed} onLogout={handleLogout} />
           <Button
             variant="ghost"
             className={cn(
@@ -364,6 +352,7 @@ export function AppShell() {
             <div className="ml-auto flex items-center gap-1">
               <LanguageToggle />
               <ThemeToggle />
+              <AdminAccountMenu placement="header" onLogout={handleLogout} />
               <DropdownMenu>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -398,11 +387,6 @@ export function AppShell() {
                       </DropdownMenuItem>
                     )
                   })}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onSelect={handleLogout}>
-                    <LogOut className="size-4" />
-                    {t("nav.logout")}
-                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
