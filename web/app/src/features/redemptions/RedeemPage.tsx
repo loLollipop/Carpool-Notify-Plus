@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
+  ChevronRight,
   Clock3,
   Copy,
   Gauge,
@@ -488,6 +489,110 @@ function WebModelReferenceCard({ settings }: { settings: RedeemPageSettings }) {
 
       <p className="redeem-reference-note">权益可能动态调整，以账号实际显示为准。</p>
     </Card>
+  )
+}
+
+type RedeemReferencePanel = "quota" | "models"
+
+function FloatingReferencePanel({
+  side,
+  eyebrow,
+  title,
+  icon,
+  open,
+  onToggle,
+  children,
+}: {
+  side: "left" | "right"
+  eyebrow: string
+  title: string
+  icon: React.ReactNode
+  open: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}) {
+  const panelID = `redeem-reference-${side}`
+
+  return (
+    <div
+      className={cn("redeem-reference-float", `is-${side}`, open && "is-open")}
+    >
+      <button
+        type="button"
+        className="redeem-reference-trigger"
+        aria-label={`${open ? "收起" : "展开"}${title}`}
+        aria-expanded={open}
+        aria-controls={panelID}
+        onClick={onToggle}
+      >
+        <span className="redeem-reference-trigger-icon">{icon}</span>
+        <span className="redeem-reference-trigger-copy">
+          <small>{eyebrow}</small>
+          <strong>{title}</strong>
+        </span>
+        <ChevronRight className="redeem-reference-trigger-chevron" aria-hidden="true" />
+      </button>
+
+      {open ? (
+        <div id={panelID} className="redeem-reference-popover">
+          {children}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function RedeemReferenceFloats({ settings }: { settings: RedeemPageSettings }) {
+  const [activePanel, setActivePanel] = React.useState<RedeemReferencePanel | null>(null)
+  const dockRef = React.useRef<HTMLDivElement>(null)
+
+  React.useEffect(() => {
+    if (!activePanel) return
+
+    const closeOnPointerDown = (event: PointerEvent) => {
+      if (!dockRef.current?.contains(event.target as Node)) {
+        setActivePanel(null)
+      }
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setActivePanel(null)
+    }
+
+    document.addEventListener("pointerdown", closeOnPointerDown)
+    document.addEventListener("keydown", closeOnEscape)
+    return () => {
+      document.removeEventListener("pointerdown", closeOnPointerDown)
+      document.removeEventListener("keydown", closeOnEscape)
+    }
+  }, [activePanel])
+
+  const togglePanel = (panel: RedeemReferencePanel) => {
+    setActivePanel((current) => current === panel ? null : panel)
+  }
+
+  return (
+    <div ref={dockRef} className="redeem-reference-dock" aria-label="套餐权益参考">
+      <FloatingReferencePanel
+        side="left"
+        eyebrow="CODEX"
+        title="额度参考"
+        icon={<Gauge />}
+        open={activePanel === "quota"}
+        onToggle={() => togglePanel("quota")}
+      >
+        <CodexQuotaReferenceCard settings={settings} />
+      </FloatingReferencePanel>
+      <FloatingReferencePanel
+        side="right"
+        eyebrow="WEB"
+        title="模型权益"
+        icon={<Sparkles />}
+        open={activePanel === "models"}
+        onToggle={() => togglePanel("models")}
+      >
+        <WebModelReferenceCard settings={settings} />
+      </FloatingReferencePanel>
+    </div>
   )
 }
 
@@ -996,6 +1101,7 @@ export function RedeemPage() {
       />
 
       <RedeemAmbientField />
+      <RedeemReferenceFloats settings={redeemSettings} />
 
       <header className="redeem-topbar">
         <div className="mx-auto flex h-16 w-full max-w-[1760px] items-center justify-between gap-4 px-4 sm:h-[72px] sm:px-6 lg:px-8">
@@ -1052,8 +1158,6 @@ export function RedeemPage() {
             <span className="redeem-frame-node is-left" />
             <span className="redeem-frame-node is-right" />
           </div>
-
-          <CodexQuotaReferenceCard settings={redeemSettings} />
 
           <Card className="redeem-terminal overflow-hidden p-0">
             <div className="redeem-terminal-bar">
@@ -1212,8 +1316,6 @@ export function RedeemPage() {
           ) : (
             <SupportWechatPanel settings={redeemSettings} />
           )}
-
-          <WebModelReferenceCard settings={redeemSettings} />
         </div>
       </section>
     </main>

@@ -1114,60 +1114,27 @@
 
   .redeem-workspace {
     position: relative;
+    width: 100%;
+    max-width: 1240px;
+    margin-inline: auto;
   }
 
   .redeem-workspace.is-single {
-    max-width: 760px;
-    margin-inline: auto;
+    max-width: 860px;
   }
 
   .redeem-terminal {
     order: 1;
   }
 
-  .redeem-reference-quota {
+  .redeem-support-panel,
+  .redeem-support-placeholder {
     order: 2;
   }
 
-  .redeem-reference-model {
-    order: 3;
-  }
-
-  .redeem-support-panel,
-  .redeem-support-placeholder {
-    order: 4;
-  }
-
-  @media (min-width: 768px) and (max-width: 1279px) {
-    .redeem-workspace {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .redeem-workspace .redeem-terminal,
-    .redeem-workspace .redeem-support-panel,
-    .redeem-workspace .redeem-support-placeholder {
-      grid-column: 1 / -1;
-    }
-  }
-
-  @media (min-width: 1024px) and (max-width: 1279px) {
+  @media (min-width: 1024px) {
     .redeem-workspace.has-support {
-      grid-template-columns: minmax(0, 1fr) 300px;
-    }
-
-    .redeem-workspace.has-support .redeem-terminal {
-      grid-column: 1;
-    }
-
-    .redeem-workspace.has-support .redeem-support-panel,
-    .redeem-workspace.has-support .redeem-support-placeholder {
-      grid-column: 2;
-      grid-row: 1;
-    }
-
-    .redeem-workspace.has-support .redeem-reference-quota,
-    .redeem-workspace.has-support .redeem-reference-model {
-      grid-row: 2;
+      grid-template-columns: minmax(0, 2.15fr) minmax(320px, 0.95fr);
     }
   }
 
@@ -1179,51 +1146,31 @@
 
   @media (min-width: 1280px) {
     .redeem-workspace {
-      align-items: center;
+      align-items: stretch;
       justify-content: center;
-      gap: clamp(0.75rem, 1.25vw, 1.5rem);
+      gap: clamp(1rem, 1.5vw, 1.75rem);
     }
 
     .redeem-workspace.has-support {
-      grid-template-columns:
-        minmax(11rem, 13rem)
-        minmax(30rem, 48rem)
-        minmax(16rem, 18rem)
-        minmax(11rem, 13rem);
+      grid-template-columns: minmax(0, 2.2fr) minmax(350px, 0.92fr);
     }
 
     .redeem-workspace.is-single {
-      max-width: 1200px;
-      grid-template-columns: minmax(11rem, 13rem) minmax(30rem, 48rem) minmax(11rem, 13rem);
-    }
-
-    .redeem-workspace .redeem-reference-quota {
-      grid-column: 1;
+      max-width: 860px;
+      grid-template-columns: minmax(0, 1fr);
     }
 
     .redeem-workspace .redeem-terminal {
-      grid-column: 2;
+      grid-column: 1;
     }
 
     .redeem-workspace.has-support .redeem-support-panel,
     .redeem-workspace.has-support .redeem-support-placeholder {
-      grid-column: 3;
+      grid-column: 2;
     }
 
-    .redeem-workspace.has-support .redeem-reference-model {
-      grid-column: 4;
-    }
-
-    .redeem-workspace.is-single .redeem-reference-model {
-      grid-column: 3;
-    }
-
-    .redeem-workspace > :is(.redeem-reference-card, .redeem-terminal, .redeem-support-panel, .redeem-support-placeholder) {
+    .redeem-workspace > :is(.redeem-terminal, .redeem-support-panel, .redeem-support-placeholder) {
       grid-row: 1;
-    }
-
-    .redeem-reference-card {
-      align-self: center;
     }
 
     .redeem-support-panel {
@@ -1622,6 +1569,205 @@
     white-space: nowrap;
   }
 
+  .redeem-reference-dock {
+    position: fixed;
+    z-index: 24;
+    right: 1rem;
+    bottom: 1rem;
+    left: 1rem;
+    display: flex;
+    justify-content: center;
+    gap: 0.55rem;
+    pointer-events: none;
+  }
+
+  .redeem-reference-float {
+    pointer-events: auto;
+  }
+
+  .redeem-reference-trigger {
+    display: grid;
+    min-width: 132px;
+    min-height: 48px;
+    grid-template-columns: auto 1fr auto;
+    align-items: center;
+    gap: 0.55rem;
+    border: 1px solid var(--redeem-line-strong);
+    border-radius: 8px;
+    padding: 0.45rem 0.55rem;
+    background: color-mix(in oklab, var(--redeem-panel) 92%, transparent);
+    color: var(--redeem-text);
+    box-shadow:
+      0 1px 0 color-mix(in oklab, white 38%, transparent) inset,
+      0 16px 40px -24px color-mix(in oklab, #07110f 70%, transparent);
+    text-align: left;
+    backdrop-filter: blur(16px);
+    transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease;
+  }
+
+  .redeem-reference-trigger:hover,
+  .redeem-reference-trigger:focus-visible,
+  .redeem-reference-float.is-open .redeem-reference-trigger {
+    border-color: color-mix(in oklab, var(--redeem-accent) 58%, var(--redeem-line-strong));
+    background: color-mix(in oklab, var(--redeem-panel) 90%, var(--redeem-accent-soft));
+  }
+
+  .redeem-reference-trigger:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--redeem-accent) 48%, transparent);
+    outline-offset: 2px;
+  }
+
+  .redeem-reference-trigger-icon {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    border: 1px solid color-mix(in oklab, var(--redeem-accent) 30%, var(--redeem-line));
+    border-radius: 6px;
+    background: var(--redeem-accent-soft);
+    color: var(--redeem-accent);
+  }
+
+  .redeem-reference-trigger-icon svg {
+    width: 17px;
+    height: 17px;
+  }
+
+  .redeem-reference-trigger-copy {
+    display: grid;
+    min-width: 0;
+    gap: 0.15rem;
+  }
+
+  .redeem-reference-trigger-copy small {
+    color: var(--redeem-accent);
+    font-family: var(--font-mono);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    line-height: 1;
+  }
+
+  .redeem-reference-trigger-copy strong {
+    overflow: hidden;
+    font-size: 11px;
+    font-weight: 650;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .redeem-reference-trigger-chevron {
+    width: 14px;
+    height: 14px;
+    color: var(--redeem-muted);
+    transition: transform 180ms ease, color 180ms ease;
+  }
+
+  .redeem-reference-float.is-right .redeem-reference-trigger-chevron {
+    transform: rotate(180deg);
+  }
+
+  .redeem-reference-float.is-left.is-open .redeem-reference-trigger-chevron {
+    transform: rotate(90deg);
+  }
+
+  .redeem-reference-float.is-right.is-open .redeem-reference-trigger-chevron {
+    transform: rotate(90deg);
+  }
+
+  .redeem-reference-float.is-open .redeem-reference-trigger-chevron {
+    color: var(--redeem-accent);
+  }
+
+  .redeem-reference-popover {
+    position: fixed;
+    right: 1rem;
+    bottom: 4.75rem;
+    left: 1rem;
+    animation: redeem-reference-reveal 180ms ease-out;
+  }
+
+  .redeem-reference-popover .redeem-reference-card {
+    width: min(100%, 390px);
+    max-height: calc(100dvh - 7rem);
+    margin-inline: auto;
+    overflow-y: auto;
+    box-shadow:
+      0 1px 0 color-mix(in oklab, white 34%, transparent) inset,
+      0 28px 70px -30px color-mix(in oklab, #07110f 78%, transparent),
+      0 0 0 1px color-mix(in oklab, var(--redeem-accent) 8%, transparent);
+  }
+
+  @media (max-width: 1279px) {
+    .redeem-console > section {
+      padding-bottom: 6rem;
+    }
+  }
+
+  @media (min-width: 1280px) and (max-width: 1439px) {
+    .redeem-workspace.has-support {
+      max-width: calc(100% - 9rem);
+    }
+  }
+
+  @media (min-width: 1280px) {
+    .redeem-reference-dock {
+      z-index: 8;
+      inset: 72px 0 0;
+      display: block;
+    }
+
+    .redeem-reference-float {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .redeem-reference-float.is-left {
+      left: max(1rem, calc((100vw - 1380px) / 2));
+    }
+
+    .redeem-reference-float.is-right {
+      right: max(1rem, calc((100vw - 1380px) / 2));
+    }
+
+    .redeem-reference-popover {
+      position: absolute;
+      top: 50%;
+      right: auto;
+      bottom: auto;
+      left: calc(100% + 0.7rem);
+      width: 280px;
+      transform: translateY(-50%);
+    }
+
+    .redeem-reference-float.is-right .redeem-reference-popover {
+      right: calc(100% + 0.7rem);
+      left: auto;
+    }
+
+    .redeem-reference-popover .redeem-reference-card {
+      width: 100%;
+      max-height: calc(100dvh - 7.5rem);
+    }
+  }
+
+  @media (min-width: 1280px) and (max-width: 1679px) {
+    .redeem-reference-trigger {
+      width: 48px;
+      min-width: 48px;
+      grid-template-columns: 1fr;
+      justify-items: center;
+      padding: 0.45rem;
+    }
+
+    .redeem-reference-trigger-copy,
+    .redeem-reference-trigger-chevron {
+      display: none;
+    }
+  }
+
   .redeem-reference-card {
     position: relative;
     z-index: 1;
@@ -1886,16 +2032,16 @@
     }
 
     .redeem-support-body {
-      padding: 1rem;
+      padding: 1.5rem;
     }
 
     .redeem-support-meta {
-      margin-top: 1rem;
+      margin-top: 1.25rem;
     }
 
     .redeem-support-qr-shell {
-      margin-top: 1rem;
-      padding: 0.75rem;
+      margin-top: 1.25rem;
+      padding: 1rem;
     }
 
     .redeem-support-panel .wechat-qr-block {
@@ -1903,12 +2049,21 @@
     }
 
     .redeem-support-panel .wechat-qr-image {
-      max-width: 190px;
-      padding: 0.45rem;
+      max-width: 250px;
+      padding: 0.6rem;
     }
 
     .redeem-support-panel .wechat-contact {
       padding-top: 0.75rem;
+    }
+  }
+
+  @keyframes redeem-reference-reveal {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
     }
   }
 
