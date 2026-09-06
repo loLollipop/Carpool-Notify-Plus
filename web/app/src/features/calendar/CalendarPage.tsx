@@ -21,6 +21,13 @@ import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -38,6 +45,7 @@ import { SeatSubscriptionDialog } from "./SeatSubscriptionDialog"
 type CalendarView = "tasks" | "calendar" | "activity"
 type TaskFilter = "all" | "overdue" | "soon" | "paid"
 const TASKS_PER_PAGE = 12
+const CALENDAR_EVENTS_PER_DAY = 3
 
 function EventPill({
   occurrence,
@@ -96,73 +104,118 @@ function MonthGrid({
 }) {
   const { t } = useTranslation()
   const weekdays = t("calendar.weekdays", { returnObjects: true }) as string[]
+  const [expandedDay, setExpandedDay] = React.useState<CalendarDay | null>(null)
 
   return (
-    <section aria-label={calendar.month_label}>
-      <div className="grid grid-cols-7 border-b bg-muted/70" aria-hidden="true">
-        {weekdays.map((weekday, index) => (
-          <span
-            key={weekday}
-            className={cn(
-              "px-2 py-2 text-center text-xs font-medium text-muted-foreground",
-              index >= 5 && "text-muted-foreground/60",
-            )}
-          >
-            {weekday}
-          </span>
-        ))}
-      </div>
-      <div className="grid grid-cols-7 gap-px bg-border/70">
-        {calendar.days.map((day) => {
-          const navigatesMonth = !day.in_month
-          return (
-            <div
-              key={day.date}
-              role={navigatesMonth ? "button" : undefined}
-              tabIndex={navigatesMonth ? 0 : undefined}
-              aria-label={navigatesMonth ? t("calendar.dateOnly", { date: day.date_label }) : undefined}
-              onClick={() => navigatesMonth && onSelectDay(day)}
-              onKeyDown={(event) => {
-                if (!navigatesMonth) return
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault()
-                  onSelectDay(day)
-                }
-              }}
+    <>
+      <section className="min-w-[720px]" aria-label={calendar.month_label}>
+        <div className="grid grid-cols-7 border-b bg-muted/70" aria-hidden="true">
+          {weekdays.map((weekday, index) => (
+            <span
+              key={weekday}
               className={cn(
-                "relative flex flex-col gap-1 p-1.5 outline-none transition-colors",
-                (day.occurrences?.length ?? 0) > 0 ? "min-h-[72px] sm:min-h-[88px]" : "min-h-[44px] sm:min-h-[52px]",
-                day.in_month ? "bg-card" : "cursor-pointer bg-muted/40 text-muted-foreground/70 hover:bg-accent",
+                "px-2 py-2 text-center text-xs font-medium text-muted-foreground",
+                index >= 5 && "text-muted-foreground/60",
               )}
             >
-              <span
+              {weekday}
+            </span>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-px bg-border/70">
+          {calendar.days.map((day) => {
+            const occurrences = day.occurrences ?? []
+            const visibleOccurrences = occurrences.slice(0, CALENDAR_EVENTS_PER_DAY)
+            const hiddenCount = occurrences.length - visibleOccurrences.length
+            const navigatesMonth = !day.in_month
+            return (
+              <div
+                key={day.date}
+                role={navigatesMonth ? "button" : undefined}
+                tabIndex={navigatesMonth ? 0 : undefined}
+                aria-label={navigatesMonth ? t("calendar.dateOnly", { date: day.date_label }) : undefined}
+                onClick={() => navigatesMonth && onSelectDay(day)}
+                onKeyDown={(event) => {
+                  if (!navigatesMonth) return
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault()
+                    onSelectDay(day)
+                  }
+                }}
                 className={cn(
-                  "text-xs tabular-nums",
-                  day.is_today
-                    ? "flex size-5 items-center justify-center rounded-full bg-brand font-semibold text-brand-foreground shadow-[0_0_0_3px_color-mix(in_oklab,var(--brand)_15%,transparent)]"
-                    : day.in_month
-                      ? day.is_weekend
-                        ? "font-medium text-brand"
-                        : "font-medium text-foreground"
-                      : "text-muted-foreground/50",
+                  "relative flex h-[7.75rem] flex-col gap-1 overflow-hidden p-1.5 outline-none transition-colors sm:h-[8.25rem]",
+                  day.in_month ? "bg-card" : "cursor-pointer bg-muted/40 text-muted-foreground/70 hover:bg-accent",
                 )}
               >
-                {day.day_number}
-              </span>
-              <span className="flex flex-col gap-0.5 overflow-hidden">
-                {(day.occurrences ?? []).map((occurrence) => (
-                  <EventPill
-                    key={`${occurrence.subscription_id}:${occurrence.due_date}`}
-                    occurrence={occurrence}
-                    onView={onViewOccurrence}
-                  />
-                ))}
-              </span>
-            </div>
-          )
-        })}
-      </div>
-    </section>
+                <span
+                  className={cn(
+                    "text-xs tabular-nums",
+                    day.is_today
+                      ? "flex size-5 items-center justify-center rounded-full bg-brand font-semibold text-brand-foreground shadow-[0_0_0_3px_color-mix(in_oklab,var(--brand)_15%,transparent)]"
+                      : day.in_month
+                        ? day.is_weekend
+                          ? "font-medium text-brand"
+                          : "font-medium text-foreground"
+                        : "text-muted-foreground/50",
+                  )}
+                >
+                  {day.day_number}
+                </span>
+                <span className="flex flex-col gap-0.5 overflow-hidden">
+                  {visibleOccurrences.map((occurrence) => (
+                    <EventPill
+                      key={`${occurrence.subscription_id}:${occurrence.due_date}`}
+                      occurrence={occurrence}
+                      onView={onViewOccurrence}
+                    />
+                  ))}
+                </span>
+                {hiddenCount > 0 ? (
+                  <button
+                    type="button"
+                    className="mt-auto w-full rounded-md border border-dashed border-border/80 bg-muted/55 px-1.5 py-1 text-left text-[11px] font-medium tabular-nums text-muted-foreground transition-colors hover:border-brand/35 hover:bg-brand/8 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setExpandedDay(day)
+                    }}
+                  >
+                    {t("calendar.moreEvents", { count: hiddenCount })}
+                  </button>
+                ) : null}
+              </div>
+            )
+          })}
+        </div>
+      </section>
+
+      <Dialog
+        open={expandedDay !== null}
+        onOpenChange={(open) => {
+          if (!open) setExpandedDay(null)
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("calendar.dayEventsTitle", { date: expandedDay?.date_label ?? "" })}</DialogTitle>
+            <DialogDescription>
+              {t("calendar.dayEventsDesc", { count: expandedDay?.occurrences?.length ?? 0 })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            {(expandedDay?.occurrences ?? []).map((occurrence) => (
+              <EventPill
+                key={`${occurrence.subscription_id}:${occurrence.due_date}`}
+                occurrence={occurrence}
+                onView={(selectedOccurrence) => {
+                  setExpandedDay(null)
+                  onViewOccurrence(selectedOccurrence)
+                }}
+              />
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
@@ -602,7 +655,7 @@ export function CalendarPage() {
               />
             </TabsContent>
             <TabsContent value="calendar" className="mt-3">
-              <Card className="gap-0 overflow-hidden p-0">
+              <Card className="gap-0 overflow-x-auto overflow-y-hidden p-0">
                 <MonthGrid
                   calendar={calendar}
                   onSelectDay={(day) => {
