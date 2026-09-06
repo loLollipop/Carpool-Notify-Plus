@@ -110,20 +110,20 @@ func (service *SubscriptionService) ListAccountsView() ([]AccountView, error) {
 	if err != nil {
 		return nil, err
 	}
+	snapshot, err := service.loadAccountViewSnapshot()
+	if err != nil {
+		return nil, err
+	}
 	views := make([]AccountView, 0, len(accounts))
 	for _, account := range accounts {
-		view, err := service.buildAccountView(account)
+		view, err := buildAccountViewFromSnapshot(account, snapshot)
 		if err != nil {
 			return nil, err
 		}
 		if strings.TrimSpace(account.BannedAt) != "" && view.SeatUsed == 0 {
-			pendingCases, err := service.Store.CountPendingAfterSalesCasesByAccount(account.ID)
-			if err != nil {
-				return nil, err
-			}
 			// Keep the database snapshot for bills and refund history, but remove a
 			// fully handled banned account from the operational account list.
-			if pendingCases == 0 {
+			if snapshot.pendingAfterSalesByAccount[account.ID] == 0 {
 				continue
 			}
 		}
@@ -175,19 +175,23 @@ func (service *SubscriptionService) buildAccountView(account model.Account) (Acc
 		if err != nil {
 			return AccountView{}, err
 		}
-		if !renewalAt.IsZero() {
-			today := cycle.StartOfDay(service.now())
-			view.NextRenewalDate = cycle.FormatDate(renewalAt)
-			// A flagged $0 renewal is accrued automatically by the scheduler. Keep
-			// its date visible as history/context, but do not present it as manual
-			// work or prioritize the account ahead of renewals that require payment.
-			if !account.ZeroRenewalNextMonth {
-				view.RenewalThisMonth = renewalAt.Year() == today.Year() && renewalAt.Month() == today.Month()
-				view.RenewalActionable = accountRenewalActionable(renewalAt, today)
-			}
-		}
+		applyAccountRenewalFields(&view, account, renewalAt, service.now())
 	}
 	return view, nil
+}
+
+func applyAccountRenewalFields(view *AccountView, account model.Account, renewalAt time.Time, now time.Time) {
+	if view == nil || renewalAt.IsZero() {
+		return
+	}
+	today := cycle.StartOfDay(now)
+	view.NextRenewalDate = cycle.FormatDate(renewalAt)
+	// A flagged $0 renewal is accrued automatically by the scheduler. Keep its
+	// date visible as history/context, but never present it as manual work.
+	if !account.ZeroRenewalNextMonth {
+		view.RenewalThisMonth = renewalAt.Year() == today.Year() && renewalAt.Month() == today.Month()
+		view.RenewalActionable = accountRenewalActionable(renewalAt, today)
+	}
 }
 
 func (service *SubscriptionService) buildSeatView(seat model.Seat) (SeatView, error) {

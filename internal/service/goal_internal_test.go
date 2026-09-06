@@ -478,18 +478,18 @@ func TestCashflowForecastAppliesScheduledPriceOnlyFromEffectiveDueDate(t *testin
 
 func TestForecastRetentionUsesPlanningAssumptionsUntilSampleGate(t *testing.T) {
 	testCases := []struct {
-		name       string
-		successes  int
-		churns     int
-		wantLow    int
-		wantBase   int
-		wantHigh   int
+		name      string
+		successes int
+		churns    int
+		wantLow   int
+		wantBase  int
+		wantHigh  int
 	}{
 		{
-			name:      "no outcomes",
-			wantLow:   80,
-			wantBase:  90,
-			wantHigh:  98,
+			name:     "no outcomes",
+			wantLow:  80,
+			wantBase: 90,
+			wantHigh: 98,
 		},
 		{
 			name:      "early mixed outcomes",
@@ -954,6 +954,40 @@ func TestComparableMarketPricesFiltersMixedProductsAndDeduplicates(t *testing.T)
 	}
 }
 
+func TestExcludeDetachedLowPriceClusterIgnoresPriceWarMinority(t *testing.T) {
+	prices := []int64{
+		4120, 5150, 5665,
+		11110, 11330, 11443, 11550, 12100, 12760, 13090, 13688, 14300,
+	}
+	filtered, excluded := excludeDetachedLowPriceCluster(prices)
+	if excluded != 3 || len(filtered) != 9 || filtered[0] != 11110 {
+		t.Fatalf("filtered price-war cluster = %#v, excluded = %d", filtered, excluded)
+	}
+
+	smooth := []int64{8000, 8500, 9000, 9500, 10000, 10500}
+	filtered, excluded = excludeDetachedLowPriceCluster(smooth)
+	if excluded != 0 || len(filtered) != len(smooth) {
+		t.Fatalf("ordinary low-price range was filtered = %#v, excluded = %d", filtered, excluded)
+	}
+
+	compact := []int64{4100, 5000, 5600, 11000, 11500, 12000, 12500, 13000}
+	filtered, excluded = excludeDetachedLowPriceCluster(compact)
+	if excluded != 3 || len(filtered) != 5 || filtered[0] != 11000 {
+		t.Fatalf("compact price-war cluster = %#v, excluded = %d", filtered, excluded)
+	}
+}
+
+func TestBalancedMarketBenchmarksProtectsHealthyPaidPrice(t *testing.T) {
+	low, median, high, anchored := balancedMarketBenchmarks(5000, 6000, 7000, 9000, 5)
+	if !anchored || low != 9450 || median != 9810 || high != 9810 {
+		t.Fatalf("balanced benchmark = %d/%d/%d anchored=%t", low, median, high, anchored)
+	}
+	suggestedLow, suggestedHigh, _ := attractiveNewSaleRange(low, median, 9000, 5)
+	if suggestedLow < 9000 || suggestedHigh < suggestedLow {
+		t.Fatalf("price-war market reduced healthy book: %d/%d", suggestedLow, suggestedHigh)
+	}
+}
+
 func TestPricingRecommendationRespectsUtilizationBeforeRaisingPrice(t *testing.T) {
 	snapshot := &model.MarketPriceSnapshot{
 		LowPriceCents:    13000,
@@ -1002,6 +1036,24 @@ func TestPricingRecommendationDoesNotCollapseCurrentMarketRange(t *testing.T) {
 	if advice.Action != "raise" || advice.SuggestedLowPriceCents != 12600 ||
 		advice.SuggestedHighPriceCents != 12900 || advice.NewSaleDiscountPercent != 3 {
 		t.Fatalf("current-market new-sale range = %#v", advice)
+	}
+}
+
+func TestPricingRecommendationCapsLowUtilizationPriceTestAtThreePercent(t *testing.T) {
+	service := openGoalTestService(t)
+	seedPricingSeats(t, service, 10, 4, 16000)
+	advice, err := service.buildPricingRecommendation(&model.MarketPriceSnapshot{
+		LowPriceCents:    11000,
+		MedianPriceCents: 12000,
+		HighPriceCents:   13000,
+		SampleCount:      8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if advice.Action != "lower_test" || advice.SuggestedLowPriceCents != 15600 ||
+		advice.SuggestedHighPriceCents != 16000 || advice.NewSaleDiscountPercent != 3 {
+		t.Fatalf("controlled lower-price test = %#v", advice)
 	}
 }
 

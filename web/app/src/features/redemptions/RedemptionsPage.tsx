@@ -218,6 +218,7 @@ function RedemptionCodeManager() {
         note: note.trim(),
       }),
     {
+      scope: "redemption-codes",
       successMessage: "兑换码已生成",
       onSuccess: (result) => {
         setNote("")
@@ -230,12 +231,15 @@ function RedemptionCodeManager() {
     },
   )
   const disableMutation = useAppMutation((id: number) => disableRedemptionCode(id), {
+    scope: "redemption-codes",
     successMessage: "兑换码已停用",
   })
   const enableMutation = useAppMutation((id: number) => enableRedemptionCode(id), {
+    scope: "redemption-codes",
     successMessage: "兑换码已启用",
   })
   const deleteMutation = useAppMutation((id: number) => deleteRedemptionCode(id), {
+    scope: "redemption-codes",
     successMessage: "兑换码已删除",
     onSuccess: () => setDeleteTarget(null),
   })
@@ -499,11 +503,12 @@ function InvitePanel({
         trade_url: tradeURL.trim(),
         operator_note: operatorNote.trim(),
       }),
-    { successMessage: "已邀请，并已自动创建订阅" },
+    { scope: "redemptions", successMessage: "已邀请，并已自动创建订阅" },
   )
   const rejectMutation = useAppMutation(
     () => rejectRedemption(view.application.id, { reason: operatorNote.trim() }),
     {
+      scope: "redemptions",
       successMessage: "兑换申请已驳回，兑换码已恢复可用",
       onSuccess: () => setRejectOpen(false),
     },

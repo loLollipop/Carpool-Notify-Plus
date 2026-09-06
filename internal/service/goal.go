@@ -47,7 +47,11 @@ const (
 	newSaleFillDiscountPercent         = int64(7)
 	newSaleBalancedDiscountPercent     = int64(5)
 	newSaleScarceDiscountPercent       = int64(3)
+	controlledLowerTestPercent         = int64(3)
 	minimumNewSaleRangeCents           = int64(300)
+	minimumCommercialClusterSize       = 3
+	minimumLowClusterGapPercent        = int64(35)
+	maximumLowClusterSharePercent      = int64(40)
 	maximumBulkPricingSelection        = 200
 	maximumPricingExemptionCycles      = 6
 	maximumPricingExemptionNoteRunes   = 500
@@ -1077,6 +1081,8 @@ func (service *SubscriptionService) fetchMarketPriceSnapshots() (marketPriceSnap
 	}
 	acquisitionPrices, acquisitionUpdatedAt := comparableMarketPrices(payload.Offers, marketOfferAcquisition)
 	renewalPrices, renewalUpdatedAt := comparableMarketPrices(payload.Offers, marketOfferRenewal)
+	acquisitionPrices, _ = excludeDetachedLowPriceCluster(acquisitionPrices)
+	renewalPrices, _ = excludeDetachedLowPriceCluster(renewalPrices)
 	if len(acquisitionPrices) < 3 {
 		return marketPriceSnapshots{}, fmt.Errorf("可比的新购 Team 单席位报价不足 3 条")
 	}
@@ -1226,35 +1232,55 @@ func percentileCents(sortedPrices []int64, percentile float64) int64 {
 	return int64(math.Round(value))
 }
 
+// excludeDetachedLowPriceCluster removes only a clearly separated, minority
+// low-price cluster. Ordinary inexpensive offers remain visible, while a
+// handful of loss-leading or promotion-like quotes cannot drag the commercial
+// benchmark far below the main available market.
+func excludeDetachedLowPriceCluster(sortedPrices []int64) ([]int64, int) {
+	if len(sortedPrices) < minimumCommercialClusterSize*2 {
+		return sortedPrices, 0
+	}
+	bestSplit := 0
+	bestGapPercent := int64(0)
+	for split := 1; split <= len(sortedPrices)-minimumCommercialClusterSize; split++ {
+		if int64(split*100) > int64(len(sortedPrices))*maximumLowClusterSharePercent {
+			break
+		}
+		left := sortedPrices[split-1]
+		right := sortedPrices[split]
+		if left <= 0 || right <= left {
+			continue
+		}
+		gapPercent := (right - left) * 100 / left
+		if gapPercent >= minimumLowClusterGapPercent && gapPercent > bestGapPercent {
+			bestSplit = split
+			bestGapPercent = gapPercent
+		}
+	}
+	if bestSplit == 0 {
+		return sortedPrices, 0
+	}
+	return append([]int64(nil), sortedPrices[bestSplit:]...), bestSplit
+}
+
 func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.MarketPriceSnapshot) (PricingRecommendation, error) {
-	accounts, err := service.Store.ListAccounts()
+	accounts, err := service.ListAccountsView()
 	if err != nil {
 		return PricingRecommendation{}, err
 	}
 	activeAccountIDs := make(map[int64]struct{})
 	var monthlyAccountCostCents int64
 	seatUsed := 0
-	for _, account := range accounts {
+	seatTotal := 0
+	for _, accountView := range accounts {
+		account := accountView.Account
 		if strings.TrimSpace(account.BannedAt) != "" {
 			continue
 		}
 		activeAccountIDs[account.ID] = struct{}{}
 		monthlyAccountCostCents += account.CostCents
-		unavailable, countErr := service.Store.CountUnavailableSeatsByAccount(account.ID, service.now())
-		if countErr != nil {
-			return PricingRecommendation{}, countErr
-		}
-		seatUsed += unavailable
-	}
-	seats, err := service.Store.ListAllSeats()
-	if err != nil {
-		return PricingRecommendation{}, err
-	}
-	seatTotal := 0
-	for _, seat := range seats {
-		if _, active := activeAccountIDs[seat.AccountID]; active {
-			seatTotal++
-		}
+		seatUsed += accountView.SeatUsed
+		seatTotal += accountView.SeatTotal
 	}
 	subscriptions, err := service.Store.ListSubscriptions()
 	if err != nil {
@@ -1305,40 +1331,66 @@ func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.M
 	}
 
 	internalMedian := recommendation.InternalMedianPriceCents
-	marketLow := snapshot.LowPriceCents
-	marketMedian := snapshot.MedianPriceCents
-	marketHigh := snapshot.HighPriceCents
-	minimumHealthyPrice := seatCostFloorCents * 120 / 100
 	discountPercent := newSaleDiscountPercent(utilizationPercent)
+	reportedMarketHigh := snapshot.HighPriceCents
+	costProtectedFloor := seatCostFloorCents * 120 / 100
+	minimumHealthyPrice := maxInt64(costProtectedFloor, internalMedian)
+	lowerPriceTest := utilizationPercent < 70 &&
+		reportedMarketHigh > costProtectedFloor &&
+		internalMedian > reportedMarketHigh*120/100
+	marketLow, marketMedian, _, internalAnchorApplied := balancedMarketBenchmarks(
+		snapshot.LowPriceCents,
+		snapshot.MedianPriceCents,
+		snapshot.HighPriceCents,
+		internalMedian,
+		discountPercent,
+	)
 	suggestedLow, suggestedHigh, discountApplied := attractiveNewSaleRange(
 		marketLow,
 		marketMedian,
 		minimumHealthyPrice,
 		discountPercent,
 	)
+	if lowerPriceTest {
+		// A weak occupancy signal may justify a small acquisition experiment,
+		// but never a race to the bottom. Limit the test to 3% below the actual
+		// paid-price median and keep the cost margin floor intact.
+		suggestedLow = maxInt64(
+			roundPriceUpToYuan(costProtectedFloor),
+			roundPriceUpToYuan(internalMedian*(100-controlledLowerTestPercent)/100),
+		)
+		suggestedHigh = maxInt64(suggestedLow, roundPriceDownToYuan(internalMedian))
+		discountApplied = true
+		discountPercent = controlledLowerTestPercent
+	}
 	recommendation.SuggestedLowPriceCents = suggestedLow
 	recommendation.SuggestedHighPriceCents = suggestedHigh
 	if discountApplied {
 		recommendation.NewSaleDiscountPercent = int(discountPercent)
 	}
 	switch {
+	case lowerPriceTest:
+		recommendation.Action = "lower_test"
+		recommendation.ReasonCodes = []string{"above_market", "available_seats"}
 	case utilizationPercent < 70:
 		recommendation.Action = "fill"
 		recommendation.ReasonCodes = []string{"low_utilization", "protect_occupancy"}
 	case utilizationPercent >= 85 && internalMedian < marketLow*95/100:
 		recommendation.Action = "raise"
 		recommendation.ReasonCodes = []string{"high_utilization", "below_market"}
-	case utilizationPercent < 85 && internalMedian > marketHigh*110/100:
-		recommendation.Action = "lower_test"
-		recommendation.ReasonCodes = []string{"above_market", "available_seats"}
 	default:
 		recommendation.Action = "hold"
 		recommendation.ReasonCodes = []string{"price_in_range", "stable_utilization"}
 	}
-	if discountApplied {
+	if lowerPriceTest {
+		recommendation.ReasonCodes = append(recommendation.ReasonCodes, "controlled_price_test")
+	} else if discountApplied {
 		recommendation.ReasonCodes = append(recommendation.ReasonCodes, "new_sale_advantage")
 	} else {
 		recommendation.ReasonCodes = append(recommendation.ReasonCodes, "margin_floor_limits_discount")
+	}
+	if internalAnchorApplied {
+		recommendation.ReasonCodes = append(recommendation.ReasonCodes, "anti_price_war_anchor")
 	}
 	return recommendation, nil
 }
@@ -2523,6 +2575,31 @@ func newSaleDiscountPercent(utilizationPercent int) int64 {
 	default:
 		return newSaleScarceDiscountPercent
 	}
+}
+
+// balancedMarketBenchmarks combines public listings with the portfolio's
+// actual paid-price median. The anchor is high enough that applying the
+// acquisition discount cannot recommend selling below the current healthy
+// book merely because a marketplace is temporarily racing downward.
+func balancedMarketBenchmarks(
+	marketLowCents int64,
+	marketMedianCents int64,
+	marketHighCents int64,
+	internalMedianCents int64,
+	discountPercent int64,
+) (int64, int64, int64, bool) {
+	originalLow := marketLowCents
+	originalMedian := marketMedianCents
+	if internalMedianCents > 0 {
+		lowAnchor := divideRoundUp(internalMedianCents*(100+discountPercent), 100)
+		medianAnchor := divideRoundUp(internalMedianCents*(104+discountPercent), 100)
+		marketLowCents = maxInt64(marketLowCents, lowAnchor)
+		marketMedianCents = maxInt64(marketMedianCents, medianAnchor)
+	}
+	marketMedianCents = maxInt64(marketMedianCents, marketLowCents)
+	marketHighCents = maxInt64(marketHighCents, marketMedianCents)
+	return marketLowCents, marketMedianCents, marketHighCents,
+		marketLowCents != originalLow || marketMedianCents != originalMedian
 }
 
 // attractiveNewSaleRange keeps a deliberate acquisition advantage against

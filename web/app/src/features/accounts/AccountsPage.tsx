@@ -528,11 +528,12 @@ export function AccountsPage() {
   const [page, setPage] = React.useState(1)
 
   const deleteMutation = useAppMutation((id: number) => deleteAccount(id), {
+    scope: "accounts",
     onSuccess: () => setDeleteTarget(null),
   })
   const renewalMutation = useAppMutation(
     (target: AccountRenewalTarget) => markAccountRenewed(target.id, target.renewalDate),
-    { onSuccess: () => setRenewalTarget(null) },
+    { scope: "accounts", onSuccess: () => setRenewalTarget(null) },
   )
 
   const toggleExpanded = (accountId: number) => {

@@ -38,6 +38,7 @@ export function ReminderPreviewDialog({
   const sendMutation = useAppMutation(
     () => sendCustomerEmail(subscriptionId as number),
     {
+      scope: "notifications",
       successMessage: t("reminder.sent"),
       onSuccess: () => onOpenChange(false),
     },

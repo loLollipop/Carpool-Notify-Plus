@@ -1267,7 +1267,7 @@ function CustomerEmailTestCard({ settings }: { settings: Settings }) {
   const testMutation = useAppMutation(
     (input: { recipient: string; template_kind: CustomerTemplateKind }) =>
       testSettingsCustomerEmail(input),
-    { successToast: true },
+    { scope: "none", successToast: true },
   )
 
   const handleSend = () => {
@@ -1353,6 +1353,7 @@ function SystemTools({ settings }: { settings: Settings }) {
   const { t } = useTranslation()
   const [testConfirmOpen, setTestConfirmOpen] = React.useState(false)
   const testMutation = useAppMutation(() => testSettingsNotify(), {
+    scope: "notifications",
     onSuccess: () => setTestConfirmOpen(false),
   })
 
@@ -1516,6 +1517,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
   )
 
   const saveMutation = useAppMutation((input: SettingsInput) => saveSettings(input), {
+    scope: "settings",
     onSuccess: () =>
       setDeliveryConfig((previous) => ({
         ...previous,

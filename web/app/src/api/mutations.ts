@@ -1,19 +1,21 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
-import { invalidateAppData } from "./queries"
+import { invalidateMutationData, type MutationScope } from "./queries"
 
 interface AppMutationOptions<TData, TVariables> {
   /** Show a success toast using the server message (default true). */
   successToast?: boolean
   /** Client-side toast text; overrides the server message when set. */
   successMessage?: string
+  /** Refresh only the business areas affected by this write. */
+  scope?: MutationScope
   onSuccess?: (data: TData, variables: TVariables) => void
   onError?: (error: Error, variables: TVariables) => void
 }
 
 /**
- * Wraps a mutation endpoint: invalidates all data queries on success,
+ * Wraps a mutation endpoint: invalidates the affected data queries on success,
  * toasts the server-provided message, and toasts errors.
  */
 export function useAppMutation<TVariables = void, TData = { message?: string }>(
@@ -29,7 +31,7 @@ export function useAppMutation<TVariables = void, TData = { message?: string }>(
       // must be allowed to close even if a later cache refresh or toast has a
       // problem in the browser.
       options.onSuccess?.(data, variables)
-      void invalidateAppData(queryClient)
+      void invalidateMutationData(queryClient, options.scope ?? "all")
       if (options.successToast !== false) {
         const serverMessage = (data as { message?: string } | null | undefined)?.message
         const message = options.successMessage ?? serverMessage

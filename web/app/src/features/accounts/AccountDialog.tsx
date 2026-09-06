@@ -135,6 +135,7 @@ export function AccountDialog({
       return isEdit ? updateAccount(prefill.id, input) : createAccount(input)
     },
     {
+      scope: "accounts",
       onSuccess: () => onOpenChange(false),
     },
   )

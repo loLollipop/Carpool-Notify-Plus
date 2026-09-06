@@ -478,6 +478,7 @@ export function PlusRentalsPage() {
   }
 
   const archiveMutation = useAppMutation((id: number) => archiveSubscription(id), {
+    scope: "subscriptions",
     successMessage: t("plusRentals.ended"),
     onSuccess: (data) => {
       setArchiveTarget(null)
@@ -490,6 +491,7 @@ export function PlusRentalsPage() {
   })
 
   const completeMutation = useAppMutation((id: number) => completeOneMonthRental(id), {
+    scope: "subscriptions",
     successMessage: t("plusRentals.completed"),
     onSuccess: () => setCompleteTarget(null),
   })

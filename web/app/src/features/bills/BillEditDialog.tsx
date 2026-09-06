@@ -76,6 +76,7 @@ export function BillEditDialog({
     ({ billId, values }: { billId: number; values: FormValues }) =>
       updateBill(billId, { amount_yuan: values.amount_yuan.trim(), note: values.note.trim() }),
     {
+      scope: "billing",
       onSuccess: () => onOpenChange(false),
     },
   )

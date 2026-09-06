@@ -79,9 +79,10 @@ function SeatFreezeDialogContent({
   const updateMutation = useAppMutation(
     (input: { seatId: number; frozenUntil: string }) =>
       updateSeatFreeze(input.seatId, { frozen_until: input.frozenUntil }),
-    { onSuccess: () => onOpenChange(false) },
+    { scope: "accounts", onSuccess: () => onOpenChange(false) },
   )
   const releaseMutation = useAppMutation((seatId: number) => releaseSeatFreeze(seatId), {
+    scope: "accounts",
     onSuccess: () => {
       setReleaseConfirmOpen(false)
       onOpenChange(false)

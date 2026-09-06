@@ -152,11 +152,21 @@ func (service *SubscriptionService) ListView() ([]SubscriptionView, error) {
 	if err != nil {
 		return nil, err
 	}
+	bills, err := service.Store.ListBills()
+	if err != nil {
+		return nil, err
+	}
+	paidDueDates := paidDueDatesBySubscription(bills)
 
 	now := service.now()
 	views := make([]SubscriptionView, 0, len(subscriptions))
 	for _, subscription := range subscriptions {
-		view, err := service.buildView(subscription, now, errorsBySubscription[subscription.ID])
+		view, err := service.buildViewWithPaidDueDates(
+			subscription,
+			now,
+			errorsBySubscription[subscription.ID],
+			paidDueDates[subscription.ID],
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -166,6 +176,21 @@ func (service *SubscriptionService) ListView() ([]SubscriptionView, error) {
 		return nil, err
 	}
 	return views, nil
+}
+
+// paidDueDatesBySubscription groups the ledger in one pass so list pages do
+// not issue one SQL query per subscription. Dates are sorted because the
+// unpaid-period detector treats the first entry as the trustworthy ledger
+// boundary.
+func paidDueDatesBySubscription(bills []model.Bill) map[int64][]string {
+	grouped := make(map[int64][]string)
+	for _, bill := range bills {
+		grouped[bill.SubscriptionID] = append(grouped[bill.SubscriptionID], bill.DueDate)
+	}
+	for subscriptionID := range grouped {
+		sort.Strings(grouped[subscriptionID])
+	}
+	return grouped
 }
 
 // allocateActiveAccountCosts spreads each owner account's monthly cost across

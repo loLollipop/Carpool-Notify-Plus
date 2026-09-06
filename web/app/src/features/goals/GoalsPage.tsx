@@ -175,7 +175,7 @@ function GoalDialog({
   const mutation = useAppMutation(
     (input: BusinessGoalInput) =>
       goal ? updateBusinessGoal(goal.id, input) : createBusinessGoal(input),
-    { onSuccess: () => onOpenChange(false) },
+    { scope: "goals", onSuccess: () => onOpenChange(false) },
   )
 
   return (
@@ -708,7 +708,9 @@ function MarketPanel({
                   ) : null}
                 </p>
                 <p className="mt-1.5 line-clamp-2 text-[9px] leading-3.5 text-muted-foreground">
-                  {newSaleDiscount > 0
+                  {pricing.action === "lower_test" && newSaleDiscount > 0
+                    ? t("goals.controlledPriceTest", { value: newSaleDiscount })
+                    : newSaleDiscount > 0
                     ? t("goals.newSaleAdvantage", { value: newSaleDiscount })
                     : t("goals.newSaleMarginFloor")}
                 </p>
@@ -1558,6 +1560,7 @@ function RepricingAnalysisPanel({
         })),
       }),
     {
+      scope: "goals",
       onSuccess: () => {
         setManualCustomer(null)
         setManualPrices({})
@@ -2287,6 +2290,7 @@ function BulkPricingPanel({
         next_price_yuan: nextPrice.trim(),
       }),
     {
+      scope: "goals",
       onSuccess: () => {
         setPricingDialogOpen(false)
         setPricingConfirming(false)
@@ -2305,6 +2309,7 @@ function BulkPricingPanel({
         note: exemptionNote.trim(),
       }),
     {
+      scope: "goals",
       onSuccess: () => {
         setExemptionOpen(false)
         setSelected(new Set())
@@ -3316,6 +3321,7 @@ function CustomerCarePanel({
   const mutation = useAppMutation(
     (input: RecordCustomerBenefitsInput) => recordGoalCustomerBenefits(input),
     {
+      scope: "goals",
       onSuccess: () => {
         setDialogOpen(false)
         setSelected(new Set())
@@ -3929,10 +3935,10 @@ export function GoalsPage() {
     requestId: number
   }>({ filter: "recommended", requestId: 0 })
 
-  const refreshMutation = useAppMutation(refreshGoalMarket)
+  const refreshMutation = useAppMutation(refreshGoalMarket, { scope: "goals" })
   const completeMutation = useAppMutation(
     (goalId: number) => completeBusinessGoal(goalId),
-    { onSuccess: () => setCompleteOpen(false) },
+    { scope: "goals", onSuccess: () => setCompleteOpen(false) },
   )
   const recommendedPricingCount =
     query.data?.pricing_candidates?.filter((candidate) => candidate.recommended).length ?? 0

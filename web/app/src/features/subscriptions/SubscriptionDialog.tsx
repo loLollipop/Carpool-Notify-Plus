@@ -221,6 +221,7 @@ export function SubscriptionDialog({
       return isEdit ? updateSubscription(prefill.id, input) : createSubscription(input)
     },
     {
+      scope: "subscriptions",
       onSuccess: () => onOpenChange(false),
     },
   )

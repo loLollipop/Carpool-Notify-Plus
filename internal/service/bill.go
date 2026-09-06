@@ -147,17 +147,40 @@ func (service *SubscriptionService) ListBillsPage() (BillsPage, error) {
 		return BillsPage{}, err
 	}
 	refundsByBill := completedRefundsByBill(afterSalesCases)
-	views := make([]BillView, 0, len(bills))
-	for _, bill := range bills {
-		view, err := service.buildBillView(bill, refundsByBill[bill.ID])
-		if err != nil {
-			return BillsPage{}, err
-		}
-		views = append(views, view)
+	activeSubscriptions, err := service.Store.ListSubscriptions()
+	if err != nil {
+		return BillsPage{}, err
+	}
+	archivedSubscriptions, err := service.Store.ListArchivedSubscriptions()
+	if err != nil {
+		return BillsPage{}, err
+	}
+	subscriptionByID := make(map[int64]model.Subscription, len(activeSubscriptions)+len(archivedSubscriptions))
+	for _, subscription := range activeSubscriptions {
+		subscriptionByID[subscription.ID] = subscription
+	}
+	for _, subscription := range archivedSubscriptions {
+		subscriptionByID[subscription.ID] = subscription
 	}
 	accounts, err := service.Store.ListAccounts()
 	if err != nil {
 		return BillsPage{}, err
+	}
+	accountByID := make(map[int64]model.Account, len(accounts))
+	for _, account := range accounts {
+		accountByID[account.ID] = account
+	}
+	views := make([]BillView, 0, len(bills))
+	for _, bill := range bills {
+		var subscription *model.Subscription
+		var account *model.Account
+		if item, exists := subscriptionByID[bill.SubscriptionID]; exists {
+			subscription = &item
+			if owner, ownerExists := accountByID[item.AccountID]; ownerExists {
+				account = &owner
+			}
+		}
+		views = append(views, buildBillViewFromSnapshot(bill, refundsByBill[bill.ID], subscription, account))
 	}
 	var accountCostCents int64
 	for _, account := range accounts {
@@ -203,6 +226,34 @@ func (service *SubscriptionService) ListBillsView() ([]BillView, error) {
 
 func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents int64) (BillView, error) {
 	subscription, err := service.Store.GetSubscriptionIncludingArchived(bill.SubscriptionID)
+	if err != nil && err != sql.ErrNoRows {
+		return BillView{}, err
+	}
+	var subscriptionSnapshot *model.Subscription
+	var accountSnapshot *model.Account
+	if err == nil {
+		subscriptionSnapshot = &subscription
+		if subscription.AccountID > 0 {
+			account, accountErr := service.Store.GetAccount(subscription.AccountID)
+			if accountErr != nil && accountErr != sql.ErrNoRows {
+				return BillView{}, accountErr
+			}
+			if accountErr == nil {
+				accountSnapshot = &account
+			}
+		}
+	}
+	return buildBillViewFromSnapshot(bill, refundCents, subscriptionSnapshot, accountSnapshot), nil
+}
+
+// buildBillViewFromSnapshot is intentionally database-free. ListBillsPage
+// loads subscriptions and accounts once, avoiding two lookups for every bill.
+func buildBillViewFromSnapshot(
+	bill model.Bill,
+	refundCents int64,
+	subscription *model.Subscription,
+	account *model.Account,
+) BillView {
 	subscriptionName := fmt.Sprintf("订阅 #%d", bill.SubscriptionID)
 	businessType := model.SubscriptionBusinessTeam
 	accountName := model.UnclassifiedAccountName
@@ -229,10 +280,10 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 	boardedAt := ""
 	archivedAtLabel := ""
 	channelLabels := ""
-	if err == nil {
+	if subscription != nil {
 		subscriptionName = subscription.Name
 		businessType = subscription.BusinessType
-		accountName = displayAccountName(subscription)
+		accountName = displayAccountName(*subscription)
 		seatName = subscription.SeatName
 		customerEmail = subscription.CustomerEmail
 		customerWechat = subscription.CustomerWechat
@@ -245,7 +296,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 		// Plus stores a true per-period cost snapshot on the bill, so its
 		// historical profit is exact. Team owner costs live in a separate account
 		// ledger and cannot be truthfully attributed to one old bill.
-		if isPlusSubscription(subscription) {
+		if isPlusSubscription(*subscription) {
 			reportedCostCents = bill.CostCents
 			costYuan = cycle.FormatCents(reportedCostCents)
 			profitYuan = cycle.FormatCents(bill.AmountCents - bill.CostCents - refundCents)
@@ -253,22 +304,17 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 		cycleDesc = cycle.DescribeCron(subscription.CronExpr)
 		cronExpr = subscription.CronExpr
 		offsetsText = cycle.FormatOffsets(subscription.NotifyOffsets)
-		channelLabels = scheduledNotificationLabelText(subscription)
+		channelLabels = scheduledNotificationLabelText(*subscription)
 		remark = subscription.Remark
 		boardedAt = subscription.BoardedAt
 		if subscription.ArchivedAt != nil {
 			archivedAtLabel = subscription.ArchivedAt.In(cycle.Location).Format("2006-01-02 15:04")
 		}
-		if accountID > 0 {
-			account, accountErr := service.Store.GetAccount(accountID)
-			if accountErr == nil {
-				accountEmail = account.Email
-				accountSpaceName = account.SpaceName
-				accountOpenedAt = account.OpenedAt
-			}
+		if account != nil {
+			accountEmail = account.Email
+			accountSpaceName = account.SpaceName
+			accountOpenedAt = account.OpenedAt
 		}
-	} else if err != sql.ErrNoRows {
-		return BillView{}, err
 	}
 
 	statusLabel := "进行中"
@@ -317,7 +363,7 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 		BoardedAt:        boardedAt,
 		ArchivedAtLabel:  archivedAtLabel,
 		ChannelLabels:    channelLabels,
-	}, nil
+	}
 }
 
 func buildBillsSummary(views []BillView, now time.Time) BillsSummary {

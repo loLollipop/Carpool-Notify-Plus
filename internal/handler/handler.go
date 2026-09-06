@@ -29,10 +29,12 @@ type Server struct {
 	// DistDir is the built SPA directory (web/dist); non-API routes fall back to its index.html.
 	DistDir string
 
-	configMu       sync.RWMutex
-	settingsPageMu sync.Mutex
-	loginMu        sync.Mutex
-	loginFailures  map[string]loginFailureState
+	configMu            sync.RWMutex
+	settingsPageMu      sync.Mutex
+	loginMu             sync.Mutex
+	loginFailures       map[string]loginFailureState
+	publicSubmitLimiter *fixedWindowLimiter
+	publicStatusLimiter *fixedWindowLimiter
 }
 
 // NewServer constructs a Server and hashes the login password.
@@ -42,21 +44,24 @@ func NewServer(subscriptionService *service.SubscriptionService, configuration c
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
 	return &Server{
-		Service:      subscriptionService,
-		Config:       configuration,
-		PasswordHash: passwordHash,
-		DistDir:      distDir,
+		Service:             subscriptionService,
+		Config:              configuration,
+		PasswordHash:        passwordHash,
+		DistDir:             distDir,
+		publicSubmitLimiter: newFixedWindowLimiter(publicSubmitLimit, publicSubmitWindow),
+		publicStatusLimiter: newFixedWindowLimiter(publicStatusLimit, publicStatusWindow),
 	}, nil
 }
 
 // RegisterRoutes wires the JSON API, the export download, and the SPA fallback.
 func (server *Server) RegisterRoutes(router *gin.Engine) {
+	server.ensurePublicLimiters()
 	api := router.Group("/api")
 	api.POST("/login", server.postLogin)
 	api.GET("/session", server.getSession)
 	api.GET("/redeem-settings", server.getRedeemSettings)
-	api.POST("/redeem", server.postRedeemApplication)
-	api.GET("/redeem/:token", server.getRedeemStatus)
+	api.POST("/redeem", server.limitPublicRequests(server.publicSubmitLimiter), server.postRedeemApplication)
+	api.GET("/redeem/:token", server.limitPublicRequests(server.publicStatusLimiter), server.getRedeemStatus)
 
 	var sandboxServer *Server
 	if server.SandboxService != nil {
@@ -69,8 +74,8 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 		sandboxPublic := api.Group("/sandbox")
 		sandboxPublic.Use(server.requireSandboxAccess())
 		sandboxPublic.GET("/redeem-settings", sandboxServer.getRedeemSettings)
-		sandboxPublic.POST("/redeem", sandboxServer.postRedeemApplication)
-		sandboxPublic.GET("/redeem/:token", sandboxServer.getRedeemStatus)
+		sandboxPublic.POST("/redeem", server.limitPublicRequests(server.publicSubmitLimiter), sandboxServer.postRedeemApplication)
+		sandboxPublic.GET("/redeem/:token", server.limitPublicRequests(server.publicStatusLimiter), sandboxServer.getRedeemStatus)
 	}
 
 	authorized := api.Group("")

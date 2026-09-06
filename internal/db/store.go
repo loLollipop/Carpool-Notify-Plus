@@ -62,9 +62,9 @@ func Open(databasePath string) (*Store, error) {
 	}
 	database.SetMaxOpenConns(1)
 
-	if _, err := database.Exec(`PRAGMA foreign_keys = ON;`); err != nil {
+	if err := configureSQLite(database); err != nil {
 		_ = database.Close()
-		return nil, fmt.Errorf("enable foreign keys: %w", err)
+		return nil, err
 	}
 
 	store := &Store{database: database}
@@ -400,6 +400,9 @@ func (store *Store) migrate() error {
 		return err
 	}
 	if err := store.ensureAfterSalesBusinessTypeColumn(); err != nil {
+		return err
+	}
+	if err := store.ensurePerformanceIndexes(); err != nil {
 		return err
 	}
 	if err := store.ensureActiveSeatOccupancyTriggers(); err != nil {
@@ -1926,7 +1929,7 @@ func isActiveSeatOccupancyError(err error) bool {
 
 // UpdateSubscription updates an existing active (non-deleted, non-archived) subscription.
 func (store *Store) UpdateSubscription(subscription model.Subscription) error {
-	now := formatTime(time.Now().UTC())
+	now := nextWriteTime(subscription.UpdatedAt)
 	err := updateSubscriptionWithExecutor(store.database, subscription, now)
 	if err != sql.ErrNoRows {
 		return err
@@ -1956,7 +1959,7 @@ func (store *Store) UpdateSubscriptionAndSyncBill(
 	}
 	defer func() { _ = transaction.Rollback() }()
 
-	now := formatTime(time.Now().UTC())
+	now := nextWriteTime(subscription.UpdatedAt)
 	if err := updateSubscriptionWithExecutor(transaction, subscription, now); err != nil {
 		if err == sql.ErrNoRows {
 			var pendingCount int
@@ -2130,7 +2133,7 @@ func (store *Store) UpdateSubscriptionAndMoveInitialBill(
 	if billCount != 1 || storedDueDate != strings.TrimSpace(oldDueDate) {
 		return ErrInitialBillNotMovable
 	}
-	now := formatTime(time.Now().UTC())
+	now := nextWriteTime(subscription.UpdatedAt)
 	if strings.TrimSpace(oldDueDate) != strings.TrimSpace(newDueDate) {
 		if err := ensureBillUnreferenced(transaction, billID); err != nil {
 			return err
@@ -4696,6 +4699,18 @@ func scanNotificationLog(scanner scannable) (model.NotificationLog, error) {
 
 func formatTime(moment time.Time) string {
 	return moment.UTC().Format(time.RFC3339Nano)
+}
+
+// nextWriteTime guarantees that an updated row receives a different version
+// timestamp even on Windows hosts whose wall clock can return the same value
+// for two adjacent writes. Optimistic financial guards rely on this value to
+// reject stale browser actions.
+func nextWriteTime(previous time.Time) string {
+	now := time.Now().UTC()
+	if !previous.IsZero() && !now.After(previous.UTC()) {
+		now = previous.UTC().Add(time.Nanosecond)
+	}
+	return formatTime(now)
 }
 
 // parseTime accepts RFC3339 / RFC3339Nano and SQLite datetime('now') style strings.

@@ -426,6 +426,7 @@ export function CardsPage() {
   const filter = routeFilter
 
   const archiveMutation = useAppMutation((id: number) => archiveSubscription(id), {
+    scope: "subscriptions",
     onSuccess: (data) => {
       setArchiveTarget(null)
       if (data.archived) return

@@ -284,7 +284,7 @@ function ReassignCaseDialog({
   const mutation = useAppMutation(
     (input: { id: number; accountId: number; seatId: number }) =>
       reassignAfterSalesCase(input.id, input.accountId, input.seatId),
-    { onSuccess: () => onOpenChange(false) },
+    { scope: "after-sales", onSuccess: () => onOpenChange(false) },
   )
 
   return (
@@ -370,7 +370,7 @@ function EditCaseDialog({
   const mutation = useAppMutation(
     (input: { id: number; amount: string; note: string }) =>
       updateAfterSalesCase(input.id, { refund_amount_yuan: input.amount, note: input.note }),
-    { onSuccess: () => onOpenChange(false) },
+    { scope: "after-sales", onSuccess: () => onOpenChange(false) },
   )
 
   return (
@@ -436,7 +436,7 @@ export function AfterSalesPage() {
 
   const toggleRefundMutation = useAppMutation(
     (input: { id: number; refunded: boolean }) => setAfterSalesRefunded(input.id, input.refunded),
-    { onSuccess: () => setRefundTarget(null) },
+    { scope: "after-sales", onSuccess: () => setRefundTarget(null) },
   )
 
   const allCases = React.useMemo(() => query.data?.cases ?? [], [query.data?.cases])

@@ -75,6 +75,7 @@ export function DuePaidDialog({
   const confirmMutation = useAppMutation(
     () => setDuePaid(target!.subscriptionId, selectedStart, true),
     {
+      scope: "billing",
       successMessage: t(plusRental ? "plusRentals.renewalRecorded" : "duePaid.markedPaid"),
       onSuccess: () => handleOpenChange(false),
     },

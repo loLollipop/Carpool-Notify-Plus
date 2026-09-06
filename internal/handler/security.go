@@ -6,22 +6,128 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 )
 
 const (
-	loginFailureLimit  = 5
-	loginBlockDuration = 15 * time.Minute
-	loginStateTTL      = time.Hour
-	maxLoginStates     = 1024
+	loginFailureLimit   = 5
+	loginBlockDuration  = 15 * time.Minute
+	loginStateTTL       = time.Hour
+	maxLoginStates      = 1024
+	publicSubmitLimit   = 8
+	publicSubmitWindow  = 10 * time.Minute
+	publicStatusLimit   = 180
+	publicStatusWindow  = time.Minute
+	maxPublicRateStates = 4096
 )
 
 type loginFailureState struct {
 	Failures     int
 	LastFailure  time.Time
 	BlockedUntil time.Time
+}
+
+type fixedWindowState struct {
+	StartedAt time.Time
+	Count     int
+}
+
+type fixedWindowLimiter struct {
+	mu       sync.Mutex
+	limit    int
+	window   time.Duration
+	maxKeys  int
+	byClient map[string]fixedWindowState
+}
+
+func newFixedWindowLimiter(limit int, window time.Duration) *fixedWindowLimiter {
+	return &fixedWindowLimiter{
+		limit:    limit,
+		window:   window,
+		maxKeys:  maxPublicRateStates,
+		byClient: make(map[string]fixedWindowState),
+	}
+}
+
+func (limiter *fixedWindowLimiter) allow(clientKey string, now time.Time) (bool, time.Duration) {
+	if limiter == nil || limiter.limit <= 0 || limiter.window <= 0 {
+		return true, 0
+	}
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
+	state, exists := limiter.byClient[clientKey]
+	if !exists || now.Sub(state.StartedAt) >= limiter.window || now.Before(state.StartedAt) {
+		if !exists && len(limiter.byClient) >= limiter.maxKeys {
+			limiter.prune(now)
+		}
+		if !exists && len(limiter.byClient) >= limiter.maxKeys {
+			limiter.removeOldest()
+		}
+		limiter.byClient[clientKey] = fixedWindowState{StartedAt: now, Count: 1}
+		return true, 0
+	}
+	if state.Count >= limiter.limit {
+		return false, state.StartedAt.Add(limiter.window).Sub(now)
+	}
+	state.Count++
+	limiter.byClient[clientKey] = state
+	return true, 0
+}
+
+func (limiter *fixedWindowLimiter) prune(now time.Time) {
+	for clientKey, state := range limiter.byClient {
+		if now.Sub(state.StartedAt) >= limiter.window || now.Before(state.StartedAt) {
+			delete(limiter.byClient, clientKey)
+		}
+	}
+}
+
+func (limiter *fixedWindowLimiter) removeOldest() {
+	oldestKey := ""
+	var oldestStartedAt time.Time
+	for clientKey, state := range limiter.byClient {
+		if oldestKey == "" || state.StartedAt.Before(oldestStartedAt) {
+			oldestKey = clientKey
+			oldestStartedAt = state.StartedAt
+		}
+	}
+	if oldestKey != "" {
+		delete(limiter.byClient, oldestKey)
+	}
+}
+
+func (server *Server) ensurePublicLimiters() {
+	if server.publicSubmitLimiter == nil {
+		server.publicSubmitLimiter = newFixedWindowLimiter(publicSubmitLimit, publicSubmitWindow)
+	}
+	if server.publicStatusLimiter == nil {
+		server.publicStatusLimiter = newFixedWindowLimiter(publicStatusLimit, publicStatusWindow)
+	}
+}
+
+func (server *Server) limitPublicRequests(limiter *fixedWindowLimiter) gin.HandlerFunc {
+	return func(context *gin.Context) {
+		allowed, retryAfter := limiter.allow(context.ClientIP(), time.Now().UTC())
+		if allowed {
+			context.Next()
+			return
+		}
+		seconds := int64(retryAfter / time.Second)
+		if retryAfter%time.Second != 0 {
+			seconds++
+		}
+		if seconds < 1 {
+			seconds = 1
+		}
+		context.Header("Retry-After", strconv.FormatInt(seconds, 10))
+		context.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
+			"ok":    false,
+			"error": "请求过于频繁，请稍后再试",
+		})
+	}
 }
 
 // SecurityHeaders applies browser hardening globally and disables caching for

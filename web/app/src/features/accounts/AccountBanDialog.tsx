@@ -57,6 +57,7 @@ export function AccountBanDialog({
     (input: { id: number; bannedDate: string; note: string }) =>
       banAccount(input.id, { banned_date: input.bannedDate, note: input.note }),
     {
+      scope: "after-sales",
       onSuccess: (_data, variables) => {
         handleOpenChange(false)
         navigate(`/after-sales?account=${variables.id}`)

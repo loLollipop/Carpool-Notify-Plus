@@ -73,9 +73,10 @@ export function OperatingExpenseDialog({
       editingID === null
         ? createOperatingExpense(input)
         : updateOperatingExpense(editingID, input),
-    { onSuccess: resetForm },
+    { scope: "billing", onSuccess: resetForm },
   )
   const deleteMutation = useAppMutation((id: number) => deleteOperatingExpense(id), {
+    scope: "billing",
     onSuccess: () => {
       if (deleteTarget?.id === editingID) resetForm()
       setDeleteTarget(null)

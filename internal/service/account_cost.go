@@ -86,6 +86,17 @@ func (service *SubscriptionService) MarkAccountRenewed(accountID int64, periodDa
 }
 
 func (service *SubscriptionService) nextAccountCostRenewal(account model.Account) (time.Time, error) {
+	if strings.TrimSpace(account.OpenedAt) == "" {
+		return time.Time{}, nil
+	}
+	latestPeriod, err := service.Store.LatestAutomaticAccountCostPeriod(account.ID)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("latest cost period: %w", err)
+	}
+	return nextAccountCostRenewalFromLatestPeriod(account, latestPeriod)
+}
+
+func nextAccountCostRenewalFromLatestPeriod(account model.Account, latestPeriod string) (time.Time, error) {
 	openedAtText := strings.TrimSpace(account.OpenedAt)
 	if openedAtText == "" {
 		return time.Time{}, nil
@@ -93,10 +104,6 @@ func (service *SubscriptionService) nextAccountCostRenewal(account model.Account
 	openedAt, err := time.ParseInLocation("2006-01-02", openedAtText, cycle.Location)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("opened_at: %w", err)
-	}
-	latestPeriod, err := service.Store.LatestAutomaticAccountCostPeriod(account.ID)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("latest cost period: %w", err)
 	}
 	if latestPeriod == "" {
 		return time.Time{}, nil

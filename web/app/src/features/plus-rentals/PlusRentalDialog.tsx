@@ -150,6 +150,7 @@ export function PlusRentalDialog({
       return isEdit ? updateSubscription(prefill.id, input) : createSubscription(input)
     },
     {
+      scope: "subscriptions",
       successMessage: t(isEdit ? "plusRentals.updated" : "plusRentals.created"),
       onSuccess: () => onOpenChange(false),
     },

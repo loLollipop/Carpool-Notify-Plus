@@ -36,6 +36,7 @@ token = "iyuu-token"
 	// Ensure env does not override for this test.
 	for _, key := range []string{
 		"CARPOOL_PASSWORD", "CARPOOL_SESSION_SECRET", "CARPOOL_LISTEN", "CARPOOL_DB_PATH",
+		"CARPOOL_SESSION_COOKIE_SECURE",
 		"GOTIFY_URL", "GOTIFY_TOKEN", "IYUU_TOKEN", "CARPOOL_CONFIG",
 	} {
 		t.Setenv(key, "")
@@ -51,6 +52,9 @@ token = "iyuu-token"
 	}
 	if configuration.ListenAddress != "127.0.0.1:9090" {
 		t.Fatalf("listen: %q", configuration.ListenAddress)
+	}
+	if !configuration.SessionCookieSecure {
+		t.Fatal("session cookie should default to secure")
 	}
 	if configuration.GotifyURL != "https://gotify.example.com" {
 		t.Fatalf("gotify url: %q", configuration.GotifyURL)
@@ -76,6 +80,7 @@ session_secret = "toml-secret"
 	t.Cleanup(func() { os.Args = oldArgs })
 	os.Args = []string{"carpool-notify", "-config", configPath}
 	t.Setenv("CARPOOL_PASSWORD", "env-pass")
+	t.Setenv("CARPOOL_SESSION_COOKIE_SECURE", "false")
 
 	configuration, err := config.Load()
 	if err != nil {
@@ -83,6 +88,9 @@ session_secret = "toml-secret"
 	}
 	if configuration.Password != "env-pass" {
 		t.Fatalf("expected env override, got %q", configuration.Password)
+	}
+	if configuration.SessionCookieSecure {
+		t.Fatal("session cookie secure env override was ignored")
 	}
 }
 
@@ -118,6 +126,7 @@ token = "old-gotify-secret"
 	os.Args = []string{"carpool-notify", "-config", configPath}
 	for _, key := range []string{
 		"CARPOOL_PASSWORD", "CARPOOL_SESSION_SECRET", "CARPOOL_LISTEN", "CARPOOL_DB_PATH",
+		"CARPOOL_SESSION_COOKIE_SECURE",
 		"GOTIFY_URL", "GOTIFY_TOKEN", "IYUU_TOKEN", "CARPOOL_CONFIG",
 		"SMTP_HOST", "SMTP_PORT", "SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM", "SMTP_TO",
 	} {

@@ -14,6 +14,8 @@ db_path = "./data/carpool.db"
 password = "change-me"
 # Session 签名密钥，请换成足够长的随机串（必填）
 session_secret = "change-me-to-a-long-random-string"
+# HTTPS 部署必须保持 true；仅在本机通过 HTTP 调试时显式改为 false
+session_cookie_secure = true
 
 [gotify]
 # Gotify 服务根地址，不要末尾斜杠，不要带 /message

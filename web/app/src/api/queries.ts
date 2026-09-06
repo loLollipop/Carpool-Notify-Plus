@@ -16,8 +16,8 @@ import {
   fetchSubscriptions,
 } from "./endpoints"
 
-// All data queries live under the "data" root key so any mutation can
-// invalidate the whole tree in one call (single-user app, cheap refetch).
+// Business queries share a root key for the rare full refresh. Normal writes
+// use the narrower scopes below so one edit does not refetch every page.
 export const queryKeys = {
   data: ["data"] as const,
   adminProfile: ["admin-profile"] as const,
@@ -46,6 +46,96 @@ export function useAdminProfile() {
 
 export function invalidateAppData(queryClient: QueryClient) {
   return queryClient.invalidateQueries({ queryKey: queryKeys.data })
+}
+
+export type MutationScope =
+  | "all"
+  | "none"
+  | "profile"
+  | "settings"
+  | "notifications"
+  | "redemption-codes"
+  | "redemptions"
+  | "subscriptions"
+  | "accounts"
+  | "billing"
+  | "after-sales"
+  | "goals"
+
+const scopeQueryKeys: Record<Exclude<MutationScope, "all" | "none">, readonly (readonly unknown[])[]> = {
+  profile: [queryKeys.adminProfile],
+  settings: [queryKeys.settings],
+  notifications: [queryKeys.dashboard, queryKeys.operationsOverview],
+  "redemption-codes": [["data", "redemption-codes"]],
+  redemptions: [
+    ["data", "redemptions"],
+    queryKeys.redemptionCodes,
+    queryKeys.subscriptions,
+    queryKeys.accounts,
+    ["data", "account-options"],
+    ["data", "calendar"],
+    queryKeys.bills,
+    queryKeys.dashboard,
+    queryKeys.operationsOverview,
+    queryKeys.goals,
+  ],
+  subscriptions: [
+    queryKeys.subscriptions,
+    queryKeys.accounts,
+    ["data", "account-options"],
+    ["data", "calendar"],
+    queryKeys.bills,
+    queryKeys.afterSales,
+    queryKeys.dashboard,
+    queryKeys.operationsOverview,
+    queryKeys.goals,
+  ],
+  accounts: [
+    queryKeys.accounts,
+    ["data", "account-options"],
+    queryKeys.subscriptions,
+    queryKeys.bills,
+    queryKeys.afterSales,
+    queryKeys.dashboard,
+    queryKeys.operationsOverview,
+    queryKeys.goals,
+  ],
+  billing: [
+    queryKeys.bills,
+    queryKeys.subscriptions,
+    ["data", "calendar"],
+    queryKeys.accounts,
+    queryKeys.dashboard,
+    queryKeys.operationsOverview,
+    queryKeys.goals,
+  ],
+  "after-sales": [
+    queryKeys.afterSales,
+    queryKeys.accounts,
+    ["data", "account-options"],
+    queryKeys.subscriptions,
+    queryKeys.bills,
+    ["data", "calendar"],
+    queryKeys.dashboard,
+    queryKeys.operationsOverview,
+    queryKeys.goals,
+  ],
+  goals: [
+    queryKeys.goals,
+    queryKeys.subscriptions,
+    queryKeys.bills,
+    ["data", "calendar"],
+    queryKeys.dashboard,
+    queryKeys.operationsOverview,
+  ],
+}
+
+export function invalidateMutationData(queryClient: QueryClient, scope: MutationScope) {
+  if (scope === "none") return Promise.resolve([])
+  if (scope === "all") return Promise.all([invalidateAppData(queryClient)])
+  return Promise.all(
+    scopeQueryKeys[scope].map((queryKey) => queryClient.invalidateQueries({ queryKey })),
+  )
 }
 
 export function useCalendar(month?: string) {

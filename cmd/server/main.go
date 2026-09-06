@@ -92,6 +92,7 @@ func main() {
 		Path:     "/",
 		MaxAge:   7 * 24 * 3600,
 		HttpOnly: true,
+		Secure:   configuration.SessionCookieSecure,
 		SameSite: http.SameSiteLaxMode,
 	})
 	router.Use(sessions.Sessions("carpool_session", sessionStore))

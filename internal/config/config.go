@@ -13,20 +13,21 @@ import (
 
 // Config holds process configuration.
 type Config struct {
-	Password      string
-	SessionSecret string
-	ListenAddress string
-	DatabasePath  string
-	GotifyURL     string
-	GotifyToken   string
-	IYUUToken     string
-	SMTPHost      string
-	SMTPPort      int
-	SMTPUsername  string
-	SMTPPassword  string
-	SMTPFrom      string
-	SMTPTo        string
-	ConfigPath    string
+	Password            string
+	SessionSecret       string
+	SessionCookieSecure bool
+	ListenAddress       string
+	DatabasePath        string
+	GotifyURL           string
+	GotifyToken         string
+	IYUUToken           string
+	SMTPHost            string
+	SMTPPort            int
+	SMTPUsername        string
+	SMTPPassword        string
+	SMTPFrom            string
+	SMTPTo              string
+	ConfigPath          string
 }
 
 // SMTPConfigView is the safe-to-display SMTP configuration shape.
@@ -88,10 +89,11 @@ type NotificationConfigInput struct {
 // fileConfig is the on-disk TOML shape.
 type fileConfig struct {
 	Server struct {
-		Listen        string `toml:"listen"`
-		DBPath        string `toml:"db_path"`
-		Password      string `toml:"password"`
-		SessionSecret string `toml:"session_secret"`
+		Listen              string `toml:"listen"`
+		DBPath              string `toml:"db_path"`
+		Password            string `toml:"password"`
+		SessionSecret       string `toml:"session_secret"`
+		SessionCookieSecure *bool  `toml:"session_cookie_secure"`
 	} `toml:"server"`
 	Gotify struct {
 		URL   string `toml:"url"`
@@ -144,22 +146,34 @@ func loadConfig(configPath string) (Config, error) {
 		}
 		smtpPort = parsed
 	}
+	sessionCookieSecure := true
+	if fileValues.Server.SessionCookieSecure != nil {
+		sessionCookieSecure = *fileValues.Server.SessionCookieSecure
+	}
+	if rawSecure := strings.TrimSpace(os.Getenv("CARPOOL_SESSION_COOKIE_SECURE")); rawSecure != "" {
+		parsed, err := strconv.ParseBool(rawSecure)
+		if err != nil {
+			return Config{}, fmt.Errorf("CARPOOL_SESSION_COOKIE_SECURE: %w", err)
+		}
+		sessionCookieSecure = parsed
+	}
 
 	configuration := Config{
-		ConfigPath:    configPath,
-		Password:      firstNonEmpty(os.Getenv("CARPOOL_PASSWORD"), fileValues.Server.Password),
-		SessionSecret: firstNonEmpty(os.Getenv("CARPOOL_SESSION_SECRET"), fileValues.Server.SessionSecret),
-		ListenAddress: firstNonEmpty(os.Getenv("CARPOOL_LISTEN"), fileValues.Server.Listen, ":8080"),
-		DatabasePath:  firstNonEmpty(os.Getenv("CARPOOL_DB_PATH"), fileValues.Server.DBPath, "./data/carpool.db"),
-		GotifyURL:     strings.TrimRight(firstNonEmpty(os.Getenv("GOTIFY_URL"), fileValues.Gotify.URL), "/"),
-		GotifyToken:   firstNonEmpty(os.Getenv("GOTIFY_TOKEN"), fileValues.Gotify.Token),
-		IYUUToken:     firstNonEmpty(os.Getenv("IYUU_TOKEN"), fileValues.IYUU.Token),
-		SMTPHost:      firstNonEmpty(os.Getenv("SMTP_HOST"), fileValues.SMTP.Host),
-		SMTPPort:      smtpPort,
-		SMTPUsername:  firstNonEmpty(os.Getenv("SMTP_USERNAME"), fileValues.SMTP.Username),
-		SMTPPassword:  firstNonEmpty(os.Getenv("SMTP_PASSWORD"), fileValues.SMTP.Password),
-		SMTPFrom:      firstNonEmpty(os.Getenv("SMTP_FROM"), fileValues.SMTP.From),
-		SMTPTo:        firstNonEmpty(os.Getenv("SMTP_TO"), fileValues.SMTP.To),
+		ConfigPath:          configPath,
+		Password:            firstNonEmpty(os.Getenv("CARPOOL_PASSWORD"), fileValues.Server.Password),
+		SessionSecret:       firstNonEmpty(os.Getenv("CARPOOL_SESSION_SECRET"), fileValues.Server.SessionSecret),
+		SessionCookieSecure: sessionCookieSecure,
+		ListenAddress:       firstNonEmpty(os.Getenv("CARPOOL_LISTEN"), fileValues.Server.Listen, ":8080"),
+		DatabasePath:        firstNonEmpty(os.Getenv("CARPOOL_DB_PATH"), fileValues.Server.DBPath, "./data/carpool.db"),
+		GotifyURL:           strings.TrimRight(firstNonEmpty(os.Getenv("GOTIFY_URL"), fileValues.Gotify.URL), "/"),
+		GotifyToken:         firstNonEmpty(os.Getenv("GOTIFY_TOKEN"), fileValues.Gotify.Token),
+		IYUUToken:           firstNonEmpty(os.Getenv("IYUU_TOKEN"), fileValues.IYUU.Token),
+		SMTPHost:            firstNonEmpty(os.Getenv("SMTP_HOST"), fileValues.SMTP.Host),
+		SMTPPort:            smtpPort,
+		SMTPUsername:        firstNonEmpty(os.Getenv("SMTP_USERNAME"), fileValues.SMTP.Username),
+		SMTPPassword:        firstNonEmpty(os.Getenv("SMTP_PASSWORD"), fileValues.SMTP.Password),
+		SMTPFrom:            firstNonEmpty(os.Getenv("SMTP_FROM"), fileValues.SMTP.From),
+		SMTPTo:              firstNonEmpty(os.Getenv("SMTP_TO"), fileValues.SMTP.To),
 	}
 
 	if configuration.Password == "" {

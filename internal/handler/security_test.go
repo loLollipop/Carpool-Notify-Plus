@@ -108,3 +108,49 @@ func TestLoginRateLimitBlocksRepeatedFailures(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicRateLimiterSeparatesClientsAndResets(t *testing.T) {
+	limiter := newFixedWindowLimiter(2, time.Minute)
+	now := time.Date(2026, time.September, 6, 12, 0, 0, 0, time.UTC)
+	if allowed, _ := limiter.allow("198.51.100.1", now); !allowed {
+		t.Fatal("first request was blocked")
+	}
+	if allowed, _ := limiter.allow("198.51.100.1", now.Add(time.Second)); !allowed {
+		t.Fatal("second request was blocked")
+	}
+	if allowed, retryAfter := limiter.allow("198.51.100.1", now.Add(2*time.Second)); allowed || retryAfter <= 0 {
+		t.Fatalf("third request allowed=%t retry=%s, want blocked", allowed, retryAfter)
+	}
+	if allowed, _ := limiter.allow("198.51.100.2", now.Add(2*time.Second)); !allowed {
+		t.Fatal("one client exhausted another client's allowance")
+	}
+	if allowed, _ := limiter.allow("198.51.100.1", now.Add(time.Minute)); !allowed {
+		t.Fatal("request was not allowed after the window reset")
+	}
+}
+
+func TestPublicRateLimitMiddlewareReturnsRetryAfter(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	server := &Server{}
+	limiter := newFixedWindowLimiter(1, time.Minute)
+	router := gin.New()
+	router.GET("/api/redeem/:token", server.limitPublicRequests(limiter), func(context *gin.Context) {
+		context.Status(http.StatusNoContent)
+	})
+
+	first := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/redeem/token", nil)
+	request.RemoteAddr = "203.0.113.10:4321"
+	router.ServeHTTP(first, request)
+	if first.Code != http.StatusNoContent {
+		t.Fatalf("first status = %d, want 204", first.Code)
+	}
+
+	second := httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodGet, "/api/redeem/token", nil)
+	request.RemoteAddr = "203.0.113.10:4321"
+	router.ServeHTTP(second, request)
+	if second.Code != http.StatusTooManyRequests || second.Header().Get("Retry-After") == "" {
+		t.Fatalf("limited response status=%d retry-after=%q", second.Code, second.Header().Get("Retry-After"))
+	}
+}

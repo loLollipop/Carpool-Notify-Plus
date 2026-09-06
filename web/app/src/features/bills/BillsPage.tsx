@@ -266,6 +266,7 @@ export function BillsPage() {
   const billListRef = React.useRef<HTMLDivElement | null>(null)
 
   const deleteMutation = useAppMutation((id: number) => deleteBill(id), {
+    scope: "billing",
     onSuccess: () => setDeleteTarget(null),
   })
 
