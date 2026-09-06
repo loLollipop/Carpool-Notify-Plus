@@ -1087,6 +1087,7 @@ export default {
       plusNotice: "到期当天系统仅通过 IYUU 提醒你联系客户，不会向客户发送任何邮件。",
       account: "所属账号",
       accountPlaceholder: "请选择账号",
+      accountSerialTitle: "账号定位序号 {{number}}",
       accountHint: "仅显示仍有空闲车位的账号；保存时自动占用一个空闲车位。账号在「账号」页管理。",
       plusAccountHint: "请先在「账号」页创建 Plus 账号并将席位数设为 1，保存后会占用该席位。",
       accountCostHint: "账号默认月成本 ¥{{cost}}",

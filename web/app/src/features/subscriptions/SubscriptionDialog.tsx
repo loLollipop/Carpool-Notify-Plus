@@ -266,6 +266,14 @@ export function SubscriptionDialog({
                       {selectableAccounts.map((account) => (
                         <SelectItem key={account.id} value={String(account.id)}>
                           <span className="flex min-w-0 flex-1 items-baseline gap-2">
+                            <span
+                              className="grid size-6 shrink-0 place-items-center self-center rounded-md bg-brand/10 font-mono text-[11px] font-bold tabular-nums text-brand"
+                              title={t("subscriptionDialog.accountSerialTitle", {
+                                number: account.display_serial,
+                              })}
+                            >
+                              {account.display_serial}
+                            </span>
                             <span className="max-w-44 shrink-0 truncate font-medium">
                               {account.name}
                             </span>

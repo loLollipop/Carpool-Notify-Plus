@@ -114,6 +114,7 @@ export interface RedemptionApplicationView {
   created_at_label: string
   invited_at_label: string
   account_name: string
+  account_serial: number
   account_email: string
   account_space_name: string
   seat_name: string
@@ -476,6 +477,7 @@ export interface SeatOption {
 
 export interface AccountOption {
   id: number
+  display_serial: number
   name: string
   remark: string
   payment_method: string

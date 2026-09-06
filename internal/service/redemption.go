@@ -75,6 +75,7 @@ type RedemptionApplicationView struct {
 	CreatedAtLabel   string                      `json:"created_at_label"`
 	InvitedAtLabel   string                      `json:"invited_at_label"`
 	AccountName      string                      `json:"account_name"`
+	AccountSerial    int64                       `json:"account_serial"`
 	AccountEmail     string                      `json:"account_email"`
 	AccountSpace     string                      `json:"account_space_name"`
 	SeatName         string                      `json:"seat_name"`
@@ -470,6 +471,7 @@ func (service *SubscriptionService) buildRedemptionApplicationView(application m
 		}
 		if err == nil {
 			view.AccountName = account.Name
+			view.AccountSerial = accountDisplaySerial(account)
 			view.AccountEmail = account.Email
 			view.AccountSpace = account.SpaceName
 		}

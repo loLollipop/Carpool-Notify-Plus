@@ -1087,6 +1087,7 @@ export default {
       plusNotice: "On the due date, IYUU reminds you to contact the customer. No customer email is ever sent.",
       account: "Account",
       accountPlaceholder: "Choose an account",
+      accountSerialTitle: "Account reference number {{number}}",
       accountHint:
         "Only accounts with free seats are listed; saving occupies one free seat. Manage accounts on the Accounts page.",
       plusAccountHint: "Create the Plus account on Accounts with exactly one seat; saving occupies that seat.",

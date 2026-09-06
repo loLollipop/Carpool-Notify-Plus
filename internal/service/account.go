@@ -4,12 +4,16 @@ import (
 	"database/sql"
 	"fmt"
 	"net/mail"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"carpool-notify/internal/cycle"
 	"carpool-notify/internal/model"
 )
+
+var accountRemarkSerialPattern = regexp.MustCompile(`(?:\(([0-9]+)\)|（([0-9]+)）)\s*$`)
 
 // AccountView is one account with seat occupancy for the accounts page and forms.
 type AccountView struct {
@@ -636,6 +640,7 @@ type SeatOption struct {
 // AccountOption is a selectable account with free/all seats for forms.
 type AccountOption struct {
 	ID                   int64        `json:"id"`
+	DisplaySerial        int64        `json:"display_serial"`
 	Name                 string       `json:"name"`
 	Remark               string       `json:"remark"`
 	PaymentMethod        string       `json:"payment_method"`
@@ -703,6 +708,7 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 		}
 		options = append(options, AccountOption{
 			ID:                   account.ID,
+			DisplaySerial:        accountDisplaySerial(account),
 			Name:                 account.Name,
 			Remark:               account.Remark,
 			PaymentMethod:        account.PaymentMethod,
@@ -719,6 +725,26 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 		})
 	}
 	return options, nil
+}
+
+// accountDisplaySerial lets operators map imported owner accounts back to an
+// external numbered list. Only a numeric suffix wrapped in parentheses is
+// treated as an override; all other remarks fall back to the immutable import
+// order stored in the account ID.
+func accountDisplaySerial(account model.Account) int64 {
+	matches := accountRemarkSerialPattern.FindStringSubmatch(strings.TrimSpace(account.Remark))
+	if len(matches) == 0 {
+		return account.ID
+	}
+	raw := matches[1]
+	if raw == "" {
+		raw = matches[2]
+	}
+	serial, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || serial <= 0 {
+		return account.ID
+	}
+	return serial
 }
 
 func validateAccountName(raw string) (string, error) {

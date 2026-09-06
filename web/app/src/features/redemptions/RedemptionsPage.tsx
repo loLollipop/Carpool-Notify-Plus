@@ -528,8 +528,14 @@ function InvitePanel({
                 <SelectItem value={AUTO_SEAT_VALUE}>
                   <span className="flex min-w-0 items-center gap-2">
                     <span className="font-medium text-success">自动分配</span>
+                    <span
+                      className="grid size-5 shrink-0 place-items-center rounded bg-brand/10 font-mono text-[10px] font-bold tabular-nums text-brand"
+                      title={`账号定位序号 ${seats[0].account.display_serial}`}
+                    >
+                      {seats[0].account.display_serial}
+                    </span>
                     <span className="max-w-40 truncate text-xs text-muted-foreground">
-                      #{seats[0].account.id} {seats[0].account.email || seats[0].account.name}
+                      {seats[0].account.email || seats[0].account.name}
                     </span>
                     <span className="text-xs text-muted-foreground">{seats[0].seat.name}</span>
                   </span>
@@ -538,8 +544,11 @@ function InvitePanel({
               {seats.map((option) => (
                 <SelectItem key={option.seat.id} value={String(option.seat.id)}>
                   <span className="flex min-w-0 items-center gap-2">
-                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                      #{option.account.id}
+                    <span
+                      className="grid size-5 shrink-0 place-items-center rounded bg-brand/10 font-mono text-[10px] font-bold tabular-nums text-brand"
+                      title={`账号定位序号 ${option.account.display_serial}`}
+                    >
+                      {option.account.display_serial}
                     </span>
                     <span className="max-w-40 truncate font-medium">{option.account.name}</span>
                     <span className="text-xs text-muted-foreground">{option.seat.name}</span>
@@ -572,7 +581,9 @@ function InvitePanel({
 
       {selectedSeat ? (
         <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
-          <span className="rounded-md bg-muted px-2 py-1">母号：{selectedSeat.account.email || selectedSeat.account.name}</span>
+          <span className="rounded-md bg-muted px-2 py-1">
+            母号：{selectedSeat.account.display_serial} · {selectedSeat.account.email || selectedSeat.account.name}
+          </span>
           {selectedSeat.account.space_name ? (
             <span className="rounded-md bg-muted px-2 py-1">空间：{selectedSeat.account.space_name}</span>
           ) : null}
@@ -760,7 +771,9 @@ function RedemptionCard({
               {view.invited_at_label || "已处理"}
             </div>
             <div className="mt-2 grid gap-1 text-muted-foreground">
-              <span className="truncate">母号：{view.account_email || view.account_name || "-"}</span>
+              <span className="truncate">
+                母号：{view.account_serial > 0 ? `${view.account_serial} · ` : ""}{view.account_email || view.account_name || "-"}
+              </span>
               <span className="truncate">空间：{view.account_space_name || "-"}</span>
               <span className="truncate">车位：{view.seat_name || "-"}</span>
             </div>
@@ -863,7 +876,7 @@ export function RedemptionsPage() {
         title: "可用空位",
         items: seats.map(({ account, seat }) => ({
           id: seat.id,
-          title: account.email || account.name,
+          title: `${account.display_serial} · ${account.email || account.name}`,
           subtitle: account.space_name || account.name,
           meta: [seat.name, account.remark],
           value: "可分配",
