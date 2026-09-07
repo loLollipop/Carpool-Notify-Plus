@@ -2962,14 +2962,14 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
       key: "activeSeats",
       label: t("goals.care.prediction.chart.activeSeats"),
       value: currentActiveSeats,
-      color: "var(--gold)",
+      color: "var(--brand)",
       countKey: "chartSeatCount",
     },
     {
       key: "totalSeats",
       label: t("goals.care.prediction.chart.totalSeats"),
       value: currentTotalSeats,
-      color: "var(--brand)",
+      color: "var(--gold)",
       countKey: "chartSeatCount",
     },
     {
@@ -3064,7 +3064,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
             <>
               <div className="relative h-[190px] w-full px-1 pt-3">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={lifecycle} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                  <ComposedChart data={lifecycle} margin={{ top: 8, right: 0, left: -20, bottom: 0 }}>
                     <defs>
                       <linearGradient id="customer-active-area" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.3} />
@@ -3086,12 +3086,28 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                       tickLine={false}
                       tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
                     />
+                    <YAxis
+                      yAxisId="events"
+                      orientation="right"
+                      allowDecimals={false}
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: "var(--muted-foreground)", fontSize: 9 }}
+                      width={28}
+                      domain={[0, (dataMax: number) => Math.max(1, dataMax)]}
+                    />
                     <ChartTooltip
                       cursor={{ stroke: "var(--border)", strokeDasharray: "3 4" }}
-                      formatter={(value, name) => [
-                        t("goals.care.prediction.chartSeatCount", { count: Number(value ?? 0) }),
-                        t(`goals.care.prediction.chart.${String(name)}`),
-                      ]}
+                      formatter={(value, name) => {
+                        const metric = String(name)
+                        const countKey = metric === "renewals" || metric === "churns"
+                          ? "chartEventCount"
+                          : "chartSeatCount"
+                        return [
+                          t(`goals.care.prediction.${countKey}`, { count: Number(value ?? 0) }),
+                          t(`goals.care.prediction.chart.${metric}`),
+                        ]
+                      }}
                       labelFormatter={(label) =>
                         lifecycle.find((month) => month.label === String(label))?.month ?? String(label)
                       }
@@ -3123,6 +3139,24 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                       strokeDasharray="5 5"
                       dot={false}
                       activeDot={{ r: 3.5, fill: "var(--card)", stroke: "var(--gold)", strokeWidth: 2 }}
+                    />
+                    <Line
+                      yAxisId="events"
+                      type="monotone"
+                      dataKey="renewals"
+                      stroke="var(--success)"
+                      strokeWidth={1.9}
+                      dot={{ r: 2.5, fill: "var(--card)", stroke: "var(--success)", strokeWidth: 1.8 }}
+                      activeDot={{ r: 4, fill: "var(--card)", stroke: "var(--success)", strokeWidth: 2 }}
+                    />
+                    <Line
+                      yAxisId="events"
+                      type="monotone"
+                      dataKey="churns"
+                      stroke="var(--destructive)"
+                      strokeWidth={2.1}
+                      dot={{ r: 2.5, fill: "var(--card)", stroke: "var(--destructive)", strokeWidth: 1.8 }}
+                      activeDot={{ r: 4, fill: "var(--card)", stroke: "var(--destructive)", strokeWidth: 2 }}
                     />
                   </ComposedChart>
                 </ResponsiveContainer>
