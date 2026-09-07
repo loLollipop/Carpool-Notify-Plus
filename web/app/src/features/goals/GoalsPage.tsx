@@ -3022,7 +3022,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
         ) : null}
       </div>
 
-      <div className="grid gap-3 p-3 xl:grid-cols-[minmax(560px,1.2fr)_minmax(320px,0.8fr)] xl:items-start">
+      <div className="grid gap-3 p-3 xl:grid-cols-[minmax(560px,1.2fr)_minmax(320px,0.8fr)] xl:items-stretch">
         <div
           className="relative min-w-0 overflow-hidden rounded-xl border border-border/70 bg-muted/[0.08]"
           role="group"
@@ -3225,14 +3225,14 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
               {matureModelCount}/{models.length}
             </span>
           </div>
-          <div className="divide-y divide-border/60 px-4">
+          <div className="flex flex-1 flex-col divide-y divide-border/60 px-4">
             {models.map((model, index) => {
               const progress = Math.min(
                 100,
                 Math.round((model.current_samples / Math.max(model.required_samples, 1)) * 100),
               )
               return (
-                <div key={model.key} className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2.5 py-2.5">
+                <div key={model.key} className="group grid flex-1 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2.5 py-2.5">
                   <span className="display-numeral grid size-6 shrink-0 place-items-center rounded-md border bg-card text-[9px] text-muted-foreground shadow-sm">
                     {String(index + 1).padStart(2, "0")}
                   </span>
