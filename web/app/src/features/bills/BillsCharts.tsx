@@ -2,11 +2,13 @@ import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
   Bar,
-  BarChart,
   CartesianGrid,
   Cell,
+  ComposedChart,
+  Line,
   Pie,
   PieChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip as RechartsTooltip,
   XAxis,
@@ -19,14 +21,6 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { AMOUNT_MASK, VALUE_MASK, maskAmount, maskValue } from "@/lib/amount-privacy"
 import { cn } from "@/lib/utils"
-
-const CHART_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-]
 
 const AMOUNT_ITEMS_PER_PAGE = 4
 const DONUT_DETAILS_PER_PAGE = 5
@@ -297,15 +291,10 @@ export function AmountDistributionCard({
   )
 }
 
-function getAccountDonutColor(index: number) {
-  const baseColor = CHART_COLORS[index % CHART_COLORS.length]
-  const tone = Math.floor(index / CHART_COLORS.length)
-
-  if (tone === 0) return baseColor
-
-  const blendColor = tone % 2 === 0 ? "var(--background)" : "var(--foreground)"
-  const baseWeight = Math.max(58, 82 - Math.floor((tone - 1) / 2) * 12)
-  return `color-mix(in oklch, ${baseColor} ${baseWeight}%, ${blendColor})`
+function getAccountDonutColor(index: number, total: number) {
+  const rank = total <= 1 ? 0 : index / (total - 1)
+  const brandWeight = Math.round(94 - rank * 50)
+  return `color-mix(in oklab, var(--brand) ${brandWeight}%, var(--card))`
 }
 
 export function AccountDonutCard({
@@ -329,7 +318,7 @@ export function AccountDonutCard({
   const totalCents = rankedAccounts.reduce((sum, item) => sum + item.cents, 0)
   const donutRows = rankedAccounts.map((item, index) => ({
     ...item,
-    fill: getAccountDonutColor(index),
+    fill: getAccountDonutColor(index, rankedAccounts.length),
   }))
   const detailsPageCount = Math.max(1, Math.ceil(donutRows.length / DONUT_DETAILS_PER_PAGE))
   const safeDetailsPage = Math.min(detailsPage, detailsPageCount)
@@ -476,15 +465,34 @@ export function MonthlyTrendCard({
     cents: item.amount_cents,
     grossCents: item.gross_amount_cents,
     refundCents: item.refund_cents,
+    refundExpenseCents: item.refund_cents > 0 ? -item.refund_cents : 0,
     count: item.count,
   }))
-  const chartScale = getChartScale(data.map((item) => item.cents))
+  const chartScale = getChartScale(
+    data.flatMap((item) => [item.grossCents, item.refundExpenseCents, item.cents]),
+  )
 
   return (
     <Card className="h-[280px] gap-4 overflow-hidden p-5 animate-fade-up" style={{ animationDelay: "240ms" }}>
-      <div>
-        <h2 className="panel-heading text-sm font-semibold">{t("bills.chartTrendTitle")}</h2>
-        <p className="mt-1 text-xs text-muted-foreground">{t("bills.chartTrendDesc")}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="panel-heading text-sm font-semibold">{t("bills.chartTrendTitle")}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">{t("bills.chartTrendDesc")}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-medium text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-sm bg-brand/30 ring-1 ring-brand/35" />
+            {t("bills.colGross")}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="size-2 rounded-sm bg-destructive/75" />
+            {t("bills.colRefund")}
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="h-0.5 w-3.5 rounded-full bg-brand" />
+            {t("bills.colNet")}
+          </span>
+        </div>
       </div>
 
       {data.every((item) => item.grossCents === 0 && item.refundCents === 0) ? (
@@ -494,7 +502,7 @@ export function MonthlyTrendCard({
       ) : (
         <div className="min-h-0 flex-1">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={data} margin={{ top: 22, right: 8, bottom: 0, left: 0 }}>
+            <ComposedChart data={data} margin={{ top: 18, right: 8, bottom: 0, left: 0 }}>
               <CartesianGrid
                 vertical={false}
                 stroke="var(--border)"
@@ -516,29 +524,35 @@ export function MonthlyTrendCard({
                 tickMargin={8}
                 width={58}
               />
+              <ReferenceLine y={0} stroke="var(--muted-foreground)" strokeOpacity={0.38} />
               <RechartsTooltip
                 cursor={{ fill: "var(--accent)" }}
                 content={<ChartTooltip amountsHidden={amountsHidden} />}
                 wrapperStyle={{ zIndex: 30, pointerEvents: "none" }}
               />
               <Bar
-                dataKey="cents"
-                fill="var(--brand)"
+                dataKey="grossCents"
+                fill="color-mix(in oklab, var(--brand) 30%, transparent)"
+                stroke="color-mix(in oklab, var(--brand) 55%, transparent)"
+                strokeWidth={1}
                 radius={[4, 4, 0, 0]}
-                barSize={36}
-                label={{
-                  position: "top",
-                  fontSize: 10,
-                  fill: "var(--muted-foreground)",
-                  formatter: (value: unknown) =>
-                    Number(value) === 0
-                      ? ""
-                      : amountsHidden
-                        ? AMOUNT_MASK
-                        : formatCents(Number(value)),
-                }}
+                barSize={30}
               />
-            </BarChart>
+              <Bar
+                dataKey="refundExpenseCents"
+                fill="color-mix(in oklab, var(--destructive) 78%, transparent)"
+                radius={[0, 0, 4, 4]}
+                barSize={30}
+              />
+              <Line
+                type="monotone"
+                dataKey="cents"
+                stroke="var(--brand)"
+                strokeWidth={2.4}
+                dot={{ r: 2.75, fill: "var(--card)", stroke: "var(--brand)", strokeWidth: 2 }}
+                activeDot={{ r: 4.5, fill: "var(--card)", stroke: "var(--brand)", strokeWidth: 2.5 }}
+              />
+            </ComposedChart>
           </ResponsiveContainer>
         </div>
       )}

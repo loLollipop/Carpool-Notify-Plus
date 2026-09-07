@@ -9,7 +9,6 @@ import {
   CircleDollarSign,
   Clock3,
   Coins,
-  Gauge,
   HandCoins,
   KeyRound,
   MailWarning,
@@ -455,42 +454,104 @@ function CapacityCard({ overview }: { overview: OperationsOverview }) {
   const total = Math.max(1, capacity.seat_total)
   const occupiedPercent = (occupied / total) * 100
   const frozenPercent = (capacity.seat_frozen / total) * 100
+  const occupiedAngle = Math.min(360, Math.max(0, occupiedPercent * 3.6))
+  const frozenAngle = Math.min(360, occupiedAngle + Math.max(0, frozenPercent * 3.6))
+  const segments = [
+    {
+      label: t("dash.workbench.occupied"),
+      value: occupied,
+      percent: occupiedPercent,
+      dotClass: "bg-brand",
+      barClass: "bg-brand",
+      valueClass: "text-brand",
+    },
+    {
+      label: t("dash.workbench.frozen"),
+      value: capacity.seat_frozen,
+      percent: frozenPercent,
+      dotClass: "bg-gold",
+      barClass: "bg-gold",
+      valueClass: "text-gold",
+    },
+    {
+      label: t("dash.workbench.free"),
+      value: capacity.seat_free,
+      percent: (capacity.seat_free / total) * 100,
+      dotClass: "bg-success",
+      barClass: "bg-success",
+      valueClass: "text-success",
+    },
+  ]
 
   return (
-    <Card className="gap-4 p-4">
-      <div className="flex items-start justify-between gap-3">
+    <Card className="relative min-h-[320px] gap-4 overflow-hidden p-4">
+      <div aria-hidden="true" className="pointer-events-none absolute -bottom-16 -left-16 size-48 rounded-full bg-brand/[0.055] blur-3xl" />
+      <div className="relative flex items-start justify-between gap-3">
         <div>
           <h2 className="panel-heading text-sm font-semibold">{t("dash.workbench.capacityTitle")}</h2>
           <p className="mt-1 text-xs text-muted-foreground">
             {t("dash.workbench.capacityHint", { count: capacity.account_count })}
           </p>
         </div>
-        <div className="display-numeral text-2xl font-semibold text-brand">
-          {capacity.utilization_percent}%
+        <Button asChild variant="ghost" size="sm" className="-mr-2 h-8 shrink-0 px-2 text-xs">
+          <Link to="/accounts">
+            {t("dash.workbench.manageCapacity")}
+            <ArrowRight />
+          </Link>
+        </Button>
+      </div>
+
+      <div className="relative grid flex-1 items-center gap-5 sm:grid-cols-[minmax(164px,0.75fr)_minmax(0,1.25fr)]">
+        <div className="flex items-center justify-center">
+          <div
+            role="img"
+            aria-label={t("dash.workbench.capacityAria", {
+              percent: capacity.utilization_percent,
+              used: capacity.seat_used,
+              total: capacity.seat_total,
+            })}
+            className="relative grid size-40 shrink-0 place-items-center rounded-full p-[13px] shadow-[0_18px_42px_-26px_color-mix(in_oklab,var(--brand)_70%,transparent)]"
+            style={{
+              background: `conic-gradient(from -90deg, var(--brand) 0deg ${occupiedAngle}deg, var(--gold) ${occupiedAngle}deg ${frozenAngle}deg, color-mix(in oklab, var(--muted) 78%, var(--card)) ${frozenAngle}deg 360deg)`,
+            }}
+          >
+            <div className="grid size-full place-items-center rounded-full border bg-card shadow-[inset_0_1px_0_color-mix(in_oklab,var(--foreground)_6%,transparent)]">
+              <div className="text-center">
+                <p className="display-numeral text-[30px] font-semibold text-brand">
+                  {capacity.utilization_percent}%
+                </p>
+                <p className="mt-2 text-[10px] font-medium text-muted-foreground">
+                  {t("dash.workbench.capacityUsed", {
+                    used: capacity.seat_used,
+                    total: capacity.seat_total,
+                  })}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-2.5">
+          {segments.map((item) => (
+            <div key={item.label} className="rounded-lg border bg-card/75 px-3 py-2.5 shadow-[0_8px_24px_-22px_color-mix(in_oklab,var(--foreground)_45%,transparent)]">
+              <div className="flex items-center gap-2.5">
+                <span className={cn("size-2 shrink-0 rounded-full", item.dotClass)} />
+                <span className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">{item.label}</span>
+                <span className={cn("display-numeral text-lg font-semibold", item.valueClass)}>{item.value}</span>
+                <span className="w-8 text-right text-[10px] tabular-nums text-muted-foreground">
+                  {Math.round(item.percent)}%
+                </span>
+              </div>
+              <div className="ml-[18px] mt-2 h-1 overflow-hidden rounded-full bg-muted">
+                <div
+                  className={cn("h-full rounded-full", item.barClass)}
+                  style={{ width: `${Math.min(100, Math.max(0, item.percent))}%` }}
+                />
+              </div>
+            </div>
+          ))}
         </div>
       </div>
-      <div className="flex h-2.5 overflow-hidden rounded-full bg-muted" aria-label={`${capacity.utilization_percent}%`}>
-        <span className="bg-brand" style={{ width: `${occupiedPercent}%` }} />
-        <span className="bg-gold" style={{ width: `${frozenPercent}%` }} />
-      </div>
-      <div className="grid grid-cols-3 gap-2">
-        {[
-          { label: t("dash.workbench.occupied"), value: occupied, tone: "text-brand" },
-          { label: t("dash.workbench.frozen"), value: capacity.seat_frozen, tone: "text-gold" },
-          { label: t("dash.workbench.free"), value: capacity.seat_free, tone: "text-success" },
-        ].map((item) => (
-          <div key={item.label} className="rounded-md border bg-muted/10 px-3 py-2.5">
-            <p className="text-[10px] text-muted-foreground">{item.label}</p>
-            <p className={cn("display-numeral mt-1 text-lg font-semibold", item.tone)}>{item.value}</p>
-          </div>
-        ))}
-      </div>
-      <Button asChild variant="outline" size="sm" className="w-full">
-        <Link to="/accounts">
-          <KeyRound />
-          {t("dash.workbench.manageCapacity")}
-        </Link>
-      </Button>
     </Card>
   )
 }
@@ -504,6 +565,7 @@ function DecisionCard({
 }) {
   const { t } = useTranslation()
   const goal = overview.goal
+  const goalProgress = Math.min(100, Math.max(0, goal?.progress_percent ?? 0))
   const nextSeatReleaseTask = (overview.notifications ?? []).find(
     (task) => task.kind === "seat_release",
   )
@@ -513,47 +575,84 @@ function DecisionCard({
       label: t("dash.workbench.pendingRedemptions"),
       value: overview.work.pending_redemption_count,
       to: "/redemptions",
+      activeClass: "border-destructive/25 bg-destructive/[0.045]",
+      iconClass: "bg-destructive/10 text-destructive",
     },
     {
       icon: HandCoins,
       label: t("dash.workbench.pendingAfterSales"),
       value: overview.work.pending_after_sales_count,
       to: "/after-sales",
+      activeClass: "border-gold/30 bg-gold/[0.055]",
+      iconClass: "bg-gold/10 text-gold",
     },
     {
       icon: Snowflake,
       label: t("dash.workbench.releasingSeats"),
       value: overview.capacity.seat_releasing_7d,
       to: nextSeatReleaseTask?.route || "/accounts",
+      activeClass: "border-brand/25 bg-brand/[0.045]",
+      iconClass: "bg-brand/10 text-brand",
     },
   ]
 
   return (
-    <Card className="gap-4 p-4">
-      <div className="flex items-start justify-between gap-3">
+    <Card className="relative min-h-[320px] gap-3 overflow-hidden p-4">
+      <div aria-hidden="true" className="pointer-events-none absolute -right-16 -top-20 size-52 rounded-full bg-brand/[0.06] blur-3xl" />
+      <div className="relative flex items-start justify-between gap-3">
         <div>
           <h2 className="panel-heading text-sm font-semibold">{t("dash.workbench.decisionTitle")}</h2>
           <p className="mt-1 text-xs text-muted-foreground">{t("dash.workbench.decisionHint")}</p>
         </div>
-        <Target className="size-5 text-brand" />
+        <Button asChild variant="ghost" size="sm" className="-mr-2 h-8 shrink-0 px-2 text-xs">
+          <Link to="/goals">
+            {t("dash.workbench.viewAnalysis")}
+            <ArrowRight />
+          </Link>
+        </Button>
       </div>
       {goal ? (
-        <Link to="/goals" className="group block rounded-lg border bg-muted/10 p-3 hover:bg-muted/25">
-          <div className="flex items-center justify-between gap-3">
-            <span className="truncate text-xs font-semibold">{goal.name}</span>
-            <span className="display-numeral text-sm font-semibold text-brand">
+        <Link
+          to="/goals"
+          className="group relative block overflow-hidden rounded-xl border border-brand/20 bg-brand/[0.045] p-3.5 transition-[border-color,background-color,box-shadow] hover:border-brand/35 hover:bg-brand/[0.07] hover:shadow-[0_16px_34px_-28px_color-mix(in_oklab,var(--brand)_70%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/45"
+        >
+          <div aria-hidden="true" className="absolute -right-7 -top-9 size-28 rounded-full border border-brand/10" />
+          <div aria-hidden="true" className="absolute -right-3 -top-5 size-16 rounded-full border border-brand/15" />
+          <div className="relative flex items-start justify-between gap-4">
+            <span className="min-w-0">
+              <span className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.14em] text-brand">
+                <Target className="size-3.5" />
+                {t("dash.workbench.goalProgress")}
+              </span>
+              <span className="mt-1.5 block truncate text-sm font-semibold">{goal.name}</span>
+            </span>
+            <span className="display-numeral shrink-0 text-[28px] font-semibold text-brand">
               {Math.round(goal.progress_percent)}%
             </span>
           </div>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, goal.progress_percent)}%` }} />
+          <div className="relative mt-3 h-2 overflow-hidden rounded-full border border-brand/10 bg-card/80">
+            <div className="h-full rounded-full bg-brand transition-[width]" style={{ width: `${goalProgress}%` }} />
           </div>
-          <div className="mt-2 flex items-center justify-between gap-3 text-[10px] text-muted-foreground">
-            <span>{maskAmount(amountsHidden, formatCents(goal.current_profit_cents))}</span>
-            <span>
+          <div className="relative mt-3 grid grid-cols-2 gap-2 sm:grid-cols-[0.85fr_0.85fr_1.3fr]">
+            <span className="min-w-0 rounded-md border border-brand/10 bg-card/65 px-2.5 py-2">
+              <span className="block text-[9px] text-muted-foreground">{t("dash.workbench.goalCurrent")}</span>
+              <strong className="display-numeral mt-1 block truncate text-xs">
+                {maskAmount(amountsHidden, formatCents(goal.current_profit_cents))}
+              </strong>
+            </span>
+            <span className="min-w-0 rounded-md border border-brand/10 bg-card/65 px-2.5 py-2">
+              <span className="block text-[9px] text-muted-foreground">{t("dash.workbench.goalTarget")}</span>
+              <strong className="display-numeral mt-1 block truncate text-xs">
+                {maskAmount(amountsHidden, formatCents(goal.target_profit_cents))}
+              </strong>
+            </span>
+            <span className="col-span-2 flex min-w-0 items-center gap-2 rounded-md border border-brand/10 bg-card/65 px-2.5 py-2 text-[10px] text-muted-foreground sm:col-span-1">
+              <CalendarClock className="size-3.5 shrink-0 text-brand" />
+              <span className="truncate">
               {goal.projected_date
                 ? t("dash.workbench.projectedDate", { date: goal.projected_date })
                 : t("dash.workbench.forecastCollecting")}
+              </span>
             </span>
           </div>
         </Link>
@@ -562,31 +661,34 @@ function DecisionCard({
           <Link to="/goals">{t("dash.workbench.createGoal")}</Link>
         </Button>
       )}
-      <div className="grid gap-1.5">
+      <div className="relative grid flex-1 gap-2 sm:grid-cols-3">
         {actions.map((item) => {
           const Icon = item.icon
           return (
             <Link
               key={item.label}
               to={item.to}
-              className="flex items-center gap-2.5 rounded-md border bg-muted/10 px-3 py-2 transition-colors hover:bg-muted/30"
+              className={cn(
+                "group flex min-h-[86px] min-w-0 flex-col rounded-lg border bg-card/70 p-3 transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-muted/20 hover:shadow-[0_12px_28px_-25px_color-mix(in_oklab,var(--foreground)_55%,transparent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/45",
+                item.value > 0 && item.activeClass,
+              )}
             >
-              <Icon className="size-4 text-muted-foreground" />
-              <span className="min-w-0 flex-1 truncate text-xs font-medium">{item.label}</span>
-              <span className={cn("display-numeral text-sm font-semibold", item.value > 0 ? "text-destructive" : "text-success")}>
-                {item.value}
+              <span className="flex items-start justify-between gap-2">
+                <span className={cn("grid size-7 place-items-center rounded-md", item.value > 0 ? item.iconClass : "bg-muted text-muted-foreground")}>
+                  <Icon className="size-3.5" />
+                </span>
+                <ArrowRight className="size-3.5 text-muted-foreground/55 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
               </span>
-              <ArrowRight className="size-3.5 text-muted-foreground" />
+              <span className="mt-auto flex min-w-0 items-end justify-between gap-2 pt-3">
+                <span className="min-w-0 text-[11px] font-medium leading-tight text-muted-foreground">{item.label}</span>
+                <span className={cn("display-numeral shrink-0 text-xl font-semibold", item.value > 0 ? "text-foreground" : "text-success")}>
+                  {item.value}
+                </span>
+              </span>
             </Link>
           )
         })}
       </div>
-      <Button asChild variant="ghost" size="sm" className="w-full">
-        <Link to="/goals">
-          <Gauge />
-          {t("dash.workbench.viewAnalysis")}
-        </Link>
-      </Button>
     </Card>
   )
 }
@@ -701,7 +803,7 @@ export function DashboardPage() {
             />
           </section>
 
-          <section className="grid gap-4 lg:grid-cols-2">
+          <section className="grid items-stretch gap-4 xl:grid-cols-2">
             <CapacityCard overview={overview} />
             <DecisionCard overview={overview} amountsHidden={amountsHidden} />
           </section>

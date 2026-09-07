@@ -1,8 +1,8 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
+  Area,
   Bar,
-  BarChart,
   CartesianGrid,
   Cell,
   ComposedChart,
@@ -263,15 +263,15 @@ function Metric({
       type={onClick ? "button" : undefined}
       onClick={onClick}
       className={cn(
-        "min-w-0 border-l border-border/70 px-3 py-3.5 text-left first:border-l-0 sm:px-4",
+        "min-w-0 border-l border-border/70 px-2 py-3.5 text-left first:border-l-0 sm:px-4",
         onClick && "outline-none transition-colors hover:bg-accent/30 focus-visible:ring-2 focus-visible:ring-brand/45 focus-visible:ring-inset",
       )}
     >
-      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+      <div className="flex items-start gap-2 text-xs font-medium leading-4 text-muted-foreground sm:items-center">
         <Icon className="size-3.5 text-brand" />
-        <span className="truncate">{label}</span>
+        <span className="min-w-0 sm:truncate">{label}</span>
       </div>
-      <div className="display-numeral mt-2 truncate text-lg leading-none sm:text-xl">{value}</div>
+      <div className="display-numeral mt-2 truncate text-[13px] leading-none tracking-tight sm:text-xl sm:tracking-normal">{value}</div>
       <p className="mt-0.5 hidden truncate text-[11px] text-muted-foreground sm:block">{detail}</p>
     </Component>
   )
@@ -633,6 +633,44 @@ function MarketPanel({
           : []),
       ]
     : []
+  const positiveBenchmarkValues = benchmarkData
+    .map((item) => item.value)
+    .filter((value) => value > 0)
+  const benchmarkValueMin = positiveBenchmarkValues.length > 0
+    ? Math.min(...positiveBenchmarkValues)
+    : 0
+  const benchmarkValueMax = positiveBenchmarkValues.length > 0
+    ? Math.max(...positiveBenchmarkValues)
+    : 10_000
+  const benchmarkPadding = Math.max(
+    100,
+    (benchmarkValueMax - benchmarkValueMin) * 0.12,
+    benchmarkValueMax * 0.04,
+  )
+  const benchmarkScaleMin = Math.max(0, benchmarkValueMin - benchmarkPadding)
+  const benchmarkScaleMax = Math.max(
+    benchmarkScaleMin + 100,
+    benchmarkValueMax + benchmarkPadding,
+  )
+  const benchmarkPosition = (value: number) =>
+    Math.min(
+      100,
+      Math.max(
+        0,
+        ((value - benchmarkScaleMin) / (benchmarkScaleMax - benchmarkScaleMin)) * 100,
+      ),
+    )
+  const marketBandPositions = snapshot
+    ? [benchmarkPosition(snapshot.low_price_cents), benchmarkPosition(snapshot.high_price_cents)]
+    : [0, 0]
+  const suggestionBandPositions = [
+    benchmarkPosition(pricing.suggested_low_price_cents),
+    benchmarkPosition(pricing.suggested_high_price_cents),
+  ]
+  const marketBandStart = Math.min(...marketBandPositions)
+  const marketBandEnd = Math.max(...marketBandPositions)
+  const suggestionBandStart = Math.min(...suggestionBandPositions)
+  const suggestionBandEnd = Math.max(...suggestionBandPositions)
 
   return (
     <section className="h-full min-h-[260px] overflow-hidden rounded-lg border bg-card shadow-card">
@@ -729,43 +767,61 @@ function MarketPanel({
                 {t("goals.marketSamples", { count: snapshot.sample_count })}
               </p>
             </div>
-            <div className="mt-1 h-[132px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={benchmarkData}
-                  layout="vertical"
-                  margin={{ top: 0, right: 4, left: 0, bottom: 0 }}
-                >
-                  <XAxis type="number" hide domain={[0, "dataMax"]} />
-                  <YAxis
-                    type="category"
-                    dataKey="shortLabel"
-                    axisLine={false}
-                    tickLine={false}
-                    width={48}
-                    tick={{ fill: "var(--muted-foreground)", fontSize: 9 }}
-                  />
-                  <ChartTooltip
-                    cursor={{ fill: "color-mix(in oklab, var(--brand) 6%, transparent)" }}
-                    formatter={(value) => [visibleYuan(Number(value ?? 0), amountsHidden), t("goals.price")]}
-                    labelFormatter={(label) =>
-                      benchmarkData.find((item) => item.shortLabel === label)?.label ?? String(label)
-                    }
-                    contentStyle={{
-                      border: "1px solid var(--border)",
-                      borderRadius: 6,
-                      background: "var(--popover)",
-                      color: "var(--popover-foreground)",
-                      fontSize: 11,
+            <div
+              className="mt-2"
+              role="img"
+              aria-label={benchmarkData
+                .map((item) => `${item.label} ${visibleYuan(item.value, amountsHidden)}`)
+                .join("; ")}
+            >
+              <div className="relative h-5">
+                <div className="absolute inset-x-0 top-1/2 h-1.5 -translate-y-1/2 overflow-hidden rounded-full bg-muted ring-1 ring-border/60 ring-inset">
+                  <span
+                    className="absolute inset-y-0 bg-success/18"
+                    style={{
+                      left: `${marketBandStart}%`,
+                      width: `${Math.max(1.5, marketBandEnd - marketBandStart)}%`,
                     }}
                   />
-                  <Bar dataKey="value" maxBarSize={11} radius={[0, 4, 4, 0]}>
-                    {benchmarkData.map((item) => (
-                      <Cell key={item.shortLabel} fill={item.color} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+                  {pricing.suggested_low_price_cents > 0 ? (
+                    <span
+                      className="absolute inset-y-[1px] rounded-full bg-brand/75"
+                      style={{
+                        left: `${suggestionBandStart}%`,
+                        width: `${Math.max(1.5, suggestionBandEnd - suggestionBandStart)}%`,
+                      }}
+                    />
+                  ) : null}
+                </div>
+                {benchmarkData.map((item) => (
+                  <span
+                    key={item.shortLabel}
+                    className="absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-card shadow-sm"
+                    style={{
+                      left: `${benchmarkPosition(item.value)}%`,
+                      backgroundColor: item.color,
+                    }}
+                    title={`${item.label}: ${visibleYuan(item.value, amountsHidden)}`}
+                  />
+                ))}
+              </div>
+              <div className="flex items-center justify-between text-[8px] tabular-nums text-muted-foreground">
+                <span>{visibleYuan(benchmarkScaleMin, amountsHidden)}</span>
+                <span>{visibleYuan(benchmarkScaleMax, amountsHidden)}</span>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5">
+                {benchmarkData.map((item) => (
+                  <div key={item.shortLabel} className="flex min-w-0 items-center gap-1.5 text-[9px]">
+                    <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground" title={item.label}>
+                      {item.shortLabel}
+                    </span>
+                    <span className="shrink-0 font-semibold tabular-nums text-foreground">
+                      {visibleYuan(item.value, amountsHidden)}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         ) : (
@@ -2931,10 +2987,13 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
       countKey: "chartSeatCount",
     },
   ]
+  const matureModelCount = models.filter(
+    (model) => model.status === "ready" || model.status === "data_ready",
+  ).length
 
   return (
-    <section className="overflow-hidden rounded-lg border bg-card shadow-card">
-      <div className="grid gap-5 p-5 xl:grid-cols-[minmax(520px,1.08fr)_minmax(0,0.92fr)] xl:items-stretch">
+    <section className="overflow-hidden rounded-xl border bg-card shadow-card">
+      <div className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-brand">
             <BrainCircuit className="size-4" />
@@ -2942,175 +3001,214 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
               {t("goals.care.prediction.eyebrow")}
             </p>
           </div>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm font-semibold">{t("goals.care.prediction.chartTitle")}</p>
-            {hasEstimate ? (
-              <Badge
-                variant="success"
-                title={t("goals.care.prediction.range", {
-                  low: prediction.estimate_low_percent,
-                  high: prediction.estimate_high_percent,
-                })}
-              >
-                {t("goals.care.prediction.estimate", {
-                  value: prediction.estimated_renewal_percent,
-                })}
-              </Badge>
-            ) : null}
-          </div>
-          <div
-            className="mt-3 overflow-hidden rounded-lg border border-border/70 bg-muted/[0.12]"
-            role="img"
-            aria-label={t("goals.care.prediction.chartAria", {
-              active: currentActiveSeats,
-              total: currentTotalSeats,
-              renewals: lifecycleTotals.renewals,
-              churns: lifecycleTotals.churns,
+          <p className="mt-1.5 text-sm font-semibold">{t("goals.care.prediction.chartTitle")}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {hasEstimate ? (
+            <Badge
+              variant="success"
+              title={t("goals.care.prediction.range", {
+                low: prediction.estimate_low_percent,
+                high: prediction.estimate_high_percent,
+              })}
+            >
+              {t("goals.care.prediction.estimate", {
+                value: prediction.estimated_renewal_percent,
+              })}
+            </Badge>
+          ) : null}
+          <span className="rounded-full border bg-muted/25 px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
+            {t("goals.care.prediction.modelsReady", {
+              ready: matureModelCount,
+              total: models.length,
             })}
-          >
-            <div className="grid grid-cols-2 border-b border-border/60 sm:grid-cols-4">
-              {lifecycleMetrics.map((item, index) => (
-                <div
-                  key={item.key}
-                  className={cn(
-                    "px-3 py-2.5",
-                    index % 2 !== 0 && "border-l border-border/60",
-                    index >= 2 && "border-t border-border/60 sm:border-t-0",
-                    index > 0 && "sm:border-l sm:border-border/60",
-                  )}
-                >
-                  <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
-                    <span
-                      className="size-1.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: item.color }}
-                    />
-                    <span className="truncate">{item.label}</span>
-                  </div>
-                  <p className="mt-1 text-lg font-semibold tabular-nums">
-                    {t(`goals.care.prediction.${item.countKey}`, { count: item.value })}
-                  </p>
+          </span>
+        </div>
+      </div>
+
+      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(560px,1.16fr)_minmax(320px,0.84fr)] xl:items-stretch">
+        <div
+          className="relative min-w-0 overflow-hidden rounded-xl border border-border/70 bg-muted/[0.08]"
+          role="img"
+          aria-label={t("goals.care.prediction.chartAria", {
+            active: currentActiveSeats,
+            total: currentTotalSeats,
+            renewals: lifecycleTotals.renewals,
+            churns: lifecycleTotals.churns,
+          })}
+        >
+          <div aria-hidden="true" className="pointer-events-none absolute -left-16 top-20 size-44 rounded-full bg-brand/[0.06] blur-3xl" />
+          <div className="relative grid grid-cols-2 border-b border-border/60 sm:grid-cols-4">
+            {lifecycleMetrics.map((item, index) => (
+              <div
+                key={item.key}
+                className={cn(
+                  "px-3.5 py-3",
+                  index % 2 !== 0 && "border-l border-border/60",
+                  index >= 2 && "border-t border-border/60 sm:border-t-0",
+                  index > 0 && "sm:border-l sm:border-border/60",
+                )}
+              >
+                <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+                  <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
+                  <span className="truncate">{item.label}</span>
                 </div>
-              ))}
-            </div>
-
-            <div className="h-[230px] w-full px-1 pt-3">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart
-                  data={lifecycle}
-                  margin={{ top: 8, right: 10, left: -18, bottom: 0 }}
-                  barGap={2}
-                >
-                  <CartesianGrid stroke="var(--border)" strokeDasharray="3 5" vertical={false} />
-                  <XAxis
-                    dataKey="label"
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
-                  />
-                  <YAxis
-                    yAxisId="events"
-                    allowDecimals={false}
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
-                  />
-                  <YAxis
-                    yAxisId="active"
-                    orientation="right"
-                    allowDecimals={false}
-                    axisLine={false}
-                    tickLine={false}
-                    tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
-                  />
-                  <ChartTooltip
-                    cursor={{ fill: "color-mix(in oklab, var(--brand) 6%, transparent)" }}
-                    formatter={(value, name) => [
-                      t(
-                        `goals.care.prediction.${String(name) === "renewals" ? "chartEventCount" : "chartSeatCount"}`,
-                        { count: Number(value ?? 0) },
-                      ),
-                      t(`goals.care.prediction.chart.${String(name)}`),
-                    ]}
-                    labelFormatter={(label) =>
-                      lifecycle.find((month) => month.label === String(label))?.month ?? String(label)
-                    }
-                    contentStyle={{
-                      border: "1px solid var(--border)",
-                      borderRadius: 6,
-                      background: "var(--popover)",
-                      color: "var(--popover-foreground)",
-                      fontSize: 12,
-                      boxShadow: "var(--shadow-card)",
-                    }}
-                  />
-                  <Bar
-                    yAxisId="active"
-                    dataKey="totalSeats"
-                    fill="var(--brand)"
-                    fillOpacity={0.82}
-                    maxBarSize={24}
-                    radius={[3, 3, 0, 0]}
-                  />
-                  <Bar
-                    yAxisId="events"
-                    dataKey="renewals"
-                    fill="var(--success)"
-                    maxBarSize={18}
-                    radius={[3, 3, 0, 0]}
-                  />
-                  <Bar
-                    yAxisId="events"
-                    dataKey="churns"
-                    fill="var(--destructive)"
-                    maxBarSize={18}
-                    radius={[3, 3, 0, 0]}
-                  />
-                  <Line
-                    yAxisId="active"
-                    type="monotone"
-                    dataKey="activeSeats"
-                    stroke="var(--gold)"
-                    strokeWidth={2.25}
-                    dot={{ r: 2.5, fill: "var(--card)", strokeWidth: 2 }}
-                    activeDot={{ r: 4, fill: "var(--card)", strokeWidth: 2 }}
-                  />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
-
-            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 border-t border-border/60 px-3 py-2 text-[10px] font-medium text-muted-foreground">
-              {lifecycleMetrics.map((item) => (
-                <span key={item.key} className="flex items-center gap-1.5">
-                  <span
-                    className={cn(
-                      "shrink-0",
-                      item.key === "activeSeats" ? "h-0.5 w-3 rounded-full" : "size-2 rounded-sm",
-                    )}
-                    style={{ backgroundColor: item.color }}
-                  />
-                  {item.label}
-                </span>
-              ))}
-            </div>
+                <p className="display-numeral mt-2 text-xl font-semibold tabular-nums">
+                  {t(`goals.care.prediction.${item.countKey}`, { count: item.value })}
+                </p>
+              </div>
+            ))}
           </div>
+
+          {lifecycle.length > 0 ? (
+            <>
+              <div className="relative h-[190px] w-full px-1 pt-3">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={lifecycle} margin={{ top: 8, right: 10, left: -20, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="customer-active-area" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.3} />
+                        <stop offset="78%" stopColor="var(--brand)" stopOpacity={0.035} />
+                        <stop offset="100%" stopColor="var(--brand)" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="var(--border)" strokeDasharray="3 5" vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                    />
+                    <YAxis
+                      yAxisId="seats"
+                      allowDecimals={false}
+                      axisLine={false}
+                      tickLine={false}
+                      tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                    />
+                    <ChartTooltip
+                      cursor={{ stroke: "var(--border)", strokeDasharray: "3 4" }}
+                      formatter={(value, name) => [
+                        t("goals.care.prediction.chartSeatCount", { count: Number(value ?? 0) }),
+                        t(`goals.care.prediction.chart.${String(name)}`),
+                      ]}
+                      labelFormatter={(label) =>
+                        lifecycle.find((month) => month.label === String(label))?.month ?? String(label)
+                      }
+                      contentStyle={{
+                        border: "1px solid var(--border)",
+                        borderRadius: 6,
+                        background: "var(--popover)",
+                        color: "var(--popover-foreground)",
+                        fontSize: 12,
+                        boxShadow: "var(--shadow-card)",
+                      }}
+                    />
+                    <Area
+                      yAxisId="seats"
+                      type="monotone"
+                      dataKey="activeSeats"
+                      stroke="var(--brand)"
+                      strokeWidth={2.5}
+                      fill="url(#customer-active-area)"
+                      dot={{ r: 2.75, fill: "var(--card)", stroke: "var(--brand)", strokeWidth: 2 }}
+                      activeDot={{ r: 4.5, fill: "var(--card)", stroke: "var(--brand)", strokeWidth: 2.5 }}
+                    />
+                    <Line
+                      yAxisId="seats"
+                      type="monotone"
+                      dataKey="totalSeats"
+                      stroke="var(--gold)"
+                      strokeWidth={1.75}
+                      strokeDasharray="5 5"
+                      dot={false}
+                      activeDot={{ r: 3.5, fill: "var(--card)", stroke: "var(--gold)", strokeWidth: 2 }}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="relative border-t border-border/60 bg-card/55">
+                <div className="flex items-center justify-between gap-3 px-3.5 pt-2.5 text-[10px] font-medium text-muted-foreground">
+                  <span>{t("goals.care.prediction.eventTimeline")}</span>
+                  <span className="flex items-center gap-3">
+                    <span className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-success" />{t("goals.care.prediction.chart.renewals")}</span>
+                    <span className="flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-destructive" />{t("goals.care.prediction.chart.churns")}</span>
+                  </span>
+                </div>
+                <div className="overflow-x-auto px-2 pb-2.5 pt-2 scrollbar-none">
+                  <div
+                    className="grid min-w-[420px] divide-x divide-border/55 overflow-hidden rounded-md border border-border/55 bg-muted/[0.12]"
+                    style={{ gridTemplateColumns: `repeat(${Math.max(lifecycle.length, 1)}, minmax(64px, 1fr))` }}
+                  >
+                    {lifecycle.map((month) => (
+                      <div key={month.month} className="px-2 py-2 text-center">
+                        <p className="text-[9px] font-medium text-muted-foreground">{month.label}</p>
+                        <div className="mt-1.5 flex items-center justify-center gap-2 text-[10px] font-semibold tabular-nums">
+                          <span className={month.renewals > 0 ? "text-success" : "text-muted-foreground/55"}>
+                            {t("goals.care.prediction.renewalShort", { count: month.renewals })}
+                          </span>
+                          <span className={month.churns > 0 ? "text-destructive" : "text-muted-foreground/55"}>
+                            {t("goals.care.prediction.churnShort", { count: month.churns })}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="grid min-h-64 place-items-center px-6 text-center text-xs text-muted-foreground">
+              {t("goals.care.prediction.lifecycleEmpty")}
+            </div>
+          )}
         </div>
 
-        <div className="grid min-h-0 gap-2 sm:grid-cols-2 xl:mt-1 xl:grid-rows-2">
-          {models.map((model) => {
-            const progress = Math.min(
-              100,
-              Math.round((model.current_samples / Math.max(model.required_samples, 1)) * 100),
-            )
-            return (
-              <div key={model.key} className="rounded-md border bg-muted/15 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-xs font-semibold">
-                      {t(`goals.care.prediction.model.${model.key}`)}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+        <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-muted/[0.1]">
+          <div className="flex items-start justify-between gap-3 border-b border-border/60 px-4 py-3.5">
+            <div>
+              <p className="text-xs font-semibold">{t("goals.care.prediction.modelReadinessTitle")}</p>
+              <p className="mt-1 text-[10px] text-muted-foreground">{t("goals.care.prediction.modelReadinessHint")}</p>
+            </div>
+            <span className="display-numeral text-xl font-semibold text-brand">
+              {matureModelCount}/{models.length}
+            </span>
+          </div>
+          <div className="flex-1 divide-y divide-border/60 px-4">
+            {models.map((model, index) => {
+              const progress = Math.min(
+                100,
+                Math.round((model.current_samples / Math.max(model.required_samples, 1)) * 100),
+              )
+              return (
+                <div key={model.key} className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 py-3.5">
+                  <span className="display-numeral grid size-7 shrink-0 place-items-center rounded-md border bg-card text-[10px] text-muted-foreground shadow-sm">
+                    {String(index + 1).padStart(2, "0")}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+                      <p className="truncate text-xs font-semibold">{t(`goals.care.prediction.model.${model.key}`)}</p>
+                      <span className="text-[9px] tabular-nums text-muted-foreground">
+                        {model.current_samples} / {model.required_samples}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 truncate text-[10px] text-muted-foreground" title={t(`goals.care.prediction.detail.${model.detail_code}`)}>
                       {t(`goals.care.prediction.detail.${model.detail_code}`)}
                     </p>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={cn(
+                          "h-full rounded-full transition-[width]",
+                          model.status === "ready"
+                            ? "bg-success"
+                            : model.status === "needs_control"
+                              ? "bg-gold"
+                              : "bg-brand",
+                        )}
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
                   </div>
                   <Badge
                     variant={
@@ -3122,25 +3220,14 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                             ? "warning"
                             : "secondary"
                     }
+                    className="shrink-0"
                   >
                     {t(`goals.care.prediction.status.${model.status}`)}
                   </Badge>
                 </div>
-                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className={cn(
-                      "h-full rounded-full",
-                      model.status === "ready" ? "bg-success" : "bg-brand",
-                    )}
-                    style={{ width: `${progress}%` }}
-                  />
-                </div>
-                <p className="mt-1.5 text-right text-[10px] tabular-nums text-muted-foreground">
-                  {model.current_samples} / {model.required_samples}
-                </p>
-              </div>
-            )
-          })}
+              )
+            })}
+          </div>
         </div>
       </div>
     </section>
@@ -3581,96 +3668,122 @@ function CustomerCarePanel({
           </div>
 
           {filtered.length > 0 ? (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10">
-                    <Checkbox
-                      checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
-                      onCheckedChange={(checked) => toggleVisible(checked === true)}
-                      disabled={visibleSelectableIDs.length === 0}
-                      aria-label={t("goals.selectVisible")}
-                    />
-                  </TableHead>
-                  <TableHead>{t("goals.care.customer")}</TableHead>
-                  <TableHead>{t("goals.care.value")}</TableHead>
-                  <TableHead>{t("goals.care.evidence")}</TableHead>
-                  <TableHead>{t("goals.care.timing")}</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {pageCandidates.map((candidate) => (
-                  <TableRow
-                    key={candidate.subscription_id}
-                    data-state={validSelected.has(candidate.subscription_id) ? "selected" : undefined}
-                    className={!candidate.selectable ? "opacity-60" : undefined}
-                  >
-                    <TableCell>
-                      <Checkbox
-                        checked={validSelected.has(candidate.subscription_id)}
-                        onCheckedChange={(checked) => toggleCandidate(candidate, checked === true)}
-                        disabled={!candidate.selectable}
-                        aria-label={t("goals.selectCustomer", { name: candidate.display_name })}
-                      />
-                    </TableCell>
-                    <TableCell className="min-w-52 whitespace-normal">
-                      <p className="font-medium">{candidate.display_name}</p>
-                      {candidate.customer_wechat && candidate.customer_wechat !== candidate.display_name ? (
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {candidate.customer_wechat}
-                        </p>
-                      ) : null}
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        <Badge variant="outline">
-                          {t(`goals.repricing.customerTier.${candidate.customer_tier}.label`)}
-                        </Badge>
-                        {candidate.seat_count > 1 ? (
-                          <Badge variant="brand">
-                            {t("goals.care.seats", { count: candidate.seat_count })}
-                          </Badge>
-                        ) : null}
+            <div className="bg-muted/[0.14] p-3">
+              <div className="mb-2 px-1">
+                <label className="flex cursor-pointer items-center gap-2 text-[11px] font-medium text-muted-foreground">
+                  <Checkbox
+                    checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                    onCheckedChange={(checked) => toggleVisible(checked === true)}
+                    disabled={visibleSelectableIDs.length === 0}
+                    aria-label={t("goals.selectVisible")}
+                  />
+                  {t("goals.selectVisible")}
+                </label>
+              </div>
+
+              <div role="list" className="space-y-2">
+                {pageCandidates.map((candidate) => {
+                  const isSelected = validSelected.has(candidate.subscription_id)
+                  return (
+                    <article
+                      key={candidate.subscription_id}
+                      role="listitem"
+                      data-state={isSelected ? "selected" : undefined}
+                      className={cn(
+                        "group overflow-hidden rounded-lg border border-border/70 bg-card shadow-[0_8px_28px_-28px_color-mix(in_oklab,var(--foreground)_55%,transparent)] transition-[border-color,background-color,box-shadow] hover:border-input hover:shadow-[0_14px_32px_-26px_color-mix(in_oklab,var(--foreground)_60%,transparent)] data-[state=selected]:border-brand/35 data-[state=selected]:bg-brand/[0.035]",
+                        !candidate.selectable && "opacity-60",
+                      )}
+                    >
+                      <div className="flex items-start gap-3 px-3.5 py-3">
+                        <Checkbox
+                          className="mt-0.5"
+                          checked={isSelected}
+                          onCheckedChange={(checked) => toggleCandidate(candidate, checked === true)}
+                          disabled={!candidate.selectable}
+                          aria-label={t("goals.selectCustomer", { name: candidate.display_name })}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="min-w-0">
+                              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                                <p className="max-w-full truncate text-sm font-semibold" title={candidate.display_name}>
+                                  {candidate.display_name}
+                                </p>
+                                <Badge variant="outline">
+                                  {t(`goals.repricing.customerTier.${candidate.customer_tier}.label`)}
+                                </Badge>
+                                {candidate.seat_count > 1 ? (
+                                  <Badge variant="brand">
+                                    {t("goals.care.seats", { count: candidate.seat_count })}
+                                  </Badge>
+                                ) : null}
+                              </div>
+                              {candidate.customer_wechat && candidate.customer_wechat !== candidate.display_name ? (
+                                <p className="mt-1 truncate text-[11px] text-muted-foreground" title={candidate.customer_wechat}>
+                                  {candidate.customer_wechat}
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+                              <Badge variant={careStatusBadge[candidate.status]}>
+                                {t(`goals.care.status.${candidate.status}`)}
+                              </Badge>
+                              {candidate.recommended_date ? (
+                                <span className="rounded-full bg-muted px-2 py-1 text-[10px] tabular-nums text-muted-foreground">
+                                  {candidate.recommended_date}
+                                </span>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    </TableCell>
-                    <TableCell className="tabular-nums">
-                      <p className="font-semibold">
-                        {visibleYuan(candidate.monthly_value_cents, amountsHidden)}
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-muted-foreground">
-                        {t("goals.care.monthlyValue")}
-                      </p>
-                    </TableCell>
-                    <TableCell className="min-w-32 whitespace-normal">
-                      <p className="text-xs">
-                        {t("goals.care.renewalEvidence", { count: candidate.renewal_count })}
-                      </p>
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {t("goals.care.relationshipDays", { count: candidate.relationship_days })}
-                      </p>
-                    </TableCell>
-                    <TableCell className="min-w-48 whitespace-normal">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <Badge variant={careStatusBadge[candidate.status]}>
-                          {t(`goals.care.status.${candidate.status}`)}
-                        </Badge>
-                        {candidate.recommended_date ? (
-                          <span className="text-xs tabular-nums text-muted-foreground">
-                            {candidate.recommended_date}
-                          </span>
-                        ) : null}
+
+                      <div className="grid border-t border-border/60 bg-muted/[0.08] sm:grid-cols-[0.72fr_0.92fr_1.7fr] sm:divide-x sm:divide-border/60">
+                        <div className="px-4 py-2.5">
+                          <p className="text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                            {t("goals.care.value")}
+                          </p>
+                          <p className="display-numeral mt-1 text-base font-semibold text-foreground">
+                            {visibleYuan(candidate.monthly_value_cents, amountsHidden)}
+                          </p>
+                        </div>
+                        <div className="border-t border-border/60 px-4 py-2.5 sm:border-t-0">
+                          <p className="text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                            {t("goals.care.evidence")}
+                          </p>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px]">
+                            <span className="font-medium">
+                              {t("goals.care.renewalEvidence", { count: candidate.renewal_count })}
+                            </span>
+                            <span className="text-muted-foreground">
+                              {t("goals.care.relationshipDays", { count: candidate.relationship_days })}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="border-t border-border/60 px-4 py-2.5 sm:border-t-0">
+                          <p className="text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground">
+                            {t("goals.care.timing")}
+                          </p>
+                          <div className="mt-1 flex min-w-0 flex-col gap-1 lg:flex-row lg:items-center lg:justify-between lg:gap-3">
+                            <p
+                              className="min-w-0 truncate text-[11px] text-muted-foreground"
+                              title={t(`goals.care.reason.${candidate.reason_code}`)}
+                            >
+                              {t(`goals.care.reason.${candidate.reason_code}`)}
+                            </p>
+                            {candidate.last_benefit_date ? (
+                              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                                {t("goals.care.lastBenefit", { date: candidate.last_benefit_date })}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
                       </div>
-                      <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">
-                        {t(`goals.care.reason.${candidate.reason_code}`)}
-                      </p>
-                      {candidate.last_benefit_date ? (
-                        <p className="mt-1 text-[10px] text-muted-foreground">
-                          {t("goals.care.lastBenefit", { date: candidate.last_benefit_date })}
-                        </p>
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                    </article>
+                  )
+                })}
+              </div>
+            </div>
           ) : (
             <div className="grid min-h-40 place-items-center p-6 text-center">
               <div>
