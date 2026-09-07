@@ -406,7 +406,7 @@ export default {
           market_unavailable: "缺少有效市场样本",
           multi_seat_customer: "同一客户订阅多个席位，需整组评估并谨慎沟通",
           protect_reference_price: "保护期内维持原价，避免破坏价格公平感",
-          avoid_repeat_increase: "近期已涨价，避免连续调整",
+          avoid_repeat_adjustment: "近期已调价，避免连续调整",
           repair_service_trust: "售后之后先恢复服务信任",
           change_already_scheduled: "已有下一周期价格安排",
           relationship_threshold_met: "已通过 60 天与 3 个有效缴费期门槛",
@@ -483,7 +483,7 @@ export default {
         guardrailTenure: "保护期 ≥ 60 天 / 3 期",
         guardrailCap: "单次 ≤ 8% / ¥10",
         guardrailNotice: "下期生效，不追溯",
-        guardrailCooldown: "涨价后冷静 180 天",
+        guardrailCooldown: "调价后冷静 180 天",
       },
       care: {
         prediction: {

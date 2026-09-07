@@ -176,6 +176,18 @@ func (store *Store) migrate() error {
 				UNIQUE(subscription_id, due_date),
 				FOREIGN KEY(subscription_id) REFERENCES subscriptions(id)
 		);`,
+		`CREATE TABLE IF NOT EXISTS subscription_price_changes (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			subscription_id INTEGER NOT NULL,
+			previous_price_cents INTEGER NOT NULL,
+			new_price_cents INTEGER NOT NULL,
+			effective_due_date TEXT NOT NULL,
+			created_at TEXT NOT NULL,
+			UNIQUE(subscription_id, effective_due_date),
+			FOREIGN KEY(subscription_id) REFERENCES subscriptions(id) ON DELETE CASCADE
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_subscription_price_changes_subscription
+			ON subscription_price_changes(subscription_id, effective_due_date DESC, id DESC);`,
 		`CREATE TABLE IF NOT EXISTS after_sales_cases (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			account_id INTEGER,
@@ -418,6 +430,9 @@ func (store *Store) migrate() error {
 		return err
 	}
 	if err := store.repairMisdatedInitialBills(); err != nil {
+		return err
+	}
+	if err := store.backfillSubscriptionPriceChanges(); err != nil {
 		return err
 	}
 	if err := store.normalizeBusinessGoalProfitBaselines(); err != nil {
@@ -2622,6 +2637,30 @@ func (store *Store) setDuePaid(
 		// A scheduled price becomes the regular price only after the first bill
 		// in its effective period is actually recorded. Removing that bill later
 		// deliberately does not rewrite the price or any historical bill.
+		// Persist the transition first so clearing next_price_cents below never
+		// erases the cooldown evidence. The insert and price application share
+		// this transaction, so neither can succeed without the other.
+		if _, err := transaction.Exec(`
+			INSERT INTO subscription_price_changes (
+				subscription_id, previous_price_cents, new_price_cents,
+				effective_due_date, created_at
+			)
+			SELECT id, price_per_person_cents, next_price_cents,
+			       next_price_effective_due_date, ?
+			FROM subscriptions
+			WHERE id = ?
+			  AND is_resale = 0
+			  AND next_price_cents IS NOT NULL
+			  AND next_price_cents <> price_per_person_cents
+			  AND next_price_effective_due_date <> ''
+			  AND next_price_effective_due_date <= ?
+			ON CONFLICT(subscription_id, effective_due_date) DO NOTHING`,
+			now,
+			subscriptionID,
+			strings.TrimSpace(dueDate),
+		); err != nil {
+			return err
+		}
 		if _, err := transaction.Exec(`
 			UPDATE subscriptions
 			SET price_per_person_cents = next_price_cents,
@@ -2937,6 +2976,7 @@ func (store *Store) ResetBusinessData() error {
 		"paid_due_occurrences",
 		"customer_benefits",
 		"pricing_exemptions",
+		"subscription_price_changes",
 		"subscriptions",
 		"seats",
 		"account_cost_records",

@@ -406,7 +406,7 @@ export default {
           market_unavailable: "No reliable market sample is available",
           multi_seat_customer: "This customer holds multiple seats; assess and communicate the group as a whole",
           protect_reference_price: "Keep the original price during protection to preserve perceived fairness",
-          avoid_repeat_increase: "A recent increase makes another change premature",
+          avoid_repeat_adjustment: "A recent price change makes another adjustment premature",
           repair_service_trust: "Restore service trust after an after-sales event",
           change_already_scheduled: "A next-cycle price is already scheduled",
           relationship_threshold_met: "The 60-day and three-valid-payment threshold is met",
@@ -483,7 +483,7 @@ export default {
         guardrailTenure: "Protection ≥ 60 days / 3 periods",
         guardrailCap: "Single change ≤ 8% / ¥10",
         guardrailNotice: "Next period, never retroactive",
-        guardrailCooldown: "180-day cooldown after increase",
+        guardrailCooldown: "180-day cooldown after a price change",
       },
       care: {
         prediction: {

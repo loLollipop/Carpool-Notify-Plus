@@ -275,6 +275,19 @@ type PricingExemption struct {
 	CreatedAt                 time.Time `json:"created_at"`
 }
 
+// SubscriptionPriceChange is an immutable record of a scheduled price that
+// actually took effect when its first paid billing period was recorded. It is
+// deliberately separate from the mutable next-price fields so clearing or
+// replacing a future schedule can never erase repricing history.
+type SubscriptionPriceChange struct {
+	ID                 int64     `json:"id"`
+	SubscriptionID     int64     `json:"subscription_id"`
+	PreviousPriceCents int64     `json:"previous_price_cents"`
+	NewPriceCents      int64     `json:"new_price_cents"`
+	EffectiveDueDate   string    `json:"effective_due_date"`
+	CreatedAt          time.Time `json:"created_at"`
+}
+
 // CustomerBenefit is one manually delivered customer-care benefit. Financial
 // cost and decision-time snapshots are immutable so later retention analysis
 // does not accidentally use today's price or customer tier for an old action.

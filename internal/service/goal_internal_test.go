@@ -908,6 +908,245 @@ func TestPricingCandidatesRespectSixMonthCooldown(t *testing.T) {
 	}
 }
 
+func TestAppliedManualPriceChangePersistsCooldownWithoutComparableOlderBill(t *testing.T) {
+	service := openGoalTestService(t)
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, cycle.Location)
+	service.Clock = func() time.Time { return now }
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "first-bill-repricing-owner@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 2 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "first-bill-repricing-customer",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 9000,
+		CronExpr:            "interval:30d",
+		SeatID:              seats[0].ID,
+		CustomerEmail:       "first-bill-repricing@example.com",
+		CustomerWechat:      "same-customer-contact",
+		BoardedAt:           "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerSubscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "same-customer-second-seat",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 9000,
+		CronExpr:            "interval:30d",
+		SeatID:              seats[1].ID,
+		CustomerEmail:       "another-seat@example.com",
+		CustomerWechat:      "same-customer-contact",
+		BoardedAt:           "2026-05-17",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedPaidPricingPeriods(t, service, peerSubscriptionID, 9000)
+	updated, err := service.ScheduleManualNextPrices(ManualNextPricesInput{
+		Items: []ManualNextPriceItemInput{{
+			SubscriptionID: subscriptionID,
+			NextPriceYuan:  "95.00",
+		}},
+	})
+	if err != nil || updated != 1 {
+		t.Fatalf("schedule manual price = %d, err = %v", updated, err)
+	}
+
+	scheduled, err := service.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scheduled.NextPriceEffectiveDueDate != "2026-08-31" {
+		t.Fatalf("effective due date = %q, want 2026-08-31", scheduled.NextPriceEffectiveDueDate)
+	}
+	now = time.Date(2026, time.August, 31, 12, 0, 0, 0, cycle.Location)
+	if err := service.SetDuePaid(subscriptionID, "2026-08-31", true); err != nil {
+		t.Fatal(err)
+	}
+
+	changes, err := service.Store.ListSubscriptionPriceChanges()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0].SubscriptionID != subscriptionID ||
+		changes[0].PreviousPriceCents != 9000 || changes[0].NewPriceCents != 9500 ||
+		changes[0].EffectiveDueDate != "2026-08-31" {
+		t.Fatalf("applied price changes = %#v", changes)
+	}
+
+	now = time.Date(2026, time.September, 30, 12, 0, 0, 0, cycle.Location)
+	candidates, err := service.buildPricingCandidates(&model.MarketPriceSnapshot{
+		LowPriceCents: 10000, MedianPriceCents: 13000, HighPriceCents: 15000, SampleCount: 10,
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("repricing candidates = %#v", candidates)
+	}
+	for _, candidate := range candidates {
+		if candidate.Eligible || candidate.Recommended || candidate.BlockedCode != "cooldown" {
+			t.Fatalf("customer-level repricing cooldown candidate = %#v", candidates)
+		}
+		if candidate.SubscriptionID == subscriptionID &&
+			(candidate.LastPriceIncreaseDate != "2026-08-31" ||
+				candidate.PaidPeriodsAfterIncrease != 1 || candidate.PriceStableDays != 30 ||
+				!strings.Contains(candidate.BlockedReason, "价格调整")) {
+			t.Fatalf("first-bill repricing evidence = %#v", candidate)
+		}
+		if candidate.SubscriptionID == peerSubscriptionID &&
+			!strings.Contains(candidate.BlockedReason, "同一客户") {
+			t.Fatalf("same-customer peer cooldown = %#v", candidate)
+		}
+	}
+
+	// The algorithm blocks another automatic recommendation, while an explicit
+	// operator decision can still override the timing gate when market judgment
+	// calls for it.
+	updated, err = service.ScheduleManualNextPrices(ManualNextPricesInput{
+		Items: []ManualNextPriceItemInput{{
+			SubscriptionID: subscriptionID,
+			NextPriceYuan:  "96.00",
+		}},
+	})
+	if err != nil || updated != 1 {
+		t.Fatalf("manual cooldown override = %d, err = %v", updated, err)
+	}
+}
+
+func TestAppliedManualPriceDecreaseAlsoStartsCooldownAndExpires(t *testing.T) {
+	service := openGoalTestService(t)
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, cycle.Location)
+	service.Clock = func() time.Time { return now }
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "decrease-cooldown-owner@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 1 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "decrease-cooldown-customer",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 10000,
+		CronExpr:            "interval:30d",
+		SeatID:              seats[0].ID,
+		CustomerEmail:       "decrease-cooldown@example.com",
+		BoardedAt:           "2026-05-17",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedPaidPricingPeriods(t, service, subscriptionID, 10000)
+	updated, err := service.ScheduleManualNextPrices(ManualNextPricesInput{
+		Items: []ManualNextPriceItemInput{{
+			SubscriptionID: subscriptionID,
+			NextPriceYuan:  "95.00",
+		}},
+	})
+	if err != nil || updated != 1 {
+		t.Fatalf("schedule manual decrease = %d, err = %v", updated, err)
+	}
+	now = time.Date(2026, time.September, 14, 12, 0, 0, 0, cycle.Location)
+	if err := service.SetDuePaid(subscriptionID, "2026-09-14", true); err != nil {
+		t.Fatal(err)
+	}
+
+	snapshot := &model.MarketPriceSnapshot{
+		LowPriceCents: 12000, MedianPriceCents: 14000, HighPriceCents: 16000, SampleCount: 10,
+	}
+	now = time.Date(2026, time.October, 14, 12, 0, 0, 0, cycle.Location)
+	candidates, err := service.buildPricingCandidates(snapshot, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].BlockedCode != "cooldown" ||
+		candidates[0].Eligible || candidates[0].Recommended ||
+		candidates[0].LastPriceIncreaseDate != "" || candidates[0].NextReviewDate != "2027-03-13" {
+		t.Fatalf("decrease cooldown candidate = %#v", candidates)
+	}
+
+	now = time.Date(2027, time.March, 13, 12, 0, 0, 0, cycle.Location)
+	candidates, err = service.buildPricingCandidates(snapshot, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || !candidates[0].Eligible || !candidates[0].Recommended ||
+		candidates[0].BlockedCode != "eligible" {
+		t.Fatalf("expired price-adjustment cooldown candidate = %#v", candidates)
+	}
+}
+
+func TestCanceledManualPriceScheduleDoesNotStartCooldown(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:      "canceled-price-owner@example.com",
+		CostYuan:  "50.00",
+		SeatCount: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 1 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "canceled-price-customer",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 9000,
+		CronExpr:            "interval:30d",
+		SeatID:              seats[0].ID,
+		CustomerEmail:       "canceled-price@example.com",
+		BoardedAt:           "2026-05-17",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedPaidPricingPeriods(t, service, subscriptionID, 9000)
+	if _, err := service.ScheduleManualNextPrices(ManualNextPricesInput{
+		Items: []ManualNextPriceItemInput{{SubscriptionID: subscriptionID, NextPriceYuan: "95.00"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	subscription, err := service.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subscription.NextPriceCents = nil
+	subscription.NextPriceEffectiveDueDate = ""
+	if err := service.Store.UpdateSubscription(subscription); err != nil {
+		t.Fatal(err)
+	}
+	changes, err := service.Store.ListSubscriptionPriceChanges()
+	if err != nil || len(changes) != 0 {
+		t.Fatalf("canceled schedule price changes = %#v, err = %v", changes, err)
+	}
+	candidates, err := service.buildPricingCandidates(&model.MarketPriceSnapshot{
+		LowPriceCents: 10000, MedianPriceCents: 13000, HighPriceCents: 15000, SampleCount: 10,
+	}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].BlockedCode == "cooldown" || !candidates[0].Eligible {
+		t.Fatalf("canceled schedule candidate = %#v", candidates)
+	}
+}
+
 func seedPaidPricingPeriods(t *testing.T, service *SubscriptionService, subscriptionID int64, amountCents int64) {
 	t.Helper()
 	for _, dueDate := range []string{"2026-05-17", "2026-06-16", "2026-07-16"} {

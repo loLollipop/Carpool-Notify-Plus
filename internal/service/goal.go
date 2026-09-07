@@ -1444,6 +1444,11 @@ func (service *SubscriptionService) buildPricingCandidates(
 		return nil, err
 	}
 	billHistories := summarizePricingBillHistories(bills, refundedBillIDs)
+	priceChanges, err := service.Store.ListSubscriptionPriceChanges()
+	if err != nil {
+		return nil, err
+	}
+	appliedPriceHistories := summarizeAppliedPriceChanges(priceChanges, bills, refundedBillIDs)
 	paidDueDatesBySubscription := make(map[int64][]string)
 	for _, bill := range bills {
 		paidDueDatesBySubscription[bill.SubscriptionID] = append(
@@ -1518,10 +1523,22 @@ func (service *SubscriptionService) buildPricingCandidates(
 			MaxIncreasePriceCents:   maxIncreasePriceCents,
 		}
 		history := billHistories[subscription.ID]
+		appliedPriceHistory := appliedPriceHistories[subscription.ID]
+		lastIncreaseDate := laterDate(history.LastIncreaseDate, appliedPriceHistory.LastIncreaseDate)
+		latestAdjustmentDate := laterDate(history.LastIncreaseDate, appliedPriceHistory.LastAdjustmentDate)
+		paidPeriodsAfterIncrease := history.PaidPeriodsAfterIncrease
+		if appliedPriceHistory.LastIncreaseDate > history.LastIncreaseDate {
+			paidPeriodsAfterIncrease = appliedPriceHistory.PaidPeriodsAfterIncrease
+		} else if appliedPriceHistory.LastIncreaseDate == history.LastIncreaseDate {
+			paidPeriodsAfterIncrease = maxInt(
+				paidPeriodsAfterIncrease,
+				appliedPriceHistory.PaidPeriodsAfterIncrease,
+			)
+		}
 		candidate.PaidPeriodCount = history.PaidPeriodCount
 		candidate.LastPaidDate = history.LastPaidDueDate
-		candidate.LastPriceIncreaseDate = history.LastIncreaseDate
-		candidate.PaidPeriodsAfterIncrease = history.PaidPeriodsAfterIncrease
+		candidate.LastPriceIncreaseDate = lastIncreaseDate
+		candidate.PaidPeriodsAfterIncrease = paidPeriodsAfterIncrease
 		candidate.VerifiedPriceCents = history.LastPaidPriceCents
 		candidate.VerifiedMonthlyPriceCents = scalePriceCents(
 			history.LastPaidPriceCents,
@@ -1530,10 +1547,10 @@ func (service *SubscriptionService) buildPricingCandidates(
 		)
 		candidate.RelationshipDays = subscriptionRelationshipDays(subscription, service.now())
 		candidate.PriceStableDays = candidate.RelationshipDays
-		if history.LastIncreaseDate != "" {
-			if increasedAt, parseErr := time.ParseInLocation("2006-01-02", history.LastIncreaseDate, cycle.Location); parseErr == nil {
+		if latestAdjustmentDate != "" {
+			if adjustedAt, parseErr := time.ParseInLocation("2006-01-02", latestAdjustmentDate, cycle.Location); parseErr == nil {
 				candidate.PriceStableDays = maxInt(
-					int(cycle.StartOfDay(service.now()).Sub(cycle.StartOfDay(increasedAt)).Hours()/24),
+					int(cycle.StartOfDay(service.now()).Sub(cycle.StartOfDay(adjustedAt)).Hours()/24),
 					0,
 				)
 			}
@@ -1584,14 +1601,14 @@ func (service *SubscriptionService) buildPricingCandidates(
 				subscription.NextPriceEffectiveDueDate,
 			)
 		}
-		if history.LastIncreaseDate != "" {
-			lastIncreaseAt, parseErr := time.ParseInLocation("2006-01-02", history.LastIncreaseDate, cycle.Location)
+		if latestAdjustmentDate != "" {
+			lastAdjustmentAt, parseErr := time.ParseInLocation("2006-01-02", latestAdjustmentDate, cycle.Location)
 			if parseErr == nil {
-				cooldownEndsAt := lastIncreaseAt.AddDate(0, 0, repricingCooldownDays)
+				cooldownEndsAt := lastAdjustmentAt.AddDate(0, 0, repricingCooldownDays)
 				if cycle.StartOfDay(service.now()).Before(cooldownEndsAt) {
 					block(
 						"cooldown",
-						"调价冷静期：上次涨价后至少保持 6 个月再评估",
+						"调价冷静期：上次价格调整后至少保持 6 个月再评估",
 						cycle.FormatDate(cooldownEndsAt),
 					)
 				}
@@ -1827,6 +1844,7 @@ func finalizePricingCandidates(
 	now time.Time,
 ) {
 	assignCustomerTiers(candidates)
+	propagateCustomerRepricingCooldowns(candidates)
 	for index := range candidates {
 		candidate := &candidates[index]
 		if candidate.BlockedCode == "protection" &&
@@ -1863,6 +1881,42 @@ func finalizePricingCandidates(
 		populateRepricingInsights(candidate)
 	}
 	populateCustomerRelationshipProfiles(candidates)
+}
+
+// propagateCustomerRepricingCooldowns treats an identity-linked multi-seat
+// customer as one relationship. If any seat has just changed price, the other
+// seats must not re-enter the automatic batch queue during the same six-month
+// window. Manual repricing can still override this timing gate explicitly.
+func propagateCustomerRepricingCooldowns(candidates []PricingCandidate) {
+	cooldownByGroup := make(map[int64]string)
+	for _, candidate := range candidates {
+		if candidate.BlockedCode != "cooldown" {
+			continue
+		}
+		groupID := candidate.CustomerGroupID
+		if groupID == 0 {
+			groupID = candidate.SubscriptionID
+		}
+		cooldownByGroup[groupID] = laterDate(cooldownByGroup[groupID], candidate.NextReviewDate)
+	}
+	for index := range candidates {
+		candidate := &candidates[index]
+		groupID := candidate.CustomerGroupID
+		if groupID == 0 {
+			groupID = candidate.SubscriptionID
+		}
+		reviewDate := cooldownByGroup[groupID]
+		if reviewDate == "" || candidate.BlockedCode == "cooldown" {
+			continue
+		}
+		switch candidate.BlockedCode {
+		case "eligible", "protection":
+			candidate.Eligible = false
+			candidate.BlockedCode = "cooldown"
+			candidate.BlockedReason = "客户调价冷静期：同一客户已有席位完成价格调整，至少保持 6 个月再评估"
+			candidate.NextReviewDate = reviewDate
+		}
+	}
 }
 
 // populateCustomerRelationshipProfiles builds an observable-behavior index,
@@ -2142,7 +2196,7 @@ func populateRepricingInsights(candidate *PricingCandidate) {
 	case "protection":
 		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "protect_reference_price")
 	case "cooldown":
-		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "avoid_repeat_increase")
+		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "avoid_repeat_adjustment")
 	case "after_sales", "after_sales_recovery":
 		candidate.AnalysisCodes = append(candidate.AnalysisCodes, "repair_service_trust")
 	case "scheduled":
@@ -2252,6 +2306,12 @@ type pricingBillHistory struct {
 	LastPaidDueDate          string
 }
 
+type appliedPriceChangeHistory struct {
+	LastAdjustmentDate       string
+	LastIncreaseDate         string
+	PaidPeriodsAfterIncrease int
+}
+
 func summarizePricingBillHistories(
 	bills []model.Bill,
 	refundedBillIDs map[int64]struct{},
@@ -2287,6 +2347,38 @@ func summarizePricingBillHistories(
 			// The bill on which the higher price takes effect is already a paid
 			// acceptance outcome and must be included in the evidence count.
 			history.PaidPeriodsAfterIncrease = len(subscriptionBills) - lastIncreaseIndex
+		}
+		histories[subscriptionID] = history
+	}
+	return histories
+}
+
+func summarizeAppliedPriceChanges(
+	changes []model.SubscriptionPriceChange,
+	bills []model.Bill,
+	refundedBillIDs map[int64]struct{},
+) map[int64]appliedPriceChangeHistory {
+	histories := make(map[int64]appliedPriceChangeHistory)
+	for _, change := range changes {
+		history := histories[change.SubscriptionID]
+		history.LastAdjustmentDate = laterDate(history.LastAdjustmentDate, change.EffectiveDueDate)
+		if change.NewPriceCents > change.PreviousPriceCents {
+			history.LastIncreaseDate = laterDate(history.LastIncreaseDate, change.EffectiveDueDate)
+		}
+		histories[change.SubscriptionID] = history
+	}
+	for subscriptionID, history := range histories {
+		if history.LastIncreaseDate == "" {
+			continue
+		}
+		for _, bill := range bills {
+			if bill.SubscriptionID != subscriptionID || bill.DueDate < history.LastIncreaseDate {
+				continue
+			}
+			if _, refunded := refundedBillIDs[bill.ID]; refunded {
+				continue
+			}
+			history.PaidPeriodsAfterIncrease++
 		}
 		histories[subscriptionID] = history
 	}
