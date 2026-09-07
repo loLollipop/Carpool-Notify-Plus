@@ -1,4 +1,4 @@
-import type { CalendarOccurrence, SubscriptionView } from "@/api/types"
+import type { CalendarOccurrence } from "@/api/types"
 
 export interface SeatSubscriptionInfo {
   subscriptionId: number
@@ -54,32 +54,5 @@ export function seatInfoFromOccurrence(
     remark: occurrence.remark,
     tradeUrl: occurrence.trade_url,
     archived: false,
-  }
-}
-
-export function seatInfoFromArchived(view: SubscriptionView, t: Translate): SeatSubscriptionInfo {
-  return {
-    subscriptionId: view.subscription.id,
-    businessType: view.subscription.business_type || "team",
-    name: view.subscription.name,
-    accountName: view.account_name,
-    seatName: view.seat_name,
-    statusLabel: t("calendar.filterArchived"),
-    statusTone: "secondary",
-    priceYuan: view.price_yuan,
-    costYuan: view.cost_yuan,
-    profitYuan: view.profit_yuan,
-    cycleDesc: view.cycle_desc,
-    cronExpr: view.subscription.cron_expr,
-    offsetsText: view.offsets_text,
-    channelLabels: (view.channel_labels ?? []).join(" · "),
-    boardedAt: view.boarded_at,
-    extraDateLabel: t("calendar.archivedAt"),
-    extraDate: view.archived_at_label,
-    customerEmail: view.subscription.customer_email,
-    customerWechat: view.subscription.customer_wechat,
-    remark: view.subscription.remark,
-    tradeUrl: view.subscription.trade_url,
-    archived: true,
   }
 }

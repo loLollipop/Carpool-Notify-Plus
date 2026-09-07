@@ -6,7 +6,7 @@ export interface AdminProfile {
 
 export type SubscriptionBusinessType = "team" | "plus"
 
-export interface Subscription {
+interface Subscription {
   id: number
   name: string
   business_type: SubscriptionBusinessType
@@ -70,10 +70,10 @@ export interface SubscriptionView {
   can_soft_delete: boolean
 }
 
-export type RedemptionStatusValue = "pending" | "invited" | "rejected"
+type RedemptionStatusValue = "pending" | "invited" | "rejected"
 export type RedemptionCodeStatusValue = "unused" | "used" | "disabled"
 
-export interface RedemptionApplication {
+interface RedemptionApplication {
   id: number
   tracking_token: string
   customer_email: string
@@ -90,7 +90,7 @@ export interface RedemptionApplication {
   updated_at: string
 }
 
-export interface RedemptionCode {
+interface RedemptionCode {
   id: number
   code: string
   status: RedemptionCodeStatusValue
@@ -190,7 +190,7 @@ export interface CalendarMonth {
   archived_count: number
 }
 
-export interface AmountBar {
+interface AmountBar {
   subscription_id: number
   name: string
   customer_email: string
@@ -199,7 +199,7 @@ export interface AmountBar {
   amount_cents: number
 }
 
-export interface AccountBreakdown {
+interface AccountBreakdown {
   key: string
   account_id: number
   account_name: string
@@ -230,7 +230,7 @@ export interface Dashboard {
   accounts: AccountBreakdown[] | null
 }
 
-export type OperationTaskKind =
+type OperationTaskKind =
   | "team_overdue"
   | "team_due"
   | "plus_overdue"
@@ -265,7 +265,7 @@ export interface OperationTask {
   unread: boolean
 }
 
-export interface OperationsUnreadSummary {
+interface OperationsUnreadSummary {
   dashboard_count: number
   calendar_count: number
   team_count: number
@@ -275,7 +275,7 @@ export interface OperationsUnreadSummary {
   after_sales_count: number
 }
 
-export interface OperationsCapacitySummary {
+interface OperationsCapacitySummary {
   account_count: number
   seat_total: number
   seat_used: number
@@ -285,7 +285,7 @@ export interface OperationsCapacitySummary {
   utilization_percent: number
 }
 
-export interface OperationsWorkSummary {
+interface OperationsWorkSummary {
   urgent_count: number
   overdue_count: number
   overdue_amount_yuan: string
@@ -299,7 +299,7 @@ export interface OperationsWorkSummary {
   failed_notification_count: number
 }
 
-export interface OperationsGoalSummary {
+interface OperationsGoalSummary {
   name: string
   target_profit_cents: number
   current_profit_cents: number
@@ -325,7 +325,7 @@ export interface OperationsOverview {
   tasks: OperationTask[] | null
 }
 
-export interface Account {
+interface Account {
   id: number
   name: string
   remark: string
@@ -342,7 +342,7 @@ export interface Account {
   updated_at: string
 }
 
-export interface Seat {
+interface Seat {
   id: number
   account_id: number
   name: string
@@ -389,7 +389,7 @@ export interface AccountView {
   renewal_actionable: boolean
 }
 
-export interface SandboxAccount {
+interface SandboxAccount {
   id: number
   name: string
   purpose: string
@@ -405,9 +405,9 @@ export interface SandboxStatus {
 }
 
 export type AfterSalesStatus = "pending" | "review" | "refunded" | "reassigned"
-export type AfterSalesSource = "account_ban" | "customer_cancellation"
+type AfterSalesSource = "account_ban" | "customer_cancellation"
 
-export interface AfterSalesCase {
+interface AfterSalesCase {
   id: number
   account_id: number
   subscription_id: number
@@ -460,12 +460,6 @@ export interface AfterSalesSummary {
   pending_refund_yuan: string
   refunded_amount_cents: number
   refunded_amount_yuan: string
-}
-
-export interface AfterSalesPage {
-  cases: AfterSalesCaseView[]
-  summary_cases: AfterSalesCaseView[]
-  summary: AfterSalesSummary
 }
 
 export interface SeatOption {
@@ -533,7 +527,7 @@ export interface BillView {
   seat_id: number
 }
 
-export interface MonthAmountBar {
+interface MonthAmountBar {
   month: string
   label: string
   count: number
@@ -585,7 +579,7 @@ export interface OperatingExpenseView {
   created_at_label: string
 }
 
-export interface RefundDetail {
+interface RefundDetail {
   id: number
   bill_id: number
   subscription_id: number
@@ -684,7 +678,7 @@ export interface ReminderPreview {
   next_price_effective_due_date?: string
 }
 
-export interface NotificationActivity {
+interface NotificationActivity {
   id: number
   subscription_id: number
   subscription_name: string
@@ -749,7 +743,7 @@ export interface BusinessGoal {
   updated_at: string
 }
 
-export interface BusinessGoalProgress {
+interface BusinessGoalProgress {
   goal: BusinessGoal
   current_profit_cents: number
   earned_profit_cents: number
@@ -758,13 +752,13 @@ export interface BusinessGoalProgress {
   reached: boolean
 }
 
-export interface CompletedGoalView {
+interface CompletedGoalView {
   goal: BusinessGoal
   progress_percent: number
   reached: boolean
 }
 
-export interface ProfitMonth {
+interface ProfitMonth {
   month: string
   revenue_cents: number
   cost_cents: number
@@ -778,7 +772,7 @@ export interface ForecastScenario {
   projected_date: string
 }
 
-export interface ProfitForecast {
+interface ProfitForecast {
   source: "cash_flow" | "run_rate" | "unavailable"
   active_recurring_count: number
   run_rate_monthly_profit_cents: number
@@ -787,7 +781,7 @@ export interface ProfitForecast {
   optimistic: ForecastScenario
 }
 
-export interface MarketPriceSnapshot {
+interface MarketPriceSnapshot {
   id: number
   provider: string
   product: string
@@ -799,7 +793,7 @@ export interface MarketPriceSnapshot {
   created_at: string
 }
 
-export interface MarketPriceView {
+interface MarketPriceView {
   available: boolean
   stale: boolean
   warning: string
@@ -812,7 +806,7 @@ export interface MarketPriceView {
   renewal_history: MarketPriceSnapshot[] | null
 }
 
-export interface PricingRecommendation {
+interface PricingRecommendation {
   action: "raise" | "hold" | "fill" | "lower_test" | "insufficient"
   reason_codes: string[] | null
   internal_median_price_cents: number
@@ -907,13 +901,13 @@ export interface PricingCandidate {
   blocked_reason: string
 }
 
-export interface RepricingWindow {
+interface RepricingWindow {
   key: "ready" | "next_30" | "next_60" | "later" | "on_hold"
   count: number
   monthly_uplift_cents: number
 }
 
-export interface RepricingSegment {
+interface RepricingSegment {
   key: string
   count: number
 }
@@ -931,7 +925,7 @@ export interface CustomerTierSummary {
   scheduled_count: number
 }
 
-export interface RepricingAnalysis {
+interface RepricingAnalysis {
   total_count: number
   customer_count: number
   eligible_count: number
@@ -1022,7 +1016,7 @@ export interface CustomerBenefitView {
   retained_seat_percent: number
 }
 
-export interface CustomerCareSummary {
+interface CustomerCareSummary {
   customer_count: number
   recommended_count: number
   upcoming_count: number
@@ -1036,7 +1030,7 @@ export interface CustomerCareSummary {
   expected_seat_count: number
 }
 
-export interface ForecastModelReadiness {
+interface ForecastModelReadiness {
   key: "beta_binomial" | "discrete_survival" | "bg_nbd" | "uplift"
   status: "collecting" | "ready" | "data_ready" | "needs_control"
   current_samples: number
@@ -1044,7 +1038,7 @@ export interface ForecastModelReadiness {
   detail_code: string
 }
 
-export interface CustomerLifecycleMonth {
+interface CustomerLifecycleMonth {
   month: string
   new_seat_count: number
   renewal_success_count: number
@@ -1053,7 +1047,7 @@ export interface CustomerLifecycleMonth {
   total_seat_count: number
 }
 
-export interface PredictionReadiness {
+interface PredictionReadiness {
   active_model: "evidence_only" | "beta_binomial"
   renewal_outcome_count: number
   renewal_success_count: number
@@ -1068,7 +1062,7 @@ export interface PredictionReadiness {
   lifecycle: CustomerLifecycleMonth[] | null
 }
 
-export interface CustomerCareCenter {
+interface CustomerCareCenter {
   summary: CustomerCareSummary
   candidates: CustomerBenefitCandidate[] | null
   history: CustomerBenefitView[] | null

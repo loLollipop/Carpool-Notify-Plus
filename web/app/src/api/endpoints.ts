@@ -86,13 +86,6 @@ export function fetchOperationsOverview() {
   )
 }
 
-export function acknowledgeOperationTasks(taskIds: string[]) {
-  return api<{ acknowledged: number }>("/api/operations/tasks/acknowledge", {
-    method: "POST",
-    body: { task_ids: taskIds },
-  })
-}
-
 export function fetchGoals() {
   return api<{ goals: GoalCenter }>("/api/goals").then((result) => result.goals)
 }
@@ -288,21 +281,6 @@ export function archiveSubscription(id: number) {
 
 export function completeOneMonthRental(id: number) {
   return api<MessageResult>(`/api/subscriptions/${id}/complete-one-month`, { method: "POST" })
-}
-
-export function softDeleteSubscription(id: number) {
-  return api<MessageResult>(`/api/subscriptions/${id}`, { method: "DELETE" })
-}
-
-export function copySubscription(id: number, seatId = 0) {
-  return api<MessageResult>(`/api/subscriptions/${id}/copy`, {
-    method: "POST",
-    body: { seat_id: seatId },
-  })
-}
-
-export function testNotifySubscription(id: number) {
-  return api<MessageResult>(`/api/subscriptions/${id}/test-notify`, { method: "POST" })
 }
 
 export function sendCustomerEmail(id: number) {

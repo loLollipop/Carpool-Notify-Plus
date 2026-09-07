@@ -1,7 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
 import {
-  Area,
   Bar,
   CartesianGrid,
   Cell,
@@ -2946,7 +2945,6 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
     totalSeats: month.total_seat_count,
     renewals: month.renewal_success_count,
     churns: month.natural_churn_count,
-    churnDelta: -month.natural_churn_count,
     activeSeats: month.active_seat_count,
     inactiveSeats: Math.max(0, month.total_seat_count - month.active_seat_count),
   }))
@@ -3068,35 +3066,34 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
 
           {lifecycle.length > 0 ? (
             <>
-              <div className="relative px-3.5 pb-3 pt-3">
-                <div className="flex items-center justify-between gap-3 px-1 text-[10px] font-medium text-muted-foreground">
+              <div className="relative px-4 pb-4 pt-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground">
                   <span>{t("goals.care.prediction.capacityTrend")}</span>
                   <span className="flex items-center gap-3">
                     <span className="flex items-center gap-1.5">
-                      <span className="size-1.5 rounded-full bg-brand" />
+                      <span className="size-2 rounded-[2px] bg-brand" />
                       {t("goals.care.prediction.chart.activeSeats")}
                     </span>
                     <span className="flex items-center gap-1.5">
-                      <span className="size-1.5 rounded-full bg-gold" />
+                      <span className="size-2 rounded-[2px] bg-gold/65" />
                       {t("goals.care.prediction.chart.inactiveSeats")}
                     </span>
                   </span>
                 </div>
-                <div className="mt-1 h-[154px] w-full">
+                <div className="mt-2 h-[166px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={lifecycle} margin={{ top: 10, right: 8, left: -20, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="customer-active-capacity" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="var(--brand)" stopOpacity={0.36} />
-                          <stop offset="100%" stopColor="var(--brand)" stopOpacity={0.08} />
-                        </linearGradient>
-                        <linearGradient id="customer-inactive-capacity" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="var(--gold)" stopOpacity={0.2} />
-                          <stop offset="100%" stopColor="var(--gold)" stopOpacity={0.045} />
-                        </linearGradient>
-                      </defs>
+                    <ComposedChart
+                      data={lifecycle}
+                      margin={{ top: 8, right: 6, left: 2, bottom: 0 }}
+                      barCategoryGap="42%"
+                    >
                       <CartesianGrid stroke="var(--border)" strokeDasharray="3 6" vertical={false} />
-                      <XAxis dataKey="label" hide />
+                      <XAxis
+                        dataKey="label"
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                      />
                       <YAxis
                         allowDecimals={false}
                         axisLine={false}
@@ -3105,7 +3102,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                         width={34}
                       />
                       <ChartTooltip
-                        cursor={{ stroke: "var(--border)", strokeDasharray: "3 4" }}
+                        cursor={{ fill: "var(--muted)", fillOpacity: 0.3 }}
                         formatter={(value, name) => [
                           t("goals.care.prediction.chartSeatCount", { count: Number(value ?? 0) }),
                           t(`goals.care.prediction.chart.${String(name)}`),
@@ -3122,104 +3119,99 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                           boxShadow: "var(--shadow-card)",
                         }}
                       />
-                      <Area
-                        type="monotone"
+                      <Bar
                         dataKey="activeSeats"
                         stackId="capacity"
-                        stroke="var(--brand)"
-                        strokeWidth={2.25}
-                        fill="url(#customer-active-capacity)"
-                        dot={false}
-                        activeDot={{ r: 4, fill: "var(--card)", stroke: "var(--brand)", strokeWidth: 2.25 }}
-                      />
-                      <Area
-                        type="monotone"
+                        fill="var(--brand)"
+                        fillOpacity={0.88}
+                        maxBarSize={34}
+                      >
+                        {lifecycle.map((month) => (
+                          <Cell
+                            key={month.month}
+                            radius={month.inactiveSeats > 0 ? 0 : 5}
+                          />
+                        ))}
+                      </Bar>
+                      <Bar
                         dataKey="inactiveSeats"
                         stackId="capacity"
-                        stroke="var(--gold)"
-                        strokeWidth={1.35}
-                        fill="url(#customer-inactive-capacity)"
-                        dot={false}
-                        activeDot={{ r: 3.5, fill: "var(--card)", stroke: "var(--gold)", strokeWidth: 2 }}
+                        fill="var(--gold)"
+                        fillOpacity={0.62}
+                        maxBarSize={34}
+                        radius={[5, 5, 0, 0]}
                       />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
 
-                <div className="mt-1 border-t border-border/60 pt-2.5">
-                  <div className="flex items-center justify-between gap-3 px-1 text-[10px] font-medium text-muted-foreground">
-                    <span>{t("goals.care.prediction.retentionPulse")}</span>
-                    <span className="flex items-center gap-3">
-                      <span className="flex items-center gap-1.5">
-                        <span className="size-1.5 rounded-full bg-success" />
-                        {t("goals.care.prediction.chart.renewals")}
-                      </span>
-                      <span className="flex items-center gap-1.5">
-                        <span className="size-1.5 rounded-full bg-destructive" />
-                        {t("goals.care.prediction.chart.churns")}
-                      </span>
+                <div className="mt-2 border-t border-border/60 pt-3">
+                  <div className="grid grid-cols-[minmax(0,1fr)_52px_minmax(0,1fr)] items-center gap-2 text-[10px] font-medium">
+                    <span className="flex items-center justify-end gap-1.5 text-destructive">
+                      {t("goals.care.prediction.chart.churns")}
+                      <span className="size-2 rounded-[2px] bg-destructive/80" />
+                    </span>
+                    <span className="text-center text-muted-foreground">
+                      {t("goals.care.prediction.monthAxis")}
+                    </span>
+                    <span className="flex items-center gap-1.5 text-success">
+                      <span className="size-2 rounded-[2px] bg-success/85" />
+                      {t("goals.care.prediction.chart.renewals")}
                     </span>
                   </div>
-                  <div className="mt-1 h-[126px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={lifecycle} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-                        <CartesianGrid stroke="var(--border)" strokeDasharray="3 6" vertical={false} />
-                        <XAxis
-                          dataKey="label"
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
-                        />
-                        <YAxis
-                          allowDecimals={false}
-                          axisLine={false}
-                          tickLine={false}
-                          tickFormatter={(value) => String(Math.abs(Number(value)))}
-                          tick={{ fill: "var(--muted-foreground)", fontSize: 9 }}
-                          width={34}
-                          domain={[-eventDomainMax, eventDomainMax]}
-                        />
-                        <ReferenceLine y={0} stroke="var(--foreground)" strokeOpacity={0.22} />
-                        <ChartTooltip
-                          cursor={{ fill: "var(--muted)", fillOpacity: 0.28 }}
-                          formatter={(value, name) => [
-                            t("goals.care.prediction.chartEventCount", {
-                              count: Math.abs(Number(value ?? 0)),
-                            }),
-                            String(name) === "churnDelta"
-                              ? t("goals.care.prediction.chart.churns")
-                              : t("goals.care.prediction.chart.renewals"),
-                          ]}
-                          labelFormatter={(label) =>
-                            lifecycle.find((month) => month.label === String(label))?.month ?? String(label)
-                          }
-                          contentStyle={{
-                            border: "1px solid var(--border)",
-                            borderRadius: 8,
-                            background: "var(--popover)",
-                            color: "var(--popover-foreground)",
-                            fontSize: 12,
-                            boxShadow: "var(--shadow-card)",
-                          }}
-                        />
-                        <Bar
-                          dataKey="renewals"
-                          stackId="retention"
-                          fill="var(--success)"
-                          fillOpacity={0.86}
-                          maxBarSize={22}
-                          radius={[5, 5, 0, 0]}
-                        />
-                        <Bar
-                          dataKey="churnDelta"
-                          stackId="retention"
-                          fill="var(--destructive)"
-                          fillOpacity={0.84}
-                          maxBarSize={22}
-                          radius={[0, 0, 5, 5]}
-                        />
-                      </ComposedChart>
-                    </ResponsiveContainer>
+
+                  <div
+                    className="relative mt-2 space-y-1.5"
+                    role="img"
+                    aria-label={t("goals.care.prediction.outcomeAria", {
+                      renewals: lifecycleTotals.renewals,
+                      churns: lifecycleTotals.churns,
+                    })}
+                  >
+                    <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-1/2 w-[52px] -translate-x-1/2 border-x border-border/70" />
+                    {lifecycle.map((month) => {
+                      const churnWidth = `${(month.churns / eventDomainMax) * 100}%`
+                      const renewalWidth = `${(month.renewals / eventDomainMax) * 100}%`
+                      return (
+                        <div
+                          key={month.month}
+                          className="relative grid grid-cols-[minmax(0,1fr)_52px_minmax(0,1fr)] items-center gap-2"
+                        >
+                          <div className="flex h-6 items-center justify-end overflow-hidden rounded-l bg-destructive/[0.055]">
+                            {month.churns > 0 ? (
+                              <div
+                                className="flex h-full min-w-6 items-center justify-start rounded-l bg-destructive/80 px-2 text-[10px] font-semibold tabular-nums text-white"
+                                style={{ width: churnWidth }}
+                              >
+                                {month.churns}
+                              </div>
+                            ) : (
+                              <span className="pr-2 text-[9px] tabular-nums text-muted-foreground/55">0</span>
+                            )}
+                          </div>
+                          <span className="text-center text-[10px] font-semibold tabular-nums text-foreground/80">
+                            {month.label}
+                          </span>
+                          <div className="flex h-6 items-center overflow-hidden rounded-r bg-success/[0.055]">
+                            {month.renewals > 0 ? (
+                              <div
+                                className="flex h-full min-w-6 items-center justify-end rounded-r bg-success/85 px-2 text-[10px] font-semibold tabular-nums text-white"
+                                style={{ width: renewalWidth }}
+                              >
+                                {month.renewals}
+                              </div>
+                            ) : (
+                              <span className="pl-2 text-[9px] tabular-nums text-muted-foreground/55">0</span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  <div className="mt-2 grid grid-cols-[minmax(0,1fr)_52px_minmax(0,1fr)] gap-2 text-[9px] tabular-nums text-muted-foreground">
+                    <span className="text-left">{eventDomainMax}</span>
+                    <span className="text-center">0</span>
+                    <span className="text-right">{eventDomainMax}</span>
                   </div>
                 </div>
               </div>

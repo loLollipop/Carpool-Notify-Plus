@@ -1,5 +1,4 @@
 import type {
-  CalendarOccurrence,
   SeatView,
   SubscriptionBusinessType,
   SubscriptionView,
@@ -26,7 +25,7 @@ export interface SubscriptionPrefill {
   boardedAt: string
 }
 
-export function parseOffsetsText(offsetsText: string): number[] {
+function parseOffsetsText(offsetsText: string): number[] {
   return offsetsText
     .split(",")
     .map((part) => part.trim())
@@ -54,28 +53,6 @@ export function prefillFromView(view: SubscriptionView): SubscriptionPrefill {
     accountId: view.account_id,
     seatId: view.seat_id,
     boardedAt: view.boarded_at,
-  }
-}
-
-export function prefillFromOccurrence(occurrence: CalendarOccurrence): SubscriptionPrefill {
-  return {
-    id: occurrence.subscription_id,
-    businessType: occurrence.business_type || "team",
-    name: occurrence.name,
-    priceYuan: occurrence.current_price_yuan,
-    nextPriceYuan: occurrence.next_price_yuan,
-    nextPriceEffectiveDueDate: occurrence.next_price_effective_due_date,
-    nextDueDate: occurrence.due_date,
-    costYuan: occurrence.cost_yuan,
-    cronExpr: occurrence.cron_expr,
-    offsets: parseOffsetsText(occurrence.offsets_text),
-    remark: occurrence.remark,
-    tradeUrl: occurrence.trade_url,
-    customerEmail: occurrence.customer_email,
-    customerWechat: occurrence.customer_wechat,
-    accountId: occurrence.account_id,
-    seatId: occurrence.seat_id,
-    boardedAt: occurrence.boarded_at,
   }
 }
 

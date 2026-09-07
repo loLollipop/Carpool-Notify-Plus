@@ -44,7 +44,7 @@ export function useAdminProfile() {
   })
 }
 
-export function invalidateAppData(queryClient: QueryClient) {
+function invalidateAppData(queryClient: QueryClient) {
   return queryClient.invalidateQueries({ queryKey: queryKeys.data })
 }
 
