@@ -2997,43 +2997,35 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
 
   return (
     <section className="overflow-hidden rounded-xl border bg-card shadow-card">
-      <div className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 text-brand">
-            <BrainCircuit className="size-4" />
-            <p className="text-xs font-semibold uppercase tracking-[0.16em]">
-              {t("goals.care.prediction.eyebrow")}
-            </p>
-          </div>
-          <p className="mt-1.5 text-sm font-semibold">{t("goals.care.prediction.chartTitle")}</p>
+      <div className="flex flex-col gap-2 border-b border-border/70 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+          <BrainCircuit className="size-4 shrink-0 text-brand" />
+          <p className="text-xs font-semibold text-brand">
+            {t("goals.care.prediction.eyebrow")}
+          </p>
+          <span aria-hidden="true" className="hidden h-3 w-px bg-border sm:block" />
+          <p className="text-sm font-semibold">{t("goals.care.prediction.chartTitle")}</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {hasEstimate ? (
-            <Badge
-              variant="success"
-              title={t("goals.care.prediction.range", {
-                low: prediction.estimate_low_percent,
-                high: prediction.estimate_high_percent,
-              })}
-            >
-              {t("goals.care.prediction.estimate", {
-                value: prediction.estimated_renewal_percent,
-              })}
-            </Badge>
-          ) : null}
-          <span className="rounded-full border bg-muted/25 px-2.5 py-1 text-[10px] font-medium text-muted-foreground">
-            {t("goals.care.prediction.modelsReady", {
-              ready: matureModelCount,
-              total: models.length,
+        {hasEstimate ? (
+          <Badge
+            variant="success"
+            className="w-fit shrink-0"
+            title={t("goals.care.prediction.range", {
+              low: prediction.estimate_low_percent,
+              high: prediction.estimate_high_percent,
             })}
-          </span>
-        </div>
+          >
+            {t("goals.care.prediction.estimate", {
+              value: prediction.estimated_renewal_percent,
+            })}
+          </Badge>
+        ) : null}
       </div>
 
-      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(560px,1.16fr)_minmax(320px,0.84fr)] xl:items-stretch">
+      <div className="grid gap-3 p-3 xl:grid-cols-[minmax(560px,1.2fr)_minmax(320px,0.8fr)] xl:items-start">
         <div
           className="relative min-w-0 overflow-hidden rounded-xl border border-border/70 bg-muted/[0.08]"
-          role="img"
+          role="group"
           aria-label={t("goals.care.prediction.chartAria", {
             active: currentActiveSeats,
             total: currentTotalSeats,
@@ -3047,7 +3039,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
               <div
                 key={item.key}
                 className={cn(
-                  "px-3.5 py-3",
+                  "px-3 py-2.5",
                   index % 2 !== 0 && "border-l border-border/60",
                   index >= 2 && "border-t border-border/60 sm:border-t-0",
                   index > 0 && "sm:border-l sm:border-border/60",
@@ -3057,7 +3049,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                   <span className="size-1.5 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
                   <span className="truncate">{item.label}</span>
                 </div>
-                <p className="display-numeral mt-2 text-xl font-semibold tabular-nums">
+                <p className="display-numeral mt-1 text-lg font-semibold tabular-nums">
                   {t(`goals.care.prediction.${item.countKey}`, { count: item.value })}
                 </p>
               </div>
@@ -3066,7 +3058,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
 
           {lifecycle.length > 0 ? (
             <>
-              <div className="relative px-4 pb-4 pt-3.5">
+              <div className="relative px-3 pb-3 pt-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground">
                   <span>{t("goals.care.prediction.capacityTrend")}</span>
                   <span className="flex items-center gap-3">
@@ -3080,7 +3072,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                     </span>
                   </span>
                 </div>
-                <div className="mt-2 h-[166px] w-full">
+                <div className="mt-1.5 h-[124px] w-full sm:h-[132px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart
                       data={lifecycle}
@@ -3145,7 +3137,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                   </ResponsiveContainer>
                 </div>
 
-                <div className="mt-2 border-t border-border/60 pt-3">
+                <div className="mt-1 border-t border-border/60 pt-2.5">
                   <div className="grid grid-cols-[minmax(0,1fr)_52px_minmax(0,1fr)] items-center gap-2 text-[10px] font-medium">
                     <span className="flex items-center justify-end gap-1.5 text-destructive">
                       {t("goals.care.prediction.chart.churns")}
@@ -3161,7 +3153,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                   </div>
 
                   <div
-                    className="relative mt-2 space-y-1.5"
+                    className="relative mt-1.5 space-y-1"
                     role="img"
                     aria-label={t("goals.care.prediction.outcomeAria", {
                       renewals: lifecycleTotals.renewals,
@@ -3177,7 +3169,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                           key={month.month}
                           className="relative grid grid-cols-[minmax(0,1fr)_52px_minmax(0,1fr)] items-center gap-2"
                         >
-                          <div className="flex h-6 items-center justify-end overflow-hidden rounded-l bg-destructive/[0.055]">
+                          <div className="flex h-5 items-center justify-end overflow-hidden rounded-l bg-destructive/[0.055]">
                             {month.churns > 0 ? (
                               <div
                                 className="flex h-full min-w-6 items-center justify-start rounded-l bg-destructive/80 px-2 text-[10px] font-semibold tabular-nums text-white"
@@ -3192,7 +3184,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                           <span className="text-center text-[10px] font-semibold tabular-nums text-foreground/80">
                             {month.label}
                           </span>
-                          <div className="flex h-6 items-center overflow-hidden rounded-r bg-success/[0.055]">
+                          <div className="flex h-5 items-center overflow-hidden rounded-r bg-success/[0.055]">
                             {month.renewals > 0 ? (
                               <div
                                 className="flex h-full min-w-6 items-center justify-end rounded-r bg-success/85 px-2 text-[10px] font-semibold tabular-nums text-white"
@@ -3208,7 +3200,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                       )
                     })}
                   </div>
-                  <div className="mt-2 grid grid-cols-[minmax(0,1fr)_52px_minmax(0,1fr)] gap-2 text-[9px] tabular-nums text-muted-foreground">
+                  <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_52px_minmax(0,1fr)] gap-2 text-[9px] tabular-nums text-muted-foreground">
                     <span className="text-left">{eventDomainMax}</span>
                     <span className="text-center">0</span>
                     <span className="text-right">{eventDomainMax}</span>
@@ -3217,14 +3209,14 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
               </div>
             </>
           ) : (
-            <div className="grid min-h-64 place-items-center px-6 text-center text-xs text-muted-foreground">
+            <div className="grid min-h-48 place-items-center px-6 text-center text-xs text-muted-foreground">
               {t("goals.care.prediction.lifecycleEmpty")}
             </div>
           )}
         </div>
 
         <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-muted/[0.1]">
-          <div className="flex items-start justify-between gap-3 border-b border-border/60 px-4 py-3.5">
+          <div className="flex items-start justify-between gap-3 border-b border-border/60 px-4 py-3">
             <div>
               <p className="text-xs font-semibold">{t("goals.care.prediction.modelReadinessTitle")}</p>
               <p className="mt-1 text-[10px] text-muted-foreground">{t("goals.care.prediction.modelReadinessHint")}</p>
@@ -3233,15 +3225,15 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
               {matureModelCount}/{models.length}
             </span>
           </div>
-          <div className="flex-1 divide-y divide-border/60 px-4">
+          <div className="divide-y divide-border/60 px-4">
             {models.map((model, index) => {
               const progress = Math.min(
                 100,
                 Math.round((model.current_samples / Math.max(model.required_samples, 1)) * 100),
               )
               return (
-                <div key={model.key} className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 py-3.5">
-                  <span className="display-numeral grid size-7 shrink-0 place-items-center rounded-md border bg-card text-[10px] text-muted-foreground shadow-sm">
+                <div key={model.key} className="group grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2.5 py-2.5">
+                  <span className="display-numeral grid size-6 shrink-0 place-items-center rounded-md border bg-card text-[9px] text-muted-foreground shadow-sm">
                     {String(index + 1).padStart(2, "0")}
                   </span>
                   <div className="min-w-0">
@@ -3254,7 +3246,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                     <p className="mt-0.5 truncate text-[10px] text-muted-foreground" title={t(`goals.care.prediction.detail.${model.detail_code}`)}>
                       {t(`goals.care.prediction.detail.${model.detail_code}`)}
                     </p>
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
                       <div
                         className={cn(
                           "h-full rounded-full transition-[width]",
