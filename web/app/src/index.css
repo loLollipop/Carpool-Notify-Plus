@@ -1568,7 +1568,7 @@
   @media (min-width: 1024px) {
     .redeem-workspace.has-support {
       grid-template-columns: minmax(0, 2.15fr) minmax(320px, 0.95fr);
-      min-height: 750px;
+      min-height: clamp(600px, calc(100svh - 117px), 660px);
     }
   }
 
@@ -2676,16 +2676,16 @@
     }
 
     .redeem-support-body {
-      padding: 1.5rem;
+      padding: 1.25rem;
     }
 
     .redeem-support-meta {
-      margin-top: 1.25rem;
+      margin-top: 1rem;
     }
 
     .redeem-support-qr-shell {
-      margin-top: 1.25rem;
-      padding: 1rem;
+      margin-top: 1rem;
+      padding: 0.75rem;
     }
 
     .redeem-support-panel .wechat-qr-block {
@@ -2693,12 +2693,59 @@
     }
 
     .redeem-support-panel .wechat-qr-image {
-      max-width: 250px;
-      padding: 0.6rem;
+      max-width: 220px;
+      padding: 0.5rem;
     }
 
     .redeem-support-panel .wechat-contact {
+      padding-top: 0.625rem;
+    }
+  }
+
+  @media (min-width: 1024px) and (max-height: 900px) {
+    .redeem-portal-shell {
+      padding-top: 1.25rem;
+    }
+
+    .redeem-request-form,
+    .redeem-renewal-workspace {
+      gap: 1rem;
+      padding-top: 1rem;
+      padding-bottom: 1.25rem;
+    }
+
+    .redeem-flow-footer {
       padding-top: 0.75rem;
+    }
+
+    .redeem-flow-heading {
+      margin-bottom: 0.55rem;
+    }
+
+    .redeem-support-body {
+      padding: 1rem 1.25rem;
+    }
+
+    .redeem-support-meta,
+    .redeem-support-qr-shell {
+      margin-top: 0.85rem;
+    }
+
+    .redeem-support-qr-shell {
+      padding: 0.75rem;
+    }
+
+    .redeem-support-panel .wechat-qr-block {
+      gap: 0.625rem;
+    }
+
+    .redeem-support-panel .wechat-qr-image {
+      max-width: 210px;
+      padding: 0.5rem;
+    }
+
+    .redeem-support-panel .wechat-contact {
+      padding-top: 0.625rem;
     }
   }
 

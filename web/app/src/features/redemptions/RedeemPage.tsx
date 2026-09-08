@@ -1195,7 +1195,7 @@ function RenewalWorkspace({
 
   return (
     <>
-      <div className="redeem-renewal-workspace flex flex-1 flex-col gap-5 px-5 pb-6 pt-6 sm:px-8 sm:pb-8 lg:px-9 lg:pb-9">
+      <div className="redeem-renewal-workspace flex flex-1 flex-col gap-5 px-5 pb-6 pt-6 sm:px-8 sm:pb-8 lg:gap-4 lg:px-9 lg:pb-6 lg:pt-5">
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
           <div className="relative">
             <Mail className="redeem-input-icon" />
@@ -1592,7 +1592,7 @@ export function RedeemPage() {
         </div>
       </header>
 
-      <section className="relative mx-auto w-full max-w-[1760px] px-4 pb-8 pt-6 sm:px-6 sm:pb-10 sm:pt-7 lg:px-8 lg:pb-12 lg:pt-8">
+      <section className="relative mx-auto w-full max-w-[1760px] px-4 pb-8 pt-6 sm:px-6 sm:pb-10 sm:pt-7 lg:px-8 lg:pb-6 lg:pt-6">
         <div
           className={cn(
             "redeem-workspace grid items-stretch gap-6 animate-fade-up",
@@ -1640,7 +1640,7 @@ export function RedeemPage() {
               </span>
             </div>
 
-            <div className="px-5 pt-6 sm:px-8 sm:pt-8 lg:px-9">
+            <div className="redeem-portal-shell px-5 pt-6 sm:px-8 sm:pt-8 lg:px-9 lg:pt-6">
               <div className="redeem-portal-heading">
                 <p className="redeem-portal-eyebrow">
                   {mode === "renewal" ? "RENEWAL REVIEW" : "ACCESS REQUEST"}
@@ -1686,7 +1686,7 @@ export function RedeemPage() {
             {mode === "redeem" ? <Form {...form}>
               <form
                 onSubmit={form.handleSubmit(reviewSubmission)}
-                className="flex flex-1 flex-col gap-5 px-5 pb-6 pt-6 sm:px-8 sm:pb-8 lg:px-9 lg:pb-9"
+                className="redeem-request-form flex flex-1 flex-col gap-5 px-5 pb-6 pt-6 sm:px-8 sm:pb-8 lg:gap-4 lg:px-9 lg:pb-6 lg:pt-5"
               >
                 <FormField
                   control={form.control}
