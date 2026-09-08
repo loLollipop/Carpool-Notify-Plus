@@ -362,7 +362,7 @@ function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
           </div>
         </div>
 
-        <div className="redeem-support-qr-shell mt-5">
+        <div className="redeem-support-qr-shell mt-5 flex flex-1 flex-col justify-center">
           <WechatQrBlock settings={settings} compact />
         </div>
       </div>

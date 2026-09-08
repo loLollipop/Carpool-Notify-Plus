@@ -19,9 +19,11 @@ import {
   MessageSquare,
   Send,
   ShieldCheck,
+  SlidersHorizontal,
   Snowflake,
   Sparkles,
   Trash2,
+  Wrench,
 } from "lucide-react"
 
 import {
@@ -81,6 +83,36 @@ type TemplateKind =
   | "customer_price_decrease"
 type CustomerTemplateKind = Exclude<TemplateKind, "notify">
 type SettingsSection = "templates" | "delivery" | "redemption" | "operations" | "tools"
+const SETTINGS_SECTION_ORDER: SettingsSection[] = [
+  "templates",
+  "delivery",
+  "redemption",
+  "operations",
+  "tools",
+]
+
+const SETTINGS_SECTION_META = {
+  templates: {
+    icon: MessageSquare,
+    captionKey: "settings.sectionCaptions.templates",
+  },
+  delivery: {
+    icon: BellRing,
+    captionKey: "settings.sectionCaptions.delivery",
+  },
+  redemption: {
+    icon: Megaphone,
+    captionKey: "settings.sectionCaptions.redemption",
+  },
+  operations: {
+    icon: SlidersHorizontal,
+    captionKey: "settings.sectionCaptions.operations",
+  },
+  tools: {
+    icon: Wrench,
+    captionKey: "settings.sectionCaptions.tools",
+  },
+} as const satisfies Record<SettingsSection, { icon: React.ComponentType<{ className?: string }>; captionKey: string }>
 
 type TemplateFieldKey =
   | "customerEmail"
@@ -550,6 +582,31 @@ function SecretHint({ configured }: { configured: boolean }) {
   )
 }
 
+function SettingsSectionHeader({
+  icon,
+  title,
+  caption,
+  action,
+}: {
+  icon: React.ReactNode
+  title: string
+  caption: string
+  action?: React.ReactNode
+}) {
+  return (
+    <div className="settings-section-header">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="settings-section-icon">{icon}</span>
+        <div className="min-w-0">
+          <h2 className="panel-heading text-sm font-semibold">{title}</h2>
+          <p className="mt-0.5 truncate text-xs text-muted-foreground">{caption}</p>
+        </div>
+      </div>
+      {action ? <div className="shrink-0">{action}</div> : null}
+    </div>
+  )
+}
+
 function normalizeRedeemPageSettings(settings?: RedeemPageSettings | null): RedeemPageSettings {
   const merged = { ...DEFAULT_REDEEM_PAGE_SETTINGS, ...(settings ?? {}) }
   const items = (merged.announcement_items ?? [])
@@ -576,6 +633,7 @@ function RedeemPageSettingsEditor({
   value: RedeemPageSettings
   onChange: (value: RedeemPageSettings) => void
 }) {
+  const { t } = useTranslation()
   const supportFileInputRef = React.useRef<HTMLInputElement | null>(null)
   const paymentFileInputRef = React.useRef<HTMLInputElement | null>(null)
   const announcementItemsText = value.announcement_items.join("\n")
@@ -616,21 +674,18 @@ function RedeemPageSettingsEditor({
   }
 
   return (
-    <div className="grid gap-4 animate-fade-up" style={{ animationDelay: "90ms" }}>
-      <div className="flex flex-wrap items-center justify-between gap-3 px-1">
-        <div className="flex items-center gap-2">
-          <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
-            <Megaphone className="size-4" />
-          </span>
-          <h2 className="panel-heading text-sm font-semibold">兑换页与权益设置</h2>
-        </div>
-        <Button type="button" variant="outline" size="sm" asChild>
+    <div className="settings-section-content animate-fade-up" style={{ animationDelay: "90ms" }}>
+      <SettingsSectionHeader
+        icon={<Megaphone className="size-4" />}
+        title={t("settings.sections.redemption")}
+        caption={t("settings.sectionCaptions.redemption")}
+        action={<Button type="button" variant="outline" size="sm" asChild>
           <a href="/redeem" target="_blank" rel="noopener noreferrer">
             <ExternalLink data-slot="icon" />
             预览兑换页
           </a>
-        </Button>
-      </div>
+        </Button>}
+      />
 
       <div className="order-2 grid items-stretch gap-4 lg:grid-cols-2">
         <Card className="content-start gap-5 p-5 sm:p-6">
@@ -1038,13 +1093,12 @@ function NotificationConfigEditor({
   }
 
   return (
-    <div className="grid gap-4 animate-fade-up" style={{ animationDelay: "60ms" }}>
-      <div className="flex items-center gap-2 px-1">
-        <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
-          <ShieldCheck className="size-4" />
-        </span>
-        <h2 className="panel-heading text-sm font-semibold">{t("settings.deliveryConfig")}</h2>
-      </div>
+    <div className="settings-section-content animate-fade-up" style={{ animationDelay: "60ms" }}>
+      <SettingsSectionHeader
+        icon={<ShieldCheck className="size-4" />}
+        title={t("settings.deliveryConfig")}
+        caption={t("settings.sectionCaptions.delivery")}
+      />
 
       <Card className="gap-5 p-5 sm:p-6">
         <div className="flex items-center justify-between gap-3 border-b pb-4">
@@ -1568,40 +1622,85 @@ function SeatFreezeSettingsEditor({
   const { t } = useTranslation()
 
   return (
-    <Card className="gap-5 p-6">
-      <div className="flex items-start gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
-          <Snowflake className="size-4" />
-        </span>
-        <div>
-          <h2 className="text-sm font-semibold">{t("settings.seatFreezeTitle")}</h2>
-          <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
-            {t("settings.seatFreezeDescription")}
-          </p>
-        </div>
-      </div>
+    <div className="settings-section-content animate-fade-up">
+      <SettingsSectionHeader
+        icon={<SlidersHorizontal className="size-4" />}
+        title={t("settings.sections.operations")}
+        caption={t("settings.sectionCaptions.operations")}
+      />
+      <Card className="grid gap-0 overflow-hidden p-0 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+        <div className="grid content-start gap-5 p-5 sm:p-6">
+          <div className="flex items-start gap-3 border-b pb-4">
+            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
+              <Snowflake className="size-4" />
+            </span>
+            <div>
+              <h3 className="text-sm font-semibold">{t("settings.seatFreezeTitle")}</h3>
+              <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
+                {t("settings.seatFreezeDescription")}
+              </p>
+            </div>
+          </div>
 
-      <div className="grid gap-2 sm:max-w-xs">
-        <Label htmlFor="seat-freeze-days">{t("settings.seatFreezeDays")}</Label>
-        <div className="relative">
-          <Input
-            id="seat-freeze-days"
-            type="number"
-            min={1}
-            max={90}
-            step={1}
-            inputMode="numeric"
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            className="pr-12 tabular-nums"
-          />
-          <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground">
-            {t("settings.daysUnit")}
-          </span>
+          <div className="grid gap-2 sm:max-w-sm">
+            <Label htmlFor="seat-freeze-days">{t("settings.seatFreezeDays")}</Label>
+            <div className="relative">
+              <Input
+                id="seat-freeze-days"
+                type="number"
+                min={1}
+                max={90}
+                step={1}
+                inputMode="numeric"
+                value={value}
+                onChange={(event) => onChange(event.target.value)}
+                className="pr-12 tabular-nums"
+              />
+              <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-muted-foreground">
+                {t("settings.daysUnit")}
+              </span>
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">{t("settings.seatFreezeHint")}</p>
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground">{t("settings.seatFreezeHint")}</p>
-      </div>
-    </Card>
+
+        <aside className="grid content-center gap-3 border-t bg-muted/20 p-5 sm:p-6 lg:border-t-0 lg:border-l">
+          <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+            {t("settings.seatFreezeRulePreview")}
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+            <div className="flex items-center gap-3 rounded-md border bg-card px-3.5 py-3">
+              <span className="grid size-8 shrink-0 place-items-center rounded-md bg-emerald-500/10 font-mono text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                01-04
+              </span>
+              <div className="min-w-0">
+                <p className="text-[10px] text-muted-foreground">{t("settings.seatFreezeDepartureCount")}</p>
+                <p className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold">
+                  <CircleCheckBig className="size-3.5 text-emerald-600 dark:text-emerald-400" />
+                  {t("settings.seatFreezeImmediateRelease")}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 rounded-md border border-brand/20 bg-brand/[0.05] px-3.5 py-3">
+              <span className="grid size-8 shrink-0 place-items-center rounded-md bg-brand/10 font-mono text-[10px] font-bold text-brand">
+                05+
+              </span>
+              <div className="min-w-0">
+                <p className="text-[10px] text-muted-foreground">{t("settings.seatFreezeDepartureCount")}</p>
+                <p className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold text-brand">
+                  <Snowflake className="size-3.5" />
+                  {t("settings.seatFreezeCooldown", { days: value || 7 })}
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 text-[10px] text-muted-foreground">
+            <span>{t("settings.seatFreezeRollingWindow")}</span>
+            <span>{t("settings.seatFreezeAutoRestore")}</span>
+          </div>
+        </aside>
+      </Card>
+    </div>
   )
 }
 
@@ -1777,59 +1876,49 @@ function SettingsForm({ settings }: { settings: Settings }) {
   }
 
   return (
-    <form onSubmit={handleSave} className="grid gap-4">
+    <form onSubmit={handleSave} className="settings-form">
       <Tabs
         value={activeSection}
         onValueChange={(value) => setActiveSection(value as SettingsSection)}
         className="gap-5"
       >
-        <div className="sticky top-[72px] z-20 rounded-lg border bg-card/95 p-1 shadow-card backdrop-blur-md">
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-1 border-0 bg-transparent p-0 sm:grid-cols-3 lg:grid-cols-5">
-            <TabsTrigger
-              value="templates"
-              className="h-11 justify-center px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
-            >
-              <MessageSquare />
-              {t("settings.sections.templates")}
-            </TabsTrigger>
-            <TabsTrigger
-              value="delivery"
-              className="h-11 justify-center px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
-            >
-              <BellRing />
-              {t("settings.sections.delivery")}
-            </TabsTrigger>
-            <TabsTrigger
-              value="redemption"
-              className="h-11 justify-center px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
-            >
-              <Megaphone />
-              {t("settings.sections.redemption")}
-            </TabsTrigger>
-            <TabsTrigger
-              value="operations"
-              className="h-11 justify-center px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
-            >
-              <Snowflake />
-              {t("settings.sections.operations")}
-            </TabsTrigger>
-            <TabsTrigger
-              value="tools"
-              className="h-11 justify-center px-3 text-sm data-[state=active]:border-brand/20 data-[state=active]:bg-brand/[0.09] data-[state=active]:text-brand data-[state=active]:shadow-none"
-            >
-              <Download />
-              {t("settings.sections.tools")}
-            </TabsTrigger>
-          </TabsList>
+        <div className="settings-control-deck">
+          <div className="settings-tabs-scroll">
+            <TabsList className="settings-tabs-list">
+              {SETTINGS_SECTION_ORDER.map((section, index) => {
+                const meta = SETTINGS_SECTION_META[section]
+                const Icon = meta.icon
+                return (
+                  <TabsTrigger key={section} value={section} className="settings-tab-trigger">
+                    <span className="settings-tab-icon"><Icon className="size-4" /></span>
+                    <span className="settings-tab-copy">
+                      <span className="settings-tab-title">
+                        <small>{String(index + 1).padStart(2, "0")}</small>
+                        {t(`settings.sections.${section}`)}
+                      </span>
+                      <span className="settings-tab-caption">{t(meta.captionKey)}</span>
+                    </span>
+                  </TabsTrigger>
+                )
+              })}
+            </TabsList>
+          </div>
+          {activeSection !== "tools" ? (
+            <div className="settings-save-action">
+              <span>{t("settings.saveHint")}</span>
+              <Button type="submit" disabled={saveMutation.isPending}>
+                {saveMutation.isPending ? t("common.saving") : t("settings.saveSettings")}
+              </Button>
+            </div>
+          ) : null}
         </div>
 
-        <TabsContent value="templates" className="mt-0 grid gap-4 animate-fade-in">
-          <div className="flex items-center gap-2 px-1">
-            <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
-              <MessageSquare className="size-4" />
-            </span>
-            <h2 className="panel-heading text-sm font-semibold">{t("settings.templateBuilder")}</h2>
-          </div>
+        <TabsContent value="templates" className="settings-section-content mt-0 animate-fade-in">
+          <SettingsSectionHeader
+            icon={<MessageSquare className="size-4" />}
+            title={t("settings.templateBuilder")}
+            caption={t("settings.sectionCaptions.templates")}
+          />
           <div className="grid gap-4 lg:grid-cols-2">
             <TemplateEditor
               kind="notify"
@@ -1878,19 +1967,15 @@ function SettingsForm({ settings }: { settings: Settings }) {
           <SeatFreezeSettingsEditor value={seatFreezeDays} onChange={setSeatFreezeDays} />
         </TabsContent>
 
-        <TabsContent value="tools" className="mt-0 animate-fade-in">
+        <TabsContent value="tools" className="settings-section-content mt-0 animate-fade-in">
+          <SettingsSectionHeader
+            icon={<Wrench className="size-4" />}
+            title={t("settings.sections.tools")}
+            caption={t("settings.sectionCaptions.tools")}
+          />
           <SystemTools settings={settings} />
         </TabsContent>
       </Tabs>
-
-      {activeSection !== "tools" ? (
-        <div className="sticky bottom-3 z-20 flex items-center justify-between gap-4 rounded-lg border border-brand/15 bg-card/95 p-3 shadow-lift backdrop-blur-md">
-          <p className="hidden text-xs text-muted-foreground sm:block">{t("settings.saveHint")}</p>
-          <Button type="submit" className="w-full sm:w-auto" disabled={saveMutation.isPending}>
-            {saveMutation.isPending ? t("common.saving") : t("settings.saveSettings")}
-          </Button>
-        </div>
-      ) : null}
 
       <Dialog
         open={previewKind !== null}
@@ -1957,7 +2042,7 @@ export function SettingsPage() {
   const settings = settingsQuery.data
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto max-w-[1440px]">
       <PageHeader title={t("settings.title")} />
 
       {settingsQuery.isPending ? (

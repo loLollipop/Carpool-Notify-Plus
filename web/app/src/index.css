@@ -273,6 +273,198 @@
     color: var(--foreground);
   }
 
+  .settings-form {
+    display: grid;
+    min-width: 0;
+    gap: 1.25rem;
+  }
+
+  .settings-control-deck {
+    position: sticky;
+    z-index: 20;
+    top: 72px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+    gap: 0.65rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.45rem;
+    background: color-mix(in oklab, var(--card) 94%, transparent);
+    box-shadow: var(--shadow-card);
+    backdrop-filter: blur(16px);
+  }
+
+  .settings-tabs-scroll {
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+
+  .settings-tabs-list {
+    display: grid;
+    width: max(100%, 50rem);
+    height: auto;
+    grid-template-columns: repeat(5, minmax(9.5rem, 1fr));
+    gap: 0.25rem;
+    border: 0;
+    padding: 0;
+    background: transparent;
+  }
+
+  .settings-tab-trigger {
+    height: 3.5rem;
+    justify-content: flex-start;
+    gap: 0.65rem;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding-inline: 0.65rem;
+    color: var(--muted-foreground);
+    text-align: left;
+  }
+
+  .settings-tab-trigger:hover {
+    border-color: color-mix(in oklab, var(--border) 82%, transparent);
+    background: color-mix(in oklab, var(--accent) 58%, transparent);
+    color: var(--foreground);
+  }
+
+  .settings-tab-trigger[data-state="active"] {
+    border-color: color-mix(in oklab, var(--brand) 24%, var(--border));
+    background: color-mix(in oklab, var(--brand) 9%, var(--card));
+    color: var(--brand);
+    box-shadow: none;
+  }
+
+  .settings-tab-trigger:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--brand) 42%, transparent);
+    outline-offset: -2px;
+  }
+
+  .settings-tab-icon,
+  .settings-section-icon {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid color-mix(in oklab, var(--brand) 14%, var(--border));
+    border-radius: 6px;
+    background: color-mix(in oklab, var(--brand) 8%, var(--card));
+    color: var(--brand);
+  }
+
+  .settings-tab-icon {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .settings-tab-copy {
+    display: grid;
+    min-width: 0;
+    gap: 0.12rem;
+  }
+
+  .settings-tab-title {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    overflow: hidden;
+    font-size: 12px;
+    font-weight: 650;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .settings-tab-title small {
+    color: color-mix(in oklab, currentColor 58%, transparent);
+    font-family: var(--font-mono);
+    font-size: 8px;
+    font-weight: 700;
+  }
+
+  .settings-tab-caption {
+    overflow: hidden;
+    color: var(--muted-foreground);
+    font-size: 9px;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .settings-save-action {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    border-left: 1px solid var(--border);
+    padding-left: 0.75rem;
+  }
+
+  .settings-save-action > span {
+    max-width: 8.5rem;
+    color: var(--muted-foreground);
+    font-size: 10px;
+    line-height: 1.45;
+  }
+
+  .settings-save-action button {
+    min-width: 6.5rem;
+  }
+
+  .settings-section-content {
+    display: grid;
+    min-width: 0;
+    gap: 1rem;
+  }
+
+  .settings-section-header {
+    display: flex;
+    min-height: 2.75rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-inline: 0.2rem;
+  }
+
+  .settings-section-icon {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+
+  @media (max-width: 1279px) {
+    .settings-control-deck {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .settings-save-action {
+      justify-content: flex-end;
+      border-top: 1px solid var(--border);
+      border-left: 0;
+      padding: 0.45rem 0.2rem 0;
+    }
+  }
+
+  @media (max-width: 639px) {
+    .settings-control-deck {
+      top: 64px;
+    }
+
+    .settings-tabs-list {
+      width: max-content;
+      grid-template-columns: repeat(5, 9.75rem);
+    }
+
+    .settings-save-action > span {
+      display: none;
+    }
+
+    .settings-save-action button {
+      width: 100%;
+    }
+
+    .settings-section-header {
+      align-items: flex-start;
+    }
+  }
+
   /* Shared authentication frame for the public login and protected-shell boot state. */
   .auth-frame {
     --auth-ink: #080908;
@@ -1376,6 +1568,7 @@
   @media (min-width: 1024px) {
     .redeem-workspace.has-support {
       grid-template-columns: minmax(0, 2.15fr) minmax(320px, 0.95fr);
+      min-height: 750px;
     }
   }
 
