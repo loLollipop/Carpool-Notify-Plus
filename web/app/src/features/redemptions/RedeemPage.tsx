@@ -409,9 +409,9 @@ function PaymentQrBlock({
 }) {
   const qrDataURL = settings.payment_qr_data_url.trim()
   return (
-    <div className="wechat-qr-block grid gap-4">
+    <div className={cn("wechat-qr-block redeem-payment-qr-block grid gap-4", selected && "has-renewal-summary")}>
       {selected ? (
-        <div className="grid grid-cols-2 gap-2 rounded-md border border-[var(--redeem-line)] bg-[var(--redeem-panel-muted)] p-3 text-xs">
+        <div className="redeem-payment-summary grid grid-cols-2 gap-2 rounded-md border border-[var(--redeem-line)] bg-[var(--redeem-panel-muted)] p-3 text-xs">
           <div>
             <p className="text-[var(--redeem-muted)]">本期应付</p>
             <p className="mt-1 text-lg font-semibold tabular-nums text-[var(--redeem-accent)]">¥{selected.amount_yuan}</p>
@@ -437,8 +437,21 @@ function PaymentQrBlock({
           收款码暂未配置，请联系客服续费
         </div>
       )}
-      <div className="rounded-md border border-amber-500/20 bg-amber-500/[0.07] px-3.5 py-3 text-xs leading-5 text-[var(--redeem-muted)]">
-        付款时务必备注订阅邮箱，金额必须与页面账单完全一致。
+      <div className="redeem-payment-notes grid gap-2">
+        <div className="redeem-payment-note">
+          <span className="redeem-payment-note-icon"><Mail className="size-3.5" /></span>
+          <span>
+            <strong>备注订阅邮箱</strong>
+            <small>用于准确核对付款用户</small>
+          </span>
+        </div>
+        <div className="redeem-payment-note">
+          <span className="redeem-payment-note-icon"><CheckCircle2 className="size-3.5" /></span>
+          <span>
+            <strong>金额必须一致</strong>
+            <small>按本期应付金额付款</small>
+          </span>
+        </div>
       </div>
     </div>
   )
@@ -452,7 +465,7 @@ function PaymentPanel({
   selected?: RenewalSubscriptionView | null
 }) {
   return (
-    <aside className="redeem-support-panel hidden overflow-hidden lg:flex lg:flex-col">
+    <aside className="redeem-support-panel redeem-payment-panel hidden overflow-hidden lg:flex lg:flex-col">
       <div className="redeem-support-terminal-bar">
         <div className="flex items-center gap-2">
           <span className="redeem-window-dot bg-[#ff6b63]" />
@@ -1196,7 +1209,7 @@ function RenewalWorkspace({
   return (
     <>
       <div className="redeem-renewal-workspace flex flex-1 flex-col gap-5 px-5 pb-6 pt-6 sm:px-8 sm:pb-8 lg:gap-4 lg:px-9 lg:pb-6 lg:pt-5">
-        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="redeem-renewal-lookup-row grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
           <div className="relative">
             <Mail className="redeem-input-icon" />
             <Input
@@ -1204,7 +1217,7 @@ function RenewalWorkspace({
               autoComplete="email"
               value={email}
               placeholder="输入订阅时登记的邮箱"
-              className="redeem-input h-14 pl-11"
+              className="redeem-input redeem-renewal-lookup-control h-14 pl-11"
               onChange={(event) => setEmail(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
@@ -1217,7 +1230,7 @@ function RenewalWorkspace({
           <Button
             type="button"
             variant="outline"
-            className="h-14 px-6"
+            className="redeem-renewal-lookup-control h-14 px-6"
             disabled={lookupMutation.isPending}
             onClick={runLookup}
           >
