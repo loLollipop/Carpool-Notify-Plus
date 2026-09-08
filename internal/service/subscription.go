@@ -2047,6 +2047,8 @@ func redeemPageSettingsWithDefaults(input model.RedeemPageSettings) model.Redeem
 	}
 	if len(trimNonEmptyStrings(input.AnnouncementItems)) == 0 {
 		input.AnnouncementItems = append([]string(nil), defaults.AnnouncementItems...)
+	} else {
+		input.AnnouncementItems = upgradeLegacyRedeemAnnouncementItems(input.AnnouncementItems)
 	}
 	if strings.TrimSpace(input.SupportTitle) == "" {
 		input.SupportTitle = defaults.SupportTitle
@@ -2097,6 +2099,20 @@ func redeemPageSettingsWithDefaults(input model.RedeemPageSettings) model.Redeem
 		input.WebTeamSecondaryBenefit = defaults.WebTeamSecondaryBenefit
 	}
 	return input
+}
+
+func upgradeLegacyRedeemAnnouncementItems(items []string) []string {
+	upgraded := make([]string, 0, len(items))
+	for _, item := range items {
+		switch strings.TrimSpace(item) {
+		case "到期后若未及时续费，账号可能会被移出 Team；未备份的工作空间内容可能无法找回。",
+			"到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。":
+			upgraded = append(upgraded, model.DefaultRedeemRenewalGuidance)
+		default:
+			upgraded = append(upgraded, item)
+		}
+	}
+	return upgraded
 }
 
 func normalizeRedeemPageSettings(input model.RedeemPageSettings) (model.RedeemPageSettings, error) {

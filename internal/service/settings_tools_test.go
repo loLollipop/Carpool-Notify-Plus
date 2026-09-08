@@ -72,6 +72,34 @@ func TestRedeemPageSettingsBackfillBenefitDefaults(t *testing.T) {
 	}
 }
 
+func TestRedeemPageSettingsUpgradesLegacyRenewalGuidance(t *testing.T) {
+	store, err := db.Open(filepath.Join(t.TempDir(), "legacy-redeem-announcement.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	if err := store.SetSetting(
+		model.SettingRedeemPageSettings,
+		`{"announcement_title":"加入前请先确认","announcement_intro":"旧说明","announcement_items":["请备份工作空间资料。","长期客户请添加客服微信。","到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。"],"support_title":"客服","support_contact_label":"微信号"}`,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	settings, err := (&SubscriptionService{Store: store}).GetRedeemPageSettings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.AnnouncementTitle != "加入前请先确认" {
+		t.Fatalf("custom announcement title was overwritten: %q", settings.AnnouncementTitle)
+	}
+	if len(settings.AnnouncementItems) != 3 ||
+		!strings.Contains(settings.AnnouncementItems[2], "自助续费") ||
+		!strings.Contains(settings.AnnouncementItems[2], "联系客服") ||
+		!strings.Contains(settings.AnnouncementItems[2], "自动移出空间") {
+		t.Fatalf("legacy renewal guidance was not upgraded: %#v", settings.AnnouncementItems)
+	}
+}
+
 func TestRedeemPageSettingsPersistCustomBenefits(t *testing.T) {
 	store, err := db.Open(filepath.Join(t.TempDir(), "custom-redeem-settings.db"))
 	if err != nil {

@@ -170,13 +170,13 @@ const MAX_QR_UPLOAD_BYTES = 1024 * 1024
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
 const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
-  announcement_title: "加入 ChatGPT Team 前请先确认",
+  announcement_title: "首次兑换前请确认",
   announcement_intro:
-    "为保护工作空间中的内容与到期后的使用连续性，请先阅读以下说明。",
+    "提交兑换前，请先了解工作空间数据与后续续费方式。",
   announcement_items: [
     "工作空间与个人空间的记录相互独立，请及时备份工作空间中的重要对话、文件和资料。",
     "长期使用建议添加管理员微信，方便接收续费提醒、售后协助和异常通知。",
-    "到期后若未及时续费，账号可能会被移出 Team；未备份的工作空间内容可能无法找回。",
+    "兑换成功后，可在本页切换到“自助续费”，也可联系客服协助续费；到期仍未续费的席位将自动移出空间。",
   ],
   support_title: "客服微信",
   support_description: "续费提醒与售后协助",
