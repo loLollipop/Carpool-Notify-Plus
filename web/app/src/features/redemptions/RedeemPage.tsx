@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Clock3,
   Copy,
+  CreditCard,
   Gauge,
   LoaderCircle,
   Mail,
@@ -28,9 +29,16 @@ import { z } from "zod"
 import {
   fetchRedeemPageSettings,
   fetchRedemptionStatus,
+  fetchRenewalStatus,
+  lookupRenewalSubscriptions,
   submitRedemptionApplication,
+  submitRenewalApplication,
 } from "@/api/endpoints"
-import type { RedeemPageSettings, RedemptionStatus } from "@/api/types"
+import type {
+  RedeemPageSettings,
+  RedemptionStatus,
+  RenewalSubscriptionView,
+} from "@/api/types"
 import { APP_NAME, BrandIcon } from "@/components/brand"
 import { WeChatIcon } from "@/components/icons/wechat-icon"
 import { Button } from "@/components/ui/button"
@@ -57,6 +65,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "carpool-notify:redemption-token"
+const RENEWAL_STORAGE_KEY = "carpool-notify:renewal-token"
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 const PRIVATE_WECHAT_ID_PATTERN = /^wxid_/i
 const CONTACT_LABEL_PATTERN = /^(?:微信\s*\/\s*手机号|微信|手机号|手机)[：:]\s*/
@@ -78,6 +87,16 @@ const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
   support_contact_label: "微信号",
   support_wechat_id: "",
   support_qr_data_url: "",
+  renewal_announcement_title: "自助续费付款说明",
+  renewal_announcement_intro: "付款前请核对页面账单，并按显示金额完成续费。",
+  renewal_announcement_items: [
+    "扫码付款时请务必备注订阅邮箱；忘记备注时请联系客服处理。",
+    "付款金额必须与页面显示的本期应付金额完全一致，否则无法核对续费；付错金额请联系客服。",
+    "付款后点击“提交续费审核”，管理员确认到账后会更新订阅状态。",
+  ],
+  payment_title: "续费收款码",
+  payment_description: "请按左侧账单金额付款，并备注订阅邮箱",
+  payment_qr_data_url: "",
   codex_plus_weekly_quota_usd: 150,
   codex_team_weekly_quota_usd: 200,
   web_primary_benefit_label: "GPT-5.6 sol 极高",
@@ -139,10 +158,17 @@ function normalizeRedeemPageSettings(settings?: RedeemPageSettings | null): Rede
   const items = (merged.announcement_items ?? [])
     .map((item) => item.trim())
     .filter((item) => item !== "")
+  const renewalItems = (merged.renewal_announcement_items ?? [])
+    .map((item) => item.trim())
+    .filter((item) => item !== "")
   return {
     ...merged,
     announcement_items:
       items.length > 0 ? items : DEFAULT_REDEEM_PAGE_SETTINGS.announcement_items,
+    renewal_announcement_items:
+      renewalItems.length > 0
+        ? renewalItems
+        : DEFAULT_REDEEM_PAGE_SETTINGS.renewal_announcement_items,
   }
 }
 
@@ -217,7 +243,14 @@ function RedeemAmbientField() {
   )
 }
 
-function RedeemAnnouncementButton({ onClick }: { onClick: () => void }) {
+function RedeemAnnouncementButton({
+  mode,
+  onClick,
+}: {
+  mode: PublicWorkspaceMode
+  onClick: () => void
+}) {
+  const label = mode === "renewal" ? "查看续费说明" : "查看兑换公告"
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -225,7 +258,7 @@ function RedeemAnnouncementButton({ onClick }: { onClick: () => void }) {
           type="button"
           variant="ghost"
           size="sm"
-          aria-label="查看公告"
+          aria-label={label}
           className="redeem-nav-button px-3"
           onClick={onClick}
         >
@@ -233,7 +266,7 @@ function RedeemAnnouncementButton({ onClick }: { onClick: () => void }) {
           <span className="hidden sm:inline">公告</span>
         </Button>
       </TooltipTrigger>
-      <TooltipContent>查看加入空间说明</TooltipContent>
+      <TooltipContent>{label}</TooltipContent>
     </Tooltip>
   )
 }
@@ -364,6 +397,117 @@ function SupportWechatDialogButton({ settings }: { settings: RedeemPageSettings 
           <DialogDescription>{settings.support_description}</DialogDescription>
         </DialogHeader>
         <WechatQrBlock settings={settings} compact />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function PaymentQrBlock({
+  settings,
+  selected,
+}: {
+  settings: RedeemPageSettings
+  selected?: RenewalSubscriptionView | null
+}) {
+  const qrDataURL = settings.payment_qr_data_url.trim()
+  return (
+    <div className="wechat-qr-block grid gap-4">
+      {selected ? (
+        <div className="grid grid-cols-2 gap-2 rounded-md border border-[var(--redeem-line)] bg-[var(--redeem-panel-muted)] p-3 text-xs">
+          <div>
+            <p className="text-[var(--redeem-muted)]">本期应付</p>
+            <p className="mt-1 text-lg font-semibold tabular-nums text-[var(--redeem-accent)]">¥{selected.amount_yuan}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-[var(--redeem-muted)]">续费账期</p>
+            <p className="mt-1 font-mono font-semibold">{selected.due_date}</p>
+          </div>
+        </div>
+      ) : null}
+      {qrDataURL ? (
+        <div className="wechat-qr-image mx-auto w-full max-w-[260px] rounded-lg border bg-white p-2.5 shadow-sm">
+          <img
+            src={qrDataURL}
+            alt="续费收款码"
+            loading="eager"
+            decoding="sync"
+            className="aspect-square w-full object-contain"
+          />
+        </div>
+      ) : (
+        <div className="grid aspect-square w-full max-w-[260px] place-items-center rounded-lg border border-dashed border-[var(--redeem-line-strong)] bg-[var(--redeem-panel-muted)] px-6 text-center text-sm leading-6 text-[var(--redeem-muted)]">
+          收款码暂未配置，请联系客服续费
+        </div>
+      )}
+      <div className="rounded-md border border-amber-500/20 bg-amber-500/[0.07] px-3.5 py-3 text-xs leading-5 text-[var(--redeem-muted)]">
+        付款时务必备注订阅邮箱，金额必须与页面账单完全一致。
+      </div>
+    </div>
+  )
+}
+
+function PaymentPanel({
+  settings,
+  selected,
+}: {
+  settings: RedeemPageSettings
+  selected?: RenewalSubscriptionView | null
+}) {
+  return (
+    <aside className="redeem-support-panel hidden overflow-hidden lg:flex lg:flex-col">
+      <div className="redeem-support-terminal-bar">
+        <div className="flex items-center gap-2">
+          <span className="redeem-window-dot bg-[#ff6b63]" />
+          <span className="redeem-window-dot bg-[#e9bd4e]" />
+          <span className="redeem-window-dot bg-[var(--redeem-accent)]" />
+          <span className="ml-1 font-mono text-[10px] font-medium tracking-[0.08em] text-[var(--redeem-muted)]">payment.channel</span>
+        </div>
+        <span className="redeem-online-label">PAY</span>
+      </div>
+      <div className="redeem-support-body flex flex-1 flex-col p-5 xl:p-6">
+        <div className="flex items-start gap-3">
+          <span className="redeem-support-icon size-10"><CreditCard className="size-5" /></span>
+          <div className="min-w-0">
+            <p className="font-mono text-[9px] font-semibold tracking-[0.16em] text-[var(--redeem-accent)]">RENEWAL PAYMENT</p>
+            <h2 className="mt-1.5 text-lg font-semibold">{settings.payment_title}</h2>
+            <p className="mt-1 text-xs leading-5 text-[var(--redeem-muted)]">{settings.payment_description}</p>
+          </div>
+        </div>
+        <div className="redeem-support-qr-shell mt-5 flex-1">
+          <PaymentQrBlock settings={settings} selected={selected} />
+        </div>
+      </div>
+    </aside>
+  )
+}
+
+function PaymentDialogButton({
+  settings,
+  selected,
+}: {
+  settings: RedeemPageSettings
+  selected?: RenewalSubscriptionView | null
+}) {
+  return (
+    <Dialog>
+      <DialogTrigger asChild>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-label="查看续费收款码"
+          className="redeem-nav-button lg:hidden"
+        >
+          <CreditCard data-slot="icon" />
+          <span className="hidden sm:inline">收款码</span>
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-[390px]">
+        <DialogHeader>
+          <DialogTitle>{settings.payment_title}</DialogTitle>
+          <DialogDescription>{settings.payment_description}</DialogDescription>
+        </DialogHeader>
+        <PaymentQrBlock settings={settings} selected={selected} />
       </DialogContent>
     </Dialog>
   )
@@ -596,21 +740,30 @@ function RedeemReferenceFloats({ settings }: { settings: RedeemPageSettings }) {
   )
 }
 
+type PublicWorkspaceMode = "redeem" | "renewal"
+
 function RedeemSafetyNoticeDialog({
   open,
   onOpenChange,
   settings,
   ready,
+  mode,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   settings: RedeemPageSettings
   ready: boolean
+  mode: PublicWorkspaceMode
 }) {
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && !ready) return
     onOpenChange(nextOpen)
   }
+
+  const renewalMode = mode === "renewal"
+  const title = renewalMode ? settings.renewal_announcement_title : settings.announcement_title
+  const intro = renewalMode ? settings.renewal_announcement_intro : settings.announcement_intro
+  const items = renewalMode ? settings.renewal_announcement_items : settings.announcement_items
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -629,15 +782,15 @@ function RedeemSafetyNoticeDialog({
             <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-amber-500/10 text-amber-600 dark:text-amber-400">
               <AlertTriangle className="size-5" />
             </span>
-            <DialogTitle className="text-xl leading-tight">{settings.announcement_title}</DialogTitle>
+            <DialogTitle className="text-xl leading-tight">{title}</DialogTitle>
           </div>
           <DialogDescription className="text-sm leading-5">
-            {settings.announcement_intro}
+            {intro}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-2 text-sm leading-5">
-          {settings.announcement_items.map((item, index) => (
+          {items.map((item, index) => (
             <div key={item} className="flex gap-3 rounded-lg border bg-muted/20 px-3.5 py-3">
               <span className="grid size-5 shrink-0 place-items-center rounded-full bg-brand/10 text-[10px] font-semibold text-brand">
                 {index + 1}
@@ -654,7 +807,7 @@ function RedeemSafetyNoticeDialog({
           onClick={() => onOpenChange(false)}
         >
           {ready ? (
-            "我已了解，继续兑换"
+            renewalMode ? "我已了解，开始续费" : "我已了解，继续兑换"
           ) : (
             <>
               <LoaderCircle data-slot="icon" className="animate-spin" />
@@ -953,11 +1106,269 @@ function RedemptionFlowDialog({
   )
 }
 
+function renewalTokenStorageKey(sandboxAccessToken: string) {
+  return sandboxAccessToken
+    ? `${RENEWAL_STORAGE_KEY}:sandbox:${sandboxAccessToken}`
+    : RENEWAL_STORAGE_KEY
+}
+
+function RenewalWorkspace({
+  sandboxAccessToken,
+  paymentConfigured,
+  onSelectionChange,
+}: {
+  sandboxAccessToken: string
+  paymentConfigured: boolean
+  onSelectionChange: (view: RenewalSubscriptionView | null) => void
+}) {
+  const sandboxMode = sandboxAccessToken !== ""
+  const storageKey = renewalTokenStorageKey(sandboxAccessToken)
+  const [email, setEmail] = React.useState(sandboxMode ? "sandbox-customer@example.com" : "")
+  const [selectedID, setSelectedID] = React.useState(0)
+  const [confirmOpen, setConfirmOpen] = React.useState(false)
+  const [statusOpen, setStatusOpen] = React.useState(false)
+  const [trackingToken, setTrackingToken] = React.useState(() => readStoredToken(storageKey))
+
+  const lookupMutation = useMutation({
+    mutationFn: (customerEmail: string) => lookupRenewalSubscriptions(customerEmail, sandboxAccessToken),
+    onSuccess: (result) => {
+      const preferred = result.subscriptions.find((item) => item.renewable) ?? result.subscriptions[0]
+      setSelectedID(preferred?.subscription_id ?? 0)
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
+  const selected = lookupMutation.data?.subscriptions.find(
+    (item) => item.subscription_id === selectedID,
+  ) ?? null
+
+  React.useEffect(() => {
+    onSelectionChange(selected)
+  }, [onSelectionChange, selected])
+
+  const statusQuery = useQuery({
+    queryKey: ["public-renewal-status", sandboxAccessToken || "live", trackingToken],
+    queryFn: () => fetchRenewalStatus(trackingToken, sandboxAccessToken),
+    enabled: trackingToken !== "",
+    refetchInterval: (query) => query.state.data?.status === "pending" ? 5_000 : false,
+    retry: false,
+  })
+  const submitMutation = useMutation({
+    mutationFn: (item: RenewalSubscriptionView) => submitRenewalApplication({
+      customer_email: lookupMutation.data?.customer_email ?? email.trim(),
+      subscription_id: item.subscription_id,
+    }, sandboxAccessToken),
+    onSuccess: (result) => {
+      setTrackingToken(result.tracking_token)
+      writeStoredToken(storageKey, result.tracking_token)
+      setConfirmOpen(false)
+      setStatusOpen(true)
+      toast.success(result.message ?? "续费审核已提交")
+      void lookupMutation.mutateAsync(lookupMutation.data?.customer_email ?? email.trim()).catch(() => undefined)
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
+
+  const runLookup = () => {
+    const value = email.trim()
+    if (!EMAIL_PATTERN.test(value)) {
+      toast.error("请输入有效的订阅邮箱")
+      return
+    }
+    lookupMutation.mutate(value)
+  }
+  const status = statusQuery.data
+  const approved = status?.status === "approved"
+  const rejected = status?.status === "rejected"
+
+  return (
+    <>
+      <div className="flex flex-1 flex-col gap-5 px-5 pb-6 pt-6 sm:px-8 sm:pb-8 lg:px-9 lg:pb-9">
+        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="relative">
+            <Mail className="redeem-input-icon" />
+            <Input
+              type="email"
+              autoComplete="email"
+              value={email}
+              placeholder="输入订阅时登记的邮箱"
+              className="redeem-input h-14 pl-11"
+              onChange={(event) => setEmail(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault()
+                  runLookup()
+                }
+              }}
+            />
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="h-14 px-6"
+            disabled={lookupMutation.isPending}
+            onClick={runLookup}
+          >
+            {lookupMutation.isPending ? <LoaderCircle data-slot="icon" className="animate-spin" /> : <TicketCheck data-slot="icon" />}
+            查询我的订阅
+          </Button>
+        </div>
+
+        {lookupMutation.data ? (
+          <div className="grid gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs font-semibold text-[var(--redeem-muted)]">请选择本次续费账单</p>
+              <p className="font-mono text-[10px] text-[var(--redeem-muted)]">{lookupMutation.data.subscriptions.length} SUBSCRIPTION(S)</p>
+            </div>
+            <div className="grid max-h-[260px] gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+              {lookupMutation.data.subscriptions.map((item) => {
+                const active = item.subscription_id === selectedID
+                return (
+                  <button
+                    key={item.subscription_id}
+                    type="button"
+                    disabled={!item.renewable && !item.pending_review}
+                    className={cn(
+                      "grid gap-3 rounded-lg border p-4 text-left transition-colors",
+                      active
+                        ? "border-[var(--redeem-accent)] bg-[var(--redeem-accent-soft)]"
+                        : "border-[var(--redeem-line)] bg-[var(--redeem-panel-muted)] hover:border-[var(--redeem-line-strong)]",
+                      !item.renewable && "cursor-not-allowed opacity-65",
+                    )}
+                    onClick={() => setSelectedID(item.subscription_id)}
+                  >
+                    <span className="flex items-start justify-between gap-2">
+                      <span>
+                        <strong className="text-sm">{item.service_label}</strong>
+                        <small className="mt-1 block text-[11px] text-[var(--redeem-muted)]">
+                          {item.business_type === "team" && item.account_serial > 0 ? `${item.account_serial}号母号 · ` : ""}{item.seat_name || item.cycle_desc}
+                        </small>
+                      </span>
+                      <span className={cn(
+                        "rounded-full px-2 py-1 text-[10px] font-semibold",
+                        item.days_remaining <= 7
+                          ? "bg-red-500/10 text-red-500"
+                          : "bg-[var(--redeem-accent-soft)] text-[var(--redeem-accent)]",
+                      )}>{item.status_label}</span>
+                    </span>
+                    <span className="grid grid-cols-2 gap-2 border-t border-[var(--redeem-line)] pt-3 text-xs">
+                      <span><small className="block text-[var(--redeem-muted)]">本期应付</small><strong className="mt-1 block text-lg tabular-nums text-[var(--redeem-accent)]">¥{item.amount_yuan}</strong></span>
+                      <span className="text-right">
+                        <small className="block text-[var(--redeem-muted)]">续费日期</small>
+                        <strong className="mt-1 block font-mono">{item.due_date}</strong>
+                        {item.period_end_date ? (
+                          <small className="mt-1 block text-[10px] text-[var(--redeem-muted)]">
+                            续费后至 {item.period_end_date}
+                          </small>
+                        ) : null}
+                      </span>
+                    </span>
+                    {!item.renewable ? <span className="text-[11px] leading-5 text-amber-600 dark:text-amber-400">{item.unavailable_reason}</span> : null}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="grid min-h-40 place-items-center rounded-lg border border-dashed border-[var(--redeem-line-strong)] bg-[var(--redeem-panel-muted)] px-5 text-center">
+            <div>
+              <span className="mx-auto grid size-11 place-items-center rounded-lg bg-[var(--redeem-accent-soft)] text-[var(--redeem-accent)]"><CreditCard className="size-5" /></span>
+              <p className="mt-3 text-sm font-semibold">先查询，再按账单付款</p>
+              <p className="mt-1 text-xs leading-5 text-[var(--redeem-muted)]">系统会显示应付金额、续费日期与席位状态。</p>
+            </div>
+          </div>
+        )}
+
+        <Button
+          type="button"
+          className="redeem-submit-button mt-auto h-14 w-full"
+          disabled={!selected?.renewable || !paymentConfigured || submitMutation.isPending}
+          onClick={() => setConfirmOpen(true)}
+        >
+          {submitMutation.isPending ? <LoaderCircle data-slot="icon" className="animate-spin" /> : <CreditCard data-slot="icon" />}
+          {paymentConfigured ? "付款后，提交续费审核" : "收款码尚未配置，请联系客服"}
+        </Button>
+        {trackingToken ? (
+          <Button type="button" variant="ghost" className="h-9" onClick={() => setStatusOpen(true)}>
+            查看上一次续费审核进度
+          </Button>
+        ) : null}
+      </div>
+
+      <Dialog open={confirmOpen} onOpenChange={(open) => { if (!submitMutation.isPending) setConfirmOpen(open) }}>
+        <DialogContent className="gap-5 sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>确认已按账单完成付款</DialogTitle>
+            <DialogDescription>提交后管理员会按邮箱备注、金额和账期核对到账记录。</DialogDescription>
+          </DialogHeader>
+          {selected ? (
+            <div className="divide-y overflow-hidden rounded-lg border bg-muted/20 text-sm">
+              <ReviewItem icon={<Mail className="size-4 text-brand" />} label="付款备注邮箱" value={lookupMutation.data?.customer_email ?? email.trim()} mono />
+              <ReviewItem icon={<CreditCard className="size-4 text-brand" />} label="付款金额" value={`¥${selected.amount_yuan}`} />
+              <ReviewItem
+                icon={<Clock3 className="size-4 text-brand" />}
+                label="续费账期"
+                value={selected.period_end_date ? `${selected.due_date} 至 ${selected.period_end_date}` : selected.due_date}
+                mono
+              />
+            </div>
+          ) : null}
+          <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.07] px-4 py-3 text-sm leading-6 text-muted-foreground">
+            金额不一致、忘记备注邮箱或付错金额时，请先联系客服，不要重复提交。
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={submitMutation.isPending} onClick={() => setConfirmOpen(false)}>返回核对</Button>
+            <Button disabled={!selected || submitMutation.isPending} onClick={() => { if (selected) submitMutation.mutate(selected) }}>
+              {submitMutation.isPending ? <LoaderCircle data-slot="icon" className="animate-spin" /> : <CheckCircle2 data-slot="icon" />}
+              确认付款并提交审核
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={statusOpen} onOpenChange={setStatusOpen}>
+        <DialogContent className="gap-5 sm:max-w-[540px]">
+          <DialogHeader className="items-center text-center">
+            <span className={cn(
+              "mb-2 grid size-14 place-items-center rounded-xl",
+              approved ? "bg-success/10 text-success" : rejected ? "bg-destructive/10 text-destructive" : "bg-brand/10 text-brand",
+            )}>
+              {approved ? <CheckCircle2 className="size-7" /> : rejected ? <AlertTriangle className="size-7" /> : <Clock3 className="size-7 animate-pulse" />}
+            </span>
+            <DialogTitle>{approved ? "续费已完成" : rejected ? "续费审核未通过" : "续费审核中"}</DialogTitle>
+            <DialogDescription>
+              {approved ? "管理员已确认到账，订阅状态和下一账期已更新。" : rejected ? status?.operator_note || "请核对付款信息后联系客服。" : "管理员正在核对款项，结果会自动更新。"}
+            </DialogDescription>
+          </DialogHeader>
+          {statusQuery.isError ? (
+            <p className="rounded-lg border bg-muted/20 px-4 py-3 text-center text-sm text-muted-foreground">没有找到这条续费申请，请重新查询订阅。</p>
+          ) : (
+            <div className="divide-y rounded-lg border px-4 text-sm">
+              <div className="flex justify-between gap-3 py-3"><span className="text-muted-foreground">订阅邮箱</span><strong className="truncate font-mono">{status?.customer_email || "加载中"}</strong></div>
+              <div className="flex justify-between gap-3 py-3"><span className="text-muted-foreground">账期 / 金额</span><strong>{status ? `${status.due_date} · ¥${status.amount_yuan}` : "加载中"}</strong></div>
+              <div className="flex justify-between gap-3 py-3"><span className="text-muted-foreground">提交时间</span><strong>{status?.created_at_label || "加载中"}</strong></div>
+            </div>
+          )}
+          {(approved || rejected || statusQuery.isError) ? (
+            <Button type="button" variant="outline" onClick={() => {
+              setStatusOpen(false)
+              setTrackingToken("")
+              writeStoredToken(storageKey, "")
+              runLookup()
+            }}>返回续费页</Button>
+          ) : null}
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
 export function RedeemPage() {
   const [searchParams] = useSearchParams()
   const sandboxAccessToken = searchParams.get("sandbox")?.trim() ?? ""
   const initialRedeemCode = searchParams.get("code")?.trim() ?? ""
   const sandboxMode = sandboxAccessToken !== ""
+  const [mode, setMode] = React.useState<PublicWorkspaceMode>("redeem")
+  const [selectedRenewal, setSelectedRenewal] = React.useState<RenewalSubscriptionView | null>(null)
   const tokenStorageKey = redemptionTokenStorageKey(sandboxAccessToken)
   const [trackingToken, setTrackingToken] = React.useState(() => readStoredToken(tokenStorageKey))
   const [noticeOpen, setNoticeOpen] = React.useState(() => trackingToken === "")
@@ -968,6 +1379,8 @@ export function RedeemPage() {
   const [reviewValues, setReviewValues] = React.useState<FormValues | null>(null)
   const [lastSubmission, setLastSubmission] = React.useState<FormValues | null>(null)
   const [preloadedSupportQR, setPreloadedSupportQR] = React.useState("")
+  const [preloadedPaymentQR, setPreloadedPaymentQR] = React.useState("")
+  const renewalNoticeSeenRef = React.useRef(false)
 
   const settingsQuery = useQuery({
     queryKey: ["public-redeem-settings", sandboxAccessToken || "live"],
@@ -976,6 +1389,7 @@ export function RedeemPage() {
   })
   const redeemSettings = normalizeRedeemPageSettings(settingsQuery.data)
   const supportQRDataURL = redeemSettings.support_qr_data_url.trim()
+  const paymentQRDataURL = redeemSettings.payment_qr_data_url.trim()
 
   React.useEffect(() => {
     if (!supportQRDataURL) return
@@ -996,6 +1410,22 @@ export function RedeemPage() {
       image.onerror = null
     }
   }, [supportQRDataURL])
+
+  React.useEffect(() => {
+    if (!paymentQRDataURL) return
+    let active = true
+    const image = new Image()
+    const markReady = () => { if (active) setPreloadedPaymentQR(paymentQRDataURL) }
+    image.onload = markReady
+    image.onerror = markReady
+    image.src = paymentQRDataURL
+    if (image.complete) markReady()
+    return () => {
+      active = false
+      image.onload = null
+      image.onerror = null
+    }
+  }, [paymentQRDataURL])
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -1076,9 +1506,20 @@ export function RedeemPage() {
 
   const statusLoadFailed = trackingToken !== "" && statusQuery.isError
   const supportConfigured = hasSupportContact(redeemSettings)
-  const supportColumnVisible = supportConfigured || settingsQuery.isPending
+  const supportColumnVisible = mode === "renewal" || supportConfigured || settingsQuery.isPending
   const supportAssetReady = supportQRDataURL === "" || preloadedSupportQR === supportQRDataURL
-  const redeemPageReady = !settingsQuery.isPending && supportAssetReady
+  const paymentAssetReady = paymentQRDataURL === "" || preloadedPaymentQR === paymentQRDataURL
+  const redeemPageReady = !settingsQuery.isPending && (mode === "renewal" ? paymentAssetReady : supportAssetReady)
+  const handleModeChange = (nextMode: PublicWorkspaceMode) => {
+    setMode(nextMode)
+    if (nextMode === "renewal" && !renewalNoticeSeenRef.current) {
+      renewalNoticeSeenRef.current = true
+      setNoticeOpen(true)
+    }
+  }
+  const handleRenewalSelectionChange = React.useCallback((view: RenewalSubscriptionView | null) => {
+    setSelectedRenewal(view)
+  }, [setSelectedRenewal])
 
   return (
     <main className="redeem-console min-h-dvh overflow-hidden text-[var(--redeem-text)]">
@@ -1087,6 +1528,7 @@ export function RedeemPage() {
         onOpenChange={setNoticeOpen}
         settings={redeemSettings}
         ready={redeemPageReady}
+        mode={mode}
       />
       <RedemptionFlowDialog
         open={flowDialogOpen}
@@ -1101,7 +1543,7 @@ export function RedeemPage() {
       />
 
       <RedeemAmbientField />
-      <RedeemReferenceFloats settings={redeemSettings} />
+      {mode === "redeem" ? <RedeemReferenceFloats settings={redeemSettings} /> : null}
 
       <header className="redeem-topbar">
         <div className="mx-auto flex h-16 w-full max-w-[1760px] items-center justify-between gap-4 px-4 sm:h-[72px] sm:px-6 lg:px-8">
@@ -1110,7 +1552,7 @@ export function RedeemPage() {
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold leading-none sm:text-[15px]">{APP_NAME}</p>
               <div className="mt-1.5 flex items-center gap-2 whitespace-nowrap text-[10px] font-medium text-[var(--redeem-muted)]">
-                <span className="hidden sm:inline">Team 席位兑换</span>
+                <span className="hidden sm:inline">{mode === "renewal" ? "订阅自助续费" : "Team 席位兑换"}</span>
                 <span className="redeem-status-dot" aria-hidden="true" />
                 <span className="text-[var(--redeem-accent)]">在线</span>
               </div>
@@ -1120,14 +1562,34 @@ export function RedeemPage() {
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <RedeemAnnouncementButton onClick={() => setNoticeOpen(true)} />
-            <SupportWechatDialogButton settings={redeemSettings} />
+            <RedeemAnnouncementButton mode={mode} onClick={() => setNoticeOpen(true)} />
+            {mode === "renewal" ? (
+              <PaymentDialogButton settings={redeemSettings} selected={selectedRenewal} />
+            ) : (
+              <SupportWechatDialogButton settings={redeemSettings} />
+            )}
             <RedeemThemeToggle />
           </div>
         </div>
       </header>
 
       <section className="relative mx-auto w-full max-w-[1760px] px-4 pb-8 pt-6 sm:px-6 sm:pb-10 sm:pt-8 lg:px-8 lg:pb-12 lg:pt-10">
+        <nav className="mx-auto mb-5 flex w-fit items-center rounded-lg border border-[var(--redeem-line)] bg-[var(--redeem-panel)] p-1 shadow-sm" aria-label="服务入口">
+          <button
+            type="button"
+            className={cn("redeem-mode-tab", mode === "redeem" && "is-active")}
+            onClick={() => handleModeChange("redeem")}
+          >
+            <TicketCheck />兑换申请
+          </button>
+          <button
+            type="button"
+            className={cn("redeem-mode-tab", mode === "renewal" && "is-active")}
+            onClick={() => handleModeChange("renewal")}
+          >
+            <CreditCard />自助续费
+          </button>
+        </nav>
         <div
           className={cn(
             "redeem-workspace grid items-stretch gap-6 animate-fade-up",
@@ -1140,7 +1602,7 @@ export function RedeemPage() {
             <div className="redeem-telemetry-bar">
               <span className="redeem-telemetry-label">
                 <i />
-                REDEMPTION WORKSPACE
+                {mode === "renewal" ? "RENEWAL WORKSPACE" : "REDEMPTION WORKSPACE"}
               </span>
               <span className="redeem-telemetry-track" />
               <span className="redeem-telemetry-label">CPN / ACCESS</span>
@@ -1150,10 +1612,10 @@ export function RedeemPage() {
             <span className="redeem-frame-corner is-bottom-left" />
             <span className="redeem-frame-corner is-bottom-right" />
             <div className="redeem-side-rail is-left">
-              <span>INPUT CHANNEL</span>
+                <span>{mode === "renewal" ? "BILL CHANNEL" : "INPUT CHANNEL"}</span>
             </div>
             <div className="redeem-side-rail is-right">
-              <span>SUPPORT CHANNEL</span>
+                <span>{mode === "renewal" ? "PAYMENT CHANNEL" : "SUPPORT CHANNEL"}</span>
             </div>
             <span className="redeem-frame-node is-left" />
             <span className="redeem-frame-node is-right" />
@@ -1166,7 +1628,7 @@ export function RedeemPage() {
                 <span className="redeem-window-dot bg-[#e9bd4e]" />
                 <span className="redeem-window-dot bg-[var(--redeem-accent)]" />
                 <span className="ml-2 font-mono text-[10px] font-medium tracking-[0.08em] text-[var(--redeem-muted)] sm:text-[11px]">
-                  TEAM / REDEEM
+                  {mode === "renewal" ? "ACCOUNT / RENEW" : "TEAM / REDEEM"}
                 </span>
               </div>
               <div className="flex items-center gap-2 text-[10px] font-semibold text-[var(--redeem-accent)] sm:text-xs">
@@ -1177,19 +1639,29 @@ export function RedeemPage() {
 
             <div className="px-5 pt-6 sm:px-8 sm:pt-8 lg:px-9">
               <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-[var(--redeem-accent)]">
-                ACCESS REQUEST
+                {mode === "renewal" ? "RENEWAL REVIEW" : "ACCESS REQUEST"}
               </p>
               <h1 className="mt-2 text-2xl font-semibold tracking-[-0.02em] sm:text-[28px]">
-                兑换 Team 席位
+                {mode === "renewal" ? "查询并续费我的订阅" : "兑换 Team 席位"}
               </h1>
               <div className="redeem-trust-strip" aria-label="服务保障">
-                <span><Clock3 />通常 1–2 分钟</span>
-                <span><ShieldCheck />信息仅用于服务</span>
-                <span><MessageCircle />人工售后支持</span>
+                {mode === "renewal" ? (
+                  <>
+                    <span><TicketCheck />账单实时核算</span>
+                    <span><ShieldCheck />金额服务端校验</span>
+                    <span><Clock3 />到账人工复核</span>
+                  </>
+                ) : (
+                  <>
+                    <span><Clock3 />通常 1–2 分钟</span>
+                    <span><ShieldCheck />信息仅用于服务</span>
+                    <span><MessageCircle />人工售后支持</span>
+                  </>
+                )}
               </div>
             </div>
 
-            <Form {...form}>
+            {mode === "redeem" ? <Form {...form}>
               <form
                 onSubmit={form.handleSubmit(reviewSubmission)}
                 className="flex flex-1 flex-col gap-5 px-5 pb-6 pt-6 sm:px-8 sm:pb-8 lg:px-9 lg:pb-9"
@@ -1308,11 +1780,19 @@ export function RedeemPage() {
                   </ol>
                 </div>
               </form>
-            </Form>
+            </Form> : (
+              <RenewalWorkspace
+                sandboxAccessToken={sandboxAccessToken}
+                paymentConfigured={paymentQRDataURL !== ""}
+                onSelectionChange={handleRenewalSelectionChange}
+              />
+            )}
           </Card>
 
           {settingsQuery.isPending ? (
             <aside className="redeem-support-placeholder hidden h-[500px] animate-pulse rounded-[8px] border border-[var(--redeem-line)] bg-[var(--redeem-panel)] lg:block" />
+          ) : mode === "renewal" ? (
+            <PaymentPanel settings={redeemSettings} selected={selectedRenewal} />
           ) : (
             <SupportWechatPanel settings={redeemSettings} />
           )}

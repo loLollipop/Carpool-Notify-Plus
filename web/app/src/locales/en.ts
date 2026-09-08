@@ -771,6 +771,7 @@ export default {
         goalCurrent: "Current profit",
         goalTarget: "Goal amount",
         pendingRedemptions: "Pending redemptions",
+        pendingReviews: "Delivery and renewal reviews",
         pendingAfterSales: "Pending after-sales",
         releasingSeats: "Seats releasing within 7 days",
         projectedDate: "Projected for {{date}}",
@@ -783,6 +784,7 @@ export default {
           plus_overdue: "Plus overdue",
           plus_due: "Plus follow-up",
           redemption: "Redemption",
+          renewal_review: "Renewal review",
           after_sales: "After-sales",
           notification_failed: "Notification failure",
           seat_release: "Seat releasing",
@@ -985,6 +987,8 @@ export default {
       cancellationPending: "Cancellation pending",
       cancellationPendingHint: "The subscription is frozen and keeps its seat until after-sales is completed. It will be restored automatically at {{time}} if left unresolved.",
       goAfterSales: "Open after-sales",
+      moreActions: "More actions",
+      deleteMistaken: "Delete mistaken entry",
     },
     plusRentals: {
       title: "Plus Rentals",
@@ -1191,6 +1195,10 @@ export default {
       softDeleteDesc:
         "“{{name}}” will be removed from the cancelled list (deleted_at). Only possible with no linked bills; it disappears from lists and scheduling.",
       softDeleteAction: "Soft delete",
+      deleteMistakenTitle: "Delete this mistaken Team entry?",
+      deleteMistakenDesc:
+        "The subscription, all related bills, reminders and pricing records for “{{name}}” will be permanently deleted. Revenue and profit totals will be recalculated, the seat will be released immediately, and no cooling period will be created. A linked redemption request returns to pending. This cannot be undone.",
+      deleteMistakenAction: "Delete entry",
       deleteAccountTitle: "Delete account?",
       deleteAccountDesc:
         "Delete account “{{name}}”? Its seats are removed too; historical seat links are cleared while bills are kept.",

@@ -12,6 +12,7 @@ import {
   fetchOperationsOverview,
   fetchRedemptionCodes,
   fetchRedemptions,
+  fetchRenewalApplications,
   fetchSettings,
   fetchSubscriptions,
 } from "./endpoints"
@@ -27,6 +28,8 @@ export const queryKeys = {
   goals: ["data", "goals"] as const,
   redemptions: (status?: "pending" | "invited" | "rejected" | "all") =>
     ["data", "redemptions", status ?? "all"] as const,
+  renewals: (status?: "pending" | "approved" | "rejected" | "all") =>
+    ["data", "renewals", status ?? "all"] as const,
   redemptionCodes: ["data", "redemption-codes"] as const,
   subscriptions: ["data", "subscriptions"] as const,
   accounts: ["data", "accounts"] as const,
@@ -56,6 +59,7 @@ export type MutationScope =
   | "notifications"
   | "redemption-codes"
   | "redemptions"
+  | "renewals"
   | "subscriptions"
   | "accounts"
   | "billing"
@@ -73,6 +77,15 @@ const scopeQueryKeys: Record<Exclude<MutationScope, "all" | "none">, readonly (r
     queryKeys.subscriptions,
     queryKeys.accounts,
     ["data", "account-options"],
+    ["data", "calendar"],
+    queryKeys.bills,
+    queryKeys.dashboard,
+    queryKeys.operationsOverview,
+    queryKeys.goals,
+  ],
+  renewals: [
+    ["data", "renewals"],
+    queryKeys.subscriptions,
     ["data", "calendar"],
     queryKeys.bills,
     queryKeys.dashboard,
@@ -197,6 +210,17 @@ export function useAfterSales() {
     queryKey: queryKeys.afterSales,
     queryFn: fetchAfterSales,
     refetchInterval: 60_000,
+  })
+}
+
+export function useRenewalApplications(status?: "pending" | "approved" | "rejected" | "all") {
+  return useQuery({
+    queryKey: queryKeys.renewals(status),
+    queryFn: () => fetchRenewalApplications(status),
+    refetchInterval: 5_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: "always",
   })
 }
 

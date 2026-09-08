@@ -17,28 +17,29 @@ const operationsTaskLimit = 24
 // Kind and object IDs stay structured so the client can localize labels and
 // open the right action without parsing presentation text.
 type OperationTask struct {
-	ID               string `json:"id"`
-	Kind             string `json:"kind"`
-	Tone             string `json:"tone"`
-	Priority         int    `json:"-"`
-	SubscriptionID   int64  `json:"subscription_id"`
-	AfterSalesCaseID int64  `json:"after_sales_case_id"`
-	RedemptionID     int64  `json:"redemption_id"`
-	AccountID        int64  `json:"account_id"`
-	SeatID           int64  `json:"seat_id"`
-	Name             string `json:"name"`
-	CustomerEmail    string `json:"customer_email"`
-	CustomerWechat   string `json:"customer_wechat"`
-	AccountName      string `json:"account_name"`
-	SeatName         string `json:"seat_name"`
-	DueDate          string `json:"due_date"`
-	DueAtLabel       string `json:"due_at_label"`
-	DaysRemaining    int    `json:"days_remaining"`
-	AmountYuan       string `json:"amount_yuan"`
-	CycleDesc        string `json:"cycle_desc"`
-	OneMonthRental   bool   `json:"one_month_rental"`
-	Route            string `json:"route"`
-	Unread           bool   `json:"unread"`
+	ID                   string `json:"id"`
+	Kind                 string `json:"kind"`
+	Tone                 string `json:"tone"`
+	Priority             int    `json:"-"`
+	SubscriptionID       int64  `json:"subscription_id"`
+	AfterSalesCaseID     int64  `json:"after_sales_case_id"`
+	RedemptionID         int64  `json:"redemption_id"`
+	RenewalApplicationID int64  `json:"renewal_application_id"`
+	AccountID            int64  `json:"account_id"`
+	SeatID               int64  `json:"seat_id"`
+	Name                 string `json:"name"`
+	CustomerEmail        string `json:"customer_email"`
+	CustomerWechat       string `json:"customer_wechat"`
+	AccountName          string `json:"account_name"`
+	SeatName             string `json:"seat_name"`
+	DueDate              string `json:"due_date"`
+	DueAtLabel           string `json:"due_at_label"`
+	DaysRemaining        int    `json:"days_remaining"`
+	AmountYuan           string `json:"amount_yuan"`
+	CycleDesc            string `json:"cycle_desc"`
+	OneMonthRental       bool   `json:"one_month_rental"`
+	Route                string `json:"route"`
+	Unread               bool   `json:"unread"`
 }
 
 type OperationsUnreadSummary struct {
@@ -71,6 +72,7 @@ type OperationsWorkSummary struct {
 	PlusDueCount            int    `json:"plus_due_count"`
 	AccountRenewalCount     int    `json:"account_renewal_count"`
 	PendingRedemptionCount  int    `json:"pending_redemption_count"`
+	PendingRenewalCount     int    `json:"pending_renewal_count"`
 	PendingAfterSalesCount  int    `json:"pending_after_sales_count"`
 	FailedNotificationCount int    `json:"failed_notification_count"`
 }
@@ -128,6 +130,10 @@ func (service *SubscriptionService) GetOperationsOverview() (OperationsOverview,
 	if err != nil {
 		return OperationsOverview{}, err
 	}
+	renewals, err := service.ListRenewalApplicationsView(model.RenewalStatusPending)
+	if err != nil {
+		return OperationsOverview{}, err
+	}
 
 	now := service.now().In(cycle.Location)
 	month := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, cycle.Location)
@@ -154,15 +160,18 @@ func (service *SubscriptionService) GetOperationsOverview() (OperationsOverview,
 	overview.Capacity = buildOperationsCapacity(accounts, now, &overview.Tasks)
 	buildSubscriptionOperationTasks(subscriptions, &overview.Work, &overview.Tasks)
 	buildRedemptionOperationTasks(redemptions, &overview.Tasks)
+	buildRenewalOperationTasks(renewals, &overview.Tasks)
 	buildAfterSalesOperationTasks(afterSales.Cases, &overview.Tasks)
 	buildNotificationOperationTask(dashboard, &overview.Tasks)
 	buildAccountRenewalOperationTasks(accounts, now, &overview.Work, &overview.Tasks)
 
 	overview.Work.PendingRedemptionCount = len(redemptions)
+	overview.Work.PendingRenewalCount = len(renewals)
 	overview.Work.PendingAfterSalesCount = afterSales.Summary.PendingCount + afterSales.Summary.ReviewCount
 	overview.Work.FailedNotificationCount = dashboard.NotifyFailed30d
 	overview.Work.UrgentCount = overview.Work.OverdueCount +
 		overview.Work.PendingRedemptionCount +
+		overview.Work.PendingRenewalCount +
 		overview.Work.PendingAfterSalesCount +
 		overview.Work.FailedNotificationCount
 
@@ -222,7 +231,7 @@ func addUnreadOperationTask(summary *OperationsUnreadSummary, task OperationTask
 	case "plus_due", "plus_overdue":
 		summary.CalendarCount++
 		summary.PlusCount++
-	case "redemption":
+	case "redemption", "renewal_review":
 		summary.RedemptionCount++
 	case "after_sales":
 		summary.AfterSalesCount++
@@ -267,6 +276,7 @@ func validOperationTaskID(taskID string) bool {
 	for _, prefix := range []string{
 		"subscription:",
 		"redemption:",
+		"renewal:",
 		"after-sales:",
 		"notification-failures:",
 		"seat-release:",
@@ -415,6 +425,29 @@ func buildRedemptionOperationTasks(views []RedemptionApplicationView, tasks *[]O
 			CustomerWechat: application.CustomerContact,
 			DueAtLabel:     view.CreatedAtLabel,
 			Route:          "/redemptions",
+		})
+	}
+}
+
+func buildRenewalOperationTasks(views []RenewalApplicationView, tasks *[]OperationTask) {
+	for _, view := range views {
+		application := view.Application
+		*tasks = append(*tasks, OperationTask{
+			ID:                   fmt.Sprintf("renewal:%d", application.ID),
+			Kind:                 "renewal_review",
+			Tone:                 "critical",
+			Priority:             96,
+			SubscriptionID:       application.SubscriptionID,
+			RenewalApplicationID: application.ID,
+			Name:                 application.CustomerEmail,
+			CustomerEmail:        application.CustomerEmail,
+			AccountName:          view.AccountEmail,
+			SeatName:             view.SeatName,
+			DueDate:              application.DueDate,
+			DueAtLabel:           view.CreatedAtLabel,
+			AmountYuan:           view.AmountYuan,
+			CycleDesc:            view.CycleDesc,
+			Route:                fmt.Sprintf("/redemptions?section=renewals&renewal=%d", application.ID),
 		})
 	}
 }

@@ -62,6 +62,9 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 	api.GET("/redeem-settings", server.getRedeemSettings)
 	api.POST("/redeem", server.limitPublicRequests(server.publicSubmitLimiter), server.postRedeemApplication)
 	api.GET("/redeem/:token", server.limitPublicRequests(server.publicStatusLimiter), server.getRedeemStatus)
+	api.POST("/renewal/lookup", server.limitPublicRequests(server.publicStatusLimiter), server.postRenewalLookup)
+	api.POST("/renewal", server.limitPublicRequests(server.publicSubmitLimiter), server.postRenewalApplication)
+	api.GET("/renewal/:token", server.limitPublicRequests(server.publicStatusLimiter), server.getRenewalStatus)
 
 	var sandboxServer *Server
 	if server.SandboxService != nil {
@@ -76,6 +79,9 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 		sandboxPublic.GET("/redeem-settings", sandboxServer.getRedeemSettings)
 		sandboxPublic.POST("/redeem", server.limitPublicRequests(server.publicSubmitLimiter), sandboxServer.postRedeemApplication)
 		sandboxPublic.GET("/redeem/:token", server.limitPublicRequests(server.publicStatusLimiter), sandboxServer.getRedeemStatus)
+		sandboxPublic.POST("/renewal/lookup", server.limitPublicRequests(server.publicStatusLimiter), sandboxServer.postRenewalLookup)
+		sandboxPublic.POST("/renewal", server.limitPublicRequests(server.publicSubmitLimiter), sandboxServer.postRenewalApplication)
+		sandboxPublic.GET("/renewal/:token", server.limitPublicRequests(server.publicStatusLimiter), sandboxServer.getRenewalStatus)
 	}
 
 	authorized := api.Group("")
@@ -130,6 +136,9 @@ func (server *Server) registerBusinessRoutes(routes *gin.RouterGroup) {
 	routes.GET("/redemptions", server.getRedemptions)
 	routes.POST("/redemptions/:id/invite", server.postInviteRedemption)
 	routes.POST("/redemptions/:id/reject", server.postRejectRedemption)
+	routes.GET("/renewal-applications", server.getRenewalApplications)
+	routes.POST("/renewal-applications/:id/approve", server.postApproveRenewalApplication)
+	routes.POST("/renewal-applications/:id/reject", server.postRejectRenewalApplication)
 	routes.GET("/redemption-codes", server.getRedemptionCodes)
 	routes.POST("/redemption-codes", server.postGenerateRedemptionCodes)
 	routes.POST("/redemption-codes/:id/disable", server.postDisableRedemptionCode)
@@ -140,6 +149,7 @@ func (server *Server) registerBusinessRoutes(routes *gin.RouterGroup) {
 	routes.POST("/subscriptions", server.postCreateSubscription)
 	routes.PUT("/subscriptions/:id", server.putUpdateSubscription)
 	routes.DELETE("/subscriptions/:id", server.deleteSubscription)
+	routes.DELETE("/subscriptions/:id/mistaken-registration", server.deleteMistakenTeamRegistration)
 	routes.POST("/subscriptions/:id/archive", server.postArchiveSubscription)
 	routes.POST("/subscriptions/:id/complete-one-month", server.postCompleteOneMonthRental)
 	routes.POST("/subscriptions/:id/copy", server.postCopySubscription)

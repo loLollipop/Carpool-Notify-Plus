@@ -1070,6 +1070,26 @@ func (service *SubscriptionService) SoftDelete(subscriptionID int64) error {
 	return service.Store.SoftDeleteSubscription(subscriptionID)
 }
 
+// DeleteMistakenTeamRegistration reverses an incorrectly entered active Team
+// customer without creating a cancellation, seat freeze, or after-sales case.
+func (service *SubscriptionService) DeleteMistakenTeamRegistration(subscriptionID int64) error {
+	err := service.Store.DeleteMistakenTeamSubscription(subscriptionID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("Team 用户不存在或已被删除")
+	case errors.Is(err, db.ErrMistakenSubscriptionNotActive):
+		return fmt.Errorf("已下车记录不能按误登记删除")
+	case errors.Is(err, db.ErrMistakenSubscriptionNotTeam):
+		return fmt.Errorf("这里只能删除误登记的 Team 用户")
+	case errors.Is(err, db.ErrMistakenSubscriptionHasAfterSales):
+		return fmt.Errorf("该用户已有售后记录，为保护退款与处理历史不能删除")
+	case errors.Is(err, db.ErrSubscriptionFinancialStateChanged):
+		return fmt.Errorf("用户数据刚刚发生变化，请刷新后重试")
+	default:
+		return err
+	}
+}
+
 // SoftDeleteArchived soft-deletes an archived subscription only when it has no
 // bills and its original seat is no longer in the cancellation freeze window.
 func (service *SubscriptionService) SoftDeleteArchived(subscriptionID int64) error {
@@ -2037,6 +2057,21 @@ func redeemPageSettingsWithDefaults(input model.RedeemPageSettings) model.Redeem
 	if strings.TrimSpace(input.SupportContactLabel) == "" {
 		input.SupportContactLabel = defaults.SupportContactLabel
 	}
+	if strings.TrimSpace(input.RenewalAnnouncementTitle) == "" {
+		input.RenewalAnnouncementTitle = defaults.RenewalAnnouncementTitle
+	}
+	if strings.TrimSpace(input.RenewalAnnouncementIntro) == "" {
+		input.RenewalAnnouncementIntro = defaults.RenewalAnnouncementIntro
+	}
+	if len(trimNonEmptyStrings(input.RenewalAnnouncementItems)) == 0 {
+		input.RenewalAnnouncementItems = append([]string(nil), defaults.RenewalAnnouncementItems...)
+	}
+	if strings.TrimSpace(input.PaymentTitle) == "" {
+		input.PaymentTitle = defaults.PaymentTitle
+	}
+	if strings.TrimSpace(input.PaymentDescription) == "" {
+		input.PaymentDescription = defaults.PaymentDescription
+	}
 	if input.CodexPlusWeeklyQuotaUSD <= 0 {
 		input.CodexPlusWeeklyQuotaUSD = defaults.CodexPlusWeeklyQuotaUSD
 	}
@@ -2089,6 +2124,26 @@ func normalizeRedeemPageSettings(input model.RedeemPageSettings) (model.RedeemPa
 	}
 	input.AnnouncementItems = items
 
+	if input.RenewalAnnouncementTitle, err = trimRequiredLimited("续费公告标题", input.RenewalAnnouncementTitle, maxRedeemAnnouncementTitleLength); err != nil {
+		return model.RedeemPageSettings{}, err
+	}
+	if input.RenewalAnnouncementIntro, err = trimRequiredLimited("续费公告说明", input.RenewalAnnouncementIntro, maxRedeemAnnouncementIntroLength); err != nil {
+		return model.RedeemPageSettings{}, err
+	}
+	renewalItems := trimNonEmptyStrings(input.RenewalAnnouncementItems)
+	if len(renewalItems) == 0 {
+		renewalItems = append([]string(nil), model.DefaultRedeemPageSettings.RenewalAnnouncementItems...)
+	}
+	if len(renewalItems) > maxRedeemAnnouncementItemCount {
+		return model.RedeemPageSettings{}, fmt.Errorf("续费公告最多 %d 条", maxRedeemAnnouncementItemCount)
+	}
+	for _, item := range renewalItems {
+		if len([]rune(item)) > maxRedeemAnnouncementItemLength {
+			return model.RedeemPageSettings{}, fmt.Errorf("续费公告单条最多 %d 个字", maxRedeemAnnouncementItemLength)
+		}
+	}
+	input.RenewalAnnouncementItems = renewalItems
+
 	if input.SupportTitle, err = trimRequiredLimited("客服标题", input.SupportTitle, maxRedeemSupportTitleLength); err != nil {
 		return model.RedeemPageSettings{}, err
 	}
@@ -2099,6 +2154,12 @@ func normalizeRedeemPageSettings(input model.RedeemPageSettings) (model.RedeemPa
 		return model.RedeemPageSettings{}, err
 	}
 	if input.SupportWechatID, err = trimLimited("客服微信号", input.SupportWechatID, maxRedeemSupportWechatIDLength); err != nil {
+		return model.RedeemPageSettings{}, err
+	}
+	if input.PaymentTitle, err = trimRequiredLimited("收款码标题", input.PaymentTitle, maxRedeemSupportTitleLength); err != nil {
+		return model.RedeemPageSettings{}, err
+	}
+	if input.PaymentDescription, err = trimLimited("收款码说明", input.PaymentDescription, maxRedeemSupportDescriptionLength); err != nil {
 		return model.RedeemPageSettings{}, err
 	}
 	if input.CodexPlusWeeklyQuotaUSD < 1 || input.CodexPlusWeeklyQuotaUSD > maxRedeemWeeklyQuotaUSD {
@@ -2132,6 +2193,15 @@ func normalizeRedeemPageSettings(input model.RedeemPageSettings) (model.RedeemPa
 		}
 		if !isAllowedImageDataURL(input.SupportQRCodeDataURL) {
 			return model.RedeemPageSettings{}, fmt.Errorf("客服二维码仅支持 PNG、JPG 或 WebP 图片")
+		}
+	}
+	input.PaymentQRCodeDataURL = strings.TrimSpace(input.PaymentQRCodeDataURL)
+	if input.PaymentQRCodeDataURL != "" {
+		if len(input.PaymentQRCodeDataURL) > maxRedeemQRCodeDataURLLength {
+			return model.RedeemPageSettings{}, fmt.Errorf("续费收款码图片太大，请压缩到 1MB 左右后再上传")
+		}
+		if !isAllowedImageDataURL(input.PaymentQRCodeDataURL) {
+			return model.RedeemPageSettings{}, fmt.Errorf("续费收款码仅支持 PNG、JPG 或 WebP 图片")
 		}
 	}
 	return input, nil

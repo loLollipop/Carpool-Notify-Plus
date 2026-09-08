@@ -983,6 +983,45 @@
     color: var(--redeem-accent);
   }
 
+  .redeem-mode-tab {
+    display: inline-flex;
+    min-width: 8rem;
+    height: 2.5rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 6px;
+    padding-inline: 1rem;
+    color: var(--redeem-muted);
+    font-size: 13px;
+    font-weight: 650;
+    transition: color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+  }
+
+  .redeem-mode-tab svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .redeem-mode-tab:hover {
+    color: var(--redeem-text);
+    background: var(--redeem-panel-muted);
+  }
+
+  .redeem-mode-tab.is-active {
+    background: var(--redeem-accent);
+    color: var(--redeem-accent-foreground);
+    box-shadow: 0 8px 22px -14px color-mix(in oklab, var(--redeem-accent) 80%, transparent);
+  }
+
+  @media (max-width: 420px) {
+    .redeem-mode-tab {
+      min-width: 0;
+      width: 8rem;
+      padding-inline: 0.75rem;
+    }
+  }
+
   .redeem-status-dot {
     display: inline-block;
     width: 6px;

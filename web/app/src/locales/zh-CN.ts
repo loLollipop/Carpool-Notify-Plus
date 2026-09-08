@@ -771,6 +771,7 @@ export default {
         goalCurrent: "当前利润",
         goalTarget: "目标金额",
         pendingRedemptions: "待处理兑换申请",
+        pendingReviews: "交付与续费审核",
         pendingAfterSales: "待处理售后",
         releasingSeats: "7 天内释放席位",
         projectedDate: "预计 {{date}} 达成",
@@ -783,6 +784,7 @@ export default {
           plus_overdue: "Plus 已逾期",
           plus_due: "Plus 待联系",
           redemption: "兑换申请",
+          renewal_review: "续费审核",
           after_sales: "售后处理",
           notification_failed: "通知失败",
           seat_release: "席位即将释放",
@@ -985,6 +987,8 @@ export default {
       cancellationPending: "退订待处理",
       cancellationPendingHint: "订阅已冻结，售后完成前仍占用原车位；若未处理，将于 {{time}} 自动恢复。",
       goAfterSales: "前往售后处理",
+      moreActions: "更多操作",
+      deleteMistaken: "删除误登记",
     },
     plusRentals: {
       title: "Plus 出租",
@@ -1190,6 +1194,10 @@ export default {
       softDeleteDesc:
         "「{{name}}」将从已退订列表中移除（写入 deleted_at）。仅无关联账单时可删除，操作后列表与调度均不再出现。",
       softDeleteAction: "伪删除",
+      deleteMistakenTitle: "删除误登记的 Team 用户？",
+      deleteMistakenDesc:
+        "「{{name}}」的订阅登记、全部关联账单、提醒和调价记录将永久删除，收入、利润等统计会同步回退，车位立即释放且不会进入冷却期。若来自兑换申请，申请会退回待处理。此操作无法撤销。",
+      deleteMistakenAction: "确认删除",
       deleteAccountTitle: "删除账号？",
       deleteAccountDesc:
         "确定删除账号「{{name}}」？将一并删除其下车位；历史订阅的车位关联会断开，账单仍保留。",

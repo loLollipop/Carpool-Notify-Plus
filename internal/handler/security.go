@@ -172,7 +172,7 @@ func LimitRequestBody(maxBytes int64) gin.HandlerFunc {
 	}
 }
 
-// RequestLogger retains useful access logs without writing redemption bearer
+// RequestLogger retains useful access logs without writing public tracking
 // tokens or sandbox access tokens to journald.
 func RequestLogger() gin.HandlerFunc {
 	return gin.LoggerWithFormatter(func(parameters gin.LogFormatterParams) string {
@@ -194,10 +194,17 @@ func redactedRequestTarget(request *http.Request) string {
 		return ""
 	}
 	path := request.URL.Path
-	for _, prefix := range []string{"/api/redeem/", "/api/sandbox/redeem/"} {
-		if strings.HasPrefix(path, prefix) && strings.TrimPrefix(path, prefix) != "" {
-			path = prefix + ":token"
-			break
+	if request.Method == http.MethodGet {
+		for _, prefix := range []string{
+			"/api/redeem/",
+			"/api/sandbox/redeem/",
+			"/api/renewal/",
+			"/api/sandbox/renewal/",
+		} {
+			if strings.HasPrefix(path, prefix) && strings.TrimPrefix(path, prefix) != "" {
+				path = prefix + ":token"
+				break
+			}
 		}
 	}
 	query, err := url.ParseQuery(request.URL.RawQuery)

@@ -61,7 +61,13 @@ func TestRedeemPageSettingsBackfillBenefitDefaults(t *testing.T) {
 	if settings.CodexPlusWeeklyQuotaUSD != defaults.CodexPlusWeeklyQuotaUSD ||
 		settings.CodexTeamWeeklyQuotaUSD != defaults.CodexTeamWeeklyQuotaUSD ||
 		settings.WebPrimaryBenefitLabel != defaults.WebPrimaryBenefitLabel ||
-		settings.WebTeamSecondaryBenefit != defaults.WebTeamSecondaryBenefit {
+		settings.WebTeamSecondaryBenefit != defaults.WebTeamSecondaryBenefit ||
+		settings.RenewalAnnouncementTitle != defaults.RenewalAnnouncementTitle ||
+		settings.RenewalAnnouncementIntro != defaults.RenewalAnnouncementIntro ||
+		len(settings.RenewalAnnouncementItems) != len(defaults.RenewalAnnouncementItems) ||
+		settings.PaymentTitle != defaults.PaymentTitle ||
+		settings.PaymentDescription != defaults.PaymentDescription ||
+		settings.PaymentQRCodeDataURL != "" {
 		t.Fatalf("legacy redeem settings did not receive benefit defaults: %#v", settings)
 	}
 }
@@ -78,6 +84,10 @@ func TestRedeemPageSettingsPersistCustomBenefits(t *testing.T) {
 	settings.CodexTeamWeeklyQuotaUSD = 230
 	settings.WebPrimaryBenefitLabel = "GPT 新模型极高"
 	settings.WebTeamSecondaryBenefit = "20 次/月"
+	settings.RenewalAnnouncementTitle = "续费前请核对"
+	settings.RenewalAnnouncementItems = []string{"付款备注邮箱", "按页面金额付款"}
+	settings.PaymentTitle = "支付宝收款码"
+	settings.PaymentQRCodeDataURL = "data:image/png;base64,iVBORw0KGgo="
 	if err := service.SaveRedeemPageSettings(settings); err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +98,11 @@ func TestRedeemPageSettingsPersistCustomBenefits(t *testing.T) {
 	}
 	if stored.CodexPlusWeeklyQuotaUSD != 175 || stored.CodexTeamWeeklyQuotaUSD != 230 ||
 		stored.WebPrimaryBenefitLabel != "GPT 新模型极高" ||
-		stored.WebTeamSecondaryBenefit != "20 次/月" {
+		stored.WebTeamSecondaryBenefit != "20 次/月" ||
+		stored.RenewalAnnouncementTitle != "续费前请核对" ||
+		len(stored.RenewalAnnouncementItems) != 2 ||
+		stored.PaymentTitle != "支付宝收款码" ||
+		stored.PaymentQRCodeDataURL != "data:image/png;base64,iVBORw0KGgo=" {
 		t.Fatalf("custom redeem benefits were not persisted: %#v", stored)
 	}
 }

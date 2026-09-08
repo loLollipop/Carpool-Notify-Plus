@@ -25,6 +25,10 @@ const (
 	RedemptionStatusInvited  = "invited"
 	RedemptionStatusRejected = "rejected"
 
+	RenewalStatusPending  = "pending"
+	RenewalStatusApproved = "approved"
+	RenewalStatusRejected = "rejected"
+
 	RedemptionCodeStatusUnused   = "unused"
 	RedemptionCodeStatusUsed     = "used"
 	RedemptionCodeStatusDisabled = "disabled"
@@ -160,6 +164,12 @@ type RedeemPageSettings struct {
 	SupportContactLabel      string   `json:"support_contact_label"`
 	SupportWechatID          string   `json:"support_wechat_id"`
 	SupportQRCodeDataURL     string   `json:"support_qr_data_url"`
+	RenewalAnnouncementTitle string   `json:"renewal_announcement_title"`
+	RenewalAnnouncementIntro string   `json:"renewal_announcement_intro"`
+	RenewalAnnouncementItems []string `json:"renewal_announcement_items"`
+	PaymentTitle             string   `json:"payment_title"`
+	PaymentDescription       string   `json:"payment_description"`
+	PaymentQRCodeDataURL     string   `json:"payment_qr_data_url"`
 	CodexPlusWeeklyQuotaUSD  int      `json:"codex_plus_weekly_quota_usd"`
 	CodexTeamWeeklyQuotaUSD  int      `json:"codex_team_weekly_quota_usd"`
 	WebPrimaryBenefitLabel   string   `json:"web_primary_benefit_label"`
@@ -184,6 +194,16 @@ var DefaultRedeemPageSettings = RedeemPageSettings{
 	SupportContactLabel:      "微信号",
 	SupportWechatID:          "",
 	SupportQRCodeDataURL:     "",
+	RenewalAnnouncementTitle: "自助续费付款说明",
+	RenewalAnnouncementIntro: "付款前请核对页面账单，并按显示金额完成续费。",
+	RenewalAnnouncementItems: []string{
+		"扫码付款时请务必备注订阅邮箱；忘记备注时请联系客服处理。",
+		"付款金额必须与页面显示的本期应付金额完全一致，否则无法核对续费；付错金额请联系客服。",
+		"付款后点击“提交续费审核”，管理员确认到账后会更新订阅状态。",
+	},
+	PaymentTitle:             "续费收款码",
+	PaymentDescription:       "请按左侧账单金额付款，并备注订阅邮箱",
+	PaymentQRCodeDataURL:     "",
 	CodexPlusWeeklyQuotaUSD:  150,
 	CodexTeamWeeklyQuotaUSD:  200,
 	WebPrimaryBenefitLabel:   "GPT-5.6 sol 极高",
@@ -497,6 +517,23 @@ type RedemptionApplication struct {
 	InvitedAt              *time.Time `json:"invited_at"`
 	CreatedAt              time.Time  `json:"created_at"`
 	UpdatedAt              time.Time  `json:"updated_at"`
+}
+
+// RenewalApplication is a customer-submitted payment review request. Amount
+// and due date are server-calculated snapshots and are revalidated when the
+// operator approves the payment.
+type RenewalApplication struct {
+	ID             int64      `json:"id"`
+	TrackingToken  string     `json:"tracking_token"`
+	SubscriptionID int64      `json:"subscription_id"`
+	CustomerEmail  string     `json:"customer_email"`
+	DueDate        string     `json:"due_date"`
+	AmountCents    int64      `json:"amount_cents"`
+	Status         string     `json:"status"`
+	OperatorNote   string     `json:"operator_note"`
+	ProcessedAt    *time.Time `json:"processed_at"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 // RedemptionCode is an operator-generated one-time code. Customers must submit

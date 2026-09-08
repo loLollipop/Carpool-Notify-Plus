@@ -5,15 +5,17 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Ellipsis,
   Mail,
   Pencil,
   Receipt,
   Search,
   Snowflake,
+  Trash2,
   UserRoundMinus,
 } from "lucide-react"
 
-import { archiveSubscription } from "@/api/endpoints"
+import { archiveSubscription, deleteMistakenTeamSubscription } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
 import { useCalendar, useDashboard, useSubscriptions } from "@/api/queries"
 import type { CalendarOccurrence, SubscriptionView } from "@/api/types"
@@ -42,6 +44,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Select,
   SelectContent,
@@ -200,6 +208,7 @@ function SubscriptionCard({
   onRenew,
   onSendReminder,
   onArchive,
+  onDelete,
   onGoAfterSales,
 }: {
   view: SubscriptionView
@@ -208,6 +217,7 @@ function SubscriptionCard({
   onRenew: (view: SubscriptionView) => void
   onSendReminder: (view: SubscriptionView) => void
   onArchive: (view: SubscriptionView) => void
+  onDelete: (view: SubscriptionView) => void
   onGoAfterSales: (caseId: number) => void
 }) {
   const { t } = useTranslation()
@@ -294,6 +304,26 @@ function SubscriptionCard({
           ) : (
             <DueStatusBadge paid={false} daysRemaining={view.days_remaining} />
           )}
+          {!plusRental && !archived && !cancellationPending ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="-mr-1 shrink-0 text-muted-foreground"
+                  aria-label={t("cards.moreActions")}
+                >
+                  <Ellipsis aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem variant="destructive" onSelect={() => onDelete(view)}>
+                  <Trash2 />
+                  {t("cards.deleteMistaken")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </div>
       </div>
 
@@ -418,6 +448,10 @@ export function CardsPage() {
     plusRental: boolean
     naturalEnd: boolean
   } | null>(null)
+  const [deleteTarget, setDeleteTarget] = React.useState<{
+    id: number
+    name: string
+  } | null>(null)
   const [cancellationResult, setCancellationResult] = React.useState<{
     caseId: number
     expiresAtLabel: string
@@ -435,6 +469,10 @@ export function CardsPage() {
         expiresAtLabel: data.expires_at_label ?? "",
       })
     },
+  })
+  const deleteMutation = useAppMutation((id: number) => deleteMistakenTeamSubscription(id), {
+    scope: "all",
+    onSuccess: () => setDeleteTarget(null),
   })
 
   const openEdit = (view: SubscriptionView) => {
@@ -765,6 +803,12 @@ export function CardsPage() {
                     naturalEnd: item.days_remaining <= 0,
                   })
                 }
+                onDelete={(item) =>
+                  setDeleteTarget({
+                    id: item.subscription.id,
+                    name: item.subscription.customer_email || item.subscription.name,
+                  })
+                }
                 onGoAfterSales={(caseId) => navigate(`/after-sales?case=${caseId}`)}
               />
             ))}
@@ -823,6 +867,20 @@ export function CardsPage() {
           if (!open) setStatDetail(null)
         }}
         detail={statDetail}
+      />
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+        title={t("confirms.deleteMistakenTitle")}
+        description={t("confirms.deleteMistakenDesc", { name: deleteTarget?.name ?? "" })}
+        actionLabel={t("confirms.deleteMistakenAction")}
+        destructive
+        pending={deleteMutation.isPending}
+        onConfirm={() => {
+          if (deleteTarget) deleteMutation.mutate(deleteTarget.id)
+        }}
       />
       <ConfirmDialog
         open={archiveTarget !== null}

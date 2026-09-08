@@ -330,6 +330,20 @@ func (server *Server) getRedemptions(context *gin.Context) {
 	respondOK(context, gin.H{"redemptions": views, "pending_count": pendingCount})
 }
 
+func (server *Server) getRenewalApplications(context *gin.Context) {
+	views, err := server.Service.ListRenewalApplicationsView(context.Query("status"))
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	pendingCount, err := server.Service.Store.CountRenewalApplicationsByStatus(model.RenewalStatusPending)
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"renewals": views, "pending_count": pendingCount})
+}
+
 func (server *Server) getRedemptionCodes(context *gin.Context) {
 	views, err := server.Service.ListRedemptionCodesView()
 	if err != nil {
@@ -641,6 +655,107 @@ func (server *Server) getRedeemStatus(context *gin.Context) {
 	respondOK(context, gin.H{"redemption": view})
 }
 
+type renewalLookupRequest struct {
+	CustomerEmail string `json:"customer_email"`
+}
+
+func (server *Server) postRenewalLookup(context *gin.Context) {
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
+	var request renewalLookupRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的查询内容")
+		return
+	}
+	view, err := server.Service.LookupRenewalSubscriptions(service.RenewalLookupInput{
+		CustomerEmail: request.CustomerEmail,
+	})
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"renewal": view})
+}
+
+type renewalSubmitRequest struct {
+	CustomerEmail  string `json:"customer_email"`
+	SubscriptionID int64  `json:"subscription_id"`
+}
+
+func (server *Server) postRenewalApplication(context *gin.Context) {
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
+	var request renewalSubmitRequest
+	if err := context.ShouldBindJSON(&request); err != nil || request.SubscriptionID <= 0 {
+		respondError(context, http.StatusBadRequest, "无效的续费申请")
+		return
+	}
+	result, err := server.Service.SubmitRenewalApplication(service.RenewalSubmitInput{
+		CustomerEmail:  request.CustomerEmail,
+		SubscriptionID: request.SubscriptionID,
+	})
+	if err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{
+		"tracking_token": result.TrackingToken,
+		"status":         result.Status,
+		"message":        "续费审核已提交，管理员确认到账后会更新订阅状态",
+	})
+}
+
+func (server *Server) getRenewalStatus(context *gin.Context) {
+	view, err := server.Service.GetRenewalStatus(context.Param("token"))
+	if err != nil {
+		respondError(context, http.StatusNotFound, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"renewal": view})
+}
+
+type renewalDecisionRequest struct {
+	OperatorNote string `json:"operator_note"`
+}
+
+func (server *Server) postApproveRenewalApplication(context *gin.Context) {
+	applicationID, ok := parseIDParam(context, "id", "无效的续费申请 ID")
+	if !ok {
+		return
+	}
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
+	var request renewalDecisionRequest
+	if err := context.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+		respondError(context, http.StatusBadRequest, "无效的审核内容")
+		return
+	}
+	if err := server.Service.ApproveRenewalApplication(applicationID, service.RenewalDecisionInput{
+		OperatorNote: request.OperatorNote,
+	}); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "已确认到账并完成续费记账"})
+}
+
+func (server *Server) postRejectRenewalApplication(context *gin.Context) {
+	applicationID, ok := parseIDParam(context, "id", "无效的续费申请 ID")
+	if !ok {
+		return
+	}
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
+	var request renewalDecisionRequest
+	if err := context.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
+		respondError(context, http.StatusBadRequest, "无效的驳回内容")
+		return
+	}
+	if err := server.Service.RejectRenewalApplication(applicationID, service.RenewalDecisionInput{
+		OperatorNote: request.OperatorNote,
+	}); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "续费申请已驳回"})
+}
+
 // ---- Subscription mutations ---------------------------------------------------
 
 type subscriptionRequest struct {
@@ -837,6 +952,18 @@ func (server *Server) deleteSubscription(context *gin.Context) {
 		return
 	}
 	respondOK(context, gin.H{"message": "已伪删除该已下车订阅"})
+}
+
+func (server *Server) deleteMistakenTeamRegistration(context *gin.Context) {
+	subscriptionID, ok := parseIDParam(context, "id", "无效的订阅 ID")
+	if !ok {
+		return
+	}
+	if err := server.Service.DeleteMistakenTeamRegistration(subscriptionID); err != nil {
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	respondOK(context, gin.H{"message": "误登记已删除，关联账单与统计金额已同步撤销"})
 }
 
 func (server *Server) postArchiveSubscription(context *gin.Context) {
@@ -1322,7 +1449,10 @@ func (server *Server) deleteBill(context *gin.Context) {
 // ---- Settings mutations ----------------------------------------------------------
 
 func (server *Server) putSettings(context *gin.Context) {
-	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 2<<20)
+	// Two independently configurable QR images are stored as base64 data URLs.
+	// Each upload is capped at 1MB on the client and service layer, so leave
+	// enough room for both encoded images plus the remaining settings payload.
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4<<20)
 	var request struct {
 		NotifyTemplate                     string                          `json:"notify_template"`
 		CustomerEmailTemplate              string                          `json:"customer_email_template"`

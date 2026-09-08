@@ -82,7 +82,7 @@ func main() {
 	}
 	router.Use(
 		handler.SecurityHeaders(),
-		handler.LimitRequestBody(2<<20),
+		handler.LimitRequestBody(4<<20),
 		handler.RequestLogger(),
 		gin.Recovery(),
 	)

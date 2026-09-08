@@ -28,6 +28,9 @@ var (
 	ErrRedemptionCodeDisabled            = errors.New("redemption code disabled")
 	ErrRedemptionCodeNotUnused           = errors.New("redemption code not unused")
 	ErrRedemptionAlreadyProcessed        = errors.New("redemption application already processed")
+	ErrRenewalAlreadyPending             = errors.New("renewal application already pending")
+	ErrRenewalAlreadyProcessed           = errors.New("renewal application already processed")
+	ErrRenewalFinancialStateChanged      = errors.New("renewal financial state changed")
 	ErrActiveSeatOccupied                = errors.New("active seat already occupied")
 	ErrBillHasAfterSalesCase             = errors.New("bill is referenced by an after-sales case")
 	ErrBillOccurrenceConflict            = errors.New("bill occurrence already exists")
@@ -335,6 +338,24 @@ func (store *Store) migrate() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_redemption_applications_status
 			ON redemption_applications(status, created_at);`,
+		`CREATE TABLE IF NOT EXISTS renewal_applications (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tracking_token TEXT NOT NULL UNIQUE,
+			subscription_id INTEGER NOT NULL,
+			customer_email TEXT NOT NULL,
+			due_date TEXT NOT NULL,
+			amount_cents INTEGER NOT NULL CHECK(amount_cents >= 0),
+			status TEXT NOT NULL,
+			operator_note TEXT NOT NULL DEFAULT '',
+			processed_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			FOREIGN KEY(subscription_id) REFERENCES subscriptions(id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_renewal_applications_status
+			ON renewal_applications(status, created_at DESC, id DESC);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_renewal_applications_one_pending_period
+			ON renewal_applications(subscription_id, due_date) WHERE status = 'pending';`,
 		`CREATE TABLE IF NOT EXISTS redemption_codes (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			code TEXT NOT NULL UNIQUE,
@@ -2970,6 +2991,7 @@ func (store *Store) ResetBusinessData() error {
 		"operation_acknowledgements",
 		"redemption_codes",
 		"redemption_applications",
+		"renewal_applications",
 		"after_sales_cases",
 		"notification_log",
 		"bills",

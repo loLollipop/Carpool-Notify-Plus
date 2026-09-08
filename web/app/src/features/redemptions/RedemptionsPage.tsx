@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Link } from "react-router-dom"
+import { Link, useSearchParams } from "react-router-dom"
 import {
   Ban,
   CalendarClock,
@@ -8,6 +8,7 @@ import {
   ChevronRight,
   Clock3,
   Copy,
+  CreditCard,
   ExternalLink,
   KeyRound,
   Mail,
@@ -26,16 +27,19 @@ import {
   disableRedemptionCode,
   enableRedemptionCode,
   generateRedemptionCodes,
+  approveRenewalApplication,
   inviteRedemption,
   rejectRedemption,
+  rejectRenewalApplication,
 } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
-import { useAccountOptions, useRedemptionCodes, useRedemptions } from "@/api/queries"
+import { useAccountOptions, useRedemptionCodes, useRedemptions, useRenewalApplications } from "@/api/queries"
 import type {
   AccountOption,
   RedemptionApplicationView,
   RedemptionCodeStatusValue,
   RedemptionCodeView,
+  RenewalApplicationView,
   SeatOption,
 } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
@@ -65,7 +69,7 @@ import { cn } from "@/lib/utils"
 import { todayShanghai } from "@/features/subscriptions/subscription-prefill"
 
 type RedemptionFilter = "pending" | "invited" | "rejected" | "all"
-type RedemptionSection = "applications" | "codes"
+type RedemptionSection = "applications" | "renewals" | "codes"
 
 interface SelectableSeat {
   account: AccountOption
@@ -85,6 +89,7 @@ const CYCLE_PRESETS = [
 const OFFSET_OPTIONS = [1, 2, 3, 5, 7, 14]
 const EMPTY_REDEMPTIONS: RedemptionApplicationView[] = []
 const EMPTY_CODES: RedemptionCodeView[] = []
+const EMPTY_RENEWALS: RenewalApplicationView[] = []
 
 function buildSeatOptions(accounts: AccountOption[]): SelectableSeat[] {
   const options = accounts.flatMap((account) =>
@@ -808,13 +813,198 @@ function RedemptionCard({
   )
 }
 
+type RenewalFilter = "pending" | "approved" | "rejected" | "all"
+
+function renewalStatusBadge(status: RenewalApplicationView["application"]["status"]) {
+  if (status === "approved") {
+    return <Badge variant="success"><CheckCircle2 className="size-3.5" />已续费</Badge>
+  }
+  if (status === "rejected") {
+    return <Badge variant="destructive"><Ban className="size-3.5" />已驳回</Badge>
+  }
+  return <Badge variant="brand"><Clock3 className="size-3.5" />待核款</Badge>
+}
+
+function RenewalReviewManager() {
+  const [searchParams] = useSearchParams()
+  const targetRenewalID = Number(searchParams.get("renewal") ?? 0)
+  const [filter, setFilter] = React.useState<RenewalFilter>("pending")
+  const [search, setSearch] = React.useState("")
+  const [notes, setNotes] = React.useState<Record<number, string>>({})
+  const [decision, setDecision] = React.useState<{
+    action: "approve" | "reject"
+    view: RenewalApplicationView
+  } | null>(null)
+  const renewalsQuery = useRenewalApplications("all")
+  const renewals = renewalsQuery.data?.renewals ?? EMPTY_RENEWALS
+  const filtered = React.useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return renewals.filter((view) => {
+      if (filter !== "all" && view.application.status !== filter) return false
+      if (!query) return true
+      return [
+        view.application.customer_email,
+        view.service_label,
+        view.account_email,
+        view.seat_name,
+        view.application.due_date,
+      ].some((value) => value?.toLowerCase().includes(query))
+    }).sort((left, right) =>
+      Number(right.application.id === targetRenewalID) - Number(left.application.id === targetRenewalID),
+    )
+  }, [filter, renewals, search, targetRenewalID])
+
+  const approveMutation = useAppMutation(
+    (view: RenewalApplicationView) => approveRenewalApplication(view.application.id, {
+      operator_note: notes[view.application.id]?.trim() ?? "",
+    }),
+    { scope: "renewals", onSuccess: () => setDecision(null) },
+  )
+  const rejectMutation = useAppMutation(
+    (view: RenewalApplicationView) => rejectRenewalApplication(view.application.id, {
+      operator_note: notes[view.application.id]?.trim() ?? "",
+    }),
+    { scope: "renewals", onSuccess: () => setDecision(null) },
+  )
+  const pending = approveMutation.isPending || rejectMutation.isPending
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-5">
+      <div className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold">收款审核队列</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            待审核 {renewalsQuery.data?.pending_count ?? 0} 条，确认到账后系统会自动记账并推进账期。
+          </p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative">
+            <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="搜索客户邮箱 / 母号..."
+              className="h-9 pl-8 sm:w-72"
+            />
+          </div>
+          <Select value={filter} onValueChange={(value) => setFilter(value as RenewalFilter)}>
+            <SelectTrigger className="h-9 sm:w-32"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="pending">待核款</SelectItem>
+              <SelectItem value="approved">已续费</SelectItem>
+              <SelectItem value="rejected">已驳回</SelectItem>
+              <SelectItem value="all">全部</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {renewalsQuery.isPending ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          <Skeleton className="h-72 rounded-xl" />
+          <Skeleton className="h-72 rounded-xl" />
+        </div>
+      ) : renewalsQuery.isError ? (
+        <Card className="items-center gap-3 py-16 text-center">
+          <p className="text-sm text-muted-foreground">续费审核加载失败</p>
+          <Button variant="outline" onClick={() => renewalsQuery.refetch()}>重试</Button>
+        </Card>
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={<CreditCard className="size-5" />}
+          title={renewals.length === 0 ? "暂无续费审核" : "当前筛选没有匹配申请"}
+          description="客户付款后提交的续费申请会自动出现在这里。"
+        />
+      ) : (
+        <div className="grid min-h-0 gap-4 overflow-y-auto pr-1 md:grid-cols-2">
+          {filtered.map((view) => (
+            <Card
+              key={view.application.id}
+              className={cn(
+                "content-start gap-4 p-5",
+                view.application.id === targetRenewalID && "border-brand ring-2 ring-brand/15",
+              )}
+            >
+              <div className="flex items-start justify-between gap-3 border-b pb-4">
+                <div className="min-w-0">
+                  <p className="truncate font-mono text-sm font-semibold">{view.application.customer_email}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">提交于 {view.created_at_label}</p>
+                </div>
+                {renewalStatusBadge(view.application.status)}
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">页面应付</p>
+                  <p className="mt-1 text-xl font-semibold tabular-nums text-brand">¥{view.amount_yuan}</p>
+                </div>
+                <div className="rounded-lg border bg-muted/20 p-3">
+                  <p className="text-xs text-muted-foreground">续费账期</p>
+                  <p className="mt-1 font-semibold tabular-nums">{view.application.due_date}</p>
+                </div>
+              </div>
+              <div className="grid gap-2 text-xs text-muted-foreground">
+                <div className="flex justify-between gap-4"><span>业务</span><strong className="text-foreground">{view.service_label} · {view.cycle_desc}</strong></div>
+                {view.business_type === "team" ? (
+                  <div className="flex justify-between gap-4"><span>分配位置</span><strong className="min-w-0 truncate text-foreground">{view.account_serial > 0 ? `${view.account_serial}号 · ` : ""}{view.account_email || "母号"} · {view.seat_name || "席位"}</strong></div>
+                ) : null}
+                {view.processed_at_label ? <div className="flex justify-between gap-4"><span>处理时间</span><strong className="text-foreground">{view.processed_at_label}</strong></div> : null}
+                {view.application.operator_note ? <div className="rounded-md bg-muted/50 px-3 py-2 leading-5">{view.application.operator_note}</div> : null}
+              </div>
+              {view.application.status === "pending" ? (
+                <div className="mt-auto grid gap-3 border-t pt-4">
+                  <Input
+                    value={notes[view.application.id] ?? ""}
+                    onChange={(event) => setNotes((current) => ({ ...current, [view.application.id]: event.target.value }))}
+                    placeholder="审核备注（可选；驳回时建议填写原因）"
+                    maxLength={500}
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button variant="outline" className="text-destructive hover:text-destructive" onClick={() => setDecision({ action: "reject", view })}>
+                      驳回
+                    </Button>
+                    <Button onClick={() => setDecision({ action: "approve", view })}>
+                      <CheckCircle2 data-slot="icon" />确认到账并续费
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={decision !== null}
+        onOpenChange={(open) => { if (!open && !pending) setDecision(null) }}
+        title={decision?.action === "approve" ? "确认款项已经到账？" : "驳回这条续费申请？"}
+        description={decision?.action === "approve"
+          ? `将按 ¥${decision.view.amount_yuan} 为 ${decision.view.application.customer_email} 登记 ${decision.view.application.due_date} 账期。`
+          : "驳回后客户可以重新查询并提交该账期，请在备注中说明金额或付款信息问题。"}
+        actionLabel={decision?.action === "approve" ? "确认到账并记账" : "确认驳回"}
+        destructive={decision?.action === "reject"}
+        pending={pending}
+        onConfirm={() => {
+          if (!decision) return
+          if (decision.action === "approve") approveMutation.mutate(decision.view)
+          else rejectMutation.mutate(decision.view)
+        }}
+      />
+    </div>
+  )
+}
+
 export function RedemptionsPage() {
-  const [section, setSection] = React.useState<RedemptionSection>("applications")
+  const [searchParams] = useSearchParams()
+  const requestedSection = searchParams.get("section")
+  const [section, setSection] = React.useState<RedemptionSection>(
+    requestedSection === "renewals" || requestedSection === "codes" ? requestedSection : "applications",
+  )
   const [filter, setFilter] = React.useState<RedemptionFilter>("pending")
   const [search, setSearch] = React.useState("")
   const [page, setPage] = React.useState(1)
   const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
   const redemptionsQuery = useRedemptions("all")
+  const renewalsQuery = useRenewalApplications("all")
   const accountOptionsQuery = useAccountOptions(0, true)
 
   const seats = React.useMemo(
@@ -925,6 +1115,15 @@ export function RedemptionsPage() {
             {pendingCount > 0 ? (
               <span className="ml-1 rounded-full bg-brand px-1.5 py-0.5 text-[11px] leading-none text-brand-foreground">
                 {pendingCount}
+              </span>
+            ) : null}
+          </TabsTrigger>
+          <TabsTrigger value="renewals" className="h-8 px-4 text-sm">
+            <CreditCard data-slot="icon" />
+            续费审核
+            {(renewalsQuery.data?.pending_count ?? 0) > 0 ? (
+              <span className="ml-1 rounded-full bg-brand px-1.5 py-0.5 text-[11px] leading-none text-brand-foreground">
+                {renewalsQuery.data?.pending_count}
               </span>
             ) : null}
           </TabsTrigger>
@@ -1050,6 +1249,10 @@ export function RedemptionsPage() {
               ) : null}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="renewals" className="flex min-h-0 flex-1 flex-col">
+          <RenewalReviewManager />
         </TabsContent>
 
         <TabsContent value="codes" className="min-h-0 flex-1">

@@ -23,6 +23,11 @@ import type {
   OperatingExpenseInput,
   OperatingExpenseView,
   ReminderPreview,
+  RenewalApplicationView,
+  RenewalDecisionInput,
+  RenewalLookupView,
+  RenewalStatus,
+  RenewalSubmitInput,
   RedemptionApplicationView,
   RedemptionCodeGenerateInput,
   RedemptionCodeView,
@@ -136,6 +141,16 @@ export function fetchAfterSales() {
   }))
 }
 
+export function fetchRenewalApplications(status?: "pending" | "approved" | "rejected" | "all") {
+  const query = status && status !== "all" ? `?status=${encodeURIComponent(status)}` : ""
+  return api<{ renewals: RenewalApplicationView[] | null; pending_count: number }>(
+    `/api/renewal-applications${query}`,
+  ).then((result) => ({
+    renewals: result.renewals ?? [],
+    pending_count: result.pending_count,
+  }))
+}
+
 export function fetchAccountOptions(includeSeatId = 0) {
   const query = includeSeatId > 0 ? `?include_seat_id=${includeSeatId}` : ""
   return api<{ accounts: AccountOption[] | null }>(`/api/account-options${query}`).then(
@@ -217,6 +232,26 @@ export function createBusinessGoal(input: BusinessGoalInput) {
   return api<MessageResult & { goal_id: number }>("/api/goals", { method: "POST", body: input })
 }
 
+export function lookupRenewalSubscriptions(customerEmail: string, sandboxAccessToken = "") {
+  return api<{ renewal: RenewalLookupView }>(
+    publicSandboxPath("/api/renewal/lookup", sandboxAccessToken),
+    { method: "POST", body: { customer_email: customerEmail } },
+  ).then((result) => result.renewal)
+}
+
+export function submitRenewalApplication(input: RenewalSubmitInput, sandboxAccessToken = "") {
+  return api<MessageResult & { tracking_token: string; status: "pending" }>(
+    publicSandboxPath("/api/renewal", sandboxAccessToken),
+    { method: "POST", body: input },
+  )
+}
+
+export function fetchRenewalStatus(token: string, sandboxAccessToken = "") {
+  return api<{ renewal: RenewalStatus }>(
+    publicSandboxPath(`/api/renewal/${encodeURIComponent(token)}`, sandboxAccessToken),
+  ).then((result) => result.renewal)
+}
+
 export function updateBusinessGoal(id: number, input: BusinessGoalInput) {
   return api<MessageResult>(`/api/goals/${id}`, { method: "PUT", body: input })
 }
@@ -267,6 +302,12 @@ export function updateSubscription(id: number, input: SubscriptionInput) {
   return api<MessageResult>(`/api/subscriptions/${id}`, { method: "PUT", body: input })
 }
 
+export function deleteMistakenTeamSubscription(id: number) {
+  return api<MessageResult>(`/api/subscriptions/${id}/mistaken-registration`, {
+    method: "DELETE",
+  })
+}
+
 export function archiveSubscription(id: number) {
   return api<
     MessageResult & {
@@ -303,6 +344,20 @@ export function inviteRedemption(id: number, input: RedemptionInviteInput) {
 
 export function rejectRedemption(id: number, input: RedemptionRejectInput) {
   return api<MessageResult>(`/api/redemptions/${id}/reject`, {
+    method: "POST",
+    body: input,
+  })
+}
+
+export function approveRenewalApplication(id: number, input: RenewalDecisionInput) {
+  return api<MessageResult>(`/api/renewal-applications/${id}/approve`, {
+    method: "POST",
+    body: input,
+  })
+}
+
+export function rejectRenewalApplication(id: number, input: RenewalDecisionInput) {
+  return api<MessageResult>(`/api/renewal-applications/${id}/reject`, {
     method: "POST",
     body: input,
   })

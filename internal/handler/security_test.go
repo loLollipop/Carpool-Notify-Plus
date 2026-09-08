@@ -80,6 +80,21 @@ func TestRequestLoggerRedactsBearerTokens(t *testing.T) {
 	}
 }
 
+func TestRequestLoggerRedactsRenewalTrackingTokens(t *testing.T) {
+	request := httptest.NewRequest(
+		http.MethodGet,
+		"/api/renewal/renewal-secret",
+		nil,
+	)
+	target := redactedRequestTarget(request)
+	if strings.Contains(target, "renewal-secret") {
+		t.Fatalf("request target leaked a renewal token: %q", target)
+	}
+	if target != "/api/renewal/:token" {
+		t.Fatalf("request target = %q, want redacted renewal route", target)
+	}
+}
+
 func TestLoginRateLimitBlocksRepeatedFailures(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	server := &Server{}

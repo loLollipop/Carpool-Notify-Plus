@@ -71,6 +71,7 @@ export interface SubscriptionView {
 }
 
 type RedemptionStatusValue = "pending" | "invited" | "rejected"
+export type RenewalStatusValue = "pending" | "approved" | "rejected"
 export type RedemptionCodeStatusValue = "unused" | "used" | "disabled"
 
 interface RedemptionApplication {
@@ -199,6 +200,65 @@ interface AmountBar {
   amount_cents: number
 }
 
+export interface RenewalSubscriptionView {
+  subscription_id: number
+  business_type: SubscriptionBusinessType
+  service_label: string
+  account_serial: number
+  seat_name: string
+  due_date: string
+  period_end_date: string
+  days_remaining: number
+  status_label: string
+  amount_yuan: string
+  cycle_desc: string
+  renewable: boolean
+  pending_review: boolean
+  unavailable_reason: string
+}
+
+export interface RenewalLookupView {
+  customer_email: string
+  subscriptions: RenewalSubscriptionView[]
+}
+
+export interface RenewalStatus {
+  status: RenewalStatusValue
+  customer_email: string
+  business_type: SubscriptionBusinessType
+  service_label: string
+  due_date: string
+  amount_yuan: string
+  created_at_label: string
+  processed_at_label: string
+  operator_note: string
+}
+
+export interface RenewalApplicationView {
+  application: {
+    id: number
+    tracking_token: string
+    subscription_id: number
+    customer_email: string
+    due_date: string
+    amount_cents: number
+    status: RenewalStatusValue
+    operator_note: string
+    processed_at: string | null
+    created_at: string
+    updated_at: string
+  }
+  business_type: SubscriptionBusinessType
+  service_label: string
+  amount_yuan: string
+  cycle_desc: string
+  account_serial: number
+  account_email: string
+  seat_name: string
+  created_at_label: string
+  processed_at_label: string
+}
+
 interface AccountBreakdown {
   key: string
   account_id: number
@@ -236,6 +296,7 @@ type OperationTaskKind =
   | "plus_overdue"
   | "plus_due"
   | "redemption"
+  | "renewal_review"
   | "after_sales"
   | "notification_failed"
   | "seat_release"
@@ -248,6 +309,7 @@ export interface OperationTask {
   subscription_id: number
   after_sales_case_id: number
   redemption_id: number
+  renewal_application_id: number
   account_id: number
   seat_id: number
   name: string
@@ -295,6 +357,7 @@ interface OperationsWorkSummary {
   plus_due_count: number
   account_renewal_count: number
   pending_redemption_count: number
+  pending_renewal_count: number
   pending_after_sales_count: number
   failed_notification_count: number
 }
@@ -642,6 +705,12 @@ export interface RedeemPageSettings {
   support_contact_label: string
   support_wechat_id: string
   support_qr_data_url: string
+  renewal_announcement_title: string
+  renewal_announcement_intro: string
+  renewal_announcement_items: string[]
+  payment_title: string
+  payment_description: string
+  payment_qr_data_url: string
   codex_plus_weekly_quota_usd: number
   codex_team_weekly_quota_usd: number
   web_primary_benefit_label: string
@@ -728,6 +797,15 @@ export interface RedemptionInviteInput {
   boarded_at: string
   remark: string
   trade_url: string
+  operator_note: string
+}
+
+export interface RenewalSubmitInput {
+  customer_email: string
+  subscription_id: number
+}
+
+export interface RenewalDecisionInput {
   operator_note: string
 }
 
