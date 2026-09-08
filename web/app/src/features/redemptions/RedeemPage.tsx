@@ -13,9 +13,7 @@ import {
   LoaderCircle,
   Mail,
   Megaphone,
-  MessageCircle,
   Moon,
-  ShieldCheck,
   Sparkles,
   Sun,
   TicketCheck,
@@ -337,7 +335,7 @@ function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
       </div>
 
       <div className="redeem-support-body flex flex-1 flex-col p-5 xl:p-6">
-        <div className="flex items-start gap-3">
+        <div className="redeem-side-heading">
           <span className="redeem-support-icon size-10">
             <WeChatIcon className="size-5" />
           </span>
@@ -391,7 +389,7 @@ function SupportWechatDialogButton({ settings }: { settings: RedeemPageSettings 
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-[390px]">
-        <DialogHeader>
+        <DialogHeader className="items-center text-center">
           <DialogTitle>{settings.support_title}</DialogTitle>
           <DialogDescription>{settings.support_description}</DialogDescription>
         </DialogHeader>
@@ -464,7 +462,7 @@ function PaymentPanel({
         <span className="redeem-online-label">PAY</span>
       </div>
       <div className="redeem-support-body flex flex-1 flex-col p-5 xl:p-6">
-        <div className="flex items-start gap-3">
+        <div className="redeem-side-heading">
           <span className="redeem-support-icon size-10"><CreditCard className="size-5" /></span>
           <div className="min-w-0">
             <p className="font-mono text-[9px] font-semibold tracking-[0.16em] text-[var(--redeem-accent)]">RENEWAL PAYMENT</p>
@@ -502,7 +500,7 @@ function PaymentDialogButton({
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-[390px]">
-        <DialogHeader>
+        <DialogHeader className="items-center text-center">
           <DialogTitle>{settings.payment_title}</DialogTitle>
           <DialogDescription>{settings.payment_description}</DialogDescription>
         </DialogHeader>
@@ -1544,47 +1542,7 @@ export function RedeemPage() {
       <RedeemAmbientField />
       {mode === "redeem" ? <RedeemReferenceFloats settings={redeemSettings} /> : null}
 
-      <section className="relative mx-auto w-full max-w-[1760px] px-4 pb-8 pt-4 sm:px-6 sm:pb-10 sm:pt-5 lg:px-8 lg:pb-12 lg:pt-6">
-        <div className="redeem-command-dock">
-          <div className="redeem-command-signal" aria-hidden="true">
-            <span className="redeem-status-dot" />
-            <span>CPN / ACCESS</span>
-          </div>
-
-          <nav className="redeem-mode-switch" aria-label="服务入口">
-            <button
-              type="button"
-              className={cn("redeem-mode-tab", mode === "redeem" && "is-active")}
-              aria-current={mode === "redeem" ? "page" : undefined}
-              onClick={() => handleModeChange("redeem")}
-            >
-              <span className="redeem-mode-index">01</span>
-              <span className="redeem-mode-icon"><TicketCheck /></span>
-              <span>兑换申请</span>
-            </button>
-            <button
-              type="button"
-              className={cn("redeem-mode-tab", mode === "renewal" && "is-active")}
-              aria-current={mode === "renewal" ? "page" : undefined}
-              onClick={() => handleModeChange("renewal")}
-            >
-              <span className="redeem-mode-index">02</span>
-              <span className="redeem-mode-icon"><CreditCard /></span>
-              <span>自助续费</span>
-            </button>
-          </nav>
-
-          <div className="redeem-command-actions">
-            {sandboxMode ? <span className="redeem-sandbox-badge">SANDBOX</span> : null}
-            <RedeemAnnouncementButton mode={mode} onClick={() => setNoticeOpen(true)} />
-            {mode === "renewal" ? (
-              <PaymentDialogButton settings={redeemSettings} selected={selectedRenewal} />
-            ) : (
-              <SupportWechatDialogButton settings={redeemSettings} />
-            )}
-            <RedeemThemeToggle />
-          </div>
-        </div>
+      <section className="relative mx-auto w-full max-w-[1760px] px-4 pb-8 pt-7 sm:px-6 sm:pb-10 sm:pt-8 lg:px-8 lg:pb-12 lg:pt-10">
         <div
           className={cn(
             "redeem-workspace grid items-stretch gap-6 animate-fade-up",
@@ -1626,34 +1584,63 @@ export function RedeemPage() {
                   {mode === "renewal" ? "ACCOUNT / RENEW" : "TEAM / REDEEM"}
                 </span>
               </div>
-              <div className="flex items-center gap-2 text-[10px] font-semibold text-[var(--redeem-accent)] sm:text-xs">
-                <span className="redeem-status-dot" />
-                通道在线
+              <div className="redeem-terminal-actions">
+                {sandboxMode ? <span className="redeem-sandbox-badge">SANDBOX</span> : null}
+                <span className="redeem-channel-status">
+                  <span className="redeem-status-dot" />
+                  <span className="hidden sm:inline">通道在线</span>
+                </span>
+                <RedeemAnnouncementButton mode={mode} onClick={() => setNoticeOpen(true)} />
+                {mode === "renewal" ? (
+                  <PaymentDialogButton settings={redeemSettings} selected={selectedRenewal} />
+                ) : (
+                  <SupportWechatDialogButton settings={redeemSettings} />
+                )}
+                <RedeemThemeToggle />
               </div>
             </div>
 
             <div className="px-5 pt-6 sm:px-8 sm:pt-8 lg:px-9">
-              <p className="font-mono text-[10px] font-semibold tracking-[0.16em] text-[var(--redeem-accent)]">
-                {mode === "renewal" ? "RENEWAL REVIEW" : "ACCESS REQUEST"}
-              </p>
-              <h1 className="mt-2 text-2xl font-semibold tracking-[-0.02em] sm:text-[28px]">
-                {mode === "renewal" ? "查询并续费我的订阅" : "兑换 Team 席位"}
-              </h1>
-              <div className="redeem-trust-strip" aria-label="服务保障">
-                {mode === "renewal" ? (
-                  <>
-                    <span><TicketCheck />账单实时核算</span>
-                    <span><ShieldCheck />金额服务端校验</span>
-                    <span><Clock3 />到账人工复核</span>
-                  </>
-                ) : (
-                  <>
-                    <span><Clock3 />通常 1–2 分钟</span>
-                    <span><ShieldCheck />信息仅用于服务</span>
-                    <span><MessageCircle />人工售后支持</span>
-                  </>
-                )}
+              <div className="redeem-portal-heading">
+                <p className="redeem-portal-eyebrow">
+                  {mode === "renewal" ? "RENEWAL REVIEW" : "ACCESS REQUEST"}
+                </p>
+                <h1 className="redeem-portal-title">
+                  <span>ChatGPT</span>
+                  <span className="redeem-portal-title-accent">自助管理系统</span>
+                </h1>
+                <p className="redeem-service-caption">
+                  {mode === "renewal" ? "查询订阅账单并提交续费审核" : "提交兑换信息并等待席位邀请"}
+                </p>
               </div>
+              <nav className="redeem-mode-switch" aria-label="自助服务入口">
+                <button
+                  type="button"
+                  className={cn("redeem-mode-tab", mode === "redeem" && "is-active")}
+                  aria-current={mode === "redeem" ? "page" : undefined}
+                  onClick={() => handleModeChange("redeem")}
+                >
+                  <span className="redeem-mode-index">01</span>
+                  <span className="redeem-mode-icon"><TicketCheck /></span>
+                  <span className="redeem-mode-copy">
+                    <strong>兑换申请</strong>
+                    <small>REDEEM</small>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={cn("redeem-mode-tab", mode === "renewal" && "is-active")}
+                  aria-current={mode === "renewal" ? "page" : undefined}
+                  onClick={() => handleModeChange("renewal")}
+                >
+                  <span className="redeem-mode-index">02</span>
+                  <span className="redeem-mode-icon"><CreditCard /></span>
+                  <span className="redeem-mode-copy">
+                    <strong>自助续费</strong>
+                    <small>RENEW</small>
+                  </span>
+                </button>
+              </nav>
             </div>
 
             {mode === "redeem" ? <Form {...form}>
