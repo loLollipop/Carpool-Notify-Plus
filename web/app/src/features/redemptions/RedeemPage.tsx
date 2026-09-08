@@ -39,7 +39,6 @@ import type {
   RedemptionStatus,
   RenewalSubscriptionView,
 } from "@/api/types"
-import { APP_NAME, BrandIcon } from "@/components/brand"
 import { WeChatIcon } from "@/components/icons/wechat-icon"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
@@ -1545,23 +1544,38 @@ export function RedeemPage() {
       <RedeemAmbientField />
       {mode === "redeem" ? <RedeemReferenceFloats settings={redeemSettings} /> : null}
 
-      <header className="redeem-topbar">
-        <div className="mx-auto flex h-16 w-full max-w-[1760px] items-center justify-between gap-4 px-4 sm:h-[72px] sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-3">
-            <BrandIcon className="size-8 rounded-md shadow-none sm:size-9" />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold leading-none sm:text-[15px]">{APP_NAME}</p>
-              <div className="mt-1.5 flex items-center gap-2 whitespace-nowrap text-[10px] font-medium text-[var(--redeem-muted)]">
-                <span className="hidden sm:inline">{mode === "renewal" ? "订阅自助续费" : "Team 席位兑换"}</span>
-                <span className="redeem-status-dot" aria-hidden="true" />
-                <span className="text-[var(--redeem-accent)]">在线</span>
-              </div>
-            </div>
-            {sandboxMode ? (
-              <span className="redeem-sandbox-badge">SANDBOX</span>
-            ) : null}
+      <section className="relative mx-auto w-full max-w-[1760px] px-4 pb-8 pt-4 sm:px-6 sm:pb-10 sm:pt-5 lg:px-8 lg:pb-12 lg:pt-6">
+        <div className="redeem-command-dock">
+          <div className="redeem-command-signal" aria-hidden="true">
+            <span className="redeem-status-dot" />
+            <span>CPN / ACCESS</span>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
+
+          <nav className="redeem-mode-switch" aria-label="服务入口">
+            <button
+              type="button"
+              className={cn("redeem-mode-tab", mode === "redeem" && "is-active")}
+              aria-current={mode === "redeem" ? "page" : undefined}
+              onClick={() => handleModeChange("redeem")}
+            >
+              <span className="redeem-mode-index">01</span>
+              <span className="redeem-mode-icon"><TicketCheck /></span>
+              <span>兑换申请</span>
+            </button>
+            <button
+              type="button"
+              className={cn("redeem-mode-tab", mode === "renewal" && "is-active")}
+              aria-current={mode === "renewal" ? "page" : undefined}
+              onClick={() => handleModeChange("renewal")}
+            >
+              <span className="redeem-mode-index">02</span>
+              <span className="redeem-mode-icon"><CreditCard /></span>
+              <span>自助续费</span>
+            </button>
+          </nav>
+
+          <div className="redeem-command-actions">
+            {sandboxMode ? <span className="redeem-sandbox-badge">SANDBOX</span> : null}
             <RedeemAnnouncementButton mode={mode} onClick={() => setNoticeOpen(true)} />
             {mode === "renewal" ? (
               <PaymentDialogButton settings={redeemSettings} selected={selectedRenewal} />
@@ -1571,25 +1585,6 @@ export function RedeemPage() {
             <RedeemThemeToggle />
           </div>
         </div>
-      </header>
-
-      <section className="relative mx-auto w-full max-w-[1760px] px-4 pb-8 pt-6 sm:px-6 sm:pb-10 sm:pt-8 lg:px-8 lg:pb-12 lg:pt-10">
-        <nav className="mx-auto mb-5 flex w-fit items-center rounded-lg border border-[var(--redeem-line)] bg-[var(--redeem-panel)] p-1 shadow-sm" aria-label="服务入口">
-          <button
-            type="button"
-            className={cn("redeem-mode-tab", mode === "redeem" && "is-active")}
-            onClick={() => handleModeChange("redeem")}
-          >
-            <TicketCheck />兑换申请
-          </button>
-          <button
-            type="button"
-            className={cn("redeem-mode-tab", mode === "renewal" && "is-active")}
-            onClick={() => handleModeChange("renewal")}
-          >
-            <CreditCard />自助续费
-          </button>
-        </nav>
         <div
           className={cn(
             "redeem-workspace grid items-stretch gap-6 animate-fade-up",
