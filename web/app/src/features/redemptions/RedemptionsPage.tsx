@@ -9,7 +9,6 @@ import {
   Clock3,
   Copy,
   CreditCard,
-  ExternalLink,
   KeyRound,
   Mail,
   MessageCircle,
@@ -53,6 +52,14 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Checkbox } from "@/components/ui/checkbox"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
@@ -153,12 +160,53 @@ function redemptionCodeBadge(status: RedemptionCodeStatusValue) {
   )
 }
 
-async function copyRedemptionCode(code: string) {
+async function writeClipboardText(text: string) {
   try {
-    await navigator.clipboard.writeText(code)
-    toast.success("已复制兑换码")
+    await navigator.clipboard.writeText(text)
+    return true
   } catch {
+    const textarea = document.createElement("textarea")
+    textarea.value = text
+    textarea.setAttribute("readonly", "")
+    textarea.style.position = "fixed"
+    textarea.style.opacity = "0"
+    try {
+      document.body.appendChild(textarea)
+      textarea.select()
+      return document.execCommand("copy")
+    } catch {
+      return false
+    } finally {
+      textarea.remove()
+    }
+  }
+}
+
+async function copyRedemptionCode(code: string) {
+  if (await writeClipboardText(code)) {
+    toast.success("已复制兑换码")
+  } else {
     toast.error("复制失败，请手动复制")
+  }
+}
+
+function redemptionShareText(codes: RedemptionCodeView[]) {
+  const redeemURL = new URL("/redeem", window.location.origin).toString()
+  return codes
+    .map((view) => `自助链接：${redeemURL}\n兑换码：${view.code.code}`)
+    .join("\n\n")
+}
+
+async function copyGeneratedRedemptionCodes(codes: RedemptionCodeView[]) {
+  if (codes.length === 0) {
+    toast.warning("兑换码已生成，但返回内容为空，请刷新列表后查看")
+    return
+  }
+
+  if (await writeClipboardText(redemptionShareText(codes))) {
+    toast.success(`${codes.length} 个兑换码已生成并自动复制`)
+  } else {
+    toast.warning("兑换码已生成，但自动复制失败，请在列表中手动复制")
   }
 }
 
@@ -186,6 +234,9 @@ function DetailPill({
 function RedemptionCodeManager() {
   const [count, setCount] = React.useState("1")
   const [note, setNote] = React.useState("")
+  const [generateOpen, setGenerateOpen] = React.useState(false)
+  const [lookupCode, setLookupCode] = React.useState("")
+  const [lookupResult, setLookupResult] = React.useState<RedemptionCodeView | null>(null)
   const [page, setPage] = React.useState(1)
   const [deleteTarget, setDeleteTarget] = React.useState<RedemptionCodeView | null>(null)
   const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
@@ -199,6 +250,23 @@ function RedemptionCodeManager() {
   const paged = codes.slice(pageStart, pageStart + CODE_PAGE_SIZE)
   const parsedCount = Number(count)
   const countValid = Number.isInteger(parsedCount) && parsedCount >= 1 && parsedCount <= 20
+
+  const lookupRedemptionCode = () => {
+    const normalizedCode = lookupCode.trim().toUpperCase()
+    if (!normalizedCode) {
+      toast.error("请输入需要查询的兑换码")
+      return
+    }
+
+    const result = codes.find((view) => view.code.code.toUpperCase() === normalizedCode)
+    if (!result) {
+      toast.error("未找到对应的兑换码记录，请检查后重试")
+      return
+    }
+
+    setLookupCode(result.code.code)
+    setLookupResult(result)
+  }
 
   const openCodeDetail = (status: RedemptionCodeStatusValue) => {
     const source = codes.filter((view) => view.code.status === status)
@@ -224,14 +292,13 @@ function RedemptionCodeManager() {
       }),
     {
       scope: "redemption-codes",
-      successMessage: "兑换码已生成",
+      successToast: false,
       onSuccess: (result) => {
+        setGenerateOpen(false)
+        setCount("1")
         setNote("")
         setPage(1)
-        const firstCode = result.codes[0]?.code.code
-        if (firstCode) {
-          void copyRedemptionCode(firstCode)
-        }
+        void copyGeneratedRedemptionCodes(result.codes)
       },
     },
   )
@@ -252,33 +319,42 @@ function RedemptionCodeManager() {
   return (
     <div className="flex h-full min-h-0 flex-col">
     <Card className="min-h-0 flex-1 gap-0 overflow-y-auto p-0">
-      <div className="flex flex-col gap-4 border-b bg-muted/35 p-5 lg:flex-row lg:items-start lg:justify-between">
+      <div className="flex flex-col gap-4 border-b bg-muted/35 p-5 lg:flex-row lg:items-center lg:justify-between">
         <h2 className="flex items-center gap-2 text-lg font-semibold">
           <KeyRound className="size-4 text-muted-foreground" />
-          生成兑换码
+          兑换码管理
         </h2>
-        <div className="grid gap-2 sm:grid-cols-[88px_minmax(220px,1fr)_auto] lg:w-[560px]">
-          <Input
-            type="number"
-            min={1}
-            max={20}
-            value={count}
-            onChange={(event) => setCount(event.target.value)}
-            aria-label="生成数量"
-            aria-invalid={count.trim() !== "" && !countValid}
-          className="h-9"
-          />
-          <Input
-            value={note}
-            onChange={(event) => setNote(event.target.value)}
-            placeholder="备注，比如客户来源 / 订单号"
-            className="h-9"
-          />
-          <Button disabled={!countValid || generateMutation.isPending} onClick={() => generateMutation.mutate()}>
-            <Plus data-slot="icon" />
-            生成
+        <form
+          className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(220px,1fr)_auto_auto] lg:w-[600px]"
+          onSubmit={(event) => {
+            event.preventDefault()
+            lookupRedemptionCode()
+          }}
+        >
+          <div className="relative col-span-2 sm:col-span-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={lookupCode}
+              onChange={(event) => setLookupCode(event.target.value.toUpperCase())}
+              placeholder="输入兑换码"
+              aria-label="输入需要查询的兑换码"
+              autoComplete="off"
+              className="pl-9 font-mono"
+            />
+          </div>
+          <Button
+            type="submit"
+            variant="outline"
+            disabled={codesQuery.isPending || codesQuery.isError}
+          >
+            <Search data-slot="icon" />
+            查询
           </Button>
-        </div>
+          <Button type="button" onClick={() => setGenerateOpen(true)}>
+            <Plus data-slot="icon" />
+            生成兑换码
+          </Button>
+        </form>
       </div>
 
       <div className="grid gap-3 border-b bg-muted/25 p-5 sm:grid-cols-3">
@@ -435,6 +511,142 @@ function RedemptionCodeManager() {
         </div>
       )}
     </Card>
+    <Dialog
+      open={generateOpen}
+      onOpenChange={(open) => {
+        if (!open && generateMutation.isPending) return
+        setGenerateOpen(open)
+      }}
+    >
+      <DialogContent aria-describedby="generate-redemption-code-description" className="sm:max-w-md">
+        <form
+          className="grid gap-5"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (countValid) generateMutation.mutate()
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
+                <KeyRound className="size-4" />
+              </span>
+              生成兑换码
+            </DialogTitle>
+            <DialogDescription id="generate-redemption-code-description">
+              生成成功后会自动复制自助链接和兑换码，可直接发送给客户。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="redemption-code-count">生成数量</Label>
+              <Input
+                id="redemption-code-count"
+                type="number"
+                min={1}
+                max={20}
+                value={count}
+                onChange={(event) => setCount(event.target.value)}
+                aria-invalid={count.trim() !== "" && !countValid}
+              />
+              {!countValid ? (
+                <p className="text-xs text-destructive">请输入 1 至 20 之间的整数</p>
+              ) : null}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="redemption-code-note">备注</Label>
+              <Textarea
+                id="redemption-code-note"
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="例如客户来源、订单号（选填）"
+                rows={3}
+                maxLength={200}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={generateMutation.isPending}
+              onClick={() => setGenerateOpen(false)}
+            >
+              取消
+            </Button>
+            <Button type="submit" disabled={!countValid || generateMutation.isPending}>
+              <Plus data-slot="icon" />
+              {generateMutation.isPending ? "生成中..." : "确认生成"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+    <Dialog
+      open={lookupResult !== null}
+      onOpenChange={(open) => {
+        if (!open) setLookupResult(null)
+      }}
+    >
+      <DialogContent aria-describedby="redemption-code-record-description" className="sm:max-w-lg">
+        {lookupResult ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>兑换码记录</DialogTitle>
+              <DialogDescription id="redemption-code-record-description">
+                当前兑换码的生成与使用信息
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="overflow-hidden rounded-lg border bg-muted/20">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b bg-card p-4">
+                <div className="flex min-w-0 items-center gap-2">
+                  {redemptionCodeBadge(lookupResult.code.status)}
+                  <span className="truncate font-mono text-[15px] font-semibold">
+                    {lookupResult.code.code}
+                  </span>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void copyRedemptionCode(lookupResult.code.code)}
+                >
+                  <Copy data-slot="icon" />
+                  复制
+                </Button>
+              </div>
+              <dl className="grid gap-px bg-border sm:grid-cols-2">
+                <div className="bg-card p-4">
+                  <dt className="text-xs text-muted-foreground">生成时间</dt>
+                  <dd className="mt-1.5 text-sm font-medium">{lookupResult.created_at_label || "-"}</dd>
+                </div>
+                <div className="bg-card p-4">
+                  <dt className="text-xs text-muted-foreground">使用时间</dt>
+                  <dd className="mt-1.5 text-sm font-medium">{lookupResult.used_at_label || "尚未使用"}</dd>
+                </div>
+                <div className="bg-card p-4">
+                  <dt className="text-xs text-muted-foreground">客户</dt>
+                  <dd className="mt-1.5 break-all text-sm font-medium">{lookupResult.application_email || "尚未绑定客户"}</dd>
+                </div>
+                <div className="bg-card p-4">
+                  <dt className="text-xs text-muted-foreground">备注</dt>
+                  <dd className="mt-1.5 break-words text-sm font-medium">{lookupResult.code.note || "无备注"}</dd>
+                </div>
+              </dl>
+            </div>
+
+            <DialogFooter>
+              <Button type="button" onClick={() => setLookupResult(null)}>
+                关闭
+              </Button>
+            </DialogFooter>
+          </>
+        ) : null}
+      </DialogContent>
+    </Dialog>
     <ConfirmDialog
       open={deleteTarget !== null}
       onOpenChange={(open) => {
@@ -1092,17 +1304,7 @@ export function RedemptionsPage() {
 
   return (
     <div className="flex flex-col xl:h-[calc(100dvh-7rem)] xl:min-h-0 xl:overflow-hidden">
-      <PageHeader
-        title="兑换申请"
-        actions={
-          <Button variant="outline" size="sm" asChild>
-            <a href="/redeem" target="_blank" rel="noopener noreferrer">
-              <ExternalLink data-slot="icon" />
-              前往兑换页
-            </a>
-          </Button>
-        }
-      />
+      <PageHeader title="兑换申请" />
 
       <Tabs
         value={section}

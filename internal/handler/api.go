@@ -464,6 +464,11 @@ func (server *Server) getSettings(context *gin.Context) {
 		respondError(context, http.StatusInternalServerError, err.Error())
 		return
 	}
+	renewalApplicationAlertEmail, err := server.Service.GetRenewalApplicationAlertEmail()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
 	enabledSet := map[string]struct{}{}
 	for _, channel := range enabledChannels {
 		enabledSet[channel] = struct{}{}
@@ -505,6 +510,7 @@ func (server *Server) getSettings(context *gin.Context) {
 		"notification_config":                    configuration.NotificationConfig(),
 		"redeem_page":                            redeemPageSettings,
 		"seat_freeze_days":                       seatFreezeDays,
+		"renewal_application_alert_email":        renewalApplicationAlertEmail,
 	})
 }
 
@@ -1462,6 +1468,7 @@ func (server *Server) putSettings(context *gin.Context) {
 		NotificationConfig                 *config.NotificationConfigInput `json:"notification_config"`
 		RedeemPage                         *model.RedeemPageSettings       `json:"redeem_page"`
 		SeatFreezeDays                     *int                            `json:"seat_freeze_days"`
+		RenewalApplicationAlertEmail       *string                         `json:"renewal_application_alert_email"`
 	}
 	if err := context.ShouldBindJSON(&request); err != nil {
 		respondError(context, http.StatusBadRequest, "无效的请求")
@@ -1481,6 +1488,7 @@ func (server *Server) putSettings(context *gin.Context) {
 		request.PriceDecreaseCustomerEmailTemplate,
 		request.RedeemPage,
 		request.SeatFreezeDays,
+		request.RenewalApplicationAlertEmail,
 	); err != nil {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
@@ -1514,6 +1522,7 @@ func (server *Server) putSettings(context *gin.Context) {
 		request.Channels,
 		request.RedeemPage,
 		request.SeatFreezeDays,
+		request.RenewalApplicationAlertEmail,
 	); err != nil {
 		if rollbackConfig != nil {
 			if rollbackErr := rollbackConfig(); rollbackErr != nil {

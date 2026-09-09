@@ -201,8 +201,8 @@ export function useRedemptionCodes() {
   return useQuery({ queryKey: queryKeys.redemptionCodes, queryFn: fetchRedemptionCodes })
 }
 
-export function useAccounts() {
-  return useQuery({ queryKey: queryKeys.accounts, queryFn: fetchAccounts })
+export function useAccounts(enabled = true) {
+  return useQuery({ queryKey: queryKeys.accounts, queryFn: fetchAccounts, enabled })
 }
 
 export function useAfterSales() {

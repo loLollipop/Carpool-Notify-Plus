@@ -1615,9 +1615,13 @@ function SystemTools({ settings }: { settings: Settings }) {
 function SeatFreezeSettingsEditor({
   value,
   onChange,
+  renewalAlertEmail,
+  onRenewalAlertEmailChange,
 }: {
   value: string
   onChange: (value: string) => void
+  renewalAlertEmail: string
+  onRenewalAlertEmailChange: (value: string) => void
 }) {
   const { t } = useTranslation()
 
@@ -1628,8 +1632,8 @@ function SeatFreezeSettingsEditor({
         title={t("settings.sections.operations")}
         caption={t("settings.sectionCaptions.operations")}
       />
-      <Card className="grid gap-0 overflow-hidden p-0 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-        <div className="grid content-start gap-5 p-5 sm:p-6">
+      <div className="grid items-stretch gap-4 lg:grid-cols-2">
+        <Card className="grid content-start gap-5 overflow-hidden p-5 sm:p-6">
           <div className="flex items-start gap-3 border-b pb-4">
             <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
               <Snowflake className="size-4" />
@@ -1642,7 +1646,7 @@ function SeatFreezeSettingsEditor({
             </div>
           </div>
 
-          <div className="grid gap-2 sm:max-w-sm">
+          <div className="grid gap-2">
             <Label htmlFor="seat-freeze-days">{t("settings.seatFreezeDays")}</Label>
             <div className="relative">
               <Input
@@ -1662,13 +1666,11 @@ function SeatFreezeSettingsEditor({
             </div>
             <p className="text-xs leading-5 text-muted-foreground">{t("settings.seatFreezeHint")}</p>
           </div>
-        </div>
-
-        <aside className="grid content-center gap-3 border-t bg-muted/20 p-5 sm:p-6 lg:border-t-0 lg:border-l">
-          <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
-            {t("settings.seatFreezeRulePreview")}
-          </p>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+          <div className="mt-auto grid gap-3 border-t pt-4">
+            <p className="text-[10px] font-semibold tracking-[0.12em] text-muted-foreground uppercase">
+              {t("settings.seatFreezeRulePreview")}
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
             <div className="flex items-center gap-3 rounded-md border bg-card px-3.5 py-3">
               <span className="grid size-8 shrink-0 place-items-center rounded-md bg-emerald-500/10 font-mono text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
                 01-04
@@ -1693,13 +1695,61 @@ function SeatFreezeSettingsEditor({
                 </p>
               </div>
             </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[10px] text-muted-foreground">
+              <span>{t("settings.seatFreezeRollingWindow")}</span>
+              <span>{t("settings.seatFreezeAutoRestore")}</span>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t pt-3 text-[10px] text-muted-foreground">
-            <span>{t("settings.seatFreezeRollingWindow")}</span>
-            <span>{t("settings.seatFreezeAutoRestore")}</span>
+        </Card>
+
+        <Card className="grid content-start gap-5 overflow-hidden p-5 sm:p-6">
+          <div className="flex items-start gap-3 border-b pb-4">
+            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-gold/10 text-gold">
+              <Mail className="size-4" />
+            </span>
+            <div>
+              <h3 className="text-sm font-semibold">{t("settings.renewalAlertTitle")}</h3>
+              <p className="mt-1 max-w-2xl text-xs leading-5 text-muted-foreground">
+                {t("settings.renewalAlertDescription")}
+              </p>
+            </div>
           </div>
-        </aside>
-      </Card>
+
+          <div className="grid gap-2">
+            <Label htmlFor="renewal-application-alert-email">{t("settings.renewalAlertEmail")}</Label>
+            <div className="relative">
+              <Mail className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="renewal-application-alert-email"
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                maxLength={254}
+                value={renewalAlertEmail}
+                onChange={(event) => onRenewalAlertEmailChange(event.target.value)}
+                className="pl-9"
+                placeholder="operator@example.com"
+              />
+            </div>
+            <p className="text-xs leading-5 text-muted-foreground">{t("settings.renewalAlertHint")}</p>
+          </div>
+
+          <div className="mt-auto rounded-lg border border-gold/20 bg-gold/[0.045] p-4">
+            <div className="flex items-center gap-2 text-xs font-semibold text-gold">
+              <BellRing className="size-4" />
+              {t("settings.renewalAlertFlowTitle")}
+            </div>
+            <div className="mt-3 grid grid-cols-[auto_1fr_auto_1fr_auto] items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="rounded-md border bg-card px-2 py-1.5">{t("settings.renewalAlertFlowSubmit")}</span>
+              <span className="h-px bg-border" />
+              <span className="rounded-md border bg-card px-2 py-1.5">{t("settings.renewalAlertFlowEmail")}</span>
+              <span className="h-px bg-border" />
+              <span className="rounded-md border bg-card px-2 py-1.5">{t("settings.renewalAlertFlowReview")}</span>
+            </div>
+          </div>
+        </Card>
+      </div>
     </div>
   )
 }
@@ -1739,6 +1789,9 @@ function SettingsForm({ settings }: { settings: Settings }) {
   )
   const [seatFreezeDays, setSeatFreezeDays] = React.useState(() =>
     String(settings.seat_freeze_days || 7),
+  )
+  const [renewalAlertEmail, setRenewalAlertEmail] = React.useState(
+    settings.renewal_application_alert_email ?? "",
   )
   const [previewKind, setPreviewKind] = React.useState<TemplateKind | null>(null)
   const [preview, setPreview] = React.useState<TemplatePreviewState>({ status: "loading" })
@@ -1847,6 +1900,12 @@ function SettingsForm({ settings }: { settings: Settings }) {
       return
     }
 
+    const normalizedRenewalAlertEmail = renewalAlertEmail.trim()
+    if (normalizedRenewalAlertEmail && !EMAIL_PATTERN.test(normalizedRenewalAlertEmail)) {
+      toast.error(t("settings.validation.renewalAlertEmailInvalid"))
+      return
+    }
+
     saveMutation.mutate({
       notify_template: notifyTemplate,
       customer_email_template: customerTemplate,
@@ -1855,6 +1914,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
       channels: Array.from(enabledChannels),
       redeem_page: normalizeRedeemPageSettings(redeemPage),
       seat_freeze_days: parsedSeatFreezeDays,
+      renewal_application_alert_email: normalizedRenewalAlertEmail,
       notification_config: {
         smtp: {
           host: deliveryConfig.smtp.host,
@@ -1969,7 +2029,12 @@ function SettingsForm({ settings }: { settings: Settings }) {
         </TabsContent>
 
         <TabsContent value="operations" className="mt-0 animate-fade-in">
-          <SeatFreezeSettingsEditor value={seatFreezeDays} onChange={setSeatFreezeDays} />
+          <SeatFreezeSettingsEditor
+            value={seatFreezeDays}
+            onChange={setSeatFreezeDays}
+            renewalAlertEmail={renewalAlertEmail}
+            onRenewalAlertEmailChange={setRenewalAlertEmail}
+          />
         </TabsContent>
 
         <TabsContent value="tools" className="settings-section-content mt-0 animate-fade-in">

@@ -1,9 +1,11 @@
 package service
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -167,6 +169,11 @@ func (service *SubscriptionService) SubmitRenewalApplication(input RenewalSubmit
 			AmountCents:    amountCents,
 		})
 		if err == nil {
+			if alertErr := service.sendRenewalApplicationAlert(*selected, lookup.CustomerEmail); alertErr != nil {
+				// The review request is already durable. Notification delivery is
+				// best-effort and must never make the customer resubmit or create a duplicate.
+				log.Printf("send self-service renewal application alert: %v", alertErr)
+			}
 			return RenewalSubmitResult{TrackingToken: token, Status: model.RenewalStatusPending}, nil
 		}
 		if errors.Is(err, db.ErrRenewalAlreadyPending) {
@@ -177,6 +184,42 @@ func (service *SubscriptionService) SubmitRenewalApplication(input RenewalSubmit
 		}
 	}
 	return RenewalSubmitResult{}, fmt.Errorf("生成续费审核编号失败，请重试")
+}
+
+func (service *SubscriptionService) sendRenewalApplicationAlert(
+	selected RenewalSubscriptionView,
+	customerEmail string,
+) error {
+	recipient, err := service.GetRenewalApplicationAlertEmail()
+	if err != nil || recipient == "" {
+		return err
+	}
+	_, registry := service.runtimeConfigSnapshot()
+	sender, ok := registry.Get(model.ChannelSMTP)
+	if !ok {
+		return fmt.Errorf("自助续费提醒邮箱已设置，但 SMTP 发送器未配置")
+	}
+	addressed, ok := sender.(smtpAddressedSender)
+	if !ok {
+		return fmt.Errorf("SMTP 发送器不支持指定自助续费提醒收件人")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	title := "[Carpool Notify Plus] 新的自助续费申请"
+	body := strings.Join([]string{
+		"有一条新的自助续费申请等待处理。",
+		"",
+		"客户邮箱：" + customerEmail,
+		"服务类型：" + selected.ServiceLabel,
+		"本期应收：¥" + selected.AmountYuan,
+		"计费周期：" + selected.CycleDesc,
+		"到期日期：" + selected.DueDate,
+		"提交时间：" + cycle.FormatDateTime(service.now()),
+		"",
+		"请前往管理后台的“兑换申请 → 续费审核”尽快核对款项。",
+	}, "\n")
+	return addressed.SendTo(ctx, []string{recipient}, title, body)
 }
 
 func (service *SubscriptionService) GetRenewalStatus(token string) (RenewalStatusView, error) {

@@ -694,6 +694,7 @@ export interface Settings {
   notification_config: NotificationConfig
   redeem_page: RedeemPageSettings
   seat_freeze_days: number
+  renewal_application_alert_email: string
 }
 
 export interface RedeemPageSettings {
@@ -1238,6 +1239,7 @@ export interface SettingsInput {
   channels: string[]
   redeem_page: RedeemPageSettings
   seat_freeze_days: number
+  renewal_application_alert_email: string
   notification_config: {
     smtp: {
       host: string

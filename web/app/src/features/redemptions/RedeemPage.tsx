@@ -681,6 +681,7 @@ function FloatingReferencePanel({
         </span>
         <ChevronRight className="redeem-reference-trigger-chevron" aria-hidden="true" />
       </button>
+      <span className="redeem-reference-hint">点击查看权益参考</span>
 
       {open ? (
         <div id={panelID} className="redeem-reference-popover">
@@ -1571,7 +1572,7 @@ export function RedeemPage() {
       />
 
       <RedeemAmbientField />
-      {mode === "redeem" ? <RedeemReferenceFloats settings={redeemSettings} /> : null}
+      <RedeemReferenceFloats settings={redeemSettings} />
 
       <header className="redeem-topbar">
         <div className="mx-auto flex h-16 w-full max-w-[1760px] items-center justify-between gap-3 px-4 sm:h-[68px] sm:px-6 lg:px-8">

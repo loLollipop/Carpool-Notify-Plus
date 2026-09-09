@@ -265,20 +265,22 @@ function SubscriptionCard({
               {view.account_name || subscription.name}
             </span>
           </h3>
-          {plusRental || view.next_price_yuan ? (
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-              {plusRental ? (
-                <Badge className="border-brand/25 bg-brand/10 font-normal text-brand">
-                  {t("cards.plusRental")}
-                </Badge>
-              ) : null}
-              {view.next_price_yuan ? (
-                <Badge variant="outline" className="border-gold/25 bg-gold/[0.07] font-normal text-gold">
-                  {t("cards.nextPrice", { price: `¥${view.next_price_yuan}` })} · {view.next_price_effective_due_date}
-                </Badge>
-              ) : null}
-            </div>
-          ) : null}
+          <div className="mt-1.5 flex min-h-5 flex-wrap items-center gap-1.5">
+            {plusRental ? (
+              <Badge className="border-brand/25 bg-brand/10 font-normal text-brand">
+                {t("cards.plusRental")}
+              </Badge>
+            ) : null}
+            {view.next_price_yuan ? (
+              <Badge variant="outline" className="border-gold/25 bg-gold/[0.07] font-normal text-gold">
+                {t("cards.nextPrice", { price: `¥${view.next_price_yuan}` })} · {view.next_price_effective_due_date}
+              </Badge>
+            ) : !plusRental ? (
+              <span aria-hidden="true" className="invisible h-5 text-xs leading-5">
+                {t("cards.nextPrice", { price: "¥0" })}
+              </span>
+            ) : null}
+          </div>
           {visibleRemark ? (
             <p className="mt-1.5 line-clamp-2 text-xs text-muted-foreground">
               {visibleRemark}

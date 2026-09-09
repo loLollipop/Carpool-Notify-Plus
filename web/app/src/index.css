@@ -2299,6 +2299,18 @@
     pointer-events: auto;
   }
 
+  .redeem-reference-hint {
+    display: none;
+    margin-top: 0.45rem;
+    color: var(--redeem-muted);
+    font-family: var(--font-mono);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-align: center;
+    text-shadow: 0 1px 10px var(--redeem-panel);
+  }
+
   .redeem-reference-trigger {
     display: grid;
     min-width: 132px;
@@ -2439,11 +2451,15 @@
     }
 
     .redeem-reference-float.is-left {
-      left: max(1rem, calc((100vw - 1380px) / 2));
+      left: max(0.65rem, calc((100vw - 1510px) / 2));
     }
 
     .redeem-reference-float.is-right {
-      right: max(1rem, calc((100vw - 1380px) / 2));
+      right: max(0.65rem, calc((100vw - 1510px) / 2));
+    }
+
+    .redeem-reference-hint {
+      display: block;
     }
 
     .redeem-reference-popover {
@@ -3635,6 +3651,10 @@
     .redeem-console {
       overflow-x: clip;
       overflow-y: auto;
+    }
+
+    .redeem-reference-dock {
+      bottom: 0.25rem;
     }
 
     .redeem-portal-shell {

@@ -2,6 +2,7 @@ import * as React from "react"
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import {
+  Bell,
   CalendarDays,
   CircleDollarSign,
   ChevronRight,
@@ -41,6 +42,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAuth } from "@/features/auth/auth-state"
+import { useRedemptions, useRenewalApplications } from "@/api/queries"
 import { useSandboxMode } from "@/hooks/use-sandbox-mode"
 import { preloadRoute } from "@/route-pages"
 
@@ -134,6 +136,41 @@ function LanguageToggle() {
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+function ApplicationNotifications() {
+  const navigate = useNavigate()
+  const redemptionsQuery = useRedemptions("pending")
+  const renewalsQuery = useRenewalApplications("pending")
+  const redemptionCount = redemptionsQuery.data?.pending_count ?? 0
+  const renewalCount = renewalsQuery.data?.pending_count ?? 0
+  const pendingCount = redemptionCount + renewalCount
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="relative border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+          aria-label={pendingCount > 0 ? `待处理申请 ${pendingCount} 条` : "暂无待处理申请"}
+          onClick={() => navigate(renewalCount > 0 && redemptionCount === 0 ? "/redemptions?section=renewals" : "/redemptions")}
+        >
+          <Bell className="size-4" />
+          {pendingCount > 0 ? (
+            <span className="absolute -right-2 -top-2 grid min-w-5 place-items-center rounded-full border-2 border-card bg-destructive px-1 text-[10px] font-bold leading-4 text-destructive-foreground tabular-nums">
+              {pendingCount > 99 ? "99+" : pendingCount}
+            </span>
+          ) : null}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>
+        {pendingCount > 0
+          ? `兑换 ${redemptionCount} · 续费 ${renewalCount}`
+          : "暂无待处理申请"}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -314,7 +351,6 @@ export function AppShell() {
         </nav>
 
         <div className="space-y-1 border-t border-[var(--sidebar-border)] p-3">
-          <AdminAccountMenu collapsed={sidebarCollapsed} onLogout={handleLogout} />
           <Button
             variant="ghost"
             className={cn(
@@ -341,8 +377,10 @@ export function AppShell() {
             <span className="truncate font-semibold text-foreground">{currentItem.label}</span>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <ApplicationNotifications />
             <LanguageToggle />
             <ThemeToggle />
+            <AdminAccountMenu placement="header" onLogout={handleLogout} />
           </div>
         </header>
 
@@ -350,6 +388,7 @@ export function AppShell() {
           <div className="flex h-16 items-center gap-2 px-4">
             <BrandMark hideLabelOnNarrow />
             <div className="ml-auto flex items-center gap-1">
+              <ApplicationNotifications />
               <LanguageToggle />
               <ThemeToggle />
               <AdminAccountMenu placement="header" onLogout={handleLogout} />

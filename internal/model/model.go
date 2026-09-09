@@ -40,6 +40,7 @@ const (
 	SettingEnabledChannels                    = "enabled_channels"
 	SettingRedeemPageSettings                 = "redeem_page_settings"
 	SettingSeatFreezeDays                     = "seat_freeze_days"
+	SettingRenewalApplicationAlertEmail       = "renewal_application_alert_email"
 	SettingAdminProfile                       = "admin_profile"
 
 	BusinessGoalStatusActive    = "active"
@@ -582,6 +583,7 @@ type ExportPayload struct {
 	EnabledChannels                    []string             `json:"enabled_channels"`
 	RedeemPageSettings                 RedeemPageSettings   `json:"redeem_page_settings"`
 	SeatFreezeDays                     int                  `json:"seat_freeze_days"`
+	RenewalApplicationAlertEmail       string               `json:"renewal_application_alert_email"`
 	Accounts                           []ExportAccount      `json:"accounts"`
 	Subscriptions                      []ExportSubscription `json:"subscriptions"`
 	CustomerBenefits                   []CustomerBenefit    `json:"customer_benefits"`

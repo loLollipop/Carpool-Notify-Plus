@@ -1,14 +1,27 @@
 package service_test
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"carpool-notify/internal/cycle"
 	"carpool-notify/internal/model"
+	"carpool-notify/internal/notify"
 	"carpool-notify/internal/service"
 )
+
+type failingRenewalAlertSender struct{}
+
+func (failingRenewalAlertSender) Send(context.Context, string, string) error {
+	return errors.New("smtp unavailable")
+}
+
+func (failingRenewalAlertSender) SendTo(context.Context, []string, string, string) error {
+	return errors.New("smtp unavailable")
+}
 
 func enableTestRenewalPayment(t *testing.T, subscriptionService *service.SubscriptionService) {
 	t.Helper()
@@ -16,6 +29,90 @@ func enableTestRenewalPayment(t *testing.T, subscriptionService *service.Subscri
 	settings.PaymentQRCodeDataURL = "data:image/png;base64,iVBORw0KGgo="
 	if err := subscriptionService.SaveRedeemPageSettings(settings); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSelfServiceRenewalAlertsConfiguredOperatorMailbox(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.September, 9, 10, 30, 0, 0, cycle.Location)
+	}
+	enableTestRenewalPayment(t, subscriptionService)
+	if err := subscriptionService.Store.SetSetting(
+		model.SettingRenewalApplicationAlertEmail,
+		"operator@example.com",
+	); err != nil {
+		t.Fatal(err)
+	}
+	recorder := &recordingSender{}
+	subscriptionService.Notify = notify.Registry{SMTP: recorder}
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "提醒母号", "车位1")
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "提醒客户",
+		PriceYuan:        "95",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "customer@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-09-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
+		CustomerEmail:  "customer@example.com",
+		SubscriptionID: subscriptionID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.calls != 1 || len(recorder.lastRecipients) != 1 || recorder.lastRecipients[0] != "operator@example.com" {
+		t.Fatalf("renewal alert delivery = calls %d, recipients %#v", recorder.calls, recorder.lastRecipients)
+	}
+	if !strings.Contains(recorder.lastTitle, "新的自助续费申请") ||
+		!strings.Contains(recorder.lastBody, "customer@example.com") ||
+		!strings.Contains(recorder.lastBody, "¥95.00") {
+		t.Fatalf("renewal alert = %q / %q", recorder.lastTitle, recorder.lastBody)
+	}
+}
+
+func TestSelfServiceRenewalAlertFailureDoesNotRollbackApplication(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.September, 9, 10, 30, 0, 0, cycle.Location)
+	}
+	enableTestRenewalPayment(t, subscriptionService)
+	if err := subscriptionService.Store.SetSetting(
+		model.SettingRenewalApplicationAlertEmail,
+		"operator@example.com",
+	); err != nil {
+		t.Fatal(err)
+	}
+	subscriptionService.Notify = notify.Registry{SMTP: failingRenewalAlertSender{}}
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "失败提醒母号", "车位1")
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "失败提醒客户",
+		PriceYuan:        "90",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "alert-failure@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-08-20",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
+		CustomerEmail:  "alert-failure@example.com",
+		SubscriptionID: subscriptionID,
+	})
+	if err != nil || result.TrackingToken == "" {
+		t.Fatalf("submit result = %#v, error = %v", result, err)
+	}
+	applications, err := subscriptionService.ListRenewalApplicationsView(model.RenewalStatusPending)
+	if err != nil || len(applications) != 1 {
+		t.Fatalf("pending applications = %#v, error = %v", applications, err)
 	}
 }
 

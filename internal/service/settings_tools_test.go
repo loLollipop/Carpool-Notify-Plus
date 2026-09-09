@@ -135,6 +135,45 @@ func TestRedeemPageSettingsPersistCustomBenefits(t *testing.T) {
 	}
 }
 
+func TestSettingsPagePersistsAndValidatesRenewalApplicationAlertEmail(t *testing.T) {
+	store, err := db.Open(filepath.Join(t.TempDir(), "renewal-alert-settings.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	service := &SubscriptionService{Store: store}
+	recipient := "operator@example.com"
+	if err := service.SaveSettingsPage(
+		model.DefaultNotifyTemplate,
+		model.DefaultCustomerEmailTemplate,
+		model.DefaultPriceIncreaseCustomerEmailTemplate,
+		model.DefaultPriceDecreaseCustomerEmailTemplate,
+		nil,
+		nil,
+		nil,
+		&recipient,
+	); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := service.GetRenewalApplicationAlertEmail()
+	if err != nil || stored != recipient {
+		t.Fatalf("stored renewal alert recipient = %q, error = %v", stored, err)
+	}
+
+	invalid := "operator@example.com, hidden@example.com"
+	if err := service.ValidateSettingsPage(
+		model.DefaultNotifyTemplate,
+		model.DefaultCustomerEmailTemplate,
+		model.DefaultPriceIncreaseCustomerEmailTemplate,
+		model.DefaultPriceDecreaseCustomerEmailTemplate,
+		nil,
+		nil,
+		&invalid,
+	); err == nil || !strings.Contains(err.Error(), "提醒邮箱格式无效") {
+		t.Fatalf("invalid renewal alert recipient error = %v", err)
+	}
+}
+
 func TestSendTestCustomerEmailUsesSelectedStoredTemplate(t *testing.T) {
 	store, err := db.Open(filepath.Join(t.TempDir(), "email-test.db"))
 	if err != nil {

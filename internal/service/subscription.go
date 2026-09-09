@@ -1848,6 +1848,7 @@ func (service *SubscriptionService) ValidateSettingsPage(
 	priceDecreaseCustomerEmailTemplate string,
 	redeemPage *model.RedeemPageSettings,
 	seatFreezeDays *int,
+	renewalApplicationAlertEmail *string,
 ) error {
 	if _, err := validateNotifyTemplate(notifyTemplate); err != nil {
 		return err
@@ -1871,6 +1872,11 @@ func (service *SubscriptionService) ValidateSettingsPage(
 			return err
 		}
 	}
+	if renewalApplicationAlertEmail != nil {
+		if _, err := normalizeRenewalApplicationAlertEmail(*renewalApplicationAlertEmail); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -1885,6 +1891,7 @@ func (service *SubscriptionService) SaveSettingsPage(
 	channels []string,
 	redeemPage *model.RedeemPageSettings,
 	seatFreezeDays *int,
+	renewalApplicationAlertEmail *string,
 ) error {
 	notifyBody, err := validateNotifyTemplate(notifyTemplate)
 	if err != nil {
@@ -1934,7 +1941,39 @@ func (service *SubscriptionService) SaveSettingsPage(
 		}
 		values[model.SettingSeatFreezeDays] = strconv.Itoa(*seatFreezeDays)
 	}
+	if renewalApplicationAlertEmail != nil {
+		normalized, err := normalizeRenewalApplicationAlertEmail(*renewalApplicationAlertEmail)
+		if err != nil {
+			return err
+		}
+		values[model.SettingRenewalApplicationAlertEmail] = normalized
+	}
 	return service.Store.SetSettings(values)
+}
+
+func normalizeRenewalApplicationAlertEmail(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", nil
+	}
+	address, err := mail.ParseAddress(raw)
+	if err != nil || !strings.EqualFold(strings.TrimSpace(address.Address), raw) || len(raw) > 254 {
+		return "", fmt.Errorf("自助续费提醒邮箱格式无效")
+	}
+	return strings.TrimSpace(address.Address), nil
+}
+
+// GetRenewalApplicationAlertEmail returns the optional private recipient used
+// for new self-service renewal alerts. It is never included in public settings.
+func (service *SubscriptionService) GetRenewalApplicationAlertEmail() (string, error) {
+	raw, err := service.Store.GetSetting(model.SettingRenewalApplicationAlertEmail)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil
+		}
+		return "", err
+	}
+	return normalizeRenewalApplicationAlertEmail(raw)
 }
 
 func validateSeatFreezeDays(days int) error {
@@ -2652,6 +2691,10 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 	if err != nil {
 		return model.ExportPayload{}, err
 	}
+	renewalApplicationAlertEmail, err := service.GetRenewalApplicationAlertEmail()
+	if err != nil {
+		return model.ExportPayload{}, err
+	}
 	accounts, err := service.Store.ListAccounts()
 	if err != nil {
 		return model.ExportPayload{}, err
@@ -2704,6 +2747,7 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 		EnabledChannels:                    enabledChannels,
 		RedeemPageSettings:                 redeemPageSettings,
 		SeatFreezeDays:                     seatFreezeDays,
+		RenewalApplicationAlertEmail:       renewalApplicationAlertEmail,
 		Accounts:                           exportAccounts,
 		Subscriptions:                      make([]model.ExportSubscription, 0, len(subscriptions)),
 		CustomerBenefits:                   benefits,

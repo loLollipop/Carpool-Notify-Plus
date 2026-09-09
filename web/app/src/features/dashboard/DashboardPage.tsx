@@ -32,14 +32,18 @@ import {
   YAxis,
 } from "recharts"
 
-import { useOperationsOverview } from "@/api/queries"
-import type { OperationTask, OperationsOverview } from "@/api/types"
+import { useAccounts, useOperationsOverview } from "@/api/queries"
+import type { AccountView, OperationTask, OperationsOverview } from "@/api/types"
 import { AmountPrivacyToggle } from "@/components/amount-privacy-toggle"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  StatDetailDialog,
+  type StatDetailState,
+} from "@/components/stat-detail-dialog"
 import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDialog"
 import { PlusRentalDialog } from "@/features/plus-rentals/PlusRentalDialog"
 import { SubscriptionDialog } from "@/features/subscriptions/SubscriptionDialog"
@@ -109,34 +113,6 @@ interface TrendPoint {
   netCents: number
   grossCents: number
   refundCents: number
-}
-
-// 有退款的月份在数据点上方叠加红色小圆点，让退款异常一眼可见
-function renderCashflowDot(props: { cx?: number; cy?: number; payload?: TrendPoint }) {
-  const { cx = 0, cy = 0, payload } = props
-  const hasRefund = (payload?.refundCents ?? 0) > 0
-  return (
-    <g key={`cashflow-dot-${payload?.label ?? cx}`}>
-      <circle
-        cx={cx}
-        cy={cy}
-        r={3.5}
-        fill="var(--card)"
-        stroke="var(--chart-1)"
-        strokeWidth={2}
-      />
-      {hasRefund ? (
-        <circle
-          cx={cx}
-          cy={cy - 9}
-          r={2.5}
-          fill="var(--destructive)"
-          stroke="var(--card)"
-          strokeWidth={1.5}
-        />
-      ) : null}
-    </g>
-  )
 }
 
 function TrendTooltip({
@@ -288,7 +264,7 @@ function CashflowCard({
                 stroke="var(--chart-1)"
                 strokeWidth={2.5}
                 fill="url(#dashboardNetIncome)"
-                dot={renderCashflowDot}
+                dot={false}
                 activeDot={{ r: 5, fill: "var(--card)", stroke: "var(--chart-1)", strokeWidth: 2.5 }}
               />
             </AreaChart>
@@ -352,7 +328,7 @@ function OperationsQueue({
 }) {
   const { t } = useTranslation()
   const allTasks = overview.tasks ?? []
-  const pageSize = 6
+  const pageSize = 5
   const pageCount = Math.max(1, Math.ceil(allTasks.length / pageSize))
   const [page, setPage] = React.useState(0)
   const currentPage = Math.min(page, pageCount - 1)
@@ -393,7 +369,7 @@ function OperationsQueue({
           </div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+        <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto pr-1">
           {tasks.map((task) => {
             const Icon = taskIcon(task)
             const identifier = task.customer_email || task.customer_wechat || task.name || task.account_name
@@ -465,7 +441,7 @@ function OperationsQueue({
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-2 border-t border-border/75 pt-2.5">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border/75 pt-2.5">
         {pageCount > 1 ? (
           <div className="dashboard-pager" aria-label="待办分页">
             <Button
@@ -502,7 +478,15 @@ function OperationsQueue({
   )
 }
 
-function CapacityCard({ overview }: { overview: OperationsOverview }) {
+type CapacitySegment = "occupied" | "frozen" | "free"
+
+function CapacityCard({
+  overview,
+  onOpenSegment,
+}: {
+  overview: OperationsOverview
+  onOpenSegment: (segment: CapacitySegment) => void
+}) {
   const { t } = useTranslation()
   const { capacity } = overview
   const occupied = Math.max(0, capacity.seat_used - capacity.seat_frozen)
@@ -513,6 +497,7 @@ function CapacityCard({ overview }: { overview: OperationsOverview }) {
   const frozenAngle = Math.min(360, occupiedAngle + Math.max(0, frozenPercent * 3.6))
   const segments = [
     {
+      key: "occupied" as const,
       label: t("dash.workbench.occupied"),
       value: occupied,
       percent: occupiedPercent,
@@ -521,6 +506,7 @@ function CapacityCard({ overview }: { overview: OperationsOverview }) {
       valueClass: "text-brand",
     },
     {
+      key: "frozen" as const,
       label: t("dash.workbench.frozen"),
       value: capacity.seat_frozen,
       percent: frozenPercent,
@@ -529,6 +515,7 @@ function CapacityCard({ overview }: { overview: OperationsOverview }) {
       valueClass: "text-gold",
     },
     {
+      key: "free" as const,
       label: t("dash.workbench.free"),
       value: capacity.seat_free,
       percent: (capacity.seat_free / total) * 100,
@@ -588,7 +575,13 @@ function CapacityCard({ overview }: { overview: OperationsOverview }) {
 
         <div className="grid gap-2.5">
           {segments.map((item) => (
-            <div key={item.label} className="rounded-lg border bg-card/75 px-3 py-2.5 shadow-[0_8px_24px_-22px_color-mix(in_oklab,var(--foreground)_45%,transparent)]">
+            <button
+              key={item.key}
+              type="button"
+              onClick={() => onOpenSegment(item.key)}
+              className="group rounded-lg border bg-card/75 px-3 py-2.5 text-left shadow-[0_8px_24px_-22px_color-mix(in_oklab,var(--foreground)_45%,transparent)] transition-[border-color,background-color,box-shadow] hover:border-brand/30 hover:bg-accent/35 hover:shadow-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/45"
+              aria-label={`查看${item.label}席位`}
+            >
               <div className="flex items-center gap-2.5">
                 <span className={cn("size-2 shrink-0 rounded-full", item.dotClass)} />
                 <span className="min-w-0 flex-1 text-xs font-medium text-muted-foreground">{item.label}</span>
@@ -596,6 +589,7 @@ function CapacityCard({ overview }: { overview: OperationsOverview }) {
                 <span className="w-8 text-right text-[10px] tabular-nums text-muted-foreground">
                   {Math.round(item.percent)}%
                 </span>
+                <ArrowRight className="size-3.5 shrink-0 text-muted-foreground/45 transition-transform group-hover:translate-x-0.5 group-hover:text-brand" />
               </div>
               <div className="ml-[18px] mt-2 h-1 overflow-hidden rounded-full bg-muted">
                 <div
@@ -603,7 +597,7 @@ function CapacityCard({ overview }: { overview: OperationsOverview }) {
                   style={{ width: `${Math.min(100, Math.max(0, item.percent))}%` }}
                 />
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </div>
@@ -756,6 +750,8 @@ export function DashboardPage() {
   const [plusDialogOpen, setPlusDialogOpen] = React.useState(false)
   const [teamDialogOpen, setTeamDialogOpen] = React.useState(false)
   const [duePaidTarget, setDuePaidTarget] = React.useState<DuePaidTarget | null>(null)
+  const [capacitySegment, setCapacitySegment] = React.useState<CapacitySegment | null>(null)
+  const accountsQuery = useAccounts(capacitySegment !== null)
 
   const overview = overviewQuery.data
   const openCollect = (task: OperationTask) => {
@@ -769,6 +765,53 @@ export function DashboardPage() {
     })
   }
 
+  const capacityDetail = React.useMemo<StatDetailState | null>(() => {
+    if (!capacitySegment) return null
+    const labels: Record<CapacitySegment, string> = {
+      occupied: t("dash.workbench.occupied"),
+      frozen: t("dash.workbench.frozen"),
+      free: t("dash.workbench.free"),
+    }
+    const matches = (accountsQuery.data ?? []).flatMap((account: AccountView) =>
+      (account.seats ?? [])
+        .filter((seat) => {
+          if (capacitySegment === "frozen") return seat.frozen
+          if (capacitySegment === "occupied") return seat.occupied && !seat.frozen
+          return !seat.occupied && !seat.frozen
+        })
+        .map((seat) => ({ account, seat })),
+    )
+    return {
+      title: `${labels[capacitySegment]}席位`,
+      description: "按母号序号列出当前席位状态，无需离开仪表盘。",
+      emptyText: accountsQuery.isPending
+        ? "正在加载席位明细…"
+        : accountsQuery.isError
+          ? "席位明细加载失败，请刷新后重试。"
+          : `暂无${labels[capacitySegment]}席位`,
+      items: matches.map(({ account, seat }) => ({
+        id: seat.seat.id,
+        title: `${account.account.id} · ${account.account.email || account.account.name}`,
+        subtitle: account.account.space_name || account.account.name,
+        meta: [
+          seat.seat.name,
+          capacitySegment === "frozen"
+            ? seat.frozen_customer_email || seat.frozen_subscription_name
+            : seat.active_customer_email || seat.active_subscription_name,
+          capacitySegment === "frozen" && seat.frozen_until_label
+            ? `冷却至 ${seat.frozen_until_label}`
+            : null,
+        ],
+        value: labels[capacitySegment],
+        valueTone: capacitySegment === "free"
+          ? "success" as const
+          : capacitySegment === "frozen"
+            ? "warning" as const
+            : "default" as const,
+      })),
+    }
+  }, [accountsQuery.data, accountsQuery.isError, accountsQuery.isPending, capacitySegment, t])
+
   return (
     <div className="dashboard-stage flex flex-col gap-4">
       <PageHeader
@@ -778,6 +821,10 @@ export function DashboardPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="icon" aria-label={t("common.refresh")} onClick={() => void overviewQuery.refetch()}>
               <RefreshCw className={cn(overviewQuery.isFetching && "animate-spin")} />
+            </Button>
+            <Button onClick={() => navigate("/redemptions")}>
+              <TicketCheck />
+              {t("nav.redemptions")}
             </Button>
             <Button onClick={() => setPlusDialogOpen(true)}>
               <Plus />
@@ -859,7 +906,7 @@ export function DashboardPage() {
           </section>
 
           <section className="grid items-stretch gap-4 xl:grid-cols-2">
-            <CapacityCard overview={overview} />
+            <CapacityCard overview={overview} onOpenSegment={setCapacitySegment} />
             <DecisionCard overview={overview} amountsHidden={amountsHidden} />
           </section>
         </>
@@ -873,6 +920,13 @@ export function DashboardPage() {
           if (!open) setDuePaidTarget(null)
         }}
         target={duePaidTarget}
+      />
+      <StatDetailDialog
+        open={capacitySegment !== null}
+        onOpenChange={(open) => {
+          if (!open) setCapacitySegment(null)
+        }}
+        detail={capacityDetail}
       />
     </div>
   )
