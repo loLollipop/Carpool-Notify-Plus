@@ -1649,16 +1649,25 @@ export function RedeemPage() {
 
             <div className="redeem-portal-shell px-5 pt-6 sm:px-8 sm:pt-8 lg:px-9 lg:pt-6">
               <div className="redeem-portal-heading">
-                <p className="redeem-portal-eyebrow">
-                  {mode === "renewal" ? "RENEWAL REVIEW" : "ACCESS REQUEST"}
-                </p>
-                <h1 className="redeem-portal-title">
-                  <span>ChatGPT</span>
-                  <span className="redeem-portal-title-accent">自助兑换系统</span>
-                </h1>
-                <p className="redeem-service-caption">
-                  {mode === "renewal" ? "查询订阅账单并提交续费审核" : "提交兑换信息并等待席位邀请"}
-                </p>
+                <span className="redeem-portal-mark" aria-hidden="true">
+                  {mode === "renewal" ? <CreditCard /> : <TicketCheck />}
+                </span>
+                <div className="redeem-portal-copy">
+                  <p className="redeem-portal-eyebrow">
+                    {mode === "renewal" ? "RENEWAL REVIEW" : "ACCESS REQUEST"}
+                  </p>
+                  <h1 className="redeem-portal-title">
+                    <span>ChatGPT</span>
+                    <span className="redeem-portal-title-accent">自助兑换系统</span>
+                  </h1>
+                  <p className="redeem-service-caption">
+                    {mode === "renewal" ? "查询订阅账单并提交续费审核" : "提交兑换信息并等待席位邀请"}
+                  </p>
+                </div>
+                <span className="redeem-portal-availability">
+                  <span className="redeem-status-dot" />
+                  服务在线
+                </span>
               </div>
               <nav className="redeem-mode-switch" aria-label="自助服务入口">
                 <button

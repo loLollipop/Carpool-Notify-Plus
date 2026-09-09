@@ -16,7 +16,7 @@ export function PageHeader({
   return (
     <div
       className={cn(
-        "mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between animate-fade-up",
+        "admin-page-header mb-5 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between animate-fade-up",
         className,
       )}
     >

@@ -252,7 +252,14 @@ function AccountStatsSection({
           <Card
             key={stat.key}
             className={cn(
-              "group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] duration-200 animate-fade-up",
+              "admin-kpi-card group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] duration-200 animate-fade-up",
+              stat.key === "banned"
+                ? "admin-kpi-card--danger"
+                : stat.key === "renewal"
+                  ? "admin-kpi-card--gold"
+                  : stat.key === "available"
+                    ? "admin-kpi-card--success"
+                    : "admin-kpi-card--brand",
               active
                 ? "border-brand/45 bg-brand/[0.035] shadow-[0_0_0_1px_var(--color-brand)]"
                 : "hover:border-brand/25 hover:bg-accent/25",

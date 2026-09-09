@@ -39,7 +39,8 @@ function KpiCard({
   return (
     <Card
       className={cn(
-        "group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color] duration-200 animate-fade-up",
+        "admin-kpi-card relative gap-0 overflow-hidden p-0 transition-[border-color,background-color] duration-200 animate-fade-up",
+        `admin-kpi-card--${tone}`,
         onClick && "cursor-pointer hover:border-input hover:bg-accent/30",
       )}
       style={{ animationDelay: `${delay}ms` }}
@@ -51,7 +52,7 @@ function KpiCard({
       >
         <div className="flex w-full items-center justify-between text-xs font-medium text-muted-foreground">
           <span>{label}</span>
-          <span className={cn("grid size-9 place-items-center rounded-md", toneClass)}>
+          <span className={cn("grid size-9 place-items-center rounded-lg", toneClass)}>
             {icon}
           </span>
         </div>

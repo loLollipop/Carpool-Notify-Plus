@@ -269,7 +269,7 @@ export function AppShell() {
   return (
     <div
       className={cn(
-        "min-h-dvh bg-background lg:grid lg:transition-[grid-template-columns] lg:duration-300",
+        "admin-shell min-h-dvh bg-background lg:grid lg:transition-[grid-template-columns] lg:duration-300",
         sidebarCollapsed
           ? "lg:grid-cols-[76px_minmax(0,1fr)]"
           : "lg:grid-cols-[248px_minmax(0,1fr)]",
@@ -278,7 +278,7 @@ export function AppShell() {
       <aside
         onPointerLeave={() => setOpenNavTooltip(null)}
         className={cn(
-          "fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-[var(--sidebar-border)] bg-[var(--sidebar)] text-[var(--sidebar-foreground)] transition-[width] duration-300 lg:flex",
+          "fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-[var(--sidebar-border)] bg-[linear-gradient(180deg,var(--sidebar)_0%,color-mix(in_oklab,var(--sidebar)_94%,var(--brand))_100%)] text-[var(--sidebar-foreground)] transition-[width] duration-300 lg:flex",
           sidebarCollapsed ? "w-[76px]" : "w-[248px]",
         )}
       >
@@ -334,7 +334,7 @@ export function AppShell() {
       </aside>
 
       <div className="min-w-0 lg:col-start-2">
-        <header className="sticky top-0 z-40 hidden h-16 items-center border-b border-border/70 bg-card px-8 lg:flex">
+        <header className="sticky top-0 z-40 hidden h-16 items-center border-b border-border/70 bg-card/88 px-8 backdrop-blur-xl lg:flex">
           <div className="flex min-w-0 items-center gap-2 text-sm">
             <span className="font-medium text-muted-foreground">{APP_NAME}</span>
             <ChevronRight className="size-3.5 text-muted-foreground/70" />
@@ -346,7 +346,7 @@ export function AppShell() {
           </div>
         </header>
 
-        <header className="sticky top-0 z-40 border-b border-border/70 bg-card lg:hidden">
+        <header className="sticky top-0 z-40 border-b border-border/70 bg-card/92 backdrop-blur-xl lg:hidden">
           <div className="flex h-16 items-center gap-2 px-4">
             <BrandMark hideLabelOnNarrow />
             <div className="ml-auto flex items-center gap-1">

@@ -6,6 +6,8 @@ import {
   ArrowRight,
   CalendarClock,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   CircleDollarSign,
   Clock3,
   Coins,
@@ -74,26 +76,30 @@ function DashboardKpi({
     brand: "bg-brand/10 text-brand",
     success: "bg-success/10 text-success",
     warning: "bg-warning/15 text-warning-foreground dark:text-warning",
-    default: "bg-muted text-muted-foreground",
+    default: "bg-chart-2/10 text-chart-2",
   }[tone]
 
   return (
     <button
       type="button"
       onClick={onClick}
-      className="group min-h-[112px] min-w-0 rounded-lg border bg-card p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/20 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45"
+      className={cn(
+        "dashboard-stat group relative min-h-[124px] min-w-0 overflow-hidden rounded-xl border p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-brand/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45",
+        `dashboard-stat--${tone}`,
+      )}
     >
-      <span className="flex items-start justify-between gap-3">
-        <span className={cn("grid size-9 shrink-0 place-items-center rounded-md", toneClass)}>
+      <span aria-hidden="true" className="dashboard-stat-orbit" />
+      <span className="relative flex items-start justify-between gap-3">
+        <span className={cn("grid size-9 shrink-0 place-items-center rounded-lg", toneClass)}>
           <Icon className="size-[18px]" />
         </span>
         <ArrowRight className="size-4 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
       </span>
-      <span className="mt-3 block text-xs font-medium text-muted-foreground">{label}</span>
-      <span className="display-numeral mt-1 block truncate text-[22px] font-semibold leading-none">
+      <span className="relative mt-3 block text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="display-numeral relative mt-1.5 block truncate text-[23px] font-semibold leading-none">
         {value}
       </span>
-      <span className="mt-2 block truncate text-[11px] text-muted-foreground">{hint}</span>
+      <span className="relative mt-2 block truncate text-[11px] text-muted-foreground">{hint}</span>
     </button>
   )
 }
@@ -192,12 +198,13 @@ function CashflowCard({
     ? data
     : data.slice(Math.max(0, Math.min(firstActiveIndex - 1, data.length - 3)))
   const hasVisibleRefunds = visibleData.some((point) => point.refundCents > 0)
+  const hasGrossReference = visibleData.some((point) => point.grossCents !== point.netCents)
   const current = visibleData.at(-1)?.netCents ?? 0
   const previous = visibleData.at(-2)?.netCents ?? 0
   const change = previous === 0 ? null : Math.round(((current - previous) / Math.abs(previous)) * 100)
 
   return (
-    <Card className="min-w-0 gap-4 p-4">
+    <Card className="dashboard-panel min-w-0 gap-4 overflow-hidden p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="panel-heading text-sm font-semibold">{t("dash.workbench.cashflowTitle")}</h2>
@@ -246,6 +253,20 @@ function CashflowCard({
                 cursor={{ stroke: "var(--border)", strokeWidth: 1 }}
                 content={<TrendTooltip amountsHidden={amountsHidden} />}
               />
+              {hasGrossReference ? (
+                <Area
+                  type="monotone"
+                  dataKey="grossCents"
+                  name="原实收"
+                  stroke="var(--chart-2)"
+                  strokeOpacity={0.82}
+                  strokeWidth={1.75}
+                  strokeDasharray="6 5"
+                  fill="transparent"
+                  dot={false}
+                  activeDot={false}
+                />
+              ) : null}
               {hasVisibleRefunds ? (
                 <Area
                   type="monotone"
@@ -274,7 +295,7 @@ function CashflowCard({
           </ResponsiveContainer>
         </div>
       )}
-      <div className="grid grid-cols-3 divide-x rounded-lg border bg-muted/15 py-2.5 text-center">
+      <div className="dashboard-total-strip grid grid-cols-3 divide-x rounded-lg border py-2.5 text-center">
         <div className="px-2">
           <p className="text-[10px] text-muted-foreground">{t("dash.kpiRevenue")}</p>
           <p className="mt-1 truncate text-xs font-semibold tabular-nums">
@@ -330,7 +351,12 @@ function OperationsQueue({
   onCollect: (task: OperationTask) => void
 }) {
   const { t } = useTranslation()
-  const tasks = (overview.tasks ?? []).slice(0, 8)
+  const allTasks = overview.tasks ?? []
+  const pageSize = 6
+  const pageCount = Math.max(1, Math.ceil(allTasks.length / pageSize))
+  const [page, setPage] = React.useState(0)
+  const currentPage = Math.min(page, pageCount - 1)
+  const tasks = allTasks.slice(currentPage * pageSize, (currentPage + 1) * pageSize)
 
   const kindLabel = (kind: OperationTask["kind"]) => t(`dash.workbench.taskKinds.${kind}`)
   const timingLabel = (task: OperationTask) => {
@@ -342,7 +368,7 @@ function OperationsQueue({
   }
 
   return (
-    <Card className="h-[430px] min-h-0 gap-3 overflow-hidden p-4">
+    <Card className="dashboard-panel h-[430px] min-h-0 gap-3 overflow-hidden p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="panel-heading text-sm font-semibold">{t("dash.workbench.queueTitle")}</h2>
@@ -367,7 +393,7 @@ function OperationsQueue({
           </div>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overscroll-contain pr-1 [scrollbar-gutter:stable]">
+        <div className="flex min-h-0 flex-1 flex-col gap-1.5">
           {tasks.map((task) => {
             const Icon = taskIcon(task)
             const identifier = task.customer_email || task.customer_wechat || task.name || task.account_name
@@ -381,7 +407,7 @@ function OperationsQueue({
               <div
                 key={task.id}
                 className={cn(
-                  "flex min-w-0 items-center gap-2.5 rounded-md border border-l-2 bg-muted/10 px-2.5 py-2",
+                  "dashboard-queue-row flex min-w-0 items-center gap-2.5 rounded-lg border border-l-2 px-2.5 py-2",
                   task.tone === "critical"
                     ? "border-l-destructive"
                     : task.tone === "warning"
@@ -439,12 +465,39 @@ function OperationsQueue({
         </div>
       )}
 
-      <Button asChild variant="ghost" size="sm" className="self-end">
-        <Link to="/calendar?view=tasks">
-          {t("dash.workbench.allTasks")}
-          <ArrowRight />
-        </Link>
-      </Button>
+      <div className="flex items-center justify-between gap-2 border-t border-border/75 pt-2.5">
+        {pageCount > 1 ? (
+          <div className="dashboard-pager" aria-label="待办分页">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-7"
+              aria-label="上一页待办"
+              disabled={currentPage === 0}
+              onClick={() => setPage(Math.max(0, currentPage - 1))}
+            >
+              <ChevronLeft className="size-3.5" />
+            </Button>
+            <span className="tabular-nums">{currentPage + 1} / {pageCount}</span>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-7"
+              aria-label="下一页待办"
+              disabled={currentPage + 1 >= pageCount}
+              onClick={() => setPage(Math.min(pageCount - 1, currentPage + 1))}
+            >
+              <ChevronRight className="size-3.5" />
+            </Button>
+          </div>
+        ) : <span />}
+        <Button asChild variant="ghost" size="sm" className="h-7 px-2 text-[11px]">
+          <Link to="/calendar?view=tasks">
+            {t("dash.workbench.allTasks")}
+            <ArrowRight />
+          </Link>
+        </Button>
+      </div>
     </Card>
   )
 }
@@ -486,7 +539,7 @@ function CapacityCard({ overview }: { overview: OperationsOverview }) {
   ]
 
   return (
-    <Card className="relative min-h-[320px] gap-4 overflow-hidden p-4">
+    <Card className="dashboard-panel relative min-h-[320px] gap-4 overflow-hidden p-5">
       <div aria-hidden="true" className="pointer-events-none absolute -bottom-16 -left-16 size-48 rounded-full bg-brand/[0.055] blur-3xl" />
       <div className="relative flex items-start justify-between gap-3">
         <div>
@@ -599,7 +652,7 @@ function DecisionCard({
   ]
 
   return (
-    <Card className="relative min-h-[320px] gap-3 overflow-hidden p-4">
+    <Card className="dashboard-panel relative min-h-[320px] gap-3 overflow-hidden p-5">
       <div aria-hidden="true" className="pointer-events-none absolute -right-16 -top-20 size-52 rounded-full bg-brand/[0.06] blur-3xl" />
       <div className="relative flex items-start justify-between gap-3">
         <div>
@@ -717,7 +770,7 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="dashboard-stage flex flex-col gap-4">
       <PageHeader
         title={t("dash.workbench.title")}
         titleAccessory={<AmountPrivacyToggle amountsHidden={amountsHidden} onToggle={toggleAmounts} />}

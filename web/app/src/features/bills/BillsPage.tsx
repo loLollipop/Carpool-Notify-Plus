@@ -109,7 +109,10 @@ function KpiCard({
   }[tone]
   return (
     <Card
-      className="group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] duration-200 animate-fade-up hover:border-input hover:bg-accent/25 hover:shadow-lift"
+      className={cn(
+        "admin-kpi-card relative gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] duration-200 animate-fade-up hover:border-input hover:bg-accent/25 hover:shadow-lift",
+        `admin-kpi-card--${tone}`,
+      )}
       style={{ animationDelay: `${delay}ms` }}
     >
       <button

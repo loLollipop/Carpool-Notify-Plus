@@ -1135,7 +1135,7 @@ export function RedemptionsPage() {
         </TabsList>
 
         <TabsContent value="applications" className="flex min-h-0 flex-1 flex-col gap-5">
-          <div className="flex justify-end rounded-lg border bg-card p-4">
+          <div className="admin-toolbar flex justify-end rounded-lg border bg-card p-4">
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
               <div className="relative">
                 <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -1161,21 +1161,21 @@ export function RedemptionsPage() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <button type="button" onClick={() => openApplicationDetail("pending")} className="relative overflow-hidden rounded-lg border bg-card p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45">
+            <button type="button" onClick={() => openApplicationDetail("pending")} className="admin-quick-stat admin-quick-stat--gold relative overflow-hidden rounded-lg border bg-card p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45">
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <Clock3 className="size-3.5" />
                 待处理
               </div>
               <div className="mt-2 text-2xl font-semibold text-gold tabular-nums">{pendingCount}</div>
             </button>
-            <button type="button" onClick={() => openApplicationDetail("seats")} className="relative overflow-hidden rounded-lg border bg-card p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45">
+            <button type="button" onClick={() => openApplicationDetail("seats")} className="admin-quick-stat admin-quick-stat--success relative overflow-hidden rounded-lg border bg-card p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45">
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <TicketCheck className="size-3.5" />
                 可用空位
               </div>
               <div className="mt-2 text-2xl font-semibold text-success tabular-nums">{seats.length}</div>
             </button>
-            <button type="button" onClick={() => openApplicationDetail("filtered")} className="relative overflow-hidden rounded-lg border bg-card p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45">
+            <button type="button" onClick={() => openApplicationDetail("filtered")} className="admin-quick-stat admin-quick-stat--brand relative overflow-hidden rounded-lg border bg-card p-4 text-left outline-none transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift focus-visible:ring-2 focus-visible:ring-brand/45">
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
                 <CalendarClock className="size-3.5" />
                 当前筛选

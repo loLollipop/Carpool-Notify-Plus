@@ -322,7 +322,10 @@ function SummaryCard({
     neutral: "bg-muted text-muted-foreground",
   }[tone]
   return (
-    <Card className="group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift">
+    <Card className={cn(
+      "admin-kpi-card group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift",
+      `admin-kpi-card--${tone}`,
+    )}>
       <button
         type="button"
         onClick={onClick}

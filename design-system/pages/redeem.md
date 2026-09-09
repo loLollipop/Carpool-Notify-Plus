@@ -1,17 +1,26 @@
-# Redemption page override
+# Page override: redeem
 
-The redemption page serves customers, so task completion and trust take precedence over admin density.
+- Base authority: ../MASTER.md
+- Audience: customers completing a redemption or reviewing a renewal bill.
+- Goal: reduce uncertainty. The page should feel like a clear service counter, not an administrator console.
 
-- Keep the three required fields visible in one short form.
-- Present redemption and renewal as two modes of one “ChatGPT 自助兑换系统”; keep mode navigation inside the primary terminal card instead of placing it in the brand header.
-- Keep the compact `Carpool Notify Plus` brand bar above the workspace; it carries global announcement, support/payment and theme actions, while mode switching stays inside the primary card.
-- Switching modes must update the primary workflow, secondary support/payment panel and mobile quick action together.
-- Center the portal identity, mode selector and secondary-panel headings; keep form labels, account details and operational instructions left-aligned for scanability.
-- State concrete expectations: typical processing time, information use and support availability.
-- Review entered information before submission and keep progress in a persistent modal that updates automatically.
-- The initial notice must be compact and scannable. Do not delay it with decorative assets.
-- The first-redemption notice must explain both renewal paths (self-service and customer support) and state that unpaid expired seats are removed automatically.
-- After renewal lookup, use one full-height, four-row billing summary (email, amount, billing cycle and due date). For multiple subscriptions, add a compact selector above it instead of repeating large cards.
-- On mobile, the form is primary; support QR opens on demand instead of pushing the form below the fold.
-- Technical decoration may frame the workspace, but must stay outside the reading path and be disabled or simplified for reduced motion.
-- Do not add lotteries, fabricated sales counts or unverifiable testimonials. They weaken the reliability of a paid Team-seat service.
+## Direction
+
+- Use a pale mint background, white service cards and one restrained emerald action color.
+- Keep the two-column relationship: the active task on the left, human support or payment evidence on the right.
+- Lead with a compact service hero, then the two entry choices, then only the fields needed for the current task.
+- Keep technical language as quiet metadata (`ACCESS REQUEST`, service status); Chinese remains the primary content language.
+- Treat the floating entitlement references as optional help. They must remain reachable without competing with the task.
+
+## Component rules
+
+- Cards use soft 18px corners, a subtle mint border and a low, stable shadow. Do not scale cards on hover.
+- Form field indices are round and sequential; input focus uses a high-contrast emerald outline.
+- The active entry card has a light mint surface plus a short bottom indicator; inactive cards stay visibly clickable.
+- The right panel starts with support/payment state, shows one concise trust block, then the QR code/contact details.
+- Preserve all existing redemption, renewal, validation and dialog behavior. This page override is presentation-only.
+
+## Responsive rule
+
+- Desktop keeps both cards aligned in one row.
+- Below the desktop breakpoint, the action card stays first; support and payment remain available from the header dialog rather than forcing a long page.
