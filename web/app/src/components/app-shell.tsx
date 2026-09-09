@@ -5,7 +5,9 @@ import {
   Bell,
   CalendarDays,
   CircleDollarSign,
+  Clock3,
   ChevronRight,
+  CreditCard,
   ExternalLink,
   FlaskConical,
   Languages,
@@ -31,6 +33,14 @@ import { cn } from "@/lib/utils"
 import { APP_NAME, BrandIcon } from "@/components/brand"
 import { AdminAccountMenu } from "@/components/admin-account-menu"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   DropdownMenu,
@@ -141,36 +151,147 @@ function LanguageToggle() {
 
 function ApplicationNotifications() {
   const navigate = useNavigate()
+  const [open, setOpen] = React.useState(false)
   const redemptionsQuery = useRedemptions("pending")
   const renewalsQuery = useRenewalApplications("pending")
   const redemptionCount = redemptionsQuery.data?.pending_count ?? 0
   const renewalCount = renewalsQuery.data?.pending_count ?? 0
   const pendingCount = redemptionCount + renewalCount
+  const redemptions = redemptionsQuery.data?.redemptions ?? []
+  const renewals = renewalsQuery.data?.renewals ?? []
+  const loading = redemptionsQuery.isPending || renewalsQuery.isPending
+
+  const goTo = (path: string) => {
+    setOpen(false)
+    navigate(path)
+  }
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="relative border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
-          aria-label={pendingCount > 0 ? `待处理申请 ${pendingCount} 条` : "暂无待处理申请"}
-          onClick={() => navigate(renewalCount > 0 && redemptionCount === 0 ? "/redemptions?section=renewals" : "/redemptions")}
-        >
-          <Bell className="size-4" />
-          {pendingCount > 0 ? (
-            <span className="absolute -right-2 -top-2 grid min-w-5 place-items-center rounded-full border-2 border-card bg-destructive px-1 text-[10px] font-bold leading-4 text-destructive-foreground tabular-nums">
-              {pendingCount > 99 ? "99+" : pendingCount}
+    <Dialog open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DialogTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="relative border border-border bg-card text-muted-foreground hover:bg-accent hover:text-foreground"
+              aria-label={pendingCount > 0 ? `待处理申请 ${pendingCount} 条` : "暂无待处理申请"}
+            >
+              <Bell className="size-4" />
+              {pendingCount > 0 ? (
+                <span className="absolute -right-2 -top-2 grid min-w-5 place-items-center rounded-full border-2 border-card bg-destructive px-1 text-[10px] font-bold leading-4 text-destructive-foreground tabular-nums">
+                  {pendingCount > 99 ? "99+" : pendingCount}
+                </span>
+              ) : null}
+            </Button>
+          </DialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent>
+          {pendingCount > 0
+            ? `兑换 ${redemptionCount} · 续费 ${renewalCount}`
+            : "暂无待处理申请"}
+        </TooltipContent>
+      </Tooltip>
+
+      <DialogContent className="grid max-h-[82dvh] grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0 sm:max-w-xl">
+        <DialogHeader className="border-b px-5 py-5 pr-12 sm:px-6">
+          <DialogTitle className="flex items-center gap-2">
+            <span className="grid size-8 place-items-center rounded-lg bg-brand/10 text-brand">
+              <Bell className="size-4" />
             </span>
-          ) : null}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>
-        {pendingCount > 0
-          ? `兑换 ${redemptionCount} · 续费 ${renewalCount}`
-          : "暂无待处理申请"}
-      </TooltipContent>
-    </Tooltip>
+            待处理通知
+          </DialogTitle>
+          <DialogDescription>
+            {pendingCount > 0 ? `共 ${pendingCount} 条申请等待处理` : "当前没有需要处理的申请"}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="min-h-0 overflow-y-auto p-4 sm:p-5">
+          {loading ? (
+            <div className="grid gap-3" aria-label="正在加载待处理申请">
+              <Skeleton className="h-24 rounded-xl" />
+              <Skeleton className="h-24 rounded-xl" />
+            </div>
+          ) : pendingCount === 0 ? (
+            <div className="grid min-h-56 place-items-center text-center">
+              <div>
+                <span className="mx-auto grid size-12 place-items-center rounded-full border bg-muted/40 text-muted-foreground">
+                  <Bell className="size-5" />
+                </span>
+                <p className="mt-4 text-sm font-semibold">无待处理申请</p>
+                <p className="mt-1 text-xs text-muted-foreground">新的兑换或续费申请会在这里显示</p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-5">
+              {redemptions.length > 0 ? (
+                <section aria-labelledby="pending-redemptions-title">
+                  <div className="mb-2.5 flex items-center justify-between gap-3">
+                    <h3 id="pending-redemptions-title" className="flex items-center gap-2 text-sm font-semibold">
+                      <TicketCheck className="size-4 text-brand" />
+                      兑换申请
+                    </h3>
+                    <span className="rounded-full bg-brand/10 px-2 py-0.5 text-xs font-semibold text-brand tabular-nums">
+                      {redemptionCount}
+                    </span>
+                  </div>
+                  <div className="grid gap-2">
+                    {redemptions.map((view) => (
+                      <div key={view.application.id} className="flex items-center gap-3 rounded-xl border bg-muted/20 p-3">
+                        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-gold/10 text-gold">
+                          <Clock3 className="size-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold">{view.application.customer_email}</p>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                            {view.application.customer_contact || view.application.redeem_code} · {view.created_at_label}
+                          </p>
+                        </div>
+                        <Button size="sm" onClick={() => goTo(`/redemptions?application=${view.application.id}`)}>
+                          前往处理
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+
+              {renewals.length > 0 ? (
+                <section aria-labelledby="pending-renewals-title">
+                  <div className="mb-2.5 flex items-center justify-between gap-3">
+                    <h3 id="pending-renewals-title" className="flex items-center gap-2 text-sm font-semibold">
+                      <CreditCard className="size-4 text-success" />
+                      续费申请
+                    </h3>
+                    <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs font-semibold text-success tabular-nums">
+                      {renewalCount}
+                    </span>
+                  </div>
+                  <div className="grid gap-2">
+                    {renewals.map((view) => (
+                      <div key={view.application.id} className="flex items-center gap-3 rounded-xl border bg-muted/20 p-3">
+                        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-success/10 text-success">
+                          <CreditCard className="size-4" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold">{view.application.customer_email}</p>
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                            ¥{view.amount_yuan} · {view.application.due_date} · {view.created_at_label}
+                          </p>
+                        </div>
+                        <Button size="sm" onClick={() => goTo(`/redemptions?section=renewals&renewal=${view.application.id}`)}>
+                          前往处理
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 

@@ -647,6 +647,7 @@ function FloatingReferencePanel({
   side,
   eyebrow,
   title,
+  hint,
   icon,
   open,
   onToggle,
@@ -655,6 +656,7 @@ function FloatingReferencePanel({
   side: "left" | "right"
   eyebrow: string
   title: string
+  hint: string
   icon: React.ReactNode
   open: boolean
   onToggle: () => void
@@ -681,7 +683,7 @@ function FloatingReferencePanel({
         </span>
         <ChevronRight className="redeem-reference-trigger-chevron" aria-hidden="true" />
       </button>
-      <span className="redeem-reference-hint">点击查看权益参考</span>
+      <span className="redeem-reference-hint">{hint}</span>
 
       {open ? (
         <div id={panelID} className="redeem-reference-popover">
@@ -726,6 +728,7 @@ function RedeemReferenceFloats({ settings }: { settings: RedeemPageSettings }) {
         side="left"
         eyebrow="CODEX"
         title="额度参考"
+        hint="额度参考"
         icon={<Gauge />}
         open={activePanel === "quota"}
         onToggle={() => togglePanel("quota")}
@@ -736,6 +739,7 @@ function RedeemReferenceFloats({ settings }: { settings: RedeemPageSettings }) {
         side="right"
         eyebrow="WEB"
         title="模型权益"
+        hint="权益参考"
         icon={<Sparkles />}
         open={activePanel === "models"}
         onToggle={() => togglePanel("models")}

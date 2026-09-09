@@ -932,10 +932,12 @@ function RedemptionCard({
   view,
   index,
   seats,
+  targeted = false,
 }: {
   view: RedemptionApplicationView
   index: number
   seats: SelectableSeat[]
+  targeted?: boolean
 }) {
   const application = view.application
   const invited = application.status === "invited"
@@ -945,6 +947,7 @@ function RedemptionCard({
     <Card
       className={cn(
         "relative gap-0 overflow-hidden p-5 transition-colors hover:border-foreground/15 animate-fade-up",
+        targeted && "border-brand ring-2 ring-brand/15",
         invited
           ? "border-l-4 border-l-success"
           : rejected
@@ -1207,11 +1210,11 @@ function RenewalReviewManager() {
 }
 
 export function RedemptionsPage() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const requestedSection = searchParams.get("section")
-  const [section, setSection] = React.useState<RedemptionSection>(
-    requestedSection === "renewals" || requestedSection === "codes" ? requestedSection : "applications",
-  )
+  const targetRedemptionID = Number(searchParams.get("application") ?? 0)
+  const section: RedemptionSection =
+    requestedSection === "renewals" || requestedSection === "codes" ? requestedSection : "applications"
   const [filter, setFilter] = React.useState<RedemptionFilter>("pending")
   const [search, setSearch] = React.useState("")
   const [page, setPage] = React.useState(1)
@@ -1226,11 +1229,13 @@ export function RedemptionsPage() {
   )
 
   const redemptions = redemptionsQuery.data?.redemptions ?? EMPTY_REDEMPTIONS
+  const activeFilter: RedemptionFilter = targetRedemptionID > 0 ? "pending" : filter
+  const activeSearch = targetRedemptionID > 0 ? "" : search
   const filtered = React.useMemo(() => {
-    const query = search.trim().toLowerCase()
-    const byStatus = filter === "all"
+    const query = activeSearch.trim().toLowerCase()
+    const byStatus = activeFilter === "all"
       ? redemptions
-      : redemptions.filter((view) => view.application.status === filter)
+      : redemptions.filter((view) => view.application.status === activeFilter)
     const matches = !query ? byStatus : byStatus.filter((view) =>
       [
         view.application.customer_email,
@@ -1247,25 +1252,55 @@ export function RedemptionsPage() {
     )
     return [...matches].sort(
       (left, right) =>
+        Number(right.application.id === targetRedemptionID) -
+          Number(left.application.id === targetRedemptionID) ||
         Number(right.application.status === "pending") -
-        Number(left.application.status === "pending"),
+          Number(left.application.status === "pending"),
     )
-  }, [filter, redemptions, search])
+  }, [activeFilter, activeSearch, redemptions, targetRedemptionID])
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / APPLICATIONS_PER_PAGE))
-  const safePage = Math.min(page, pageCount)
+  const safePage = targetRedemptionID > 0 ? 1 : Math.min(page, pageCount)
   const pageStart = (safePage - 1) * APPLICATIONS_PER_PAGE
   const paged = filtered.slice(pageStart, pageStart + APPLICATIONS_PER_PAGE)
   const pendingCount = redemptionsQuery.data?.pending_count ?? 0
 
   const updateSearch = (value: string) => {
+    if (searchParams.has("application")) {
+      const next = new URLSearchParams(searchParams)
+      next.delete("application")
+      setSearchParams(next, { replace: true })
+    }
     setSearch(value)
     setPage(1)
   }
 
   const updateFilter = (value: RedemptionFilter) => {
+    if (searchParams.has("application")) {
+      const next = new URLSearchParams(searchParams)
+      next.delete("application")
+      setSearchParams(next, { replace: true })
+    }
     setFilter(value)
     setPage(1)
+  }
+
+  const updateSection = (value: RedemptionSection) => {
+    const next = new URLSearchParams(searchParams)
+    if (value === "applications") next.delete("section")
+    else next.set("section", value)
+    if (value !== "applications") next.delete("application")
+    if (value !== "renewals") next.delete("renewal")
+    setSearchParams(next, { replace: true })
+  }
+
+  const updatePage = (nextPage: number) => {
+    if (searchParams.has("application")) {
+      const next = new URLSearchParams(searchParams)
+      next.delete("application")
+      setSearchParams(next, { replace: true })
+    }
+    setPage(nextPage)
   }
 
   const applicationItems = (source: RedemptionApplicationView[]) => source.map((view) => ({
@@ -1308,7 +1343,7 @@ export function RedemptionsPage() {
 
       <Tabs
         value={section}
-        onValueChange={(value) => setSection(value as RedemptionSection)}
+        onValueChange={(value) => updateSection(value as RedemptionSection)}
         className="flex min-h-0 flex-1 flex-col gap-5"
       >
         <TabsList className="h-10 w-full justify-start bg-muted p-1 sm:w-fit">
@@ -1342,13 +1377,13 @@ export function RedemptionsPage() {
               <div className="relative">
                 <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  value={search}
+                  value={activeSearch}
                   onChange={(event) => updateSearch(event.target.value)}
                   placeholder="搜索邮箱 / 微信 / 兑换码..."
                   className="h-9 w-full pl-8 text-[13px] sm:w-72"
                 />
               </div>
-              <Select value={filter} onValueChange={(value) => updateFilter(value as RedemptionFilter)}>
+              <Select value={activeFilter} onValueChange={(value) => updateFilter(value as RedemptionFilter)}>
                 <SelectTrigger className="h-9 w-full sm:w-32">
                   <SelectValue />
                 </SelectTrigger>
@@ -1419,6 +1454,7 @@ export function RedemptionsPage() {
                     view={view}
                     index={index}
                     seats={seats}
+                    targeted={view.application.id === targetRedemptionID}
                   />
                 ))}
               </div>
@@ -1434,7 +1470,7 @@ export function RedemptionsPage() {
                       size="icon-sm"
                       aria-label="上一页"
                       disabled={safePage <= 1}
-                      onClick={() => setPage((current) => Math.max(1, current - 1))}
+                      onClick={() => updatePage(Math.max(1, safePage - 1))}
                     >
                       <ChevronLeft />
                     </Button>
@@ -1443,7 +1479,7 @@ export function RedemptionsPage() {
                       size="icon-sm"
                       aria-label="下一页"
                       disabled={safePage >= pageCount}
-                      onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+                      onClick={() => updatePage(Math.min(pageCount, safePage + 1))}
                     >
                       <ChevronRight />
                     </Button>

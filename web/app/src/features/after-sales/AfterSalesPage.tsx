@@ -538,6 +538,7 @@ export function AfterSalesPage() {
               hint: t("afterSales.kpiAffectedHint"),
               icon: Users,
               tone: "bg-brand/10 text-brand",
+              cardTone: "",
             },
             {
               key: "pending" as const,
@@ -546,6 +547,7 @@ export function AfterSalesPage() {
               hint: t("afterSales.kpiPendingHint", { review: summary?.review_count ?? 0 }),
               icon: ShieldAlert,
               tone: "bg-destructive/10 text-destructive",
+              cardTone: "admin-kpi-card--danger",
             },
             {
               key: "reassigned" as const,
@@ -554,6 +556,7 @@ export function AfterSalesPage() {
               hint: t("afterSales.kpiReassignedHint"),
               icon: ArrowRightLeft,
               tone: "bg-brand/10 text-brand",
+              cardTone: "admin-kpi-card--cyan",
             },
             {
               key: "refunded" as const,
@@ -562,9 +565,10 @@ export function AfterSalesPage() {
               hint: t("afterSales.kpiRefundedHint", { count: summary?.refunded_count ?? 0 }),
               icon: CheckCircle2,
               tone: "bg-success/10 text-success",
+              cardTone: "admin-kpi-card--success",
             },
           ].map((item) => (
-            <Card key={item.label} className="group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift">
+            <Card key={item.label} className={cn("admin-kpi-card group relative gap-0 overflow-hidden p-0 transition-[border-color,background-color,box-shadow] hover:border-input hover:bg-accent/25 hover:shadow-lift", item.cardTone)}>
               <button
                 type="button"
                 onClick={() => openStatDetail(item.key)}
@@ -757,14 +761,14 @@ export function AfterSalesPage() {
       )}
 
       <EditCaseDialog
-        key={editTarget?.case.id ?? "closed"}
+        key={`edit-${editTarget?.case.id ?? "closed"}`}
         view={editTarget}
         onOpenChange={(open) => {
           if (!open) setEditTarget(null)
         }}
       />
       <ReassignCaseDialog
-        key={reassignTarget?.case.id ?? "closed"}
+        key={`reassign-${reassignTarget?.case.id ?? "closed"}`}
         view={reassignTarget}
         onOpenChange={(open) => {
           if (!open) setReassignTarget(null)

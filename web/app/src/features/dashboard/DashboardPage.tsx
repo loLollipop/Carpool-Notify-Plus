@@ -622,7 +622,7 @@ function DecisionCard({
     {
       icon: TicketCheck,
       label: t("dash.workbench.pendingReviews"),
-      value: overview.work.pending_redemption_count + overview.work.pending_renewal_count,
+      value: (overview.work.pending_redemption_count ?? 0) + (overview.work.pending_renewal_count ?? 0),
       to: overview.work.pending_redemption_count > 0 ? "/redemptions" : "/redemptions?section=renewals",
       activeClass: "border-destructive/25 bg-destructive/[0.045]",
       iconClass: "bg-destructive/10 text-destructive",
@@ -813,7 +813,7 @@ export function DashboardPage() {
   }, [accountsQuery.data, accountsQuery.isError, accountsQuery.isPending, capacitySegment, t])
 
   return (
-    <div className="dashboard-stage flex flex-col gap-4">
+    <div className="dashboard-stage flex min-w-0 flex-col gap-4 overflow-x-clip">
       <PageHeader
         title={t("dash.workbench.title")}
         titleAccessory={<AmountPrivacyToggle amountsHidden={amountsHidden} onToggle={toggleAmounts} />}
@@ -822,9 +822,11 @@ export function DashboardPage() {
             <Button variant="outline" size="icon" aria-label={t("common.refresh")} onClick={() => void overviewQuery.refetch()}>
               <RefreshCw className={cn(overviewQuery.isFetching && "animate-spin")} />
             </Button>
-            <Button onClick={() => navigate("/redemptions")}>
-              <TicketCheck />
-              {t("nav.redemptions")}
+            <Button asChild>
+              <a href="/redeem" target="_blank" rel="noreferrer">
+                <TicketCheck />
+                前往兑换页
+              </a>
             </Button>
             <Button onClick={() => setPlusDialogOpen(true)}>
               <Plus />

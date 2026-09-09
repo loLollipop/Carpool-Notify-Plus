@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { ChevronUp, LoaderCircle, LogOut, PencilLine, ShieldCheck } from "lucide-react"
+import { ChevronDown, ChevronUp, LoaderCircle, LogOut, PencilLine, ShieldCheck } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 
@@ -59,12 +59,14 @@ export function AdminAccountMenu({
     onError: (error: Error) => toast.error(error.message),
   })
 
-  const compact = collapsed || placement === "header"
+  const compact = collapsed && placement !== "header"
+  const header = placement === "header"
   const avatar = (
     <span
       className={cn(
         "grid size-9 shrink-0 place-items-center rounded-full border border-brand/25 bg-brand/10 text-sm font-bold text-brand shadow-sm",
         compact && "size-9",
+        header && "size-8",
       )}
       aria-hidden="true"
     >
@@ -81,7 +83,7 @@ export function AdminAccountMenu({
             className={cn(
               "group h-12 w-full justify-start gap-3 rounded-xl border border-transparent px-2 text-left text-[var(--sidebar-foreground)] hover:border-[var(--sidebar-border)] hover:bg-accent",
               compact && "size-10 justify-center rounded-full border-[var(--sidebar-border)] p-0",
-              placement === "header" && "bg-card text-foreground",
+              header && "h-10 w-auto max-w-44 gap-2 rounded-full border-border bg-card py-1 pl-1 pr-2.5 text-foreground max-[440px]:max-w-[8.25rem]",
             )}
             aria-label={t("profile.openMenu", { name: displayName })}
           >
@@ -90,11 +92,17 @@ export function AdminAccountMenu({
               <>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-semibold">{displayName}</span>
-                  <span className="block truncate text-[11px] font-normal text-[var(--sidebar-muted)]">
-                    {t("profile.role")}
-                  </span>
+                  {!header ? (
+                    <span className="block truncate text-[11px] font-normal text-[var(--sidebar-muted)]">
+                      {t("profile.role")}
+                    </span>
+                  ) : null}
                 </span>
-                <ChevronUp className="size-4 shrink-0 text-[var(--sidebar-muted)] transition-transform group-data-[state=open]:rotate-180" />
+                {header ? (
+                  <ChevronDown className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+                ) : (
+                  <ChevronUp className="size-4 shrink-0 text-[var(--sidebar-muted)] transition-transform group-data-[state=open]:rotate-180" />
+                )}
               </>
             ) : null}
           </Button>

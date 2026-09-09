@@ -2481,9 +2481,7 @@
       width: 100%;
       max-height: calc(100dvh - 7.5rem);
     }
-  }
 
-  @media (min-width: 1280px) and (max-width: 1679px) {
     .redeem-reference-trigger {
       width: 48px;
       min-width: 48px;
