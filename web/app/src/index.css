@@ -409,6 +409,11 @@
     min-width: 6.5rem;
   }
 
+  .settings-save-action.is-placeholder {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
   .settings-section-content {
     display: grid;
     min-width: 0;
@@ -1519,17 +1524,28 @@
     width: 100%;
     min-height: 0;
     flex: 1;
-    align-content: center;
+    grid-template-rows: minmax(0, 1fr) auto;
+    align-content: stretch;
+  }
+
+  .redeem-payment-qr-block.has-renewal-summary {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  .redeem-payment-qr-block .wechat-qr-image {
+    align-self: center;
   }
 
   .redeem-payment-notes {
+    align-self: end;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .redeem-payment-note {
     display: flex;
     min-width: 0;
-    align-items: flex-start;
+    min-height: 48px;
+    align-items: center;
     gap: 0.6rem;
     border: 1px solid color-mix(in oklab, var(--gold) 32%, var(--redeem-line));
     border-radius: 6px;
@@ -1550,22 +1566,12 @@
     color: color-mix(in oklab, var(--gold) 78%, var(--redeem-text));
   }
 
-  .redeem-payment-note strong,
-  .redeem-payment-note small {
-    display: block;
-  }
-
   .redeem-payment-note strong {
+    display: block;
     color: var(--redeem-text);
     font-size: 0.75rem;
     font-weight: 650;
     line-height: 1.15rem;
-  }
-
-  .redeem-payment-note small {
-    margin-top: 0.1rem;
-    font-size: 0.625rem;
-    line-height: 1rem;
   }
 
   .redeem-terminal {
@@ -2196,6 +2202,12 @@
       0 1px 0 color-mix(in oklab, white 38%, transparent) inset;
   }
 
+  @media (min-width: 1024px) {
+    .redeem-request-submit {
+      margin-top: 0.75rem;
+    }
+  }
+
   .redeem-flow-footer {
     margin-top: auto;
     border-top: 1px solid var(--redeem-line);
@@ -2820,11 +2832,11 @@
     }
 
     .redeem-payment-panel .wechat-qr-image {
-      max-width: 260px;
+      max-width: 280px;
     }
 
     .redeem-payment-panel .redeem-payment-qr-block.has-renewal-summary .wechat-qr-image {
-      max-width: 210px;
+      max-width: 225px;
     }
 
     .redeem-support-panel .wechat-contact {
@@ -2860,7 +2872,7 @@
     }
 
     .redeem-payment-panel .redeem-payment-qr-block.has-renewal-summary .wechat-qr-image {
-      max-width: 190px;
+      max-width: 210px;
     }
   }
 

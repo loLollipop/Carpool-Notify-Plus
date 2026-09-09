@@ -440,17 +440,11 @@ function PaymentQrBlock({
       <div className="redeem-payment-notes grid gap-2">
         <div className="redeem-payment-note">
           <span className="redeem-payment-note-icon"><Mail className="size-3.5" /></span>
-          <span>
-            <strong>备注订阅邮箱</strong>
-            <small>用于准确核对付款用户</small>
-          </span>
+          <strong>备注订阅邮箱</strong>
         </div>
         <div className="redeem-payment-note">
           <span className="redeem-payment-note-icon"><CheckCircle2 className="size-3.5" /></span>
-          <span>
-            <strong>金额必须一致</strong>
-            <small>按本期应付金额付款</small>
-          </span>
+          <strong>金额必须一致</strong>
         </div>
       </div>
     </div>
@@ -1781,7 +1775,7 @@ export function RedeemPage() {
 
                 <Button
                   type="submit"
-                  className="redeem-submit-button h-14 w-full justify-center"
+                  className="redeem-submit-button redeem-request-submit h-14 w-full justify-center"
                   disabled={submitMutation.isPending}
                 >
                   {submitMutation.isPending ? (

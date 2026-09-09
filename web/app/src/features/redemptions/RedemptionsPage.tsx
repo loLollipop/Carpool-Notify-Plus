@@ -900,23 +900,24 @@ function RenewalReviewManager() {
       </div>
 
       {renewalsQuery.isPending ? (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid min-h-0 flex-1 content-start gap-4 md:grid-cols-2">
           <Skeleton className="h-72 rounded-xl" />
           <Skeleton className="h-72 rounded-xl" />
         </div>
       ) : renewalsQuery.isError ? (
-        <Card className="items-center gap-3 py-16 text-center">
+        <Card className="flex-1 items-center justify-center gap-3 py-16 text-center">
           <p className="text-sm text-muted-foreground">续费审核加载失败</p>
           <Button variant="outline" onClick={() => renewalsQuery.refetch()}>重试</Button>
         </Card>
       ) : filtered.length === 0 ? (
         <EmptyState
+          className="flex-1"
           icon={<CreditCard className="size-5" />}
           title={renewals.length === 0 ? "暂无续费审核" : "当前筛选没有匹配申请"}
           description="客户付款后提交的续费申请会自动出现在这里。"
         />
       ) : (
-        <div className="grid min-h-0 gap-4 overflow-y-auto pr-1 md:grid-cols-2">
+        <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto pr-1 md:grid-cols-2">
           {filtered.map((view) => (
             <Card
               key={view.application.id}

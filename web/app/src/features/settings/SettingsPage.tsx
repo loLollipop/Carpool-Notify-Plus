@@ -1903,14 +1903,19 @@ function SettingsForm({ settings }: { settings: Settings }) {
               })}
             </TabsList>
           </div>
-          {activeSection !== "tools" ? (
-            <div className="settings-save-action">
-              <span>{t("settings.saveHint")}</span>
-              <Button type="submit" disabled={saveMutation.isPending}>
-                {saveMutation.isPending ? t("common.saving") : t("settings.saveSettings")}
-              </Button>
-            </div>
-          ) : null}
+          <div
+            className={cn("settings-save-action", activeSection === "tools" && "is-placeholder")}
+            aria-hidden={activeSection === "tools"}
+          >
+            <span>{t("settings.saveHint")}</span>
+            <Button
+              type={activeSection === "tools" ? "button" : "submit"}
+              disabled={activeSection === "tools" || saveMutation.isPending}
+              tabIndex={activeSection === "tools" ? -1 : undefined}
+            >
+              {saveMutation.isPending ? t("common.saving") : t("settings.saveSettings")}
+            </Button>
+          </div>
         </div>
 
         <TabsContent value="templates" className="settings-section-content mt-0 animate-fade-in">
