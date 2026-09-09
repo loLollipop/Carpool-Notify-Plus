@@ -3673,7 +3673,9 @@ func (store *Store) HasAutomaticAccountCostPeriod(accountID int64, periodDate st
 	return exists != 0, err
 }
 
-// AccrueAccountRenewal inserts one idempotent renewal and consumes the $0 flag once.
+// AccrueAccountRenewal inserts one idempotent renewal. The legacy
+// zero_renewal_next_month flag now represents recurring zero-cost renewals and
+// remains enabled until the operator explicitly disables it.
 func (store *Store) AccrueAccountRenewal(accountID int64, periodDate string) (bool, error) {
 	transaction, err := store.database.Begin()
 	if err != nil {
@@ -3699,7 +3701,7 @@ func (store *Store) AccrueAccountRenewal(accountID int64, periodDate string) (bo
 	if zeroRenewal != 0 {
 		amountCents = 0
 		source = model.AccountCostSourceZeroRenewal
-		note = "One-time zero-cost account renewal"
+		note = "Recurring zero-cost account renewal"
 	}
 	result, err := transaction.Exec(`
 		INSERT OR IGNORE INTO account_cost_records (
@@ -3720,14 +3722,6 @@ func (store *Store) AccrueAccountRenewal(accountID int64, periodDate string) (bo
 		return false, err
 	}
 	inserted := rowsAffected > 0
-	if inserted && zeroRenewal != 0 {
-		if _, err := transaction.Exec(`
-			UPDATE accounts
-			SET zero_renewal_next_month = 0, updated_at = ?
-			WHERE id = ?`, formatTime(time.Now().UTC()), accountID); err != nil {
-			return false, err
-		}
-	}
 	if err := transaction.Commit(); err != nil {
 		return false, err
 	}

@@ -476,6 +476,101 @@ func TestCashflowForecastAppliesScheduledPriceOnlyFromEffectiveDueDate(t *testin
 	}
 }
 
+func TestCashflowForecastUsesSteadyStateRetentionAndMonthlyFixedCosts(t *testing.T) {
+	today := time.Date(2026, time.September, 1, 0, 0, 0, 0, cycle.Location)
+	events := make([]forecastCashEvent, 0, 12)
+	for month := 0; month < 12; month++ {
+		events = append(events, forecastCashEvent{
+			Date:              today.AddDate(0, month, 0),
+			RecurringNetCents: 10000,
+			FixedCostCents:    3000,
+			RenewalNumber:     month + 1,
+		})
+	}
+
+	scenario := buildCashflowForecastScenario(
+		BusinessGoalProgress{RemainingProfitCents: 100000},
+		events,
+		50,
+		today,
+	)
+	// Every month realizes 50% of the scheduled ¥100 revenue and pays that
+	// month's fixed ¥30 account cost: (¥50 - ¥30) = ¥20/month. Retention must
+	// not compound across periods, and fixed costs must not accumulate twice.
+	if scenario.MonthlyProfitCents != 2000 {
+		t.Fatalf("monthly profit = %d, want 2000", scenario.MonthlyProfitCents)
+	}
+}
+
+func TestZeroRenewalAccountKeepsOpeningCostButHasNoRecurringCost(t *testing.T) {
+	service := openGoalTestService(t)
+	accountID, err := service.CreateAccount(CreateAccountInput{
+		Name:                 "zero-renewal-owner@example.com",
+		OpenedAt:             "2026-08-15",
+		CostYuan:             "30.00",
+		ZeroRenewalNextMonth: true,
+		SeatCount:            1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := service.Store.GetAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.TotalCostCents != 3000 || recurringAccountCostCents(account) != 0 {
+		t.Fatalf("opening/recurring cost = %d/%d, want 3000/0", account.TotalCostCents, recurringAccountCostCents(account))
+	}
+
+	seats, err := service.Store.ListSeatsByAccount(accountID)
+	if err != nil || len(seats) != 1 {
+		t.Fatalf("seats = %#v, err = %v", seats, err)
+	}
+	subscriptionID, err := service.Store.CreateSubscription(model.Subscription{
+		Name:                "zero-renewal customer",
+		BusinessType:        model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 10000,
+		CostCents:           3000,
+		CronExpr:            "interval:30d",
+		BoardedAt:           "2026-08-15",
+		SeatID:              seats[0].ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	monthlyProfitCents, activeCount, err := service.activeMonthlyProfitRunRate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if monthlyProfitCents != 10138 || activeCount != 1 {
+		t.Fatalf("run rate/count = %d/%d, want 10138/1", monthlyProfitCents, activeCount)
+	}
+	subscriptions, err := service.Store.ListSubscriptions()
+	if err != nil {
+		t.Fatal(err)
+	}
+	allocated, err := service.activeAllocatedCostCents(subscriptions)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if allocated[subscriptionID] != 0 {
+		t.Fatalf("allocated recurring cost = %d, want 0", allocated[subscriptionID])
+	}
+
+	pricing, err := service.buildPricingRecommendation(&model.MarketPriceSnapshot{
+		LowPriceCents:    11000,
+		MedianPriceCents: 12000,
+		HighPriceCents:   13000,
+		SampleCount:      8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pricing.SeatCostFloorCents != 0 {
+		t.Fatalf("pricing cost floor = %d, want 0", pricing.SeatCostFloorCents)
+	}
+}
+
 func TestForecastRetentionUsesPlanningAssumptionsUntilSampleGate(t *testing.T) {
 	testCases := []struct {
 		name      string

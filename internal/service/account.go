@@ -186,7 +186,7 @@ func applyAccountRenewalFields(view *AccountView, account model.Account, renewal
 	}
 	today := cycle.StartOfDay(now)
 	view.NextRenewalDate = cycle.FormatDate(renewalAt)
-	// A flagged $0 renewal is accrued automatically by the scheduler. Keep its
+	// A $0-renewal account is accrued automatically by the scheduler. Keep its
 	// date visible as history/context, but never present it as manual work.
 	if !account.ZeroRenewalNextMonth {
 		view.RenewalThisMonth = renewalAt.Year() == today.Year() && renewalAt.Month() == today.Month()

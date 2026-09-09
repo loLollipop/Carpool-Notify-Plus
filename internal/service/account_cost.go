@@ -12,6 +12,16 @@ import (
 
 const accountRenewalNoticeDays = 3
 
+// recurringAccountCostCents returns the cost of each future renewal. The
+// ZeroRenewalNextMonth field name is retained for data compatibility, but the
+// setting now means recurring zero-cost renewals until the operator disables it.
+func recurringAccountCostCents(account model.Account) int64 {
+	if account.ZeroRenewalNextMonth {
+		return 0
+	}
+	return account.CostCents
+}
+
 // ProcessAccountCostRenewals accrues all owner-account renewals due through today.
 func (service *SubscriptionService) ProcessAccountCostRenewals() error {
 	accounts, err := service.Store.ListAccounts()

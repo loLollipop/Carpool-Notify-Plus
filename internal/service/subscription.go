@@ -224,7 +224,7 @@ func (service *SubscriptionService) activeAllocatedCostCents(
 	}
 	accountCosts := make(map[int64]int64, len(accounts))
 	for _, account := range accounts {
-		accountCosts[account.ID] = account.CostCents
+		accountCosts[account.ID] = recurringAccountCostCents(account)
 	}
 
 	allocatedCosts := make(map[int64]int64, len(subscriptions))
@@ -243,8 +243,8 @@ func (service *SubscriptionService) activeAllocatedCostCents(
 		useLegacyCost := true
 		if subscription.AccountID > 0 {
 			key = fmt.Sprintf("id:%d", subscription.AccountID)
-			if accountCosts[subscription.AccountID] > 0 {
-				groupCosts[key] = accountCosts[subscription.AccountID]
+			if accountCostCents, exists := accountCosts[subscription.AccountID]; exists {
+				groupCosts[key] = accountCostCents
 				useLegacyCost = false
 			}
 		}

@@ -9,7 +9,7 @@ import (
 	"carpool-notify/internal/service"
 )
 
-func TestAccountCostRenewalsUseMonthlyAnniversaryAndConsumeZeroOnce(t *testing.T) {
+func TestAccountCostRenewalsUseMonthlyAnniversaryAndKeepRecurringZero(t *testing.T) {
 	subscriptionService := openTestService(t)
 	now := time.Date(2026, time.January, 31, 12, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return now }
@@ -47,11 +47,11 @@ func TestAccountCostRenewalsUseMonthlyAnniversaryAndConsumeZeroOnce(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if account.TotalCostCents != 4000 {
-		t.Fatalf("TotalCostCents = %d, want 4000", account.TotalCostCents)
+	if account.TotalCostCents != 2000 {
+		t.Fatalf("TotalCostCents = %d, want opening cost 2000", account.TotalCostCents)
 	}
-	if account.ZeroRenewalNextMonth {
-		t.Fatal("zero renewal flag was not consumed")
+	if !account.ZeroRenewalNextMonth {
+		t.Fatal("recurring zero-renewal setting was unexpectedly disabled")
 	}
 	records, err := subscriptionService.Store.ListAccountCostRecords(accountID)
 	if err != nil {
@@ -63,8 +63,37 @@ func TestAccountCostRenewalsUseMonthlyAnniversaryAndConsumeZeroOnce(t *testing.T
 	if records[1].PeriodDate != "2026-02-28" || records[1].AmountCents != 0 || records[1].Source != model.AccountCostSourceZeroRenewal {
 		t.Fatalf("zero renewal record = %#v", records[1])
 	}
-	if records[2].PeriodDate != "2026-03-31" || records[2].AmountCents != 2000 || records[2].Source != model.AccountCostSourceRenewal {
-		t.Fatalf("paid renewal record = %#v", records[2])
+	if records[2].PeriodDate != "2026-03-31" || records[2].AmountCents != 0 || records[2].Source != model.AccountCostSourceZeroRenewal {
+		t.Fatalf("second zero renewal record = %#v", records[2])
+	}
+
+	if err := subscriptionService.UpdateAccount(accountID, service.UpdateAccountInput{
+		Name:                 "owner@example.com",
+		Email:                "owner@example.com",
+		OpenedAt:             "2026-01-31",
+		CostYuan:             "20.00",
+		ZeroRenewalNextMonth: false,
+		SeatCount:            1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	now = time.Date(2026, time.April, 30, 12, 0, 0, 0, cycle.Location)
+	if err := subscriptionService.ProcessAccountCostRenewals(); err != nil {
+		t.Fatal(err)
+	}
+	account, err = subscriptionService.Store.GetAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.TotalCostCents != 4000 || account.ZeroRenewalNextMonth {
+		t.Fatalf("resumed paid renewal state = cost %d, zero %v, want 4000/false", account.TotalCostCents, account.ZeroRenewalNextMonth)
+	}
+	records, err = subscriptionService.Store.ListAccountCostRecords(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 4 || records[3].PeriodDate != "2026-04-30" || records[3].AmountCents != 2000 || records[3].Source != model.AccountCostSourceRenewal {
+		t.Fatalf("resumed paid renewal record = %#v", records)
 	}
 }
 

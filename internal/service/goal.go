@@ -637,7 +637,7 @@ func (service *SubscriptionService) activeMonthlyProfitRunRate() (int64, int, er
 	}
 	for _, account := range accounts {
 		if strings.TrimSpace(account.BannedAt) == "" {
-			monthlyProfitCents -= account.CostCents
+			monthlyProfitCents -= recurringAccountCostCents(account)
 		}
 	}
 	operatingExpenses, err := service.Store.ListOperatingExpenses()
@@ -722,8 +722,10 @@ type forecastCashEvent struct {
 
 // buildProfitForecast creates dated cash flows instead of multiplying one
 // monthly run rate forever. This keeps future prices behind their effective
-// due date, applies Plus costs only when the rental renews, and treats the next
-// zero-dollar Team account renewal as a one-time event.
+// due date, applies Plus costs only when the rental renews, and treats
+// zero-dollar Team accounts as cost-free until the setting is disabled. Paid Team
+// account costs stay as fixed monthly cash outflows; customer retention only
+// changes the expected realization of each period's seat revenue.
 func (service *SubscriptionService) buildProfitForecast(
 	goal BusinessGoalProgress,
 ) (ProfitForecast, error) {
@@ -806,23 +808,18 @@ func (service *SubscriptionService) buildProfitForecast(
 	}
 
 	for _, account := range accounts {
-		if strings.TrimSpace(account.BannedAt) != "" || account.CostCents <= 0 {
+		recurringCostCents := recurringAccountCostCents(account)
+		if strings.TrimSpace(account.BannedAt) != "" || recurringCostCents <= 0 {
 			continue
 		}
 		renewalAt, renewalErr := service.nextAccountCostRenewal(account)
 		if renewalErr != nil {
 			return ProfitForecast{}, renewalErr
 		}
-		freeNextRenewal := account.ZeroRenewalNextMonth
 		for !renewalAt.IsZero() && !renewalAt.After(horizon) {
-			costCents := account.CostCents
-			if freeNextRenewal {
-				costCents = 0
-				freeNextRenewal = false
-			}
 			events = append(events, forecastCashEvent{
 				Date:           cycle.StartOfDay(renewalAt),
-				FixedCostCents: costCents,
+				FixedCostCents: recurringCostCents,
 			})
 			openedAt, parseErr := time.ParseInLocation("2006-01-02", account.OpenedAt, cycle.Location)
 			if parseErr != nil {
@@ -886,8 +883,13 @@ func buildCashflowForecastScenario(
 	for _, event := range events {
 		expectedNetCents := event.RecurringNetCents
 		if event.RenewalNumber > 0 {
+			// This is an ongoing-business forecast, not a closed customer-cohort
+			// survival curve. Applying retention^renewalNumber would assume every
+			// churned seat remains empty forever, while still charging all fixed
+			// account costs. Use the scenario retention as the steady-state share
+			// of scheduled seat revenue realized in each billing period instead.
 			expectedNetCents = int64(math.Round(
-				float64(event.RecurringNetCents) * math.Pow(retention, float64(event.RenewalNumber)),
+				float64(event.RecurringNetCents) * retention,
 			))
 		}
 		profitCents := expectedNetCents - event.FixedCostCents
@@ -1278,7 +1280,7 @@ func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.M
 			continue
 		}
 		activeAccountIDs[account.ID] = struct{}{}
-		monthlyAccountCostCents += account.CostCents
+		monthlyAccountCostCents += recurringAccountCostCents(account)
 		seatUsed += accountView.SeatUsed
 		seatTotal += accountView.SeatTotal
 	}
