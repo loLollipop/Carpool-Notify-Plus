@@ -80,7 +80,7 @@ func TestRedeemPageSettingsUpgradesLegacyRenewalGuidance(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	if err := store.SetSetting(
 		model.SettingRedeemPageSettings,
-		`{"announcement_title":"加入前请先确认","announcement_intro":"旧说明","announcement_items":["请备份工作空间资料。","长期客户请添加客服微信。","到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。"],"support_title":"客服","support_contact_label":"微信号"}`,
+		`{"announcement_title":"加入前请先确认","announcement_intro":"旧说明","announcement_items":["请备份工作空间资料。","长期客户请添加客服微信。","到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。"],"renewal_announcement_items":["付款金额必须与页面显示的本期应付金额完全一致，否则无法核对续费；付错金额请联系客服。"],"support_title":"客服","support_contact_label":"微信号"}`,
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -97,6 +97,10 @@ func TestRedeemPageSettingsUpgradesLegacyRenewalGuidance(t *testing.T) {
 		!strings.Contains(settings.AnnouncementItems[2], "联系客服") ||
 		!strings.Contains(settings.AnnouncementItems[2], "自动移出空间") {
 		t.Fatalf("legacy renewal guidance was not upgraded: %#v", settings.AnnouncementItems)
+	}
+	if len(settings.RenewalAnnouncementItems) != 1 ||
+		settings.RenewalAnnouncementItems[0] != model.DefaultRenewalPaymentAmountGuidance {
+		t.Fatalf("legacy renewal payment guidance was not upgraded: %#v", settings.RenewalAnnouncementItems)
 	}
 }
 

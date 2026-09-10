@@ -70,6 +70,51 @@ func TestOpenBackfillsOneCurrentCostRecordForLegacyAccount(t *testing.T) {
 	}
 }
 
+func TestOpenAddsRenewalPeriodColumnsToLegacyDatabase(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "legacy-renewal.db")
+	database, err := sql.Open("sqlite", databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		CREATE TABLE renewal_applications (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			tracking_token TEXT NOT NULL UNIQUE,
+			subscription_id INTEGER NOT NULL,
+			customer_email TEXT NOT NULL,
+			due_date TEXT NOT NULL,
+			amount_cents INTEGER NOT NULL,
+			status TEXT NOT NULL,
+			operator_note TEXT NOT NULL DEFAULT '',
+			processed_at TEXT,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		);
+		INSERT INTO renewal_applications (
+			tracking_token, subscription_id, customer_email, due_date,
+			amount_cents, status, created_at, updated_at
+		) VALUES (
+			'legacy-token', 1, 'legacy@example.com', '2026-09-01',
+			9000, 'pending', '2026-08-20T00:00:00Z', '2026-08-20T00:00:00Z'
+		);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	store := openStore(t, databasePath)
+	defer store.Close()
+	application, err := store.GetRenewalApplicationByToken("legacy-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if application.PeriodCount != 1 || application.PeriodEndDate != "" {
+		t.Fatalf("legacy renewal period snapshot = %#v", application)
+	}
+}
+
 func TestOpenRepairsImportedInitialAccountCostToOpeningPeriod(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "misdated-initial-account-cost.db")
 	store := openStore(t, databasePath)

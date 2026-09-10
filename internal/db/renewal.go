@@ -14,6 +14,8 @@ const renewalSelectColumns = `
 	subscription_id,
 	customer_email,
 	due_date,
+	period_count,
+	period_end_date,
 	amount_cents,
 	status,
 	operator_note,
@@ -22,16 +24,23 @@ const renewalSelectColumns = `
 	updated_at`
 
 func (store *Store) CreateRenewalApplication(application model.RenewalApplication) (int64, error) {
+	periodCount := application.PeriodCount
+	if periodCount <= 0 {
+		periodCount = 1
+	}
 	now := formatTime(time.Now().UTC())
 	result, err := store.database.Exec(`
 		INSERT INTO renewal_applications (
 			tracking_token, subscription_id, customer_email, due_date,
-			amount_cents, status, operator_note, processed_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, '', NULL, ?, ?)`,
+			period_count, period_end_date, amount_cents, status,
+			operator_note, processed_at, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', NULL, ?, ?)`,
 		strings.TrimSpace(application.TrackingToken),
 		application.SubscriptionID,
 		strings.TrimSpace(application.CustomerEmail),
 		strings.TrimSpace(application.DueDate),
+		periodCount,
+		strings.TrimSpace(application.PeriodEndDate),
 		application.AmountCents,
 		model.RenewalStatusPending,
 		now,
@@ -131,9 +140,39 @@ func (store *Store) RejectRenewalApplication(applicationID int64, operatorNote s
 func (store *Store) ApproveRenewalApplication(
 	application model.RenewalApplication,
 	subscription model.Subscription,
-	costCents int64,
+	bills []model.Bill,
+	periodEndDate string,
 	operatorNote string,
 ) error {
+	periodCount := application.PeriodCount
+	if periodCount <= 0 {
+		periodCount = 1
+	}
+	periodEndDate = strings.TrimSpace(periodEndDate)
+	if periodCount > model.MaxRenewalPeriodCount || len(bills) != periodCount || periodEndDate == "" {
+		return ErrRenewalFinancialStateChanged
+	}
+	var plannedAmountCents int64
+	previousDueDate := ""
+	for index := range bills {
+		bill := &bills[index]
+		bill.DueDate = strings.TrimSpace(bill.DueDate)
+		if bill.SubscriptionID != subscription.ID || bill.DueDate == "" || bill.AmountCents <= 0 ||
+			(index == 0 && bill.DueDate != strings.TrimSpace(application.DueDate)) ||
+			(index > 0 && bill.DueDate <= previousDueDate) {
+			return ErrRenewalFinancialStateChanged
+		}
+		if bill.CostCents < 0 {
+			bill.CostCents = 0
+		}
+		plannedAmountCents += bill.AmountCents
+		previousDueDate = bill.DueDate
+	}
+	if plannedAmountCents != application.AmountCents ||
+		(strings.TrimSpace(application.PeriodEndDate) != "" && strings.TrimSpace(application.PeriodEndDate) != periodEndDate) {
+		return ErrRenewalFinancialStateChanged
+	}
+
 	transaction, err := store.database.Begin()
 	if err != nil {
 		return err
@@ -144,15 +183,20 @@ func (store *Store) ApproveRenewalApplication(
 	var storedSubscriptionID int64
 	var storedCustomerEmail string
 	var storedDueDate string
+	var storedPeriodCount int
+	var storedPeriodEndDate string
 	var storedAmountCents int64
 	if err := transaction.QueryRow(`
-		SELECT status, subscription_id, customer_email, due_date, amount_cents
+		SELECT status, subscription_id, customer_email, due_date,
+		       period_count, period_end_date, amount_cents
 		FROM renewal_applications
 		WHERE id = ?`, application.ID).Scan(
 		&storedStatus,
 		&storedSubscriptionID,
 		&storedCustomerEmail,
 		&storedDueDate,
+		&storedPeriodCount,
+		&storedPeriodEndDate,
 		&storedAmountCents,
 	); err != nil {
 		return err
@@ -163,6 +207,8 @@ func (store *Store) ApproveRenewalApplication(
 	if storedSubscriptionID != subscription.ID ||
 		!strings.EqualFold(strings.TrimSpace(storedCustomerEmail), strings.TrimSpace(application.CustomerEmail)) ||
 		strings.TrimSpace(storedDueDate) != strings.TrimSpace(application.DueDate) ||
+		storedPeriodCount != periodCount ||
+		strings.TrimSpace(storedPeriodEndDate) != strings.TrimSpace(application.PeriodEndDate) ||
 		storedAmountCents != application.AmountCents {
 		return ErrRenewalFinancialStateChanged
 	}
@@ -238,37 +284,39 @@ func (store *Store) ApproveRenewalApplication(
 		return ErrRenewalFinancialStateChanged
 	}
 
-	var existingBillCount int
-	if err := transaction.QueryRow(`
-		SELECT COUNT(1) FROM bills WHERE subscription_id = ? AND due_date = ?`,
-		subscription.ID,
-		application.DueDate,
-	).Scan(&existingBillCount); err != nil {
-		return err
-	}
-	if existingBillCount != 0 {
-		return ErrRenewalFinancialStateChanged
+	for _, bill := range bills {
+		var existingBillCount int
+		if err := transaction.QueryRow(`
+			SELECT COUNT(1) FROM bills WHERE subscription_id = ? AND due_date = ?`,
+			subscription.ID,
+			bill.DueDate,
+		).Scan(&existingBillCount); err != nil {
+			return err
+		}
+		if existingBillCount != 0 {
+			return ErrRenewalFinancialStateChanged
+		}
 	}
 
-	if costCents < 0 {
-		costCents = 0
-	}
 	now := formatTime(time.Now().UTC())
-	if _, err := transaction.Exec(`
-		INSERT INTO bills (
-			subscription_id, due_date, amount_cents, cost_cents,
-			note, paid_at, created_at, updated_at
-		) VALUES (?, ?, ?, ?, '', ?, ?, ?)`,
-		subscription.ID,
-		application.DueDate,
-		application.AmountCents,
-		costCents,
-		now,
-		now,
-		now,
-	); err != nil {
-		return err
+	for _, bill := range bills {
+		if _, err := transaction.Exec(`
+			INSERT INTO bills (
+				subscription_id, due_date, amount_cents, cost_cents,
+				note, paid_at, created_at, updated_at
+			) VALUES (?, ?, ?, ?, '', ?, ?, ?)`,
+			subscription.ID,
+			bill.DueDate,
+			bill.AmountCents,
+			bill.CostCents,
+			now,
+			now,
+			now,
+		); err != nil {
+			return err
+		}
 	}
+	lastDueDate := bills[len(bills)-1].DueDate
 
 	if _, err := transaction.Exec(`
 		INSERT INTO subscription_price_changes (
@@ -287,7 +335,7 @@ func (store *Store) ApproveRenewalApplication(
 		ON CONFLICT(subscription_id, effective_due_date) DO NOTHING`,
 		now,
 		subscription.ID,
-		application.DueDate,
+		lastDueDate,
 	); err != nil {
 		return err
 	}
@@ -304,7 +352,7 @@ func (store *Store) ApproveRenewalApplication(
 		  AND next_price_effective_due_date <= ?`,
 		now,
 		subscription.ID,
-		application.DueDate,
+		lastDueDate,
 	); err != nil {
 		return err
 	}
@@ -344,6 +392,8 @@ func scanRenewalApplication(scanner scannable) (model.RenewalApplication, error)
 		&application.SubscriptionID,
 		&application.CustomerEmail,
 		&application.DueDate,
+		&application.PeriodCount,
+		&application.PeriodEndDate,
 		&application.AmountCents,
 		&application.Status,
 		&application.OperatorNote,
@@ -371,6 +421,7 @@ func scanRenewalApplication(scanner scannable) (model.RenewalApplication, error)
 	}
 	application.CustomerEmail = strings.TrimSpace(application.CustomerEmail)
 	application.DueDate = strings.TrimSpace(application.DueDate)
+	application.PeriodEndDate = strings.TrimSpace(application.PeriodEndDate)
 	application.OperatorNote = strings.TrimSpace(application.OperatorNote)
 	return application, nil
 }

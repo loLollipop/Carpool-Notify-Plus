@@ -2037,7 +2037,7 @@
   .redeem-renewal-data {
     display: grid;
     flex: 1 1 auto;
-    grid-template-rows: repeat(4, minmax(48px, 1fr));
+    grid-template-rows: repeat(5, minmax(42px, 1fr));
     padding-inline: 1.15rem;
   }
 
@@ -2070,6 +2070,32 @@
     color: var(--redeem-muted);
     font-size: 11px;
     font-weight: 600;
+  }
+
+  .redeem-renewal-data .redeem-renewal-fixed-badge {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid color-mix(in oklab, var(--redeem-accent) 30%, var(--redeem-line));
+    border-radius: 999px;
+    padding: 0.2rem 0.45rem;
+    background: var(--redeem-accent-soft);
+    color: var(--redeem-accent);
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .redeem-renewal-period-trigger {
+    width: min(100%, 17rem);
+    height: 2.25rem;
+    border-color: color-mix(in oklab, var(--redeem-accent) 35%, var(--redeem-line));
+    background: color-mix(in oklab, var(--redeem-panel) 86%, var(--redeem-accent-soft));
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .redeem-renewal-period-trigger:focus-visible {
+    border-color: var(--redeem-accent);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--redeem-accent) 14%, transparent);
   }
 
   .redeem-renewal-data dd small.is-urgent {
@@ -2889,7 +2915,7 @@
     }
 
     .redeem-renewal-data {
-      grid-template-rows: repeat(4, minmax(38px, 1fr));
+      grid-template-rows: repeat(5, minmax(34px, 1fr));
       padding-inline: 1rem;
     }
 

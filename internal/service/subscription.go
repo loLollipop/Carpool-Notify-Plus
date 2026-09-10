@@ -2151,6 +2151,8 @@ func redeemPageSettingsWithDefaults(input model.RedeemPageSettings) model.Redeem
 	}
 	if len(trimNonEmptyStrings(input.RenewalAnnouncementItems)) == 0 {
 		input.RenewalAnnouncementItems = append([]string(nil), defaults.RenewalAnnouncementItems...)
+	} else {
+		input.RenewalAnnouncementItems = upgradeLegacyRenewalAnnouncementItems(input.RenewalAnnouncementItems)
 	}
 	if strings.TrimSpace(input.PaymentTitle) == "" {
 		input.PaymentTitle = defaults.PaymentTitle
@@ -2195,6 +2197,18 @@ func upgradeLegacyRedeemAnnouncementItems(items []string) []string {
 		default:
 			upgraded = append(upgraded, item)
 		}
+	}
+	return upgraded
+}
+
+func upgradeLegacyRenewalAnnouncementItems(items []string) []string {
+	upgraded := make([]string, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item) == "付款金额必须与页面显示的本期应付金额完全一致，否则无法核对续费；付错金额请联系客服。" {
+			upgraded = append(upgraded, model.DefaultRenewalPaymentAmountGuidance)
+			continue
+		}
+		upgraded = append(upgraded, item)
 	}
 	return upgraded
 }

@@ -685,6 +685,7 @@ func (server *Server) postRenewalLookup(context *gin.Context) {
 type renewalSubmitRequest struct {
 	CustomerEmail  string `json:"customer_email"`
 	SubscriptionID int64  `json:"subscription_id"`
+	PeriodCount    int    `json:"period_count"`
 }
 
 func (server *Server) postRenewalApplication(context *gin.Context) {
@@ -697,6 +698,7 @@ func (server *Server) postRenewalApplication(context *gin.Context) {
 	result, err := server.Service.SubmitRenewalApplication(service.RenewalSubmitInput{
 		CustomerEmail:  request.CustomerEmail,
 		SubscriptionID: request.SubscriptionID,
+		PeriodCount:    request.PeriodCount,
 	})
 	if err != nil {
 		respondError(context, http.StatusBadRequest, err.Error())

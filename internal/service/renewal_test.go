@@ -201,6 +201,106 @@ func TestSelfServiceRenewalApprovalIsAtomicAndAdvancesPeriod(t *testing.T) {
 	}
 }
 
+func TestSelfServiceRenewalCanPurchaseMultipleOriginalPeriods(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
+	}
+	enableTestRenewalPayment(t, subscriptionService)
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "多周期续费母号", "车位1")
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "多周期续费客户",
+		PriceYuan:        "90",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "multi-period@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lookup, err := subscriptionService.LookupRenewalSubscriptions(service.RenewalLookupInput{
+		CustomerEmail: "multi-period@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lookup.Subscriptions) != 1 || len(lookup.Subscriptions[0].PeriodOptions) != model.MaxRenewalPeriodCount {
+		t.Fatalf("renewal options = %#v", lookup.Subscriptions)
+	}
+	secondOption := lookup.Subscriptions[0].PeriodOptions[1]
+	if secondOption.PeriodCount != 2 || secondOption.AmountYuan != "180.00" || secondOption.PeriodEndDate != "2026-10-30" {
+		t.Fatalf("second period option = %#v", secondOption)
+	}
+
+	submitted, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
+		CustomerEmail:  lookup.CustomerEmail,
+		SubscriptionID: subscriptionID,
+		PeriodCount:    2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	applications, err := subscriptionService.ListRenewalApplicationsView(model.RenewalStatusPending)
+	if err != nil || len(applications) != 1 {
+		t.Fatalf("applications = %#v, error = %v", applications, err)
+	}
+	application := applications[0].Application
+	if application.PeriodCount != 2 || application.PeriodEndDate != "2026-10-30" || application.AmountCents != 18000 {
+		t.Fatalf("application snapshot = %#v", application)
+	}
+	if err := subscriptionService.ApproveRenewalApplication(application.ID, service.RenewalDecisionInput{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, dueDate := range []string{"2026-08-31", "2026-09-30"} {
+		bill, billErr := subscriptionService.Store.GetBillByOccurrence(subscriptionID, dueDate)
+		if billErr != nil || bill.AmountCents != 9000 {
+			t.Fatalf("bill %s = %#v, error = %v", dueDate, bill, billErr)
+		}
+	}
+	status, err := subscriptionService.GetRenewalStatus(submitted.TrackingToken)
+	if err != nil || status.PeriodCount != 2 || status.PeriodEndDate != "2026-10-30" || status.AmountYuan != "180.00" {
+		t.Fatalf("renewal status = %#v, error = %v", status, err)
+	}
+	lookup, err = subscriptionService.LookupRenewalSubscriptions(service.RenewalLookupInput{
+		CustomerEmail: lookup.CustomerEmail,
+	})
+	if err != nil || lookup.Subscriptions[0].DueDate != "2026-10-30" {
+		t.Fatalf("advanced lookup = %#v, error = %v", lookup, err)
+	}
+}
+
+func TestSelfServiceRenewalRejectsTooManyPeriods(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
+	}
+	enableTestRenewalPayment(t, subscriptionService)
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "周期限制母号", "车位1")
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "周期限制客户",
+		PriceYuan:        "90",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "period-limit@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
+		CustomerEmail:  "period-limit@example.com",
+		SubscriptionID: subscriptionID,
+		PeriodCount:    model.MaxRenewalPeriodCount + 1,
+	})
+	if err == nil || !strings.Contains(err.Error(), "1–12") {
+		t.Fatalf("period limit error = %v", err)
+	}
+}
+
 func TestSelfServiceRenewalRejectsStalePriceThenAllowsResubmission(t *testing.T) {
 	subscriptionService := openTestService(t)
 	subscriptionService.Clock = func() time.Time {

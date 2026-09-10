@@ -215,9 +215,17 @@ export interface RenewalSubscriptionView {
   status_label: string
   amount_yuan: string
   cycle_desc: string
+  period_count: number
+  period_options: RenewalPeriodOption[]
   renewable: boolean
   pending_review: boolean
   unavailable_reason: string
+}
+
+export interface RenewalPeriodOption {
+  period_count: number
+  amount_yuan: string
+  period_end_date: string
 }
 
 export interface RenewalLookupView {
@@ -231,7 +239,10 @@ export interface RenewalStatus {
   business_type: SubscriptionBusinessType
   service_label: string
   due_date: string
+  period_count: number
+  period_end_date: string
   amount_yuan: string
+  cycle_desc: string
   created_at_label: string
   processed_at_label: string
   operator_note: string
@@ -244,6 +255,8 @@ export interface RenewalApplicationView {
     subscription_id: number
     customer_email: string
     due_date: string
+    period_count: number
+    period_end_date: string
     amount_cents: number
     status: RenewalStatusValue
     operator_note: string
@@ -814,6 +827,7 @@ export interface RedemptionInviteInput {
 export interface RenewalSubmitInput {
   customer_email: string
   subscription_id: number
+  period_count: number
 }
 
 export interface RenewalDecisionInput {

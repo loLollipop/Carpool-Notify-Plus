@@ -59,6 +59,13 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
@@ -89,7 +96,7 @@ const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
   renewal_announcement_intro: "付款前请核对页面账单，并按显示金额完成续费。",
   renewal_announcement_items: [
     "扫码付款时请务必备注订阅邮箱；忘记备注时请联系客服处理。",
-    "付款金额必须与页面显示的本期应付金额完全一致，否则无法核对续费；付错金额请联系客服。",
+    "付款金额必须与页面显示的应付总额完全一致，否则无法核对续费；付错金额请联系客服。",
     "付款后点击“提交续费审核”，管理员确认到账后会更新订阅状态。",
   ],
   payment_title: "续费收款码",
@@ -413,12 +420,12 @@ function PaymentQrBlock({
       {selected ? (
         <div className="redeem-payment-summary grid grid-cols-2 gap-2 rounded-md border border-[var(--redeem-line)] bg-[var(--redeem-panel-muted)] p-3 text-xs">
           <div>
-            <p className="text-[var(--redeem-muted)]">本期应付</p>
+            <p className="text-[var(--redeem-muted)]">本次应付 · {selected.period_count} 期</p>
             <p className="mt-1 text-lg font-semibold tabular-nums text-[var(--redeem-accent)]">¥{selected.amount_yuan}</p>
           </div>
           <div className="text-right">
-            <p className="text-[var(--redeem-muted)]">续费账期</p>
-            <p className="mt-1 font-mono font-semibold">{selected.due_date}</p>
+            <p className="text-[var(--redeem-muted)]">续费后到期</p>
+            <p className="mt-1 font-mono font-semibold">{selected.period_end_date}</p>
           </div>
         </div>
       ) : null}
@@ -1122,12 +1129,6 @@ function renewalTokenStorageKey(sandboxAccessToken: string) {
     : RENEWAL_STORAGE_KEY
 }
 
-function renewalDueHint(daysRemaining: number) {
-  if (daysRemaining > 0) return `还有 ${daysRemaining} 天到期`
-  if (daysRemaining === 0) return "今天到期"
-  return `已到期 ${Math.abs(daysRemaining)} 天`
-}
-
 function renewalSubscriptionCaption(item: RenewalSubscriptionView) {
   const parts: string[] = []
   if (item.business_type === "team" && item.account_serial > 0) {
@@ -1150,6 +1151,7 @@ function RenewalWorkspace({
   const storageKey = renewalTokenStorageKey(sandboxAccessToken)
   const [email, setEmail] = React.useState(sandboxMode ? "sandbox-customer@example.com" : "")
   const [selectedID, setSelectedID] = React.useState(0)
+  const [periodCount, setPeriodCount] = React.useState(1)
   const [confirmOpen, setConfirmOpen] = React.useState(false)
   const [statusOpen, setStatusOpen] = React.useState(false)
   const [trackingToken, setTrackingToken] = React.useState(() => readStoredToken(storageKey))
@@ -1159,12 +1161,27 @@ function RenewalWorkspace({
     onSuccess: (result) => {
       const preferred = result.subscriptions.find((item) => item.renewable) ?? result.subscriptions[0]
       setSelectedID(preferred?.subscription_id ?? 0)
+      setPeriodCount(1)
     },
     onError: (error: Error) => toast.error(error.message),
   })
-  const selected = lookupMutation.data?.subscriptions.find(
+  const selectedSubscription = lookupMutation.data?.subscriptions.find(
     (item) => item.subscription_id === selectedID,
   ) ?? null
+  const selectedPeriod = selectedSubscription?.period_options.find(
+    (option) => option.period_count === periodCount,
+  ) ?? selectedSubscription?.period_options[0] ?? null
+  const selected = React.useMemo(
+    () => selectedSubscription && selectedPeriod
+      ? {
+          ...selectedSubscription,
+          period_count: selectedPeriod.period_count,
+          amount_yuan: selectedPeriod.amount_yuan,
+          period_end_date: selectedPeriod.period_end_date,
+        }
+      : selectedSubscription,
+    [selectedPeriod, selectedSubscription],
+  )
 
   React.useEffect(() => {
     onSelectionChange(selected)
@@ -1181,6 +1198,7 @@ function RenewalWorkspace({
     mutationFn: (item: RenewalSubscriptionView) => submitRenewalApplication({
       customer_email: lookupMutation.data?.customer_email ?? email.trim(),
       subscription_id: item.subscription_id,
+      period_count: item.period_count,
     }, sandboxAccessToken),
     onSuccess: (result) => {
       setTrackingToken(result.tracking_token)
@@ -1251,7 +1269,10 @@ function RenewalWorkspace({
                       role="tab"
                       aria-selected={active}
                       className={cn("redeem-renewal-selector-item", active && "is-active")}
-                      onClick={() => setSelectedID(item.subscription_id)}
+                      onClick={() => {
+                        setSelectedID(item.subscription_id)
+                        setPeriodCount(1)
+                      }}
                     >
                       <span>{String(index + 1).padStart(2, "0")}</span>
                       <strong>{item.service_label}</strong>
@@ -1285,18 +1306,43 @@ function RenewalWorkspace({
                     <dd className="font-mono">{lookupMutation.data.customer_email}</dd>
                   </div>
                   <div>
-                    <dt>本期应付</dt>
+                    <dt>应付总额</dt>
                     <dd className="tabular-nums text-[var(--redeem-accent)]">¥{selected.amount_yuan}</dd>
                   </div>
                   <div>
-                    <dt>计费周期</dt>
-                    <dd>{selected.cycle_desc || "—"}</dd>
+                    <dt>固定套餐</dt>
+                    <dd className="flex flex-wrap items-center gap-2">
+                      <span>{selected.cycle_desc || "—"}</span>
+                      <small className="redeem-renewal-fixed-badge">不可变更</small>
+                      <small>换套餐请联系客服</small>
+                    </dd>
                   </div>
                   <div>
-                    <dt>到期日期</dt>
+                    <dt>续费周期</dt>
                     <dd>
-                      <span className="font-mono">{selected.due_date}</span>
-                      <small className={cn(selected.days_remaining <= 7 && "is-urgent")}>（{renewalDueHint(selected.days_remaining)}）</small>
+                      <Select
+                        value={String(selected.period_count)}
+                        disabled={!selected.renewable}
+                        onValueChange={(value) => setPeriodCount(Number(value))}
+                      >
+                        <SelectTrigger className="redeem-renewal-period-trigger" aria-label="选择续费周期数量">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {selected.period_options.map((option) => (
+                            <SelectItem key={option.period_count} value={String(option.period_count)}>
+                              {option.period_count} 个原计费周期 · 至 {option.period_end_date}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>续费后到期</dt>
+                    <dd>
+                      <span className="font-mono">{selected.period_end_date}</span>
+                      <small>（从 {selected.due_date} 起续 {selected.period_count} 期）</small>
                     </dd>
                   </div>
                 </dl>
@@ -1337,6 +1383,7 @@ function RenewalWorkspace({
             <div className="divide-y overflow-hidden rounded-lg border bg-muted/20 text-sm">
               <ReviewItem icon={<Mail className="size-4 text-brand" />} label="邮箱" value={lookupMutation.data?.customer_email ?? email.trim()} mono />
               <ReviewItem icon={<CreditCard className="size-4 text-brand" />} label="付款金额" value={`¥${selected.amount_yuan}`} />
+              <ReviewItem icon={<Clock3 className="size-4 text-brand" />} label="固定套餐" value={`${selected.cycle_desc} · ${selected.period_count} 个周期`} />
               <ReviewItem
                 icon={<Clock3 className="size-4 text-brand" />}
                 label="续费账期"
@@ -1377,7 +1424,8 @@ function RenewalWorkspace({
           ) : (
             <div className="divide-y rounded-lg border px-4 text-sm">
               <div className="flex justify-between gap-3 py-3"><span className="text-muted-foreground">邮箱</span><strong className="truncate font-mono">{status?.customer_email || "加载中"}</strong></div>
-              <div className="flex justify-between gap-3 py-3"><span className="text-muted-foreground">账期 / 金额</span><strong>{status ? `${status.due_date} · ¥${status.amount_yuan}` : "加载中"}</strong></div>
+              <div className="flex justify-between gap-3 py-3"><span className="text-muted-foreground">套餐 / 周期</span><strong>{status ? `${status.cycle_desc} · ${status.period_count} 个周期` : "加载中"}</strong></div>
+              <div className="flex justify-between gap-3 py-3"><span className="text-muted-foreground">账期 / 金额</span><strong>{status ? `${status.due_date} 至 ${status.period_end_date} · ¥${status.amount_yuan}` : "加载中"}</strong></div>
               <div className="flex justify-between gap-3 py-3"><span className="text-muted-foreground">提交时间</span><strong>{status?.created_at_label || "加载中"}</strong></div>
             </div>
           )}

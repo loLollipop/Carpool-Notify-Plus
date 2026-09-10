@@ -344,6 +344,8 @@ func (store *Store) migrate() error {
 			subscription_id INTEGER NOT NULL,
 			customer_email TEXT NOT NULL,
 			due_date TEXT NOT NULL,
+			period_count INTEGER NOT NULL DEFAULT 1 CHECK(period_count BETWEEN 1 AND 12),
+			period_end_date TEXT NOT NULL DEFAULT '',
 			amount_cents INTEGER NOT NULL CHECK(amount_cents >= 0),
 			status TEXT NOT NULL,
 			operator_note TEXT NOT NULL DEFAULT '',
@@ -379,6 +381,9 @@ func (store *Store) migrate() error {
 		return err
 	}
 	if err := store.ensureSubscriptionBusinessTypeColumn(); err != nil {
+		return err
+	}
+	if err := store.ensureRenewalApplicationPeriodColumns(); err != nil {
 		return err
 	}
 	if err := store.ensureSubscriptionNextPriceColumns(); err != nil {
@@ -1052,6 +1057,29 @@ func (store *Store) ensureSubscriptionBusinessTypeColumn() error {
 	return nil
 }
 
+func (store *Store) ensureRenewalApplicationPeriodColumns() error {
+	columns := []struct {
+		name      string
+		statement string
+	}{
+		{"period_count", `ALTER TABLE renewal_applications ADD COLUMN period_count INTEGER NOT NULL DEFAULT 1`},
+		{"period_end_date", `ALTER TABLE renewal_applications ADD COLUMN period_end_date TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, column := range columns {
+		hasColumn, err := store.tableHasColumn("renewal_applications", column.name)
+		if err != nil {
+			return err
+		}
+		if hasColumn {
+			continue
+		}
+		if _, err := store.database.Exec(column.statement); err != nil {
+			return fmt.Errorf("add renewal_applications.%s: %w", column.name, err)
+		}
+	}
+	return nil
+}
+
 func (store *Store) ensureSubscriptionNextPriceColumns() error {
 	columns := []struct {
 		name      string
@@ -1420,6 +1448,8 @@ func (store *Store) tableHasColumn(tableName string, columnName string) (bool, e
 		pragma = `PRAGMA table_info(bills)`
 	case "after_sales_cases":
 		pragma = `PRAGMA table_info(after_sales_cases)`
+	case "renewal_applications":
+		pragma = `PRAGMA table_info(renewal_applications)`
 	default:
 		return false, fmt.Errorf("unknown table for column check: %s", tableName)
 	}

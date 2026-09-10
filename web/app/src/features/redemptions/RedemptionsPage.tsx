@@ -1151,16 +1151,17 @@ function RenewalReviewManager() {
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs text-muted-foreground">页面应付</p>
+                  <p className="text-xs text-muted-foreground">应付总额 · {view.application.period_count} 期</p>
                   <p className="mt-1 text-xl font-semibold tabular-nums text-brand">¥{view.amount_yuan}</p>
                 </div>
                 <div className="rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs text-muted-foreground">续费账期</p>
-                  <p className="mt-1 font-semibold tabular-nums">{view.application.due_date}</p>
+                  <p className="text-xs text-muted-foreground">续费后到期</p>
+                  <p className="mt-1 font-semibold tabular-nums">{view.application.period_end_date || view.application.due_date}</p>
                 </div>
               </div>
               <div className="grid gap-2 text-xs text-muted-foreground">
-                <div className="flex justify-between gap-4"><span>业务</span><strong className="text-foreground">{view.service_label} · {view.cycle_desc}</strong></div>
+                <div className="flex justify-between gap-4"><span>固定套餐</span><strong className="text-foreground">{view.service_label} · {view.cycle_desc}</strong></div>
+                <div className="flex justify-between gap-4"><span>续费范围</span><strong className="text-foreground tabular-nums">{view.application.due_date} 至 {view.application.period_end_date || "—"}</strong></div>
                 {view.business_type === "team" ? (
                   <div className="flex justify-between gap-4"><span>分配位置</span><strong className="min-w-0 truncate text-foreground">{view.account_serial > 0 ? `${view.account_serial}号 · ` : ""}{view.account_email || "母号"} · {view.seat_name || "席位"}</strong></div>
                 ) : null}
@@ -1195,7 +1196,7 @@ function RenewalReviewManager() {
         onOpenChange={(open) => { if (!open && !pending) setDecision(null) }}
         title={decision?.action === "approve" ? "确认款项已经到账？" : "驳回这条续费申请？"}
         description={decision?.action === "approve"
-          ? `将按 ¥${decision.view.amount_yuan} 为 ${decision.view.application.customer_email} 登记 ${decision.view.application.due_date} 账期。`
+          ? `将按 ¥${decision.view.amount_yuan} 为 ${decision.view.application.customer_email} 连续登记 ${decision.view.application.period_count} 个原计费周期（至 ${decision.view.application.period_end_date}）。`
           : "驳回后客户可以重新查询并提交该账期，请在备注中说明金额或付款信息问题。"}
         actionLabel={decision?.action === "approve" ? "确认到账并记账" : "确认驳回"}
         destructive={decision?.action === "reject"}

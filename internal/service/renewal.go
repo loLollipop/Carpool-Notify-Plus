@@ -23,6 +23,7 @@ type RenewalLookupInput struct {
 type RenewalSubmitInput struct {
 	CustomerEmail  string
 	SubscriptionID int64
+	PeriodCount    int
 }
 
 type RenewalSubmitResult struct {
@@ -31,20 +32,28 @@ type RenewalSubmitResult struct {
 }
 
 type RenewalSubscriptionView struct {
-	SubscriptionID    int64  `json:"subscription_id"`
-	BusinessType      string `json:"business_type"`
-	ServiceLabel      string `json:"service_label"`
-	AccountSerial     int64  `json:"account_serial"`
-	SeatName          string `json:"seat_name"`
-	DueDate           string `json:"due_date"`
-	PeriodEndDate     string `json:"period_end_date"`
-	DaysRemaining     int    `json:"days_remaining"`
-	StatusLabel       string `json:"status_label"`
-	AmountYuan        string `json:"amount_yuan"`
-	CycleDesc         string `json:"cycle_desc"`
-	Renewable         bool   `json:"renewable"`
-	PendingReview     bool   `json:"pending_review"`
-	UnavailableReason string `json:"unavailable_reason"`
+	SubscriptionID    int64                 `json:"subscription_id"`
+	BusinessType      string                `json:"business_type"`
+	ServiceLabel      string                `json:"service_label"`
+	AccountSerial     int64                 `json:"account_serial"`
+	SeatName          string                `json:"seat_name"`
+	DueDate           string                `json:"due_date"`
+	PeriodEndDate     string                `json:"period_end_date"`
+	DaysRemaining     int                   `json:"days_remaining"`
+	StatusLabel       string                `json:"status_label"`
+	AmountYuan        string                `json:"amount_yuan"`
+	CycleDesc         string                `json:"cycle_desc"`
+	PeriodCount       int                   `json:"period_count"`
+	PeriodOptions     []RenewalPeriodOption `json:"period_options"`
+	Renewable         bool                  `json:"renewable"`
+	PendingReview     bool                  `json:"pending_review"`
+	UnavailableReason string                `json:"unavailable_reason"`
+}
+
+type RenewalPeriodOption struct {
+	PeriodCount   int    `json:"period_count"`
+	AmountYuan    string `json:"amount_yuan"`
+	PeriodEndDate string `json:"period_end_date"`
 }
 
 type RenewalLookupView struct {
@@ -58,7 +67,10 @@ type RenewalStatusView struct {
 	BusinessType     string `json:"business_type"`
 	ServiceLabel     string `json:"service_label"`
 	DueDate          string `json:"due_date"`
+	PeriodCount      int    `json:"period_count"`
+	PeriodEndDate    string `json:"period_end_date"`
 	AmountYuan       string `json:"amount_yuan"`
+	CycleDesc        string `json:"cycle_desc"`
 	CreatedAtLabel   string `json:"created_at_label"`
 	ProcessedAtLabel string `json:"processed_at_label"`
 	OperatorNote     string `json:"operator_note"`
@@ -151,8 +163,22 @@ func (service *SubscriptionService) SubmitRenewalApplication(input RenewalSubmit
 	if !selected.Renewable {
 		return RenewalSubmitResult{}, fmt.Errorf("%s", selected.UnavailableReason)
 	}
+	periodCount, err := normalizeRenewalPeriodCount(input.PeriodCount)
+	if err != nil {
+		return RenewalSubmitResult{}, err
+	}
+	var selectedOption *RenewalPeriodOption
+	for index := range selected.PeriodOptions {
+		if selected.PeriodOptions[index].PeriodCount == periodCount {
+			selectedOption = &selected.PeriodOptions[index]
+			break
+		}
+	}
+	if selectedOption == nil {
+		return RenewalSubmitResult{}, fmt.Errorf("无法计算所选续费周期，请重新查询")
+	}
 
-	amountCents, err := cycle.ParseYuanToCents(selected.AmountYuan)
+	amountCents, err := cycle.ParseYuanToCents(selectedOption.AmountYuan)
 	if err != nil {
 		return RenewalSubmitResult{}, fmt.Errorf("读取续费金额失败: %w", err)
 	}
@@ -166,10 +192,12 @@ func (service *SubscriptionService) SubmitRenewalApplication(input RenewalSubmit
 			SubscriptionID: selected.SubscriptionID,
 			CustomerEmail:  lookup.CustomerEmail,
 			DueDate:        selected.DueDate,
+			PeriodCount:    selectedOption.PeriodCount,
+			PeriodEndDate:  selectedOption.PeriodEndDate,
 			AmountCents:    amountCents,
 		})
 		if err == nil {
-			if alertErr := service.sendRenewalApplicationAlert(*selected, lookup.CustomerEmail); alertErr != nil {
+			if alertErr := service.sendRenewalApplicationAlert(*selected, *selectedOption, lookup.CustomerEmail); alertErr != nil {
 				// The review request is already durable. Notification delivery is
 				// best-effort and must never make the customer resubmit or create a duplicate.
 				log.Printf("send self-service renewal application alert: %v", alertErr)
@@ -188,6 +216,7 @@ func (service *SubscriptionService) SubmitRenewalApplication(input RenewalSubmit
 
 func (service *SubscriptionService) sendRenewalApplicationAlert(
 	selected RenewalSubscriptionView,
+	option RenewalPeriodOption,
 	customerEmail string,
 ) error {
 	recipient, err := service.GetRenewalApplicationAlertEmail()
@@ -212,9 +241,10 @@ func (service *SubscriptionService) sendRenewalApplicationAlert(
 		"",
 		"客户邮箱：" + customerEmail,
 		"服务类型：" + selected.ServiceLabel,
-		"本期应收：¥" + selected.AmountYuan,
-		"计费周期：" + selected.CycleDesc,
-		"到期日期：" + selected.DueDate,
+		"应收总额：¥" + option.AmountYuan,
+		"固定套餐：" + selected.CycleDesc,
+		fmt.Sprintf("购买周期：%d 个计费周期", option.PeriodCount),
+		"续费范围：" + selected.DueDate + " 至 " + option.PeriodEndDate,
 		"提交时间：" + cycle.FormatDateTime(service.now()),
 		"",
 		"请前往管理后台的“兑换申请 → 续费审核”尽快核对款项。",
@@ -244,6 +274,9 @@ func (service *SubscriptionService) ListRenewalApplicationsView(status string) (
 	}
 	views := make([]RenewalApplicationView, 0, len(applications))
 	for _, application := range applications {
+		if application.PeriodCount <= 0 {
+			application.PeriodCount = 1
+		}
 		view := RenewalApplicationView{
 			Application:      application,
 			AmountYuan:       cycle.FormatCents(application.AmountCents),
@@ -259,6 +292,11 @@ func (service *SubscriptionService) ListRenewalApplicationsView(status string) (
 			view.ServiceLabel = renewalServiceLabel(subscription)
 			view.CycleDesc = cycle.DescribeCron(subscription.CronExpr)
 			view.SeatName = subscription.SeatName
+			if application.PeriodEndDate == "" {
+				if plan, planErr := buildRenewalPeriodPlan(subscription, application.DueDate, application.PeriodCount); planErr == nil {
+					view.Application.PeriodEndDate = plan.PeriodEndDate
+				}
+			}
 			if subscription.AccountID > 0 {
 				account, accountErr := service.Store.GetAccount(subscription.AccountID)
 				if accountErr != nil && accountErr != sql.ErrNoRows {
@@ -297,15 +335,18 @@ func (service *SubscriptionService) ApproveRenewalApplication(applicationID int6
 	if err != nil {
 		return err
 	}
-	amountCents, parseErr := cycle.ParseYuanToCents(view.AmountYuan)
-	if parseErr != nil || view.DueDate != application.DueDate || amountCents != application.AmountCents || !view.Renewable {
+	periodCount, countErr := normalizeRenewalPeriodCount(application.PeriodCount)
+	plan, planErr := buildRenewalPeriodPlan(subscription, view.DueDate, periodCount)
+	if countErr != nil || planErr != nil || view.DueDate != application.DueDate ||
+		plan.AmountCents != application.AmountCents ||
+		(application.PeriodEndDate != "" && plan.PeriodEndDate != application.PeriodEndDate) || !view.Renewable {
 		return fmt.Errorf("订阅账期、金额或状态已变化，请驳回申请并让客户重新查询")
 	}
 	note, err := trimLimited("审核备注", input.OperatorNote, maxRenewalOperatorNoteLength)
 	if err != nil {
 		return err
 	}
-	if err := service.Store.ApproveRenewalApplication(application, subscription, billDefaultCostCents(subscription), note); err != nil {
+	if err := service.Store.ApproveRenewalApplication(application, subscription, plan.Bills, plan.PeriodEndDate, note); err != nil {
 		switch {
 		case errors.Is(err, db.ErrRenewalAlreadyProcessed):
 			return fmt.Errorf("续费申请状态已变化，请刷新后重试")
@@ -360,21 +401,30 @@ func (service *SubscriptionService) buildRenewalSubscriptionView(
 		SeatName:       subscription.SeatName,
 		DueDate:        view.NextDueDate,
 		DaysRemaining:  view.DaysRemaining,
-		AmountYuan:     cycle.FormatCents(billAmountCentsForDueDate(subscription, view.NextDueDate)),
 		CycleDesc:      view.CycleDesc,
+		PeriodCount:    1,
+		PeriodOptions:  make([]RenewalPeriodOption, 0, model.MaxRenewalPeriodCount),
 		Renewable:      true,
 	}
+	for periodCount := 1; periodCount <= model.MaxRenewalPeriodCount; periodCount++ {
+		plan, planErr := buildRenewalPeriodPlan(subscription, result.DueDate, periodCount)
+		if planErr != nil {
+			return RenewalSubscriptionView{}, planErr
+		}
+		result.PeriodOptions = append(result.PeriodOptions, RenewalPeriodOption{
+			PeriodCount:   periodCount,
+			AmountYuan:    cycle.FormatCents(plan.AmountCents),
+			PeriodEndDate: plan.PeriodEndDate,
+		})
+	}
+	result.AmountYuan = result.PeriodOptions[0].AmountYuan
+	result.PeriodEndDate = result.PeriodOptions[0].PeriodEndDate
 	if subscription.AccountID > 0 {
 		account, accountErr := service.Store.GetAccount(subscription.AccountID)
 		if accountErr != nil {
 			return RenewalSubscriptionView{}, accountErr
 		}
 		result.AccountSerial = accountDisplaySerial(account)
-	}
-	if schedule, scheduleErr := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt); scheduleErr == nil {
-		if dueAt, parseErr := time.ParseInLocation("2006-01-02", result.DueDate, cycle.Location); parseErr == nil {
-			result.PeriodEndDate = cycle.FormatDate(schedule.NextDue(dueAt))
-		}
 	}
 	switch {
 	case result.DaysRemaining < 0:
@@ -413,10 +463,15 @@ func (service *SubscriptionService) buildRenewalSubscriptionView(
 }
 
 func (service *SubscriptionService) buildRenewalStatusView(application model.RenewalApplication) RenewalStatusView {
+	if application.PeriodCount <= 0 {
+		application.PeriodCount = 1
+	}
 	view := RenewalStatusView{
 		Status:           application.Status,
 		CustomerEmail:    application.CustomerEmail,
 		DueDate:          application.DueDate,
+		PeriodCount:      application.PeriodCount,
+		PeriodEndDate:    application.PeriodEndDate,
 		AmountYuan:       cycle.FormatCents(application.AmountCents),
 		CreatedAtLabel:   cycle.FormatDateTime(application.CreatedAt),
 		ProcessedAtLabel: formatOptionalTime(application.ProcessedAt),
@@ -427,8 +482,71 @@ func (service *SubscriptionService) buildRenewalStatusView(application model.Ren
 	if subscription, err := service.Store.GetSubscriptionIncludingArchived(application.SubscriptionID); err == nil {
 		view.BusinessType = subscription.BusinessType
 		view.ServiceLabel = renewalServiceLabel(subscription)
+		view.CycleDesc = cycle.DescribeCron(subscription.CronExpr)
+		if view.PeriodEndDate == "" {
+			if plan, planErr := buildRenewalPeriodPlan(subscription, application.DueDate, application.PeriodCount); planErr == nil {
+				view.PeriodEndDate = plan.PeriodEndDate
+			}
+		}
 	}
 	return view
+}
+
+type renewalPeriodPlan struct {
+	Bills         []model.Bill
+	AmountCents   int64
+	PeriodEndDate string
+}
+
+func normalizeRenewalPeriodCount(periodCount int) (int, error) {
+	if periodCount == 0 {
+		return 1, nil
+	}
+	if periodCount < 1 || periodCount > model.MaxRenewalPeriodCount {
+		return 0, fmt.Errorf("续费周期只能选择 1–%d 个原计费周期", model.MaxRenewalPeriodCount)
+	}
+	return periodCount, nil
+}
+
+func buildRenewalPeriodPlan(
+	subscription model.Subscription,
+	firstDueDate string,
+	periodCount int,
+) (renewalPeriodPlan, error) {
+	periodCount, err := normalizeRenewalPeriodCount(periodCount)
+	if err != nil {
+		return renewalPeriodPlan{}, err
+	}
+	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	if err != nil {
+		return renewalPeriodPlan{}, fmt.Errorf("读取原计费周期失败: %w", err)
+	}
+	dueAt, err := time.ParseInLocation("2006-01-02", strings.TrimSpace(firstDueDate), cycle.Location)
+	if err != nil {
+		return renewalPeriodPlan{}, fmt.Errorf("读取续费日期失败: %w", err)
+	}
+	plan := renewalPeriodPlan{Bills: make([]model.Bill, 0, periodCount)}
+	for index := 0; index < periodCount; index++ {
+		dueDate := cycle.FormatDate(dueAt)
+		amountCents := billAmountCentsForDueDate(subscription, dueDate)
+		if amountCents <= 0 {
+			return renewalPeriodPlan{}, fmt.Errorf("续费金额必须大于 0")
+		}
+		plan.Bills = append(plan.Bills, model.Bill{
+			SubscriptionID: subscription.ID,
+			DueDate:        dueDate,
+			AmountCents:    amountCents,
+			CostCents:      billDefaultCostCents(subscription),
+		})
+		plan.AmountCents += amountCents
+		nextDue := schedule.NextDue(dueAt)
+		if !nextDue.After(dueAt) {
+			return renewalPeriodPlan{}, fmt.Errorf("原计费周期无法继续推进")
+		}
+		dueAt = nextDue
+	}
+	plan.PeriodEndDate = cycle.FormatDate(dueAt)
+	return plan, nil
 }
 
 func renewalServiceLabel(subscription model.Subscription) string {

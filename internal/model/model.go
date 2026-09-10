@@ -74,6 +74,9 @@ const (
 	DefaultSeatFreezeDays     = 7
 	MinSeatFreezeDays         = 1
 	MaxSeatFreezeDays         = 90
+	// MaxRenewalPeriodCount bounds one customer payment while still allowing
+	// up to a year of monthly renewals in a single review request.
+	MaxRenewalPeriodCount = 12
 	// A Team account can immediately reuse a seat after its first four
 	// departures in a rolling 30-day window. Later departures are cooled down
 	// for the configured seat-freeze duration before the seat is reusable.
@@ -182,6 +185,7 @@ type RedeemPageSettings struct {
 }
 
 const DefaultRedeemRenewalGuidance = "兑换成功后，可在本页切换到“自助续费”，也可联系客服协助续费；到期仍未续费的席位将自动移出空间。"
+const DefaultRenewalPaymentAmountGuidance = "付款金额必须与页面显示的应付总额完全一致，否则无法核对续费；付错金额请联系客服。"
 
 // DefaultRedeemPageSettings keeps open-source installs free of operator-specific data.
 var DefaultRedeemPageSettings = RedeemPageSettings{
@@ -201,7 +205,7 @@ var DefaultRedeemPageSettings = RedeemPageSettings{
 	RenewalAnnouncementIntro: "付款前请核对页面账单，并按显示金额完成续费。",
 	RenewalAnnouncementItems: []string{
 		"扫码付款时请务必备注订阅邮箱；忘记备注时请联系客服处理。",
-		"付款金额必须与页面显示的本期应付金额完全一致，否则无法核对续费；付错金额请联系客服。",
+		DefaultRenewalPaymentAmountGuidance,
 		"付款后点击“提交续费审核”，管理员确认到账后会更新订阅状态。",
 	},
 	PaymentTitle:             "续费收款码",
@@ -531,6 +535,8 @@ type RenewalApplication struct {
 	SubscriptionID int64      `json:"subscription_id"`
 	CustomerEmail  string     `json:"customer_email"`
 	DueDate        string     `json:"due_date"`
+	PeriodCount    int        `json:"period_count"`
+	PeriodEndDate  string     `json:"period_end_date"`
 	AmountCents    int64      `json:"amount_cents"`
 	Status         string     `json:"status"`
 	OperatorNote   string     `json:"operator_note"`

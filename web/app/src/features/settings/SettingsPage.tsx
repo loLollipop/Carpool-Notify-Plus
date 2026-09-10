@@ -219,7 +219,7 @@ const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
   renewal_announcement_intro: "付款前请核对页面账单，并按显示金额完成续费。",
   renewal_announcement_items: [
     "扫码付款时请务必备注订阅邮箱；忘记备注时请联系客服处理。",
-    "付款金额必须与页面显示的本期应付金额完全一致，否则无法核对续费；付错金额请联系客服。",
+    "付款金额必须与页面显示的应付总额完全一致，否则无法核对续费；付错金额请联系客服。",
     "付款后点击“提交续费审核”，管理员确认到账后会更新订阅状态。",
   ],
   payment_title: "续费收款码",
