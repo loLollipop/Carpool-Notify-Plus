@@ -1814,6 +1814,16 @@ function RepricingAnalysisPanel({
           <div className="divide-y">
             {visibleQueue.map((candidate) => {
               const customerLabel = candidate.customer_email || candidate.name
+              const accountLocationLabel = [
+                formatAccountLabel(
+                  candidate.account_serial,
+                  candidate.account_name,
+                  candidate.name || "-",
+                ),
+                candidate.seat_name,
+              ]
+                .filter(Boolean)
+                .join(" · ")
               const relationshipVariant =
                 candidate.relationship_level === "trusted" || candidate.relationship_level === "stable"
                   ? "success"
@@ -1837,11 +1847,9 @@ function RepricingAnalysisPanel({
                     </p>
                     <p
                       className="mt-0.5 truncate text-[11px] text-muted-foreground"
-                      title={candidate.name || undefined}
+                      title={accountLocationLabel}
                     >
-                      {candidate.name !== customerLabel
-                        ? candidate.name
-                        : formatAccountLabel(candidate.account_serial, candidate.account_name)}
+                      {accountLocationLabel}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <Badge
