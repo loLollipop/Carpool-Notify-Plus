@@ -22,12 +22,14 @@ type BanAccountInput struct {
 }
 
 type AfterSalesCaseView struct {
-	Case             model.AfterSalesCase `json:"case"`
-	PaidAmountYuan   string               `json:"paid_amount_yuan"`
-	RefundAmountYuan string               `json:"refund_amount_yuan"`
-	StatusLabel      string               `json:"status_label"`
-	ProcessedAtLabel string               `json:"processed_at_label"`
-	ExpiresAtLabel   string               `json:"expires_at_label"`
+	Case                     model.AfterSalesCase `json:"case"`
+	AccountSerial            int64                `json:"account_serial"`
+	ReplacementAccountSerial int64                `json:"replacement_account_serial"`
+	PaidAmountYuan           string               `json:"paid_amount_yuan"`
+	RefundAmountYuan         string               `json:"refund_amount_yuan"`
+	StatusLabel              string               `json:"status_label"`
+	ProcessedAtLabel         string               `json:"processed_at_label"`
+	ExpiresAtLabel           string               `json:"expires_at_label"`
 }
 
 type CancellationRequestResult struct {
@@ -163,17 +165,22 @@ func (service *SubscriptionService) ListAfterSalesPage() (AfterSalesPage, error)
 	if err != nil {
 		return AfterSalesPage{}, err
 	}
+	accounts, err := service.Store.ListAccounts()
+	if err != nil {
+		return AfterSalesPage{}, err
+	}
+	accountSerials := accountDisplaySerials(accounts)
 	page := AfterSalesPage{
 		Cases:        make([]AfterSalesCaseView, 0, len(cases)),
 		SummaryCases: make([]AfterSalesCaseView, 0, len(allCases)),
 	}
 	for _, caseItem := range cases {
-		page.Cases = append(page.Cases, buildAfterSalesCaseView(caseItem))
+		page.Cases = append(page.Cases, buildAfterSalesCaseView(caseItem, accountSerials))
 	}
 	// Completed rows leave the working list after 24 hours, but the KPI cards
 	// are historical operational/financial totals and must not silently reset.
 	for _, caseItem := range allCases {
-		page.SummaryCases = append(page.SummaryCases, buildAfterSalesCaseView(caseItem))
+		page.SummaryCases = append(page.SummaryCases, buildAfterSalesCaseView(caseItem, accountSerials))
 		page.Summary.TotalCount++
 		switch caseItem.Status {
 		case model.AfterSalesStatusRefunded:
@@ -194,12 +201,17 @@ func (service *SubscriptionService) ListAfterSalesPage() (AfterSalesPage, error)
 	return page, nil
 }
 
-func buildAfterSalesCaseView(caseItem model.AfterSalesCase) AfterSalesCaseView {
+func buildAfterSalesCaseView(
+	caseItem model.AfterSalesCase,
+	accountSerials map[int64]int64,
+) AfterSalesCaseView {
 	view := AfterSalesCaseView{
-		Case:             caseItem,
-		PaidAmountYuan:   cycle.FormatCents(caseItem.PaidAmountCents),
-		RefundAmountYuan: cycle.FormatCents(caseItem.RefundAmountCents),
-		StatusLabel:      afterSalesStatusLabel(caseItem.Status),
+		Case:                     caseItem,
+		AccountSerial:            accountDisplaySerialForID(accountSerials, caseItem.AccountID),
+		ReplacementAccountSerial: accountDisplaySerialForID(accountSerials, caseItem.ReplacementAccountID),
+		PaidAmountYuan:           cycle.FormatCents(caseItem.PaidAmountCents),
+		RefundAmountYuan:         cycle.FormatCents(caseItem.RefundAmountCents),
+		StatusLabel:              afterSalesStatusLabel(caseItem.Status),
 	}
 	if caseItem.ProcessedAt != nil {
 		view.ProcessedAtLabel = caseItem.ProcessedAt.In(cycle.Location).Format("2006-01-02 15:04")

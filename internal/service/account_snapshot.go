@@ -112,12 +112,13 @@ func buildAccountViewFromSnapshot(account model.Account, snapshot accountViewSna
 		seatViews = append(seatViews, seatView)
 	}
 	view := AccountView{
-		Account:   account,
-		Seats:     seatViews,
-		SeatTotal: len(seatViews),
-		SeatUsed:  usedCount,
-		IsFull:    len(seatViews) > 0 && usedCount >= len(seatViews),
-		CanDelete: usedCount == 0,
+		Account:       account,
+		DisplaySerial: accountDisplaySerial(account),
+		Seats:         seatViews,
+		SeatTotal:     len(seatViews),
+		SeatUsed:      usedCount,
+		IsFull:        len(seatViews) > 0 && usedCount >= len(seatViews),
+		CanDelete:     usedCount == 0,
 	}
 	if strings.TrimSpace(account.BannedAt) == "" {
 		renewalAt, err := nextAccountCostRenewalFromLatestPeriod(

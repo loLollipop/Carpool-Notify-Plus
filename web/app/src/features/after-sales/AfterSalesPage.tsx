@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { accountSerialSearchTerms, formatAccountLabel } from "@/lib/account-display"
 import {
   Select,
   SelectContent,
@@ -158,8 +159,11 @@ function AccountSnapshot({ view }: { view: AfterSalesCaseView }) {
   return (
     <div className="min-w-0">
       <SourceBadge view={view} />
-      <div className="truncate font-medium" title={view.case.account_email || view.case.account_name}>
-        {view.case.account_email || view.case.account_name || "-"}
+      <div
+        className="truncate font-medium"
+        title={formatAccountLabel(view.account_serial, view.case.account_email || view.case.account_name)}
+      >
+        {formatAccountLabel(view.account_serial, view.case.account_email || view.case.account_name)}
       </div>
       <div className="mt-1 truncate text-xs text-muted-foreground" title={view.case.account_space_name}>
         {plusRental ? t("afterSales.plusAccount") : view.case.account_space_name || "-"}
@@ -182,8 +186,17 @@ function ReplacementSnapshot({ view }: { view: AfterSalesCaseView }) {
   return (
     <div className="mt-2 border-l-2 border-success/50 pl-2 text-xs">
       <div className="font-medium text-success">{t("afterSales.replacementAccount")}</div>
-      <div className="mt-0.5 truncate" title={view.case.replacement_account_email || view.case.replacement_account_name}>
-        {view.case.replacement_account_email || view.case.replacement_account_name}
+      <div
+        className="mt-0.5 truncate"
+        title={formatAccountLabel(
+          view.replacement_account_serial,
+          view.case.replacement_account_email || view.case.replacement_account_name,
+        )}
+      >
+        {formatAccountLabel(
+          view.replacement_account_serial,
+          view.case.replacement_account_email || view.case.replacement_account_name,
+        )}
       </div>
       <div className="mt-0.5 truncate text-muted-foreground">
         {[view.case.replacement_space_name, view.case.replacement_seat_name].filter(Boolean).join(" · ") || "-"}
@@ -457,9 +470,11 @@ export function AfterSalesPage() {
         view.case.customer_wechat,
         view.case.account_name,
         view.case.account_email,
+        ...accountSerialSearchTerms(view.account_serial),
         view.case.account_space_name,
         view.case.replacement_account_name,
         view.case.replacement_account_email,
+        ...accountSerialSearchTerms(view.replacement_account_serial),
         view.case.replacement_space_name,
         view.case.replacement_seat_name,
         view.case.banned_date,
@@ -498,8 +513,8 @@ export function AfterSalesPage() {
       items: source.map((view) => ({
         id: view.case.id,
         title: view.case.customer_email || view.case.customer_wechat || `#${view.case.id}`,
-        subtitle: view.case.customer_wechat || view.case.account_name,
-        meta: [view.case.account_email, view.case.period_end, view.status_label],
+        subtitle: view.case.customer_wechat || formatAccountLabel(view.account_serial, view.case.account_name),
+        meta: [formatAccountLabel(view.account_serial, view.case.account_email), view.case.period_end, view.status_label],
         value: key === "refunded" ? `¥${view.refund_amount_yuan}` : `¥${view.paid_amount_yuan}`,
         valueTone: key === "refunded" ? "danger" : key === "reassigned" ? "success" : "default",
         searchText: `${view.case.replacement_account_name} ${view.case.note}`,

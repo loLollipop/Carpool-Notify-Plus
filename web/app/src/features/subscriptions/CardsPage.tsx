@@ -59,6 +59,7 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDialog"
+import { accountSerialSearchTerms, formatAccountLabel } from "@/lib/account-display"
 import { cn, compareISODateStrings } from "@/lib/utils"
 import { ReminderPreviewDialog } from "./ReminderPreviewDialog"
 import { SubscriptionDialog } from "./SubscriptionDialog"
@@ -228,7 +229,7 @@ function SubscriptionCard({
   const cancellationPending = view.cancellation_pending
   const displayedCostYuan = view.allocated_cost_yuan || view.cost_yuan
   const displayedProfitYuan = view.allocated_profit_yuan || view.profit_yuan
-  const accountBadgeStyle = teamAccountBadgeStyle(view.account_id)
+  const accountBadgeStyle = teamAccountBadgeStyle(view.account_serial)
   const accentClass = archived || cancellationPending
     ? "bg-muted-foreground/35"
     : view.days_remaining <= 0
@@ -249,13 +250,13 @@ function SubscriptionCard({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="flex min-w-0 items-center gap-2 text-[15px] font-semibold">
-            {!plusRental && view.account_id > 0 ? (
+            {!plusRental && view.account_serial > 0 ? (
               <span
                 className="grid size-6 shrink-0 place-items-center rounded-md font-mono text-[11px] font-bold tabular-nums"
                 style={accountBadgeStyle}
-                title={t("accounts.serialTitle", { number: view.account_id })}
+                title={t("accounts.serialTitle", { number: view.account_serial })}
               >
-                {view.account_id}
+                {view.account_serial}
               </span>
             ) : null}
             <span
@@ -611,6 +612,7 @@ export function CardsPage() {
         view.subscription.name,
         view.subscription.business_type,
         String(view.subscription.id),
+        ...accountSerialSearchTerms(view.account_serial),
         view.account_name,
         view.seat_name,
         view.subscription.remark,
@@ -711,8 +713,8 @@ export function CardsPage() {
       items: orderedSource.map((view) => ({
         id: view.subscription.id,
         title: view.subscription.customer_email || view.subscription.name,
-        subtitle: view.subscription.customer_wechat || view.account_name,
-        meta: [view.account_name, view.seat_name, view.next_due_date, view.cycle_desc],
+        subtitle: view.subscription.customer_wechat || formatAccountLabel(view.account_serial, view.account_name),
+        meta: [formatAccountLabel(view.account_serial, view.account_name), view.seat_name, view.next_due_date, view.cycle_desc],
         value: `¥${view.price_yuan}`,
         valueTone: key === "pending" ? "warning" : key === "renewed" ? "success" : "default",
         searchText: view.subscription.remark,

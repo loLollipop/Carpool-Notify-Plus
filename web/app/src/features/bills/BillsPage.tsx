@@ -56,6 +56,7 @@ import {
 import { cn } from "@/lib/utils"
 import { AMOUNT_MASK, VALUE_MASK, maskAmount, maskValue } from "@/lib/amount-privacy"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
+import { accountSerialSearchTerms, formatAccountLabel } from "@/lib/account-display"
 import { BillEditDialog } from "./BillEditDialog"
 import { AccountDonutCard, AmountDistributionCard, MonthlyTrendCard } from "./BillsCharts"
 import { OperatingExpenseDialog } from "./OperatingExpenseDialog"
@@ -68,7 +69,9 @@ function billIdentity(bill: BillView) {
   const plusRental = bill.business_type === "plus"
   return {
     plusRental,
-    primaryName: plusRental ? bill.subscription_name : bill.account_name || bill.subscription_name,
+    primaryName: plusRental
+      ? bill.subscription_name
+      : formatAccountLabel(bill.account_serial, bill.account_name || bill.subscription_name),
     customerLine: plusRental
       ? [bill.customer_email, bill.customer_wechat].filter(Boolean).join(" · ") || bill.subscription_name
       : bill.customer_email || bill.subscription_name,
@@ -300,6 +303,7 @@ export function BillsPage() {
     return byType.filter((bill) =>
       [
         bill.subscription_name,
+        ...accountSerialSearchTerms(bill.account_serial),
         bill.account_name,
         bill.account_email,
         bill.account_space_name,
@@ -329,7 +333,7 @@ export function BillsPage() {
       id: `bill:${bill.id}`,
       title: identify(bill),
       subtitle: bill.customer_wechat || bill.subscription_name,
-      meta: [bill.account_name, bill.seat_name, bill.due_date, bill.paid_at_label],
+      meta: [formatAccountLabel(bill.account_serial, bill.account_name), bill.seat_name, bill.due_date, bill.paid_at_label],
       value,
       searchText: `${bill.subscription_name} ${bill.account_email} ${bill.account_space_name}`,
     })
@@ -338,11 +342,16 @@ export function BillsPage() {
     const refundItem = (refund: (typeof refundDetails)[number], negative = false): StatDetailItem => ({
       id: `refund:${refund.id}`,
       title: refund.customer_email || refund.customer_wechat || refund.account_name || `#${refund.id}`,
-      subtitle: refund.customer_wechat || refund.account_name,
-      meta: [refund.processed_at_label, refund.period_end, refund.note],
+      subtitle: refund.customer_wechat || formatAccountLabel(refund.account_serial, refund.account_name),
+      meta: [
+        formatAccountLabel(refund.account_serial, refund.account_name, ""),
+        refund.processed_at_label,
+        refund.period_end,
+        refund.note,
+      ],
       value: maskAmount(amountsHidden, `${negative ? "-" : ""}¥${refund.amount_yuan}`),
       valueTone: "danger",
-      searchText: `${refund.account_name} ${refund.business_type}`,
+      searchText: `${accountSerialSearchTerms(refund.account_serial).join(" ")} ${refund.account_name} ${refund.business_type}`,
     })
     let items: StatDetailItem[]
     let title: string

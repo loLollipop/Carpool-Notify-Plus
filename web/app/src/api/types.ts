@@ -57,6 +57,7 @@ export interface SubscriptionView {
   offsets_text: string
   last_error: string
   account_id: number
+  account_serial: number
   account_name: string
   seat_id: number
   seat_name: string
@@ -148,6 +149,7 @@ export interface CalendarOccurrence {
   channel_labels: string
   paid: boolean
   account_name: string
+  account_serial: number
   seat_name: string
   account_id: number
   seat_id: number
@@ -195,6 +197,7 @@ interface AmountBar {
   subscription_id: number
   name: string
   customer_email: string
+  account_serial: number
   account_name: string
   amount_yuan: string
   amount_cents: number
@@ -262,6 +265,7 @@ export interface RenewalApplicationView {
 interface AccountBreakdown {
   key: string
   account_id: number
+  account_serial: number
   account_name: string
   type: string
   count: number
@@ -311,6 +315,7 @@ export interface OperationTask {
   redemption_id: number
   renewal_application_id: number
   account_id: number
+  account_serial: number
   seat_id: number
   name: string
   customer_email: string
@@ -442,6 +447,7 @@ export interface SeatView {
 
 export interface AccountView {
   account: Account
+  display_serial: number
   seats: SeatView[] | null
   seat_total: number
   seat_used: number
@@ -506,6 +512,8 @@ interface AfterSalesCase {
 
 export interface AfterSalesCaseView {
   case: AfterSalesCase
+  account_serial: number
+  replacement_account_serial: number
   paid_amount_yuan: string
   refund_amount_yuan: string
   status_label: string
@@ -555,6 +563,7 @@ export interface BillView {
   subscription_id: number
   subscription_name: string
   business_type: SubscriptionBusinessType
+  account_serial: number
   account_name: string
   account_email: string
   account_space_name: string
@@ -647,6 +656,7 @@ interface RefundDetail {
   bill_id: number
   subscription_id: number
   business_type: SubscriptionBusinessType
+  account_serial: number
   customer_email: string
   customer_wechat: string
   account_name: string
@@ -901,6 +911,8 @@ interface PricingRecommendation {
 
 export interface PricingCandidate {
   subscription_id: number
+  account_id: number
+  account_serial: number
   name: string
   customer_email: string
   customer_wechat: string

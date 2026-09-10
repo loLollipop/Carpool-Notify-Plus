@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { formatAccountLabel } from "@/lib/account-display"
 
 const MONEY_PATTERN = /^\d+(\.\d{1,2})?$/
 
@@ -40,7 +41,9 @@ export function BillEditDialog({
 }) {
   const { t } = useTranslation()
   const billLabel = bill
-    ? `${bill.account_name || bill.subscription_name} · ${
+    ? `${bill.business_type === "plus"
+        ? bill.subscription_name
+        : formatAccountLabel(bill.account_serial, bill.account_name || bill.subscription_name)} · ${
         bill.customer_email || bill.subscription_name
       } · ${bill.due_date} · `
     : ""

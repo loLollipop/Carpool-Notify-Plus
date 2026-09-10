@@ -19,6 +19,7 @@ type BillView struct {
 	SubscriptionID   int64     `json:"subscription_id"`
 	SubscriptionName string    `json:"subscription_name"`
 	BusinessType     string    `json:"business_type"`
+	AccountSerial    int64     `json:"account_serial"`
 	AccountName      string    `json:"account_name"`
 	AccountEmail     string    `json:"account_email"`
 	AccountSpaceName string    `json:"account_space_name"`
@@ -97,6 +98,7 @@ type RefundDetail struct {
 	BillID           int64  `json:"bill_id"`
 	SubscriptionID   int64  `json:"subscription_id"`
 	BusinessType     string `json:"business_type"`
+	AccountSerial    int64  `json:"account_serial"`
 	CustomerEmail    string `json:"customer_email"`
 	CustomerWechat   string `json:"customer_wechat"`
 	AccountName      string `json:"account_name"`
@@ -264,6 +266,7 @@ func buildBillViewFromSnapshot(
 	customerEmail := ""
 	customerWechat := ""
 	accountID := int64(0)
+	accountSerial := int64(0)
 	seatID := int64(0)
 	archived := false
 	tradeURL := ""
@@ -288,6 +291,7 @@ func buildBillViewFromSnapshot(
 		customerEmail = subscription.CustomerEmail
 		customerWechat = subscription.CustomerWechat
 		accountID = subscription.AccountID
+		accountSerial = accountID
 		seatID = subscription.SeatID
 		archived = subscription.ArchivedAt != nil
 		tradeURL = subscription.TradeURL
@@ -311,6 +315,7 @@ func buildBillViewFromSnapshot(
 			archivedAtLabel = subscription.ArchivedAt.In(cycle.Location).Format("2006-01-02 15:04")
 		}
 		if account != nil {
+			accountSerial = accountDisplaySerial(*account)
 			accountEmail = account.Email
 			accountSpaceName = account.SpaceName
 			accountOpenedAt = account.OpenedAt
@@ -328,6 +333,7 @@ func buildBillViewFromSnapshot(
 		SubscriptionID:   bill.SubscriptionID,
 		SubscriptionName: subscriptionName,
 		BusinessType:     businessType,
+		AccountSerial:    accountSerial,
 		AccountName:      accountName,
 		AccountEmail:     accountEmail,
 		AccountSpaceName: accountSpaceName,
@@ -417,6 +423,7 @@ func buildBillsSummaryWithOperatingExpenses(
 
 	subscriptionTotals := map[int64]*AmountBar{}
 	accountTotals := map[string]*accountAmountBucket{}
+	accountSerialByID := map[int64]int64{}
 	refundDetails := make([]RefundDetail, 0)
 	monthTotals := map[string]struct {
 		count       int
@@ -425,6 +432,9 @@ func buildBillsSummaryWithOperatingExpenses(
 	}{}
 
 	for _, view := range views {
+		if view.AccountID > 0 && view.AccountSerial > 0 {
+			accountSerialByID[view.AccountID] = view.AccountSerial
+		}
 		netAmountCents := view.NetAmountCents
 		if view.NetAmountYuan == "" {
 			netAmountCents = view.AmountCents - view.RefundCents
@@ -465,6 +475,7 @@ func buildBillsSummaryWithOperatingExpenses(
 				SubscriptionID: view.SubscriptionID,
 				Name:           view.SubscriptionName,
 				CustomerEmail:  view.CustomerEmail,
+				AccountSerial:  view.AccountSerial,
 				AccountName:    view.AccountName,
 			}
 			subscriptionTotals[view.SubscriptionID] = bar
@@ -476,9 +487,10 @@ func buildBillsSummaryWithOperatingExpenses(
 		accountBucket, exists := accountTotals[accountKey]
 		if !exists {
 			accountBucket = &accountAmountBucket{
-				Key:         accountKey,
-				AccountID:   view.AccountID,
-				AccountName: view.AccountName,
+				Key:           accountKey,
+				AccountID:     view.AccountID,
+				AccountSerial: view.AccountSerial,
+				AccountName:   view.AccountName,
 			}
 			accountTotals[accountKey] = accountBucket
 		}
@@ -503,6 +515,7 @@ func buildBillsSummaryWithOperatingExpenses(
 			BillID:         caseItem.BillID,
 			SubscriptionID: caseItem.SubscriptionID,
 			BusinessType:   caseItem.BusinessType,
+			AccountSerial:  accountDisplaySerialForID(accountSerialByID, caseItem.AccountID),
 			CustomerEmail:  caseItem.CustomerEmail,
 			CustomerWechat: caseItem.CustomerWechat,
 			AccountName:    caseItem.AccountName,
@@ -547,13 +560,14 @@ func buildBillsSummaryWithOperatingExpenses(
 	accounts := make([]AccountBreakdown, 0, len(accountTotals))
 	for _, bucket := range accountTotals {
 		accounts = append(accounts, AccountBreakdown{
-			Key:         bucket.Key,
-			AccountID:   bucket.AccountID,
-			AccountName: bucket.AccountName,
-			Type:        bucket.AccountName,
-			Count:       bucket.count,
-			AmountYuan:  cycle.FormatCents(bucket.cents),
-			AmountCents: bucket.cents,
+			Key:           bucket.Key,
+			AccountID:     bucket.AccountID,
+			AccountSerial: bucket.AccountSerial,
+			AccountName:   bucket.AccountName,
+			Type:          bucket.AccountName,
+			Count:         bucket.count,
+			AmountYuan:    cycle.FormatCents(bucket.cents),
+			AmountCents:   bucket.cents,
 		})
 	}
 	sort.Slice(accounts, func(left int, right int) bool {

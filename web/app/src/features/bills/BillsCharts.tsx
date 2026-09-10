@@ -20,6 +20,7 @@ import type { BillsSummary } from "@/api/types"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { AMOUNT_MASK, VALUE_MASK, maskAmount, maskValue } from "@/lib/amount-privacy"
+import { formatAccountLabel } from "@/lib/account-display"
 import { cn } from "@/lib/utils"
 
 const AMOUNT_ITEMS_PER_PAGE = 4
@@ -135,7 +136,8 @@ function getPositiveAccounts(summary: BillsSummary) {
     .filter((item) => item.amount_cents > 0)
     .map((item) => ({
       key: item.key,
-      name: item.account_name,
+      name: formatAccountLabel(item.account_serial, item.account_name),
+      searchName: item.account_name,
       cents: item.amount_cents,
       count: item.count,
     }))
@@ -400,7 +402,7 @@ export function AccountDonutCard({
                         "grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-md",
                         "px-1.5 py-1 text-left text-xs transition-colors hover:bg-accent",
                       )}
-                      onClick={() => onSelectAccount(item.name)}
+                      onClick={() => onSelectAccount(item.searchName)}
                     >
                       <i
                         className="size-2.5 shrink-0 rounded-[3px]"

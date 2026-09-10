@@ -62,6 +62,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { accountSerialSearchTerms, formatAccountLabel } from "@/lib/account-display"
 import {
   Select,
   SelectContent,
@@ -1243,6 +1244,7 @@ export function RedemptionsPage() {
         view.application.redeem_code,
         view.application.request_note,
         view.application.operator_note,
+        ...accountSerialSearchTerms(view.account_serial),
         view.account_name,
         view.account_email,
         view.account_space_name,
@@ -1307,7 +1309,12 @@ export function RedemptionsPage() {
     id: view.application.id,
     title: view.application.customer_email,
     subtitle: view.application.customer_contact || view.application.redeem_code,
-    meta: [view.created_at_label, view.account_name, view.seat_name, view.application.operator_note],
+    meta: [
+      view.created_at_label,
+      formatAccountLabel(view.account_serial, view.account_name, ""),
+      view.seat_name,
+      view.application.operator_note,
+    ],
     value: view.application.status === "pending" ? "待处理" : view.application.status === "invited" ? "已邀请" : "已驳回",
     valueTone: view.application.status === "pending" ? "warning" as const : view.application.status === "invited" ? "success" as const : "danger" as const,
     searchText: `${view.subscription_name} ${view.application.request_note}`,

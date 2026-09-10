@@ -1,4 +1,5 @@
 import type { CalendarOccurrence } from "@/api/types"
+import { formatAccountLabel } from "@/lib/account-display"
 
 export interface SeatSubscriptionInfo {
   subscriptionId: number
@@ -35,7 +36,7 @@ export function seatInfoFromOccurrence(
     subscriptionId: occurrence.subscription_id,
     businessType: occurrence.business_type || "team",
     name: occurrence.name,
-    accountName: occurrence.account_name,
+    accountName: formatAccountLabel(occurrence.account_serial, occurrence.account_name),
     seatName: occurrence.seat_name,
     statusLabel: occurrence.paid ? t("dueStatus.paid") : t("calendar.legendPending"),
     statusTone: occurrence.paid ? "success" : "warning",

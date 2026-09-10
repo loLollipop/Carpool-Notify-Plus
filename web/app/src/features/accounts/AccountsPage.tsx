@@ -50,6 +50,7 @@ import {
 import {
   getNextMonthlyRenewalDate,
 } from "@/lib/account-renewal"
+import { accountSerialSearchTerms, formatAccountLabel } from "@/lib/account-display"
 import { AccountDialog, type AccountPrefill } from "./AccountDialog"
 import { AccountBanDialog, type AccountBanTarget } from "./AccountBanDialog"
 import { SeatFreezeDialog, type SeatFreezeTarget } from "./SeatFreezeDialog"
@@ -352,7 +353,7 @@ function AccountMobileCard({
       <div className="p-4">
         <div className="flex min-w-0 items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
-            <AccountSerial number={view.account.id} />
+            <AccountSerial number={view.display_serial} />
             <div className="min-w-0">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                 <h2 className="min-w-0 break-all text-sm font-semibold leading-5">
@@ -681,7 +682,7 @@ export function AccountsPage() {
       title,
       items: orderedAccounts.map((view) => ({
         id: view.account.id,
-        title: `${view.account.id} · ${view.account.email || view.account.name}`,
+        title: formatAccountLabel(view.display_serial, view.account.email || view.account.name),
         subtitle: view.account.email && view.account.email !== view.account.name
           ? view.account.name
           : view.account.space_name,
@@ -733,10 +734,7 @@ export function AccountsPage() {
       const nextRenewalDate = getNextMonthlyRenewalDate(view.account.opened_at)
       return [
         view.account.name,
-        String(view.account.id),
-        `#${view.account.id}`,
-        `${view.account.id}号`,
-        `no.${view.account.id}`,
+        ...accountSerialSearchTerms(view.display_serial),
         view.account.remark,
         view.account.payment_method,
         view.account.email,
@@ -921,7 +919,7 @@ export function AccountsPage() {
                   >
                     <TableCell>
                       <div className="flex min-w-0 items-start gap-2.5">
-                        <AccountSerial number={view.account.id} className="mt-0.5 size-8 text-xs" />
+                        <AccountSerial number={view.display_serial} className="mt-0.5 size-8 text-xs" />
                         <div className="min-w-0">
                           <div className="flex min-w-0 items-center gap-1.5">
                             <div className="min-w-0 truncate font-medium" title={view.account.name}>

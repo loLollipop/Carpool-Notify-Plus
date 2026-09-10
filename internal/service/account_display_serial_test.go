@@ -3,7 +3,9 @@ package service
 import (
 	"path/filepath"
 	"testing"
+	"time"
 
+	"carpool-notify/internal/cycle"
 	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 )
@@ -56,7 +58,11 @@ func TestAccountDisplaySerialIsExposedToAssignmentViews(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	subscriptionService := &SubscriptionService{Store: store}
+	now := time.Date(2026, time.September, 10, 12, 0, 0, 0, cycle.Location)
+	subscriptionService := &SubscriptionService{
+		Store: store,
+		Clock: func() time.Time { return now },
+	}
 
 	accountID, err := subscriptionService.CreateAccount(CreateAccountInput{
 		Name:      "owner@example.com",
@@ -82,5 +88,50 @@ func TestAccountDisplaySerialIsExposedToAssignmentViews(t *testing.T) {
 	}
 	if redemptionView.AccountSerial != 47 {
 		t.Fatalf("redemption account serial = %d, want 47", redemptionView.AccountSerial)
+	}
+
+	accountViews, err := subscriptionService.ListAccountsView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(accountViews) != 1 || accountViews[0].DisplaySerial != 47 {
+		t.Fatalf("account views = %#v, want display serial 47", accountViews)
+	}
+
+	subscriptionID, err := subscriptionService.Create(CreateInput{
+		Name:             "team-customer",
+		PriceYuan:        "90",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3,1,0",
+		SeatID:           options[0].Seats[0].ID,
+		BoardedAt:        "2026-09-01",
+		CustomerEmail:    "customer@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	subscriptionViews, err := subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(subscriptionViews) != 1 || subscriptionViews[0].AccountSerial != 47 {
+		t.Fatalf("subscription views = %#v, want account serial 47", subscriptionViews)
+	}
+
+	candidates, err := subscriptionService.buildPricingCandidates(nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(candidates) != 1 || candidates[0].SubscriptionID != subscriptionID || candidates[0].AccountSerial != 47 {
+		t.Fatalf("pricing candidates = %#v, want subscription %d on account serial 47", candidates, subscriptionID)
+	}
+
+	dashboard, err := subscriptionService.ComputeDashboard()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(dashboard.AmountBySubscription) != 1 || dashboard.AmountBySubscription[0].AccountSerial != 47 {
+		t.Fatalf("dashboard amount rows = %#v, want account serial 47", dashboard.AmountBySubscription)
 	}
 }

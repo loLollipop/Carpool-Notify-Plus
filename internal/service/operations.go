@@ -26,6 +26,7 @@ type OperationTask struct {
 	RedemptionID         int64  `json:"redemption_id"`
 	RenewalApplicationID int64  `json:"renewal_application_id"`
 	AccountID            int64  `json:"account_id"`
+	AccountSerial        int64  `json:"account_serial"`
 	SeatID               int64  `json:"seat_id"`
 	Name                 string `json:"name"`
 	CustomerEmail        string `json:"customer_email"`
@@ -321,6 +322,7 @@ func buildOperationsCapacity(
 				Tone:          "info",
 				Priority:      45 - days,
 				AccountID:     account.Account.ID,
+				AccountSerial: account.DisplaySerial,
 				SeatID:        seat.Seat.ID,
 				Name:          seat.FrozenSubscriptionName,
 				CustomerEmail: seat.FrozenCustomerEmail,
@@ -394,6 +396,7 @@ func buildSubscriptionOperationTasks(
 			CustomerEmail:  view.Subscription.CustomerEmail,
 			CustomerWechat: view.Subscription.CustomerWechat,
 			AccountName:    view.AccountName,
+			AccountSerial:  view.AccountSerial,
 			SeatName:       view.SeatName,
 			DueDate:        view.NextDueDate,
 			DaysRemaining:  view.DaysRemaining,
@@ -442,6 +445,7 @@ func buildRenewalOperationTasks(views []RenewalApplicationView, tasks *[]Operati
 			Name:                 application.CustomerEmail,
 			CustomerEmail:        application.CustomerEmail,
 			AccountName:          view.AccountEmail,
+			AccountSerial:        view.AccountSerial,
 			SeatName:             view.SeatName,
 			DueDate:              application.DueDate,
 			DueAtLabel:           view.CreatedAtLabel,
@@ -466,6 +470,7 @@ func buildAfterSalesOperationTasks(views []AfterSalesCaseView, tasks *[]Operatio
 			SubscriptionID:   caseItem.SubscriptionID,
 			AfterSalesCaseID: caseItem.ID,
 			AccountID:        caseItem.AccountID,
+			AccountSerial:    view.AccountSerial,
 			Name:             caseItem.CustomerEmail,
 			CustomerEmail:    caseItem.CustomerEmail,
 			CustomerWechat:   caseItem.CustomerWechat,
@@ -525,6 +530,7 @@ func buildAccountRenewalOperationTasks(
 			Tone:          "info",
 			Priority:      55 - days,
 			AccountID:     account.ID,
+			AccountSerial: view.DisplaySerial,
 			Name:          account.Email,
 			AccountName:   account.Name,
 			DueDate:       cycle.FormatDate(renewalAt),

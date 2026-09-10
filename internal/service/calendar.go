@@ -78,6 +78,7 @@ type CalendarOccurrenceView struct {
 	ChannelLabels             string   `json:"channel_labels"`
 	Paid                      bool     `json:"paid"`
 	AccountName               string   `json:"account_name"`
+	AccountSerial             int64    `json:"account_serial"`
 	SeatName                  string   `json:"seat_name"`
 	AccountID                 int64    `json:"account_id"`
 	SeatID                    int64    `json:"seat_id"`
@@ -388,8 +389,10 @@ func (service *SubscriptionService) calendarMonth(
 	gridEnd := lastDay.AddDate(0, 0, daysUntilSunday+1)
 
 	subscriptions := make([]model.Subscription, 0, len(subscriptionViews))
+	accountSerialBySubscription := make(map[int64]int64, len(subscriptionViews))
 	for _, view := range subscriptionViews {
 		subscriptions = append(subscriptions, view.Subscription)
+		accountSerialBySubscription[view.Subscription.ID] = view.AccountSerial
 	}
 	allocatedCosts, err := service.activeAllocatedCostCents(subscriptions)
 	if err != nil {
@@ -436,6 +439,7 @@ func (service *SubscriptionService) calendarMonth(
 				}]
 				gridOccurrences = append(gridOccurrences, service.buildOccurrenceView(
 					subscription,
+					accountSerialBySubscription[subscription.ID],
 					periodStart,
 					paid,
 					billsByOccurrence[dueOccurrenceKey{subscriptionID: subscription.ID, dueDate: dueDate}],
@@ -461,6 +465,7 @@ func (service *SubscriptionService) calendarMonth(
 			}]
 			gridOccurrences = append(gridOccurrences, service.buildOccurrenceView(
 				subscription,
+				accountSerialBySubscription[subscription.ID],
 				dueAt,
 				paid,
 				billsByOccurrence[dueOccurrenceKey{subscriptionID: subscription.ID, dueDate: dueDate}],
@@ -564,6 +569,7 @@ func (service *SubscriptionService) buildActionableCalendarOccurrences(
 		}
 		occurrence := service.buildOccurrenceView(
 			view.Subscription,
+			view.AccountSerial,
 			dueAt,
 			false,
 			model.Bill{},
@@ -588,6 +594,7 @@ func (service *SubscriptionService) buildActionableCalendarOccurrences(
 
 func (service *SubscriptionService) buildOccurrenceView(
 	subscription model.Subscription,
+	accountSerial int64,
 	dueAt time.Time,
 	paid bool,
 	bill model.Bill,
@@ -628,6 +635,7 @@ func (service *SubscriptionService) buildOccurrenceView(
 		ChannelLabels:             scheduledNotificationLabelText(subscription),
 		Paid:                      paid,
 		AccountName:               displayAccountName(subscription),
+		AccountSerial:             accountSerial,
 		SeatName:                  subscription.SeatName,
 		AccountID:                 subscription.AccountID,
 		SeatID:                    subscription.SeatID,

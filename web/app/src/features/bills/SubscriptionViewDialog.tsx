@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { getNextMonthlyRenewalDate } from "@/lib/account-renewal"
+import { formatAccountLabel } from "@/lib/account-display"
 
 function ViewItem({ label, mono, children }: { label: string; mono?: boolean; children: React.ReactNode }) {
   return (
@@ -41,7 +42,9 @@ export function SubscriptionViewDialog({
   const nextRenewalDate = getNextMonthlyRenewalDate(bill?.account_opened_at ?? "")
   const primaryName = plusRental
     ? bill?.subscription_name || ""
-    : bill?.account_name || bill?.subscription_name || ""
+    : bill
+      ? formatAccountLabel(bill.account_serial, bill.account_name || bill.subscription_name)
+      : ""
   const customerLine = bill?.customer_email || bill?.subscription_name || ""
 
   return (

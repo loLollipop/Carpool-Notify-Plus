@@ -84,6 +84,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { accountSerialSearchTerms, formatAccountLabel } from "@/lib/account-display"
 import {
   Select,
   SelectContent,
@@ -1698,8 +1699,8 @@ function RepricingAnalysisPanel({
           ? candidate.customer_group_id || candidate.subscription_id
           : candidate.subscription_id,
         title: candidate.customer_email || candidate.customer_wechat || candidate.name,
-        subtitle: candidate.customer_wechat || candidate.account_name,
-        meta: [candidate.account_name, candidate.seat_name, candidate.next_due_date],
+        subtitle: candidate.customer_wechat || formatAccountLabel(candidate.account_serial, candidate.account_name),
+        meta: [formatAccountLabel(candidate.account_serial, candidate.account_name), candidate.seat_name, candidate.next_due_date],
         value: key === "relationship"
           ? t("goals.repricing.daysValue", { count: candidate.relationship_days })
           : visibleYuan(repricingDetailAmountCents(key, candidate), amountsHidden),
@@ -1838,7 +1839,9 @@ function RepricingAnalysisPanel({
                       className="mt-0.5 truncate text-[11px] text-muted-foreground"
                       title={candidate.name || undefined}
                     >
-                      {candidate.name !== customerLabel ? candidate.name : candidate.account_name}
+                      {candidate.name !== customerLabel
+                        ? candidate.name
+                        : formatAccountLabel(candidate.account_serial, candidate.account_name)}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       <Badge
@@ -2020,7 +2023,7 @@ function RepricingAnalysisPanel({
                     <div className="min-w-0">
                       <p className="truncate font-medium">{row.candidate.name}</p>
                       <p className="truncate text-[11px] text-muted-foreground">
-                        {row.candidate.account_name} · {row.candidate.seat_name}
+                        {formatAccountLabel(row.candidate.account_serial, row.candidate.account_name)} · {row.candidate.seat_name}
                       </p>
                     </div>
                     <div className="shrink-0 font-mono text-xs tabular-nums">
@@ -2114,7 +2117,7 @@ function RepricingAnalysisPanel({
                         ) : null}
                       </div>
                       <p className="mt-1 truncate text-[11px] text-muted-foreground">
-                        {candidate.account_name} · {candidate.seat_name} · {candidate.next_due_date}
+                        {formatAccountLabel(candidate.account_serial, candidate.account_name)} · {candidate.seat_name} · {candidate.next_due_date}
                       </p>
                       <p className="mt-1 font-mono text-xs tabular-nums">
                         {t("goals.repricing.manualPricing.currentPrice")} {visibleYuan(candidate.current_price_cents, amountsHidden)}
@@ -2240,6 +2243,7 @@ function candidateSearchText(candidate: PricingCandidate) {
     candidate.name,
     candidate.customer_email,
     candidate.customer_wechat,
+    ...accountSerialSearchTerms(candidate.account_serial),
     candidate.account_name,
     candidate.seat_name,
   ]
@@ -2572,7 +2576,7 @@ function BulkPricingPanel({
                     ) : null}
                   </TableCell>
                   <TableCell className="min-w-40 whitespace-normal">
-                    <div>{candidate.account_name || "-"}</div>
+                    <div>{formatAccountLabel(candidate.account_serial, candidate.account_name)}</div>
                     <div className="mt-0.5 text-xs text-muted-foreground">{candidate.seat_name || "-"}</div>
                   </TableCell>
                   <TableCell className="tabular-nums">

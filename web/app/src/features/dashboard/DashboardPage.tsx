@@ -49,6 +49,7 @@ import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDi
 import { PlusRentalDialog } from "@/features/plus-rentals/PlusRentalDialog"
 import { SubscriptionDialog } from "@/features/subscriptions/SubscriptionDialog"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
+import { formatAccountLabel } from "@/lib/account-display"
 import { maskAmount } from "@/lib/amount-privacy"
 import { cn } from "@/lib/utils"
 
@@ -412,7 +413,9 @@ function OperationsQueue({
                     </span>
                   </span>
                   <span className="mt-0.5 flex min-w-0 items-center gap-2 text-[10px] text-muted-foreground">
-                    <span className="truncate">{[task.account_name, task.seat_name].filter(Boolean).join(" · ")}</span>
+                    <span className="truncate">
+                      {[formatAccountLabel(task.account_serial, task.account_name, ""), task.seat_name].filter(Boolean).join(" · ")}
+                    </span>
                     {timingLabel(task) ? <span className="shrink-0">{timingLabel(task)}</span> : null}
                   </span>
                 </span>
@@ -792,7 +795,7 @@ export function DashboardPage() {
           : `暂无${labels[capacitySegment]}席位`,
       items: matches.map(({ account, seat }) => ({
         id: seat.seat.id,
-        title: `${account.account.id} · ${account.account.email || account.account.name}`,
+        title: formatAccountLabel(account.display_serial, account.account.email || account.account.name),
         subtitle: account.account.space_name || account.account.name,
         meta: [
           seat.seat.name,

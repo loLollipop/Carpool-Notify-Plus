@@ -18,6 +18,7 @@ var accountRemarkSerialPattern = regexp.MustCompile(`(?:\(([0-9]+)\)|（([0-9]+)
 // AccountView is one account with seat occupancy for the accounts page and forms.
 type AccountView struct {
 	Account           model.Account `json:"account"`
+	DisplaySerial     int64         `json:"display_serial"`
 	Seats             []SeatView    `json:"seats"`
 	SeatTotal         int           `json:"seat_total"`
 	SeatUsed          int           `json:"seat_used"`
@@ -162,11 +163,12 @@ func (service *SubscriptionService) buildAccountView(account model.Account) (Acc
 		seatViews = append(seatViews, seatView)
 	}
 	view := AccountView{
-		Account:   account,
-		Seats:     seatViews,
-		SeatTotal: len(seatViews),
-		SeatUsed:  usedCount,
-		IsFull:    len(seatViews) > 0 && usedCount >= len(seatViews),
+		Account:       account,
+		DisplaySerial: accountDisplaySerial(account),
+		Seats:         seatViews,
+		SeatTotal:     len(seatViews),
+		SeatUsed:      usedCount,
+		IsFull:        len(seatViews) > 0 && usedCount >= len(seatViews),
 		// No active occupancy: delete cascades free seats (history seat links are cleared).
 		CanDelete: usedCount == 0,
 	}
@@ -749,6 +751,24 @@ func accountDisplaySerial(account model.Account) int64 {
 		return account.ID
 	}
 	return serial
+}
+
+func accountDisplaySerials(accounts []model.Account) map[int64]int64 {
+	serials := make(map[int64]int64, len(accounts))
+	for _, account := range accounts {
+		serials[account.ID] = accountDisplaySerial(account)
+	}
+	return serials
+}
+
+func accountDisplaySerialForID(serials map[int64]int64, accountID int64) int64 {
+	if accountID <= 0 {
+		return 0
+	}
+	if serial := serials[accountID]; serial > 0 {
+		return serial
+	}
+	return accountID
 }
 
 func validateAccountName(raw string) (string, error) {
