@@ -739,7 +739,7 @@ function RedeemReferenceFloats({ settings }: { settings: RedeemPageSettings }) {
         side="right"
         eyebrow="WEB"
         title="模型权益"
-        hint="权益参考"
+        hint="模型参考"
         icon={<Sparkles />}
         open={activePanel === "models"}
         onToggle={() => togglePanel("models")}

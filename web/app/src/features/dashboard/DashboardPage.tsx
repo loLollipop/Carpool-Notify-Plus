@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import {
   AlertTriangle,
   ArrowRight,
+  ArrowUpRight,
   CalendarClock,
   CheckCircle2,
   ChevronLeft,
@@ -825,10 +826,10 @@ export function DashboardPage() {
             <Button
               asChild
               variant="outline"
-              className="bg-white text-slate-800 shadow-sm hover:bg-slate-50 hover:text-slate-950 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 dark:hover:text-slate-950"
+              className="group bg-white text-slate-800 shadow-sm hover:bg-slate-50 hover:text-slate-950 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 dark:hover:text-slate-950"
             >
               <a href="/redeem" target="_blank" rel="noreferrer">
-                <ArrowRight />
+                <ArrowUpRight className="size-4 stroke-[2.2] transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
                 前往兑换页
               </a>
             </Button>
