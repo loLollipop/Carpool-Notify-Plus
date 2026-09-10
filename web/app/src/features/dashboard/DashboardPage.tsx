@@ -822,9 +822,13 @@ export function DashboardPage() {
             <Button variant="outline" size="icon" aria-label={t("common.refresh")} onClick={() => void overviewQuery.refetch()}>
               <RefreshCw className={cn(overviewQuery.isFetching && "animate-spin")} />
             </Button>
-            <Button asChild>
+            <Button
+              asChild
+              variant="outline"
+              className="bg-white text-slate-800 shadow-sm hover:bg-slate-50 hover:text-slate-950 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100 dark:hover:text-slate-950"
+            >
               <a href="/redeem" target="_blank" rel="noreferrer">
-                <TicketCheck />
+                <ArrowRight />
                 前往兑换页
               </a>
             </Button>

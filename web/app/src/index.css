@@ -1243,11 +1243,17 @@
   }
 
   .redeem-mode-index {
+    display: inline-grid;
+    flex: 0 0 auto;
+    place-items: center;
     color: color-mix(in oklab, var(--redeem-muted) 72%, transparent);
     font-family: var(--font-mono);
     font-size: 8px;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+    line-height: 1;
+    text-align: center;
   }
 
   .redeem-mode-icon {
@@ -2301,14 +2307,21 @@
 
   .redeem-reference-hint {
     display: none;
-    margin-top: 0.45rem;
-    color: var(--redeem-muted);
+    width: fit-content;
+    margin: 0.5rem auto 0;
+    border: 1px solid color-mix(in oklab, var(--redeem-accent) 24%, var(--redeem-line));
+    border-radius: 999px;
+    padding: 0.22rem 0.52rem;
+    background: color-mix(in oklab, var(--redeem-panel) 86%, transparent);
+    color: var(--redeem-accent);
     font-family: var(--font-mono);
-    font-size: 9px;
-    font-weight: 600;
-    letter-spacing: 0.04em;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    line-height: 1.25;
     text-align: center;
-    text-shadow: 0 1px 10px var(--redeem-panel);
+    box-shadow: 0 8px 20px -16px color-mix(in oklab, var(--redeem-accent) 76%, transparent);
+    text-shadow: 0 1px 12px color-mix(in oklab, var(--redeem-accent) 24%, transparent);
   }
 
   .redeem-reference-trigger {
