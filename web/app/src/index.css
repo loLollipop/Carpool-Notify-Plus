@@ -1943,7 +1943,7 @@
 
   .redeem-renewal-summary {
     display: flex;
-    min-height: 250px;
+    min-height: 224px;
     flex: 1 1 auto;
     flex-direction: column;
     overflow: hidden;
@@ -1961,7 +1961,7 @@
     justify-content: space-between;
     gap: 1rem;
     border-bottom: 1px solid var(--redeem-line);
-    padding: 1rem 1.15rem;
+    padding: 0.75rem 1rem;
   }
 
   .redeem-renewal-summary-heading p {
@@ -2037,8 +2037,8 @@
   .redeem-renewal-data {
     display: grid;
     flex: 1 1 auto;
-    grid-template-rows: repeat(5, minmax(42px, 1fr));
-    padding-inline: 1.15rem;
+    grid-template-rows: repeat(5, minmax(36px, auto));
+    padding-inline: 1rem;
   }
 
   .redeem-renewal-data > div {
@@ -2047,7 +2047,7 @@
     align-items: center;
     gap: 1rem;
     border-bottom: 1px solid var(--redeem-line);
-    padding-block: 0.7rem;
+    padding-block: 0.45rem;
   }
 
   .redeem-renewal-data > div:last-child {
@@ -2084,18 +2084,80 @@
     white-space: nowrap;
   }
 
-  .redeem-renewal-period-trigger {
-    width: min(100%, 17rem);
-    height: 2.25rem;
-    border-color: color-mix(in oklab, var(--redeem-accent) 35%, var(--redeem-line));
-    background: color-mix(in oklab, var(--redeem-panel) 86%, var(--redeem-accent-soft));
-    font-size: 12px;
-    font-weight: 700;
+  .redeem-renewal-fixed,
+  .redeem-renewal-expiry {
+    column-gap: 0.45rem !important;
+    row-gap: 0.15rem !important;
   }
 
-  .redeem-renewal-period-trigger:focus-visible {
-    border-color: var(--redeem-accent);
-    box-shadow: 0 0 0 3px color-mix(in oklab, var(--redeem-accent) 14%, transparent);
+  .redeem-renewal-expiry small {
+    margin-left: 0.45rem;
+  }
+
+  .redeem-renewal-period-stepper {
+    display: inline-grid;
+    width: min(100%, 10.5rem);
+    height: 2.25rem;
+    grid-template-columns: 2.25rem minmax(3.5rem, 1fr) 2.25rem;
+    overflow: hidden;
+    border: 1px solid color-mix(in oklab, var(--redeem-accent) 35%, var(--redeem-line));
+    border-radius: 6px;
+    background: color-mix(in oklab, var(--redeem-panel) 86%, var(--redeem-accent-soft));
+  }
+
+  .redeem-renewal-period-button {
+    display: grid;
+    place-items: center;
+    color: var(--redeem-accent);
+    transition: background-color 160ms ease, color 160ms ease, opacity 160ms ease;
+  }
+
+  .redeem-renewal-period-button:first-child {
+    border-right: 1px solid var(--redeem-line);
+  }
+
+  .redeem-renewal-period-button:last-child {
+    border-left: 1px solid var(--redeem-line);
+  }
+
+  .redeem-renewal-period-button svg {
+    width: 14px;
+    height: 14px;
+    stroke-width: 2.25;
+  }
+
+  .redeem-renewal-period-button:hover:not(:disabled) {
+    background: var(--redeem-accent-soft);
+  }
+
+  .redeem-renewal-period-button:focus-visible {
+    position: relative;
+    z-index: 1;
+    outline: 2px solid var(--redeem-accent);
+    outline-offset: -2px;
+  }
+
+  .redeem-renewal-period-button:disabled {
+    cursor: not-allowed;
+    color: var(--redeem-muted);
+    opacity: 0.38;
+  }
+
+  .redeem-renewal-period-value {
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 0.2rem;
+    color: var(--redeem-text);
+    font-size: 10px;
+    font-weight: 650;
+  }
+
+  .redeem-renewal-period-value strong {
+    color: var(--redeem-accent);
+    font-family: var(--font-mono);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
   }
 
   .redeem-renewal-data dd small.is-urgent {
@@ -2147,6 +2209,10 @@
     .redeem-renewal-data dd small {
       display: block;
       margin-top: 0.15rem;
+    }
+
+    .redeem-renewal-expiry small {
+      margin-left: 0;
     }
   }
 
@@ -2915,7 +2981,7 @@
     }
 
     .redeem-renewal-data {
-      grid-template-rows: repeat(5, minmax(34px, 1fr));
+      grid-template-rows: repeat(5, minmax(34px, auto));
       padding-inline: 1rem;
     }
 

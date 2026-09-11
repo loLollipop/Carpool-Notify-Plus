@@ -13,7 +13,9 @@ import {
   LoaderCircle,
   Mail,
   Megaphone,
+  Minus,
   Moon,
+  Plus,
   Sparkles,
   Sun,
   TicketCheck,
@@ -59,13 +61,6 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
@@ -1168,9 +1163,23 @@ function RenewalWorkspace({
   const selectedSubscription = lookupMutation.data?.subscriptions.find(
     (item) => item.subscription_id === selectedID,
   ) ?? null
-  const selectedPeriod = selectedSubscription?.period_options.find(
+  const periodOptions = React.useMemo(
+    () => [...(selectedSubscription?.period_options ?? [])]
+      .sort((left, right) => left.period_count - right.period_count),
+    [selectedSubscription],
+  )
+  const selectedPeriodIndex = periodOptions.findIndex(
     (option) => option.period_count === periodCount,
-  ) ?? selectedSubscription?.period_options[0] ?? null
+  )
+  const selectedPeriod = selectedPeriodIndex >= 0 ? periodOptions[selectedPeriodIndex] : null
+  const previousPeriodCount = selectedPeriodIndex > 0
+    ? periodOptions[selectedPeriodIndex - 1]?.period_count ?? null
+    : null
+  const nextPeriodCount = selectedPeriodIndex >= 0 && selectedPeriodIndex < periodOptions.length - 1
+    ? periodOptions[selectedPeriodIndex + 1]?.period_count ?? null
+    : null
+  const minimumPeriodCount = periodOptions[0]?.period_count ?? 1
+  const maximumPeriodCount = periodOptions.at(-1)?.period_count ?? 1
   const selected = React.useMemo(
     () => selectedSubscription && selectedPeriod
       ? {
@@ -1179,7 +1188,7 @@ function RenewalWorkspace({
           amount_yuan: selectedPeriod.amount_yuan,
           period_end_date: selectedPeriod.period_end_date,
         }
-      : selectedSubscription,
+      : null,
     [selectedPeriod, selectedSubscription],
   )
 
@@ -1311,7 +1320,7 @@ function RenewalWorkspace({
                   </div>
                   <div>
                     <dt>固定套餐</dt>
-                    <dd className="flex flex-wrap items-center gap-2">
+                    <dd className="redeem-renewal-fixed flex flex-wrap items-center gap-2">
                       <span>{selected.cycle_desc || "—"}</span>
                       <small className="redeem-renewal-fixed-badge">不可变更</small>
                       <small>换套餐请联系客服</small>
@@ -1320,35 +1329,59 @@ function RenewalWorkspace({
                   <div>
                     <dt>续费周期</dt>
                     <dd>
-                      <Select
-                        value={String(selected.period_count)}
-                        disabled={!selected.renewable}
-                        onValueChange={(value) => setPeriodCount(Number(value))}
+                      <div
+                        className="redeem-renewal-period-stepper"
+                        role="group"
+                        aria-label={`续费周期数量，最少 ${minimumPeriodCount} 期，最多 ${maximumPeriodCount} 期`}
                       >
-                        <SelectTrigger className="redeem-renewal-period-trigger" aria-label="选择续费周期数量">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {selected.period_options.map((option) => (
-                            <SelectItem key={option.period_count} value={String(option.period_count)}>
-                              {option.period_count} 个原计费周期 · 至 {option.period_end_date}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        <button
+                          type="button"
+                          className="redeem-renewal-period-button"
+                          aria-label="减少一个续费周期"
+                          disabled={!selected.renewable || previousPeriodCount === null}
+                          onClick={() => {
+                            if (previousPeriodCount !== null) setPeriodCount(previousPeriodCount)
+                          }}
+                        >
+                          <Minus aria-hidden="true" />
+                        </button>
+                        <output
+                          className="redeem-renewal-period-value"
+                          aria-live="polite"
+                          aria-label={`当前选择 ${selected.period_count} 个原计费周期`}
+                        >
+                          <strong>{selected.period_count}</strong>
+                          <span>期</span>
+                        </output>
+                        <button
+                          type="button"
+                          className="redeem-renewal-period-button"
+                          aria-label={`增加一个续费周期，最多 ${maximumPeriodCount} 期`}
+                          disabled={!selected.renewable || nextPeriodCount === null}
+                          onClick={() => {
+                            if (nextPeriodCount !== null) setPeriodCount(nextPeriodCount)
+                          }}
+                        >
+                          <Plus aria-hidden="true" />
+                        </button>
+                      </div>
                     </dd>
                   </div>
                   <div>
                     <dt>续费后到期</dt>
-                    <dd>
+                    <dd className="redeem-renewal-expiry">
                       <span className="font-mono">{selected.period_end_date}</span>
-                      <small>（从 {selected.due_date} 起续 {selected.period_count} 期）</small>
+                      <small>从 {selected.due_date} 起 · {selected.period_count} 期</small>
                     </dd>
                   </div>
                 </dl>
                 {!selected.renewable ? (
                   <p className="redeem-renewal-unavailable">{selected.unavailable_reason}</p>
                 ) : null}
+              </section>
+            ) : selectedSubscription ? (
+              <section className="redeem-renewal-summary" aria-live="polite">
+                <p className="redeem-renewal-unavailable">当前订阅暂未生成可用账单，请联系客服处理。</p>
               </section>
             ) : null}
           </div>
