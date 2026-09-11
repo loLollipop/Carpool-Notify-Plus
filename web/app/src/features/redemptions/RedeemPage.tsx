@@ -1133,6 +1133,12 @@ function renewalSubscriptionCaption(item: RenewalSubscriptionView) {
   return parts.join(" · ") || item.service_label
 }
 
+function compactRenewalCycleDescription(cycleDescription: string) {
+  const normalized = cycleDescription.trim()
+  const presetLabel = normalized.match(/^(月付|季付|半年付|年付)(?:\s*[（(].*[）)])?$/u)?.[1]
+  return presetLabel ?? (normalized || "—")
+}
+
 function RenewalWorkspace({
   sandboxAccessToken,
   paymentConfigured,
@@ -1321,7 +1327,7 @@ function RenewalWorkspace({
                   <div>
                     <dt>固定套餐</dt>
                     <dd className="redeem-renewal-fixed flex flex-wrap items-center gap-2">
-                      <span>{selected.cycle_desc || "—"}</span>
+                      <span>{compactRenewalCycleDescription(selected.cycle_desc)}</span>
                       <small className="redeem-renewal-fixed-badge">不可变更</small>
                       <small>换套餐请联系客服</small>
                     </dd>
@@ -1416,7 +1422,7 @@ function RenewalWorkspace({
             <div className="divide-y overflow-hidden rounded-lg border bg-muted/20 text-sm">
               <ReviewItem icon={<Mail className="size-4 text-brand" />} label="邮箱" value={lookupMutation.data?.customer_email ?? email.trim()} mono />
               <ReviewItem icon={<CreditCard className="size-4 text-brand" />} label="付款金额" value={`¥${selected.amount_yuan}`} />
-              <ReviewItem icon={<Clock3 className="size-4 text-brand" />} label="固定套餐" value={`${selected.cycle_desc} · ${selected.period_count} 个周期`} />
+              <ReviewItem icon={<Clock3 className="size-4 text-brand" />} label="固定套餐" value={`${compactRenewalCycleDescription(selected.cycle_desc)} · ${selected.period_count} 个周期`} />
               <ReviewItem
                 icon={<Clock3 className="size-4 text-brand" />}
                 label="续费账期"
@@ -1457,7 +1463,7 @@ function RenewalWorkspace({
           ) : (
             <div className="divide-y rounded-lg border px-4 text-sm">
               <div className="flex justify-between gap-3 py-3"><span className="text-muted-foreground">邮箱</span><strong className="truncate font-mono">{status?.customer_email || "加载中"}</strong></div>
-              <div className="flex justify-between gap-3 py-3"><span className="text-muted-foreground">套餐 / 周期</span><strong>{status ? `${status.cycle_desc} · ${status.period_count} 个周期` : "加载中"}</strong></div>
+              <div className="flex justify-between gap-3 py-3"><span className="text-muted-foreground">套餐 / 周期</span><strong>{status ? `${compactRenewalCycleDescription(status.cycle_desc)} · ${status.period_count} 个周期` : "加载中"}</strong></div>
               <div className="flex justify-between gap-3 py-3"><span className="text-muted-foreground">账期 / 金额</span><strong>{status ? `${status.due_date} 至 ${status.period_end_date} · ¥${status.amount_yuan}` : "加载中"}</strong></div>
               <div className="flex justify-between gap-3 py-3"><span className="text-muted-foreground">提交时间</span><strong>{status?.created_at_label || "加载中"}</strong></div>
             </div>

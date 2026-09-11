@@ -2144,16 +2144,20 @@
   }
 
   .redeem-renewal-period-value {
-    display: inline-flex;
-    align-items: baseline;
+    display: flex;
+    height: 100%;
+    align-items: center;
     justify-content: center;
     gap: 0.2rem;
     color: var(--redeem-text);
     font-size: 10px;
     font-weight: 650;
+    line-height: 1;
+    text-align: center;
   }
 
   .redeem-renewal-period-value strong {
+    line-height: 1;
     color: var(--redeem-accent);
     font-family: var(--font-mono);
     font-size: 14px;
