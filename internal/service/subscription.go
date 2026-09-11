@@ -384,6 +384,27 @@ func (service *SubscriptionService) buildViewWithPaidDueDates(
 			displayDue = nextDue
 		}
 	}
+	if !isPlusSubscription(subscription) {
+		progressStart := lastDue
+		hasProgressStart := hasLastDue
+		if strings.TrimSpace(subscription.BoardedAt) != "" {
+			boardedAt, parseErr := time.ParseInLocation(
+				"2006-01-02",
+				strings.TrimSpace(subscription.BoardedAt),
+				cycle.Location,
+			)
+			if parseErr != nil {
+				return SubscriptionView{}, fmt.Errorf("invalid boarded_at: %w", parseErr)
+			}
+			if !hasProgressStart || progressStart.Before(boardedAt) {
+				progressStart = boardedAt
+				hasProgressStart = true
+			}
+		}
+		if hasProgressStart && progressStart.Before(displayDue) {
+			cycleDays = cycle.DaysRemaining(displayDue, progressStart)
+		}
+	}
 	currentPeriodStartDate := ""
 	currentPeriodEndDate := ""
 	currentPeriodPaid := false

@@ -254,6 +254,25 @@ func TestSelfServiceRenewalCanPurchaseMultipleOriginalPeriods(t *testing.T) {
 	if err := subscriptionService.ApproveRenewalApplication(application.ID, service.RenewalDecisionInput{}); err != nil {
 		t.Fatal(err)
 	}
+	views, err := subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].NextDueDate != "2026-10-30" ||
+		views[0].DaysRemaining != 71 || views[0].CycleDays != 90 {
+		t.Fatalf("multi-period progress window = %#v, want 71/90 days", views)
+	}
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.September, 15, 10, 0, 0, 0, cycle.Location)
+	}
+	views, err = subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].NextDueDate != "2026-10-30" ||
+		views[0].DaysRemaining != 45 || views[0].CycleDays != 60 {
+		t.Fatalf("multi-period progress after one cycle = %#v, want 45/60 days", views)
+	}
 	for _, dueDate := range []string{"2026-08-31", "2026-09-30"} {
 		bill, billErr := subscriptionService.Store.GetBillByOccurrence(subscriptionID, dueDate)
 		if billErr != nil || bill.AmountCents != 9000 {
