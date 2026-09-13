@@ -2943,6 +2943,25 @@ function BulkPricingPanel({
 }
 
 const customerCarePageSize = 8
+const outcomeDotCount = 30
+
+function monthlyOutcomeWaffle(renewals: number, churns: number) {
+  const outcomeCount = renewals + churns
+  if (outcomeCount === 0) {
+    return { outcomeCount, renewalShare: null, renewalDots: 0 }
+  }
+
+  const renewalRatio = renewals / outcomeCount
+  let renewalDots = Math.round(renewalRatio * outcomeDotCount)
+  if (renewals > 0 && churns > 0) {
+    renewalDots = Math.min(outcomeDotCount - 1, Math.max(1, renewalDots))
+  }
+  return {
+    outcomeCount,
+    renewalShare: Math.round(renewalRatio * 100),
+    renewalDots,
+  }
+}
 
 function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
   const { t } = useTranslation()
@@ -2958,7 +2977,6 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
     renewals: month.renewal_success_count,
     churns: month.natural_churn_count,
     activeSeats: month.active_seat_count,
-    inactiveSeats: Math.max(0, month.total_seat_count - month.active_seat_count),
   }))
   const lifecycleTotals = lifecycle.reduce(
     (totals, month) => ({
@@ -2969,10 +2987,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
   )
   const currentActiveSeats = lifecycle.at(-1)?.activeSeats ?? 0
   const currentTotalSeats = lifecycle.at(-1)?.totalSeats ?? 0
-  const eventDomainMax = Math.max(
-    1,
-    ...lifecycle.flatMap((month) => [month.renewals, month.churns]),
-  )
+  const hasLifecycleOutcomes = lifecycleTotals.renewals + lifecycleTotals.churns > 0
   const lifecycleMetrics = [
     {
       key: "activeSeats",
@@ -3036,7 +3051,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
 
       <div className="grid gap-3 p-3 xl:grid-cols-[minmax(560px,1.2fr)_minmax(320px,0.8fr)] xl:items-stretch">
         <div
-          className="relative min-w-0 overflow-hidden rounded-xl border border-border/70 bg-muted/[0.08]"
+          className="relative flex min-w-0 flex-col overflow-hidden rounded-xl border border-border/70 bg-muted/[0.08]"
           role="group"
           aria-label={t("goals.care.prediction.chartAria", {
             active: currentActiveSeats,
@@ -3068,161 +3083,131 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
             ))}
           </div>
 
-          {lifecycle.length > 0 ? (
-            <>
-              <div className="relative px-3 pb-3 pt-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground">
-                  <span>{t("goals.care.prediction.capacityTrend")}</span>
-                  <span className="flex items-center gap-3">
-                    <span className="flex items-center gap-1.5">
-                      <span className="size-2 rounded-[2px] bg-brand" />
-                      {t("goals.care.prediction.chart.activeSeats")}
-                    </span>
-                    <span className="flex items-center gap-1.5">
-                      <span className="size-2 rounded-[2px] bg-gold/65" />
-                      {t("goals.care.prediction.chart.inactiveSeats")}
-                    </span>
+          {lifecycle.length > 0 && hasLifecycleOutcomes ? (
+            <div className="relative flex flex-1 flex-col px-3 pb-3 pt-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground">
+                <span>{t("goals.care.prediction.outcomeMix")}</span>
+                <span className="flex items-center gap-3">
+                  <span className="flex items-center gap-1.5 text-success">
+                    <span className="size-2 rounded-[3px] bg-success" />
+                    {t("goals.care.prediction.chart.renewals")}
                   </span>
-                </div>
-                <div className="mt-1.5 h-[124px] w-full sm:h-[132px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart
-                      data={lifecycle}
-                      margin={{ top: 8, right: 6, left: 2, bottom: 0 }}
-                      barCategoryGap="42%"
-                    >
-                      <CartesianGrid stroke="var(--border)" strokeDasharray="3 6" vertical={false} />
-                      <XAxis
-                        dataKey="label"
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
-                      />
-                      <YAxis
-                        allowDecimals={false}
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: "var(--muted-foreground)", fontSize: 9 }}
-                        width={34}
-                      />
-                      <ChartTooltip
-                        cursor={{ fill: "var(--muted)", fillOpacity: 0.3 }}
-                        formatter={(value, name) => [
-                          t("goals.care.prediction.chartSeatCount", { count: Number(value ?? 0) }),
-                          t(`goals.care.prediction.chart.${String(name)}`),
-                        ]}
-                        labelFormatter={(label) =>
-                          lifecycle.find((month) => month.label === String(label))?.month ?? String(label)
-                        }
-                        contentStyle={{
-                          border: "1px solid var(--border)",
-                          borderRadius: 8,
-                          background: "var(--popover)",
-                          color: "var(--popover-foreground)",
-                          fontSize: 12,
-                          boxShadow: "var(--shadow-card)",
-                        }}
-                      />
-                      <Bar
-                        dataKey="activeSeats"
-                        stackId="capacity"
-                        fill="var(--brand)"
-                        fillOpacity={0.88}
-                        maxBarSize={34}
-                      >
-                        {lifecycle.map((month) => (
-                          <Cell
-                            key={month.month}
-                            radius={month.inactiveSeats > 0 ? 0 : 5}
-                          />
-                        ))}
-                      </Bar>
-                      <Bar
-                        dataKey="inactiveSeats"
-                        stackId="capacity"
-                        fill="var(--gold)"
-                        fillOpacity={0.62}
-                        maxBarSize={34}
-                        radius={[5, 5, 0, 0]}
-                      />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-
-                <div className="mt-1 border-t border-border/60 pt-2.5">
-                  <div className="grid grid-cols-[minmax(0,1fr)_52px_minmax(0,1fr)] items-center gap-2 text-[10px] font-medium">
-                    <span className="flex items-center justify-end gap-1.5 text-destructive">
-                      {t("goals.care.prediction.chart.churns")}
-                      <span className="size-2 rounded-[2px] bg-destructive/80" />
-                    </span>
-                    <span className="text-center text-muted-foreground">
-                      {t("goals.care.prediction.monthAxis")}
-                    </span>
-                    <span className="flex items-center gap-1.5 text-success">
-                      <span className="size-2 rounded-[2px] bg-success/85" />
-                      {t("goals.care.prediction.chart.renewals")}
-                    </span>
-                  </div>
-
-                  <div
-                    className="relative mt-1.5 space-y-1"
-                    role="img"
-                    aria-label={t("goals.care.prediction.outcomeAria", {
-                      renewals: lifecycleTotals.renewals,
-                      churns: lifecycleTotals.churns,
-                    })}
-                  >
-                    <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 left-1/2 w-[52px] -translate-x-1/2 border-x border-border/70" />
-                    {lifecycle.map((month) => {
-                      const churnWidth = `${(month.churns / eventDomainMax) * 100}%`
-                      const renewalWidth = `${(month.renewals / eventDomainMax) * 100}%`
-                      return (
-                        <div
-                          key={month.month}
-                          className="relative grid grid-cols-[minmax(0,1fr)_52px_minmax(0,1fr)] items-center gap-2"
-                        >
-                          <div className="flex h-5 items-center justify-end overflow-hidden rounded-l bg-destructive/[0.055]">
-                            {month.churns > 0 ? (
-                              <div
-                                className="flex h-full min-w-6 items-center justify-start rounded-l bg-destructive/80 px-2 text-[10px] font-semibold tabular-nums text-white"
-                                style={{ width: churnWidth }}
-                              >
-                                {month.churns}
-                              </div>
-                            ) : (
-                              <span className="pr-2 text-[9px] tabular-nums text-muted-foreground/55">0</span>
-                            )}
-                          </div>
-                          <span className="text-center text-[10px] font-semibold tabular-nums text-foreground/80">
-                            {month.label}
-                          </span>
-                          <div className="flex h-5 items-center overflow-hidden rounded-r bg-success/[0.055]">
-                            {month.renewals > 0 ? (
-                              <div
-                                className="flex h-full min-w-6 items-center justify-end rounded-r bg-success/85 px-2 text-[10px] font-semibold tabular-nums text-white"
-                                style={{ width: renewalWidth }}
-                              >
-                                {month.renewals}
-                              </div>
-                            ) : (
-                              <span className="pl-2 text-[9px] tabular-nums text-muted-foreground/55">0</span>
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  <div className="mt-1.5 grid grid-cols-[minmax(0,1fr)_52px_minmax(0,1fr)] gap-2 text-[9px] tabular-nums text-muted-foreground">
-                    <span className="text-left">{eventDomainMax}</span>
-                    <span className="text-center">0</span>
-                    <span className="text-right">{eventDomainMax}</span>
-                  </div>
-                </div>
+                  <span className="flex items-center gap-1.5 text-destructive">
+                    <span className="size-2 rounded-[3px] bg-destructive" />
+                    {t("goals.care.prediction.chart.churns")}
+                  </span>
+                </span>
               </div>
-            </>
+
+              <div
+                className="mt-2 grid flex-1 gap-2 sm:grid-cols-2"
+                role="list"
+                aria-label={t("goals.care.prediction.outcomeAria", {
+                  renewals: lifecycleTotals.renewals,
+                  churns: lifecycleTotals.churns,
+                })}
+              >
+                {lifecycle.map((month) => {
+                  const { outcomeCount, renewalShare, renewalDots } = monthlyOutcomeWaffle(
+                    month.renewals,
+                    month.churns,
+                  )
+
+                  return (
+                    <div
+                      key={month.month}
+                      className="relative overflow-hidden rounded-lg border border-border/65 bg-card/75 px-3 py-2.5 shadow-sm"
+                      role="listitem"
+                      aria-label={renewalShare === null
+                        ? t("goals.care.prediction.outcomeMonthEmptyAria", { month: month.label })
+                        : t("goals.care.prediction.outcomeMonthAria", {
+                            month: month.label,
+                            renewals: month.renewals,
+                            churns: month.churns,
+                            share: renewalShare,
+                          })}
+                    >
+                      <div
+                        aria-hidden="true"
+                        className={cn(
+                          "absolute inset-x-0 top-0 h-px",
+                          renewalShare === null
+                            ? "bg-border"
+                            : renewalDots === outcomeDotCount
+                              ? "bg-success/80"
+                              : renewalDots === 0
+                                ? "bg-destructive/75"
+                                : "bg-gradient-to-r from-success/80 via-success/30 to-destructive/70",
+                        )}
+                      />
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="text-xs font-semibold text-foreground/85">{month.label}</span>
+                        <span
+                          className={cn(
+                            "display-numeral text-base font-semibold tabular-nums",
+                            renewalShare === null
+                              ? "text-muted-foreground/60"
+                              : renewalShare > 50
+                                ? "text-success"
+                                : renewalShare < 50
+                                  ? "text-destructive"
+                                  : "text-foreground/80",
+                          )}
+                        >
+                          {renewalShare === null
+                            ? "—"
+                            : t("goals.care.prediction.renewalShare", { value: renewalShare })}
+                        </span>
+                      </div>
+
+                      {outcomeCount > 0 ? (
+                        <div
+                          className="mx-auto mt-2.5 grid w-full max-w-[260px] grid-cols-10 justify-items-center gap-1.5"
+                          aria-hidden="true"
+                          title={t("goals.care.prediction.outcomeApproximation")}
+                        >
+                          {Array.from({ length: outcomeDotCount }, (_, index) => (
+                            <span
+                              key={index}
+                              className={cn(
+                                "size-2.5 rounded-[3px] ring-1 ring-inset",
+                                index < renewalDots
+                                  ? "bg-success ring-success/20"
+                                  : "bg-destructive ring-destructive/20",
+                              )}
+                            />
+                          ))}
+                        </div>
+                      ) : (
+                        <div aria-hidden="true" className="mt-2.5 h-[42px] rounded-md border border-dashed border-border/55 bg-muted/25" />
+                      )}
+
+                      <div className="mt-2 flex items-center justify-between gap-3 text-[10px] font-medium tabular-nums">
+                        {outcomeCount > 0 ? (
+                          <>
+                            <span className="text-success">
+                              {t("goals.care.prediction.renewalCompact", { count: month.renewals })}
+                            </span>
+                            <span className="text-destructive">
+                              {t("goals.care.prediction.churnCompact", { count: month.churns })}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-muted-foreground/65">
+                            {t("goals.care.prediction.outcomeEmpty")}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
           ) : (
             <div className="grid min-h-48 place-items-center px-6 text-center text-xs text-muted-foreground">
-              {t("goals.care.prediction.lifecycleEmpty")}
+              {lifecycle.length > 0
+                ? t("goals.care.prediction.outcomeEmptyAll")
+                : t("goals.care.prediction.lifecycleEmpty")}
             </div>
           )}
         </div>
