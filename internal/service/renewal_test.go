@@ -182,6 +182,14 @@ func TestSelfServiceRenewalApprovalIsAtomicAndAdvancesPeriod(t *testing.T) {
 	if err != nil || !paid {
 		t.Fatalf("paid = %v, err = %v", paid, err)
 	}
+	views, err := subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].NextDueDate != "2026-09-30" ||
+		views[0].DaysRemaining != 41 || views[0].CycleDays != 30 {
+		t.Fatalf("single-period renewal progress = %#v, want 41 days capped by one 30-day cycle", views)
+	}
 	status, err := subscriptionService.GetRenewalStatus(submitted.TrackingToken)
 	if err != nil {
 		t.Fatal(err)
@@ -273,6 +281,17 @@ func TestSelfServiceRenewalCanPurchaseMultipleOriginalPeriods(t *testing.T) {
 		views[0].DaysRemaining != 45 || views[0].CycleDays != 60 {
 		t.Fatalf("multi-period progress after one cycle = %#v, want 45/60 days", views)
 	}
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.October, 1, 10, 0, 0, 0, cycle.Location)
+	}
+	views, err = subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].NextDueDate != "2026-10-30" ||
+		views[0].DaysRemaining != 29 || views[0].CycleDays != 30 {
+		t.Fatalf("multi-period progress in final cycle = %#v, want 29/30 days", views)
+	}
 	for _, dueDate := range []string{"2026-08-31", "2026-09-30"} {
 		bill, billErr := subscriptionService.Store.GetBillByOccurrence(subscriptionID, dueDate)
 		if billErr != nil || bill.AmountCents != 9000 {
@@ -288,6 +307,23 @@ func TestSelfServiceRenewalCanPurchaseMultipleOriginalPeriods(t *testing.T) {
 	})
 	if err != nil || lookup.Subscriptions[0].DueDate != "2026-10-30" {
 		t.Fatalf("advanced lookup = %#v, error = %v", lookup, err)
+	}
+
+	// If accounting correction removes part of the approved package, the old
+	// application must no longer widen progress for the now-shorter paid window.
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-09-30", false); err != nil {
+		t.Fatal(err)
+	}
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
+	}
+	views, err = subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].NextDueDate != "2026-09-30" ||
+		views[0].DaysRemaining != 41 || views[0].CycleDays != 30 {
+		t.Fatalf("corrected multi-period progress = %#v, want 41 days capped by one 30-day cycle", views)
 	}
 }
 

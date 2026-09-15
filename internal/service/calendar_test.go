@@ -330,8 +330,8 @@ func TestTeamSubscriptionProgressStartsAtBoardingForFirstPaidCalendarPeriod(t *t
 		t.Fatal(err)
 	}
 	if len(views) != 1 || views[0].NextDueDate != "2026-09-01" ||
-		views[0].DaysRemaining != 38 || views[0].CycleDays != 38 {
-		t.Fatalf("initial calendar progress = %#v, want 38/38 days from boarding to unpaid due", views)
+		views[0].DaysRemaining != 38 || views[0].CycleDays != 31 {
+		t.Fatalf("initial calendar progress = %#v, want 38 days capped by the 31-day billing cycle", views)
 	}
 
 	now = time.Date(2026, time.August, 13, 12, 0, 0, 0, cycle.Location)
@@ -344,35 +344,73 @@ func TestTeamSubscriptionProgressStartsAtBoardingForFirstPaidCalendarPeriod(t *t
 	}
 }
 
-func TestTeamSubscriptionProgressSpansConsecutiveManualPrepayments(t *testing.T) {
+func TestTeamSubscriptionProgressCapsEarlyRenewalAtOneBillingCycle(t *testing.T) {
 	subscriptionService := openTestService(t)
-	now := time.Date(2026, time.August, 20, 12, 0, 0, 0, cycle.Location)
+	now := time.Date(2026, time.September, 15, 12, 0, 0, 0, cycle.Location)
 	subscriptionService.Clock = func() time.Time { return now }
-	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "人工多期续费账号", "车位1")
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "提前续费账号", "车位1")
 	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
-		Name:             "人工多期续费客户",
-		PriceYuan:        "30.00",
+		Name:             "提前续费客户",
+		PriceYuan:        "115.00",
 		CronExpr:         "interval:30d",
 		NotifyOffsetsRaw: "3,1,0",
 		SeatID:           seatIDs[0],
-		BoardedAt:        "2026-08-01",
+		BoardedAt:        "2026-08-24",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, dueDate := range []string{"2026-08-31", "2026-09-30"} {
-		if err := subscriptionService.SetDuePaid(subscriptionID, dueDate, true); err != nil {
-			t.Fatal(err)
-		}
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-09-23", true); err != nil {
+		t.Fatal(err)
 	}
 
 	views, err := subscriptionService.ListView()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(views) != 1 || views[0].NextDueDate != "2026-10-30" ||
-		views[0].DaysRemaining != 71 || views[0].CycleDays != 90 {
-		t.Fatalf("manual multi-period progress = %#v, want 71/90 days", views)
+	if len(views) != 1 || views[0].NextDueDate != "2026-10-23" ||
+		views[0].DaysRemaining != 38 || views[0].CycleDays != 30 {
+		t.Fatalf("early renewal progress = %#v, want 38 days capped by one 30-day cycle", views)
+	}
+
+	now = time.Date(2026, time.September, 24, 12, 0, 0, 0, cycle.Location)
+	views, err = subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].NextDueDate != "2026-10-23" ||
+		views[0].DaysRemaining != 29 || views[0].CycleDays != 30 {
+		t.Fatalf("renewed-period progress = %#v, want 29/30 days", views)
+	}
+}
+
+func TestTeamCalendarSubscriptionProgressUsesUpcomingCalendarCycle(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.August, 20, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "自然月提前续费账号", "车位1")
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "自然月提前续费客户",
+		PriceYuan:        "115.00",
+		CronExpr:         "0 0 1 * *",
+		NotifyOffsetsRaw: "3,1,0",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-07-25",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-09-01", true); err != nil {
+		t.Fatal(err)
+	}
+
+	views, err := subscriptionService.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].NextDueDate != "2026-10-01" ||
+		views[0].DaysRemaining != 42 || views[0].CycleDays != 30 {
+		t.Fatalf("calendar early-renewal progress = %#v, want 42 days capped by the September cycle", views)
 	}
 
 	now = time.Date(2026, time.September, 15, 12, 0, 0, 0, cycle.Location)
@@ -380,9 +418,9 @@ func TestTeamSubscriptionProgressSpansConsecutiveManualPrepayments(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(views) != 1 || views[0].NextDueDate != "2026-10-30" ||
-		views[0].DaysRemaining != 45 || views[0].CycleDays != 60 {
-		t.Fatalf("manual progress in next cycle = %#v, want 45/60 days", views)
+	if len(views) != 1 || views[0].NextDueDate != "2026-10-01" ||
+		views[0].DaysRemaining != 16 || views[0].CycleDays != 30 {
+		t.Fatalf("calendar renewed-period progress = %#v, want 16/30 days", views)
 	}
 }
 

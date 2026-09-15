@@ -159,6 +159,12 @@ func (service *SubscriptionService) ListView() ([]SubscriptionView, error) {
 		return nil, err
 	}
 	paidDueDates := paidDueDatesBySubscription(bills)
+	multiPeriodRenewalEnds, err := service.Store.ListApprovedMultiPeriodRenewalEndDates(
+		subscriptionIDsForProgress(subscriptions),
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	now := service.now()
 	views := make([]SubscriptionView, 0, len(subscriptions))
@@ -168,6 +174,7 @@ func (service *SubscriptionService) ListView() ([]SubscriptionView, error) {
 			now,
 			errorsBySubscription[subscription.ID],
 			paidDueDates[subscription.ID],
+			multiPeriodRenewalEnds[subscription.ID],
 		)
 		if err != nil {
 			return nil, err
@@ -193,6 +200,14 @@ func paidDueDatesBySubscription(bills []model.Bill) map[int64][]string {
 		sort.Strings(grouped[subscriptionID])
 	}
 	return grouped
+}
+
+func subscriptionIDsForProgress(subscriptions []model.Subscription) []int64 {
+	result := make([]int64, 0, len(subscriptions))
+	for _, subscription := range subscriptions {
+		result = append(result, subscription.ID)
+	}
+	return result
 }
 
 // allocateActiveAccountCosts spreads each owner account's monthly cost across
@@ -296,7 +311,19 @@ func (service *SubscriptionService) buildView(
 	if err != nil {
 		return SubscriptionView{}, err
 	}
-	view, err := service.buildViewWithPaidDueDates(subscription, now, lastError, paidDueDates)
+	multiPeriodRenewalEnds, err := service.Store.ListApprovedMultiPeriodRenewalEndDates(
+		[]int64{subscription.ID},
+	)
+	if err != nil {
+		return SubscriptionView{}, err
+	}
+	view, err := service.buildViewWithPaidDueDates(
+		subscription,
+		now,
+		lastError,
+		paidDueDates,
+		multiPeriodRenewalEnds[subscription.ID],
+	)
 	if err != nil {
 		return SubscriptionView{}, err
 	}
@@ -318,6 +345,7 @@ func (service *SubscriptionService) buildViewWithPaidDueDates(
 	now time.Time,
 	lastError string,
 	paidDueDates []string,
+	multiPeriodRenewalEnds map[string]struct{},
 ) (SubscriptionView, error) {
 	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
 	if err != nil {
@@ -385,9 +413,17 @@ func (service *SubscriptionService) buildViewWithPaidDueDates(
 			displayDue = nextDue
 		}
 	}
+	// Separate one-period payments keep Team progress tied to the single billing
+	// period immediately before displayDue. Consecutive bills alone do not prove
+	// that the customer bought one continuous multi-period package. Only an
+	// approved renewal that explicitly covered multiple periods retains the
+	// wider prepaid-window denominator.
 	if !isPlusSubscription(subscription) {
 		progressStart := lastDue
 		hasProgressStart := hasLastDue
+		if _, isExplicitMultiPeriodPurchase := multiPeriodRenewalEnds[cycle.FormatDate(displayDue)]; !isExplicitMultiPeriodPurchase {
+			progressStart, hasProgressStart = schedule.LastDue(displayDue.Add(-time.Nanosecond))
+		}
 		if strings.TrimSpace(subscription.BoardedAt) != "" {
 			boardedAt, parseErr := time.ParseInLocation(
 				"2006-01-02",
@@ -1367,6 +1403,12 @@ func (service *SubscriptionService) ListArchivedView() ([]SubscriptionView, erro
 		return nil, err
 	}
 	accountSerials := accountDisplaySerials(accounts)
+	multiPeriodRenewalEnds, err := service.Store.ListApprovedMultiPeriodRenewalEndDates(
+		subscriptionIDsForProgress(subscriptions),
+	)
+	if err != nil {
+		return nil, err
+	}
 	now := service.now()
 	views := make([]SubscriptionView, 0, len(subscriptions))
 	for _, subscription := range subscriptions {
@@ -1374,7 +1416,13 @@ func (service *SubscriptionService) ListArchivedView() ([]SubscriptionView, erro
 		if err != nil {
 			return nil, err
 		}
-		view, err := service.buildViewWithPaidDueDates(subscription, now, "", paidDueDates)
+		view, err := service.buildViewWithPaidDueDates(
+			subscription,
+			now,
+			"",
+			paidDueDates,
+			multiPeriodRenewalEnds[subscription.ID],
+		)
 		if err != nil {
 			return nil, err
 		}

@@ -1595,6 +1595,7 @@ func (service *SubscriptionService) buildPricingCandidates(
 			service.now(),
 			"",
 			paidDueDatesBySubscription[subscription.ID],
+			nil,
 		)
 		if viewErr != nil {
 			block("invalid_schedule", "计费周期无效，无法确定下次续费日", "")
