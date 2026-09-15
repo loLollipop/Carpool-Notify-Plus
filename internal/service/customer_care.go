@@ -83,13 +83,19 @@ type ForecastModelReadiness struct {
 	DetailCode      string `json:"detail_code"`
 }
 
+type CustomerLifecycleOutcome struct {
+	Date string `json:"date"`
+	Kind string `json:"kind"`
+}
+
 type CustomerLifecycleMonth struct {
-	Month               string `json:"month"`
-	NewSeatCount        int    `json:"new_seat_count"`
-	RenewalSuccessCount int    `json:"renewal_success_count"`
-	NaturalChurnCount   int    `json:"natural_churn_count"`
-	ActiveSeatCount     int    `json:"active_seat_count"`
-	TotalSeatCount      int    `json:"total_seat_count"`
+	Month               string                     `json:"month"`
+	NewSeatCount        int                        `json:"new_seat_count"`
+	RenewalSuccessCount int                        `json:"renewal_success_count"`
+	NaturalChurnCount   int                        `json:"natural_churn_count"`
+	ActiveSeatCount     int                        `json:"active_seat_count"`
+	TotalSeatCount      int                        `json:"total_seat_count"`
+	Outcomes            []CustomerLifecycleOutcome `json:"outcomes"`
 }
 
 type PredictionReadiness struct {
@@ -815,7 +821,10 @@ func buildCustomerLifecycle(
 		month := monthStart.Format("2006-01")
 		monthIndex[month] = len(months)
 		monthStarts = append(monthStarts, monthStart)
-		months = append(months, CustomerLifecycleMonth{Month: month})
+		months = append(months, CustomerLifecycleMonth{
+			Month:    month,
+			Outcomes: make([]CustomerLifecycleOutcome, 0),
+		})
 	}
 
 	allBillsBySubscription := make(map[int64][]model.Bill)
@@ -882,12 +891,22 @@ func buildCustomerLifecycle(
 
 		validBills := validBillsBySubscription[subscription.ID]
 		for billIndex := 1; billIndex < len(validBills); billIndex++ {
-			month := monthFromDate(validBills[billIndex].DueDate)
+			bill := validBills[billIndex]
+			outcomeDate := strings.TrimSpace(bill.DueDate)
+			if !bill.PaidAt.IsZero() {
+				outcomeDate = cycle.FormatDate(bill.PaidAt.In(cycle.Location))
+			}
+			month := monthFromDate(outcomeDate)
 			if month == "" {
-				month = validBills[billIndex].PaidAt.In(cycle.Location).Format("2006-01")
+				outcomeDate = strings.TrimSpace(bill.DueDate)
+				month = monthFromDate(outcomeDate)
 			}
 			if index, exists := monthIndex[month]; exists {
 				months[index].RenewalSuccessCount++
+				months[index].Outcomes = append(
+					months[index].Outcomes,
+					CustomerLifecycleOutcome{Date: outcomeDate, Kind: "renewal"},
+				)
 			}
 		}
 
@@ -900,9 +919,19 @@ func buildCustomerLifecycle(
 		if !hasCustomerHistory {
 			continue
 		}
-		if index, exists := monthIndex[subscription.ArchivedAt.In(cycle.Location).Format("2006-01")]; exists {
+		archivedDate := cycle.FormatDate(subscription.ArchivedAt.In(cycle.Location))
+		if index, exists := monthIndex[monthFromDate(archivedDate)]; exists {
 			months[index].NaturalChurnCount++
+			months[index].Outcomes = append(
+				months[index].Outcomes,
+				CustomerLifecycleOutcome{Date: archivedDate, Kind: "churn"},
+			)
 		}
+	}
+	for index := range months {
+		sort.SliceStable(months[index].Outcomes, func(left int, right int) bool {
+			return months[index].Outcomes[left].Date < months[index].Outcomes[right].Date
+		})
 	}
 	return months
 }

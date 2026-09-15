@@ -2943,24 +2943,62 @@ function BulkPricingPanel({
 }
 
 const customerCarePageSize = 8
-const outcomeDotCount = 30
 
-function monthlyOutcomeWaffle(renewals: number, churns: number) {
+type MonthlyOutcomeEvent = {
+  date: string
+  kind: "renewal" | "churn"
+}
+
+type MonthlyOutcomeDot = {
+  date: string | null
+  kind: "neutral" | MonthlyOutcomeEvent["kind"]
+}
+
+function daysInLifecycleMonth(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number)
+  if (!Number.isInteger(year) || !Number.isInteger(monthNumber)) return 30
+  return new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()
+}
+
+function monthlyOutcomeSummary(renewals: number, churns: number) {
   const outcomeCount = renewals + churns
   if (outcomeCount === 0) {
-    return { outcomeCount, renewalShare: null, renewalDots: 0 }
+    return { outcomeCount, renewalShare: null }
   }
 
-  const renewalRatio = renewals / outcomeCount
-  let renewalDots = Math.round(renewalRatio * outcomeDotCount)
-  if (renewals > 0 && churns > 0) {
-    renewalDots = Math.min(outcomeDotCount - 1, Math.max(1, renewalDots))
-  }
   return {
     outcomeCount,
-    renewalShare: Math.round(renewalRatio * 100),
-    renewalDots,
+    renewalShare: Math.round((renewals / outcomeCount) * 100),
   }
+}
+
+function monthlyOutcomeTimeline(
+  month: string,
+  recordedOutcomes: MonthlyOutcomeEvent[],
+) {
+  const dayCount = daysInLifecycleMonth(month)
+  const outcomes = [...recordedOutcomes]
+    .sort((left, right) => left.date.localeCompare(right.date))
+  const slotCount = Math.max(dayCount, outcomes.length)
+  const dots: MonthlyOutcomeDot[] = Array.from({ length: slotCount }, () => ({
+    date: null,
+    kind: "neutral",
+  }))
+  let previousSlot = -1
+
+  outcomes.forEach((outcome, index) => {
+    const parsedDay = Number(outcome.date.slice(-2))
+    const day = Number.isInteger(parsedDay)
+      ? Math.min(dayCount, Math.max(1, parsedDay))
+      : 1 + Math.round((index * (dayCount - 1)) / Math.max(outcomes.length - 1, 1))
+    const preferredSlot = Math.round(((day - 1) * (slotCount - 1)) / Math.max(dayCount - 1, 1))
+    const lastAvailableSlot = slotCount - (outcomes.length - index)
+    const slot = Math.max(previousSlot + 1, Math.min(preferredSlot, lastAvailableSlot))
+    dots[slot] = outcome
+    previousSlot = slot
+  })
+
+  return dots
 }
 
 function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
@@ -2977,6 +3015,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
     renewals: month.renewal_success_count,
     churns: month.natural_churn_count,
     activeSeats: month.active_seat_count,
+    outcomes: month.outcomes ?? [],
   }))
   const lifecycleTotals = lifecycle.reduce(
     (totals, month) => ({
@@ -2987,7 +3026,6 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
   )
   const currentActiveSeats = lifecycle.at(-1)?.activeSeats ?? 0
   const currentTotalSeats = lifecycle.at(-1)?.totalSeats ?? 0
-  const hasLifecycleOutcomes = lifecycleTotals.renewals + lifecycleTotals.churns > 0
   const lifecycleMetrics = [
     {
       key: "activeSeats",
@@ -3083,17 +3121,26 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
             ))}
           </div>
 
-          {lifecycle.length > 0 && hasLifecycleOutcomes ? (
+          {lifecycle.length > 0 ? (
             <div className="relative flex flex-1 flex-col px-3 pb-3 pt-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] font-medium text-muted-foreground">
-                <span>{t("goals.care.prediction.outcomeMix")}</span>
-                <span className="flex items-center gap-3">
+                <div>
+                  <span>{t("goals.care.prediction.outcomeMix")}</span>
+                  <p className="mt-0.5 text-[9px] font-normal text-muted-foreground/70">
+                    {t("goals.care.prediction.outcomeApproximation")}
+                  </p>
+                </div>
+                <span className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1">
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-muted-foreground/20 ring-1 ring-inset ring-border/70" />
+                    {t("goals.care.prediction.outcomeNeutral")}
+                  </span>
                   <span className="flex items-center gap-1.5 text-success">
-                    <span className="size-2 rounded-[3px] bg-success" />
+                    <span className="size-2 rounded-full bg-success" />
                     {t("goals.care.prediction.chart.renewals")}
                   </span>
                   <span className="flex items-center gap-1.5 text-destructive">
-                    <span className="size-2 rounded-[3px] bg-destructive" />
+                    <span className="size-2 rounded-full bg-destructive" />
                     {t("goals.care.prediction.chart.churns")}
                   </span>
                 </span>
@@ -3108,88 +3155,98 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                 })}
               >
                 {lifecycle.map((month) => {
-                  const { outcomeCount, renewalShare, renewalDots } = monthlyOutcomeWaffle(
+                  const { outcomeCount, renewalShare } = monthlyOutcomeSummary(
                     month.renewals,
                     month.churns,
                   )
+                  const hasCompleteOutcomeDetails = month.outcomes.length === outcomeCount
+                  const recordedOutcomes = hasCompleteOutcomeDetails ? month.outcomes : []
+                  const outcomeDots = monthlyOutcomeTimeline(
+                    month.month,
+                    recordedOutcomes,
+                  )
+                  const outcomeSequence = recordedOutcomes
+                    .map((outcome) => t(
+                      `goals.care.prediction.outcomeEvent.${outcome.kind}`,
+                      { date: outcome.date },
+                    ))
+                    .join(t("goals.care.prediction.outcomeEventSeparator"))
+                  const monthAriaLabel = renewalShare === null
+                    ? t("goals.care.prediction.outcomeMonthEmptyAria", { month: month.label })
+                    : t("goals.care.prediction.outcomeMonthAria", {
+                        month: month.label,
+                        renewals: month.renewals,
+                        churns: month.churns,
+                        share: renewalShare,
+                      })
 
                   return (
                     <div
                       key={month.month}
-                      className="relative overflow-hidden rounded-lg border border-border/65 bg-card/75 px-3 py-2.5 shadow-sm"
+                      className="relative overflow-hidden rounded-xl border border-border/65 bg-card/80 px-3 py-3 shadow-sm"
                       role="listitem"
-                      aria-label={renewalShare === null
-                        ? t("goals.care.prediction.outcomeMonthEmptyAria", { month: month.label })
-                        : t("goals.care.prediction.outcomeMonthAria", {
-                            month: month.label,
-                            renewals: month.renewals,
-                            churns: month.churns,
-                            share: renewalShare,
-                          })}
+                      aria-label={outcomeSequence
+                        ? `${monthAriaLabel}。${t("goals.care.prediction.outcomeSequenceAria", {
+                            events: outcomeSequence,
+                          })}`
+                        : monthAriaLabel}
                     >
-                      <div
-                        aria-hidden="true"
-                        className={cn(
-                          "absolute inset-x-0 top-0 h-px",
-                          renewalShare === null
-                            ? "bg-border"
-                            : renewalDots === outcomeDotCount
-                              ? "bg-success/80"
-                              : renewalDots === 0
-                                ? "bg-destructive/75"
-                                : "bg-gradient-to-r from-success/80 via-success/30 to-destructive/70",
-                        )}
-                      />
+                      <div aria-hidden="true" className="absolute inset-x-0 top-0 h-px bg-border/90" />
                       <div className="flex items-baseline justify-between gap-3">
                         <span className="text-xs font-semibold text-foreground/85">{month.label}</span>
                         <span
-                          className={cn(
-                            "display-numeral text-base font-semibold tabular-nums",
-                            renewalShare === null
-                              ? "text-muted-foreground/60"
-                              : renewalShare > 50
-                                ? "text-success"
-                                : renewalShare < 50
-                                  ? "text-destructive"
-                                  : "text-foreground/80",
-                          )}
+                          className="rounded-full border border-border/60 bg-muted/35 px-2 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground"
                         >
-                          {renewalShare === null
-                            ? "—"
+                          {!hasCompleteOutcomeDetails
+                            ? t("goals.care.prediction.outcomeCountOnly")
+                            : renewalShare === null
+                            ? t("goals.care.prediction.outcomeStable")
                             : t("goals.care.prediction.renewalShare", { value: renewalShare })}
                         </span>
                       </div>
 
-                      {outcomeCount > 0 ? (
+                      <div className="mt-2.5 rounded-lg border border-border/45 bg-muted/[0.14] px-3 py-2.5">
                         <div
-                          className="mx-auto mt-2.5 grid w-full max-w-[260px] grid-cols-10 justify-items-center gap-1.5"
+                          className="mx-auto grid w-full max-w-[240px] grid-cols-8 justify-items-center gap-x-2.5 gap-y-2"
                           aria-hidden="true"
-                          title={t("goals.care.prediction.outcomeApproximation")}
                         >
-                          {Array.from({ length: outcomeDotCount }, (_, index) => (
+                          {outcomeDots.map((dot, index) => (
                             <span
                               key={index}
+                              data-outcome-kind={dot.kind}
+                              data-outcome-date={dot.date ?? undefined}
+                              title={dot.kind === "neutral"
+                                ? undefined
+                                : t(`goals.care.prediction.outcomeEvent.${dot.kind}`, {
+                                    date: dot.date,
+                                  })}
                               className={cn(
-                                "size-2.5 rounded-[3px] ring-1 ring-inset",
-                                index < renewalDots
-                                  ? "bg-success ring-success/20"
-                                  : "bg-destructive ring-destructive/20",
+                                "size-2.5 rounded-full ring-1 ring-inset transition-colors",
+                                dot.kind === "renewal"
+                                  ? "bg-success ring-success/25"
+                                  : dot.kind === "churn"
+                                    ? "bg-destructive ring-destructive/25"
+                                    : "bg-muted-foreground/15 ring-border/65",
                               )}
                             />
                           ))}
                         </div>
-                      ) : (
-                        <div aria-hidden="true" className="mt-2.5 h-[42px] rounded-md border border-dashed border-border/55 bg-muted/25" />
-                      )}
+                        <div className="mt-2 flex items-center justify-between text-[9px] text-muted-foreground/55">
+                          <span>{t("goals.care.prediction.timelineStart")}</span>
+                          <span>{t("goals.care.prediction.timelineEnd")}</span>
+                        </div>
+                      </div>
 
                       <div className="mt-2 flex items-center justify-between gap-3 text-[10px] font-medium tabular-nums">
                         {outcomeCount > 0 ? (
                           <>
-                            <span className="text-success">
+                            <span className="flex items-center gap-1.5 text-success">
+                              <span className="size-1.5 rounded-full bg-success" />
                               {t("goals.care.prediction.renewalCompact", { count: month.renewals })}
                             </span>
-                            <span className="text-destructive">
+                            <span className="flex items-center gap-1.5 text-destructive">
                               {t("goals.care.prediction.churnCompact", { count: month.churns })}
+                              <span className="size-1.5 rounded-full bg-destructive" />
                             </span>
                           </>
                         ) : (
@@ -3205,9 +3262,7 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
             </div>
           ) : (
             <div className="grid min-h-48 place-items-center px-6 text-center text-xs text-muted-foreground">
-              {lifecycle.length > 0
-                ? t("goals.care.prediction.outcomeEmptyAll")
-                : t("goals.care.prediction.lifecycleEmpty")}
+              {t("goals.care.prediction.lifecycleEmpty")}
             </div>
           )}
         </div>

@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 	"time"
 
@@ -341,6 +342,77 @@ func TestPredictionReadinessCountsCompletedCustomerCancellationAsNaturalChurn(t 
 	if august.Month != "2026-08" || august.NaturalChurnCount != 1 || august.ActiveSeatCount != 0 {
 		t.Fatalf("August lifecycle = %#v", august)
 	}
+	if len(august.Outcomes) != 1 || august.Outcomes[0].Date != "2026-08-21" ||
+		august.Outcomes[0].Kind != "churn" {
+		t.Fatalf("August lifecycle outcomes = %#v", august.Outcomes)
+	}
+}
+
+func TestCustomerLifecycleOrdersRenewalAndChurnOutcomesByDate(t *testing.T) {
+	now := time.Date(2026, time.August, 31, 12, 0, 0, 0, cycle.Location)
+	firstChurnAt := time.Date(2026, time.August, 10, 18, 0, 0, 0, cycle.Location)
+	secondChurnAt := time.Date(2026, time.August, 25, 18, 0, 0, 0, cycle.Location)
+	subscriptions := []model.Subscription{
+		{ID: 1, BusinessType: model.SubscriptionBusinessTeam, BoardedAt: "2026-07-01"},
+		{ID: 2, BusinessType: model.SubscriptionBusinessTeam, BoardedAt: "2026-07-02", ArchivedAt: &firstChurnAt},
+		{ID: 3, BusinessType: model.SubscriptionBusinessTeam, BoardedAt: "2026-07-03"},
+		{ID: 4, BusinessType: model.SubscriptionBusinessTeam, BoardedAt: "2026-07-04", ArchivedAt: &secondChurnAt},
+	}
+	bills := []model.Bill{
+		{ID: 1, SubscriptionID: 1, DueDate: "2026-07-01"},
+		{ID: 2, SubscriptionID: 1, DueDate: "2026-08-05"},
+		{ID: 3, SubscriptionID: 2, DueDate: "2026-07-02"},
+		{ID: 4, SubscriptionID: 3, DueDate: "2026-07-03"},
+		{ID: 5, SubscriptionID: 3, DueDate: "2026-08-20"},
+		{ID: 6, SubscriptionID: 4, DueDate: "2026-07-04"},
+	}
+
+	lifecycle := buildCustomerLifecycle(subscriptions, bills, nil, nil, nil, now)
+	august := lifecycle[len(lifecycle)-1]
+	if august.RenewalSuccessCount != 2 || august.NaturalChurnCount != 2 {
+		t.Fatalf("August lifecycle counts = %#v, want two renewals and two churns", august)
+	}
+	want := []CustomerLifecycleOutcome{
+		{Date: "2026-08-05", Kind: "renewal"},
+		{Date: "2026-08-10", Kind: "churn"},
+		{Date: "2026-08-20", Kind: "renewal"},
+		{Date: "2026-08-25", Kind: "churn"},
+	}
+	if !reflect.DeepEqual(august.Outcomes, want) {
+		t.Fatalf("August lifecycle outcomes = %#v, want %#v", august.Outcomes, want)
+	}
+}
+
+func TestCustomerLifecycleUsesPaymentDateForCrossMonthRenewals(t *testing.T) {
+	now := time.Date(2026, time.September, 30, 12, 0, 0, 0, cycle.Location)
+	earlyPaidAt := time.Date(2026, time.August, 30, 18, 0, 0, 0, cycle.Location)
+	latePaidAt := time.Date(2026, time.September, 2, 18, 0, 0, 0, cycle.Location)
+	subscriptions := []model.Subscription{
+		{ID: 1, BusinessType: model.SubscriptionBusinessTeam, BoardedAt: "2026-08-01"},
+		{ID: 2, BusinessType: model.SubscriptionBusinessTeam, BoardedAt: "2026-08-02"},
+	}
+	bills := []model.Bill{
+		{ID: 1, SubscriptionID: 1, DueDate: "2026-08-01"},
+		{ID: 2, SubscriptionID: 1, DueDate: "2026-09-01", PaidAt: earlyPaidAt},
+		{ID: 3, SubscriptionID: 2, DueDate: "2026-08-02"},
+		{ID: 4, SubscriptionID: 2, DueDate: "2026-08-31", PaidAt: latePaidAt},
+	}
+
+	lifecycle := buildCustomerLifecycle(subscriptions, bills, nil, nil, nil, now)
+	august := lifecycle[len(lifecycle)-2]
+	september := lifecycle[len(lifecycle)-1]
+	if august.RenewalSuccessCount != 1 || !reflect.DeepEqual(
+		august.Outcomes,
+		[]CustomerLifecycleOutcome{{Date: "2026-08-30", Kind: "renewal"}},
+	) {
+		t.Fatalf("August cross-month renewal = %#v", august)
+	}
+	if september.RenewalSuccessCount != 1 || !reflect.DeepEqual(
+		september.Outcomes,
+		[]CustomerLifecycleOutcome{{Date: "2026-09-02", Kind: "renewal"}},
+	) {
+		t.Fatalf("September cross-month renewal = %#v", september)
+	}
 }
 
 func TestPredictionReadinessExcludesFullyRefundedRenewalButKeepsChurn(t *testing.T) {
@@ -442,6 +514,9 @@ func TestCustomerLifecycleIncludesActiveSeatWithoutBill(t *testing.T) {
 	}
 	if august.NaturalChurnCount != 0 {
 		t.Fatalf("unbilled archive must not create churn evidence: %#v", august)
+	}
+	if august.Outcomes == nil || len(august.Outcomes) != 0 {
+		t.Fatalf("unbilled seat outcomes = %#v, want an initialized empty timeline", august.Outcomes)
 	}
 }
 

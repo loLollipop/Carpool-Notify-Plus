@@ -1143,6 +1143,11 @@ interface ForecastModelReadiness {
   detail_code: string
 }
 
+interface CustomerLifecycleOutcome {
+  date: string
+  kind: "renewal" | "churn"
+}
+
 interface CustomerLifecycleMonth {
   month: string
   new_seat_count: number
@@ -1150,6 +1155,7 @@ interface CustomerLifecycleMonth {
   natural_churn_count: number
   active_seat_count: number
   total_seat_count: number
+  outcomes?: CustomerLifecycleOutcome[] | null
 }
 
 interface PredictionReadiness {
