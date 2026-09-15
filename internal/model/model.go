@@ -16,6 +16,9 @@ const (
 
 	NotificationKindScheduled = "scheduled"
 	NotificationKindTest      = "test"
+	// NotificationKindManualCustomerEmail records an operator-confirmed SMTP
+	// delivery without rewriting the scheduled attempt's audit history.
+	NotificationKindManualCustomerEmail = "manual_customer_email"
 	// NotificationKindPriceIncreaseNotice is the advance notice sent before
 	// the normal renewal reminder for an approved future price change. The
 	// historical value is retained for compatibility with existing logs.

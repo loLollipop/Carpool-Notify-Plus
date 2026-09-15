@@ -4350,19 +4350,53 @@ func (store *Store) ListNotificationActivitySince(since time.Time) ([]model.Noti
 	return activities, rows.Err()
 }
 
-// LatestErrorsBySubscription returns the latest error message per active subscription.
+// LatestErrorsBySubscription returns the latest unresolved channel error per
+// active subscription. Only actual delivery outcomes participate: a new,
+// unattempted pending row or a canceled row cannot hide an earlier failure.
 func (store *Store) LatestErrorsBySubscription() (map[int64]string, error) {
 	rows, err := store.database.Query(`
-                SELECT log.subscription_id, log.last_error
-                FROM notification_log AS log
-                INNER JOIN (
-                        SELECT subscription_id, MAX(id) AS max_id
-                        FROM notification_log
-						WHERE kind IN (?, ?) AND last_error != ''
-                        GROUP BY subscription_id
-                ) AS latest ON latest.max_id = log.id`,
+				WITH outcomes AS (
+					SELECT subscription_id, channel, last_error, updated_at, id,
+					       substr(updated_at, 1, 19) || '.' ||
+					       CASE
+						       WHEN instr(updated_at, '.') > 0 THEN
+							       substr(
+								       substr(
+									       updated_at,
+									       instr(updated_at, '.') + 1,
+									       instr(updated_at, 'Z') - instr(updated_at, '.') - 1
+								       ) || '000000000',
+								       1,
+								       9
+							       )
+						       ELSE '000000000'
+					       END AS outcome_time
+					FROM notification_log
+					WHERE kind IN (?, ?, ?)
+					  AND (status = ? OR last_error != '')
+				), ranked_outcomes AS (
+					SELECT subscription_id, channel, last_error, outcome_time, id,
+					       ROW_NUMBER() OVER (
+						       PARTITION BY subscription_id, channel
+						       ORDER BY outcome_time DESC, id DESC
+					       ) AS channel_rank
+					FROM outcomes
+				), ranked_errors AS (
+					SELECT subscription_id, last_error,
+					       ROW_NUMBER() OVER (
+						       PARTITION BY subscription_id
+						       ORDER BY outcome_time DESC, id DESC
+					       ) AS error_rank
+					FROM ranked_outcomes
+					WHERE channel_rank = 1 AND last_error != ''
+				)
+				SELECT subscription_id, last_error
+				FROM ranked_errors
+				WHERE error_rank = 1`,
 		model.NotificationKindScheduled,
 		model.NotificationKindPriceIncreaseNotice,
+		model.NotificationKindManualCustomerEmail,
+		model.NotificationStatusSuccess,
 	)
 	if err != nil {
 		return nil, err
@@ -4379,6 +4413,25 @@ func (store *Store) LatestErrorsBySubscription() (map[int64]string, error) {
 		result[subscriptionID] = lastError
 	}
 	return result, rows.Err()
+}
+
+// RecordManualCustomerEmailSuccess adds a recovery outcome for the SMTP
+// channel while preserving all scheduled failure rows for audit and metrics.
+func (store *Store) RecordManualCustomerEmailSuccess(subscriptionID int64) error {
+	now := formatTime(time.Now().UTC())
+	_, err := store.database.Exec(`
+		INSERT INTO notification_log (
+			subscription_id, due_date, offset_days, channel, status, attempt_count,
+			next_retry_at, last_error, kind, created_at, updated_at
+		) VALUES (?, 'manual-' || lower(hex(randomblob(16))), 0, ?, ?, 1, NULL, '', ?, ?, ?)`,
+		subscriptionID,
+		model.ChannelSMTP,
+		model.NotificationStatusSuccess,
+		model.NotificationKindManualCustomerEmail,
+		now,
+		now,
+	)
+	return err
 }
 
 // InsertTestNotificationLog records a test send result (not tied to due-date uniqueness beyond attempt).

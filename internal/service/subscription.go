@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/mail"
 	"sort"
 	"strconv"
@@ -2608,7 +2609,7 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 	if err := service.ensureNoPendingAfterSales(subscriptionID, "发送提醒"); err != nil {
 		return err
 	}
-	configuration, _ := service.runtimeConfigSnapshot()
+	configuration, registry := service.runtimeConfigSnapshot()
 	if !configuration.SMTPConfigured() {
 		return fmt.Errorf("SMTP 未配置（需 host/port/from/username/password）")
 	}
@@ -2616,20 +2617,20 @@ func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subsc
 	if err != nil {
 		return err
 	}
-	sender := notify.SMTPSender{
-		Host:     configuration.SMTPHost,
-		Port:     configuration.SMTPPort,
-		Username: configuration.SMTPUsername,
-		Password: configuration.SMTPPassword,
-		From:     configuration.SMTPFrom,
+	sender, ok := registry.Get(model.ChannelSMTP)
+	if !ok {
+		return fmt.Errorf("SMTP 发送器未就绪，请保存通知配置后重试")
 	}
-	return sender.SendHTMLTo(
-		ctx,
-		[]string{subscription.CustomerEmail},
-		title,
-		message,
-		notify.BuildCustomerEmailHTML(message),
-	)
+	if err := sendCustomerSMTP(ctx, sender, subscription.CustomerEmail, title, message); err != nil {
+		return err
+	}
+	// Record recovery as a separate outcome so scheduled failures remain intact
+	// for audit and dashboard metrics. Delivery has already succeeded, so do not
+	// return a persistence error that could make the operator resend by mistake.
+	if err := service.Store.RecordManualCustomerEmailSuccess(subscriptionID); err != nil {
+		log.Printf("record manual customer email success for subscription %d: %v", subscriptionID, err)
+	}
+	return nil
 }
 
 // SendTestCustomerEmail sends one deliverability test using the same stored

@@ -69,7 +69,7 @@ export type MutationScope =
 const scopeQueryKeys: Record<Exclude<MutationScope, "all" | "none">, readonly (readonly unknown[])[]> = {
   profile: [queryKeys.adminProfile],
   settings: [queryKeys.settings],
-  notifications: [queryKeys.dashboard, queryKeys.operationsOverview],
+  notifications: [queryKeys.subscriptions, queryKeys.dashboard, queryKeys.operationsOverview],
   "redemption-codes": [["data", "redemption-codes"]],
   redemptions: [
     ["data", "redemptions"],
