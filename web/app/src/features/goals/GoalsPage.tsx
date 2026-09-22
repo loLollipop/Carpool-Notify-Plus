@@ -3500,7 +3500,7 @@ function CustomerCarePanel({
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [historyOpen, setHistoryOpen] = React.useState(false)
   const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
-  const [benefitType, setBenefitType] = React.useState<CustomerBenefitType>("loyalty_care")
+  const [benefitType, setBenefitType] = React.useState<CustomerBenefitType>("extension")
   const [benefitName, setBenefitName] = React.useState("")
   const [actualCost, setActualCost] = React.useState("")
   const [perceivedValue, setPerceivedValue] = React.useState("")
@@ -3594,10 +3594,15 @@ function CustomerCarePanel({
 
   function openBenefitDialog() {
     const suggestedTypes = new Set(
-      selectedCandidates.map((candidate) => candidate.suggested_benefit_type),
+      selectedCandidates.map((candidate) =>
+        candidate.suggested_benefit_type === "price_increase_thanks" ||
+        candidate.suggested_benefit_type === "price_discount"
+          ? "price_discount"
+          : "extension",
+      ),
     )
     const suggestedType =
-      suggestedTypes.size === 1 ? [...suggestedTypes][0] : "manual"
+      suggestedTypes.size === 1 ? [...suggestedTypes][0] : "extension"
     setBenefitType(suggestedType)
     setBenefitName(t(`goals.care.defaultBenefitName.${suggestedType}`))
     setActualCost("")
@@ -3978,13 +3983,7 @@ function CustomerCarePanel({
                   </SelectTrigger>
                   <SelectContent>
                     {(
-                      [
-                        "renewal_milestone",
-                        "loyalty_care",
-                        "price_increase_thanks",
-                        "service_recovery",
-                        "manual",
-                      ] as CustomerBenefitType[]
+                      ["extension", "price_discount"] as CustomerBenefitType[]
                     ).map((type) => (
                       <SelectItem key={type} value={type}>
                         {t(`goals.care.benefitType.${type}`)}
@@ -4011,7 +4010,7 @@ function CustomerCarePanel({
                 id="benefit-name"
                 value={benefitName}
                 onChange={(event) => setBenefitName(event.target.value)}
-                placeholder={t("goals.care.dialog.namePlaceholder")}
+                placeholder={t(`goals.care.dialog.namePlaceholder.${benefitType}`)}
                 required
               />
             </div>

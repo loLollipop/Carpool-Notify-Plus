@@ -296,7 +296,7 @@ func buildCustomerBenefitCandidate(
 		Selectable:             true,
 		Status:                 "hold",
 		ReasonCode:             "manual_review",
-		SuggestedBenefitType:   model.CustomerBenefitTypeManual,
+		SuggestedBenefitType:   model.CustomerBenefitTypeExtension,
 	}
 	if candidate.MonthlyValueCents <= 0 {
 		for _, member := range group.Members {
@@ -358,16 +358,17 @@ func buildCustomerBenefitCandidate(
 		candidate.ReasonCode = "service_in_progress"
 		return candidate
 	}
-	if recoveringAfterSales && !hasBenefitAfter(
+	if recoveringAfterSales && !hasAnyBenefitTypeAfter(
 		benefits,
-		model.CustomerBenefitTypeServiceRecovery,
 		latestRecoveryStart(group.Members),
+		model.CustomerBenefitTypeServiceRecovery,
+		model.CustomerBenefitTypeExtension,
 	) {
 		markBenefitRecommendation(
 			&candidate,
 			today,
 			"service_recovery",
-			model.CustomerBenefitTypeServiceRecovery,
+			model.CustomerBenefitTypeExtension,
 			today,
 		)
 		return candidate
@@ -375,7 +376,7 @@ func buildCustomerBenefitCandidate(
 	if candidate.RenewalCount <= 0 {
 		candidate.Status = "observe"
 		candidate.ReasonCode = "first_cycle_observe"
-		candidate.SuggestedBenefitType = model.CustomerBenefitTypeRenewalMilestone
+		candidate.SuggestedBenefitType = model.CustomerBenefitTypeExtension
 		candidate.RecommendedDate = candidate.NextDueDate
 		return candidate
 	}
@@ -385,16 +386,17 @@ func buildCustomerBenefitCandidate(
 		candidate.RecommendedDate = candidate.NextEligibleDate
 		return candidate
 	}
-	if increaseAccepted && !hasBenefitAfter(
+	if increaseAccepted && !hasAnyBenefitTypeAfter(
 		benefits,
-		model.CustomerBenefitTypePriceIncrease,
 		latestIncreaseDate,
+		model.CustomerBenefitTypePriceIncrease,
+		model.CustomerBenefitTypePriceDiscount,
 	) {
 		markBenefitRecommendation(
 			&candidate,
 			today,
 			"increase_accepted",
-			model.CustomerBenefitTypePriceIncrease,
+			model.CustomerBenefitTypePriceDiscount,
 			today,
 		)
 		return candidate
@@ -407,10 +409,13 @@ func buildCustomerBenefitCandidate(
 
 	recommendedAt := benefitDateBeforeNextRenewal(candidate.NextDueDate, today)
 	reasonCode := "repeat_retention"
-	benefitType := model.CustomerBenefitTypeLoyaltyCare
-	if candidate.RenewalCount == 1 && !hasBenefitType(benefits, model.CustomerBenefitTypeRenewalMilestone) {
+	benefitType := model.CustomerBenefitTypeExtension
+	if candidate.RenewalCount == 1 && !hasAnyBenefitType(
+		benefits,
+		model.CustomerBenefitTypeRenewalMilestone,
+		model.CustomerBenefitTypeExtension,
+	) {
 		reasonCode = "first_renewal"
-		benefitType = model.CustomerBenefitTypeRenewalMilestone
 		if lastPaidAt, err := time.ParseInLocation("2006-01-02", candidate.LastPaidDate, cycle.Location); err == nil &&
 			today.Sub(cycle.StartOfDay(lastPaidAt)) <= 14*24*time.Hour {
 			recommendedAt = today
@@ -470,19 +475,26 @@ func latestRecoveryStart(members []PricingCandidate) string {
 	return latest
 }
 
-func hasBenefitType(benefits []model.CustomerBenefit, benefitType string) bool {
+func hasAnyBenefitType(benefits []model.CustomerBenefit, benefitTypes ...string) bool {
 	for _, benefit := range benefits {
-		if benefit.BenefitType == benefitType {
-			return true
+		for _, benefitType := range benefitTypes {
+			if benefit.BenefitType == benefitType {
+				return true
+			}
 		}
 	}
 	return false
 }
 
-func hasBenefitAfter(benefits []model.CustomerBenefit, benefitType string, date string) bool {
+func hasAnyBenefitTypeAfter(benefits []model.CustomerBenefit, date string, benefitTypes ...string) bool {
 	for _, benefit := range benefits {
-		if benefit.BenefitType == benefitType && (date == "" || benefit.BenefitDate >= date) {
-			return true
+		if date != "" && benefit.BenefitDate < date {
+			continue
+		}
+		for _, benefitType := range benefitTypes {
+			if benefit.BenefitType == benefitType {
+				return true
+			}
 		}
 	}
 	return false
@@ -1050,13 +1062,16 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	if len(subscriptionIDs) > maximumBenefitSelection {
 		return 0, fmt.Errorf("单次最多登记 %d 位客户", maximumBenefitSelection)
 	}
-	benefitType := strings.TrimSpace(input.BenefitType)
-	if !validCustomerBenefitType(benefitType) {
+	benefitType, validBenefitType := canonicalCustomerBenefitType(strings.TrimSpace(input.BenefitType))
+	if !validBenefitType {
 		return 0, fmt.Errorf("福利分类无效")
 	}
 	benefitName := strings.TrimSpace(input.BenefitName)
 	if benefitName == "" {
 		return 0, fmt.Errorf("请填写福利名称")
+	}
+	if strings.HasPrefix(benefitName, "goals.care.defaultBenefitName.") {
+		return 0, fmt.Errorf("页面已更新，请刷新后重试")
 	}
 	if len([]rune(benefitName)) > maximumBenefitNameRunes {
 		return 0, fmt.Errorf("福利名称不能超过 %d 个字符", maximumBenefitNameRunes)
@@ -1170,16 +1185,21 @@ func parseOptionalNonNegativeYuan(raw string) (int64, error) {
 	return value, nil
 }
 
-func validCustomerBenefitType(value string) bool {
+func canonicalCustomerBenefitType(value string) (string, bool) {
 	switch value {
+	case model.CustomerBenefitTypeExtension:
+		return model.CustomerBenefitTypeExtension, true
+	case model.CustomerBenefitTypePriceDiscount:
+		return model.CustomerBenefitTypePriceDiscount, true
 	case model.CustomerBenefitTypeRenewalMilestone,
 		model.CustomerBenefitTypeLoyaltyCare,
-		model.CustomerBenefitTypePriceIncrease,
 		model.CustomerBenefitTypeServiceRecovery,
 		model.CustomerBenefitTypeManual:
-		return true
+		return model.CustomerBenefitTypeExtension, true
+	case model.CustomerBenefitTypePriceIncrease:
+		return model.CustomerBenefitTypePriceDiscount, true
 	default:
-		return false
+		return "", false
 	}
 }
 

@@ -621,6 +621,8 @@ export default {
         retainedSeats: "{{renewed}} / {{expected}} seats renewed",
         costValue: "Cost {{value}}",
         benefitType: {
+          extension: "Complimentary extension",
+          price_discount: "Renewal price discount",
           renewal_milestone: "Renewal milestone",
           loyalty_care: "Loyalty care",
           price_increase_thanks: "Price-increase thank-you",
@@ -628,6 +630,8 @@ export default {
           manual: "Other manual benefit",
         },
         defaultBenefitName: {
+          extension: "Complimentary subscription extension",
+          price_discount: "Discounted renewal",
           renewal_milestone: "First-renewal milestone benefit",
           loyalty_care: "Loyal customer care benefit",
           price_increase_thanks: "Post-adjustment thank-you benefit",
@@ -636,11 +640,14 @@ export default {
         },
         dialog: {
           title: "Record delivered benefits",
-          summary: "Record one delivered benefit for each of {{count}} customers. This stores an offline action and never sends a message automatically.",
+          summary: "Record an extension or price discount already completed offline for each of {{count}} customers. This only stores a record; it does not change billing dates or renewal prices in the system, or send any messages.",
           type: "Benefit type",
           date: "Delivery date",
           name: "Benefit content",
-          namePlaceholder: "For example: seven-day access, coupon, or small credit",
+          namePlaceholder: {
+            extension: "For example: seven-day extension already granted offline",
+            price_discount: "For example: next offline renewal reduced to CNY 95",
+          },
           actualCost: "Actual cost per customer",
           actualCostHint: "Included in billing cost, dashboard, and goal profit",
           perceivedValue: "Perceived value per customer",

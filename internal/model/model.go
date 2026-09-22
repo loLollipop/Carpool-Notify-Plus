@@ -49,6 +49,11 @@ const (
 	BusinessGoalStatusActive    = "active"
 	BusinessGoalStatusCompleted = "completed"
 
+	CustomerBenefitTypeExtension     = "extension"
+	CustomerBenefitTypePriceDiscount = "price_discount"
+
+	// Legacy customer-benefit types remain valid for historical records and
+	// older clients. New recommendations use Extension or PriceDiscount.
 	CustomerBenefitTypeRenewalMilestone = "renewal_milestone"
 	CustomerBenefitTypeLoyaltyCare      = "loyalty_care"
 	CustomerBenefitTypePriceIncrease    = "price_increase_thanks"

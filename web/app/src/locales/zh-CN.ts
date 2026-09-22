@@ -619,6 +619,8 @@ export default {
         retainedSeats: "续费 {{renewed}} / {{expected}} 席",
         costValue: "成本 {{value}}",
         benefitType: {
+          extension: "赠送延期福利",
+          price_discount: "降价福利",
           renewal_milestone: "续费里程碑",
           loyalty_care: "长期客户关怀",
           price_increase_thanks: "涨价接受感谢",
@@ -626,6 +628,8 @@ export default {
           manual: "其他人工福利",
         },
         defaultBenefitName: {
+          extension: "赠送延期福利",
+          price_discount: "续费降价福利",
           renewal_milestone: "首次续费里程碑福利",
           loyalty_care: "长期客户关怀福利",
           price_increase_thanks: "调价后感谢福利",
@@ -634,11 +638,14 @@ export default {
         },
         dialog: {
           title: "登记已发放福利",
-          summary: "将为 {{count}} 位客户分别登记一条已发放记录；这里只记录线下实际发放，不会自动给客户发送消息。",
+          summary: "将为 {{count}} 位客户分别登记线下已完成的延期或降价。这里只做记录，不会自动修改系统账期、续费价格或发送消息。",
           type: "福利分类",
           date: "实际发放日期",
           name: "福利内容",
-          namePlaceholder: "例如：7 天会员体验、优惠券或小额红包",
+          namePlaceholder: {
+            extension: "例如：线下已赠送延期 7 天",
+            price_discount: "例如：线下已将下次续费降至 95 元",
+          },
           actualCost: "单人实际成本",
           actualCostHint: "会计入账单成本、仪表盘和目标利润",
           perceivedValue: "单人感知价值",

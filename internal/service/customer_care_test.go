@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,8 +64,8 @@ func TestCustomerBenefitCostFlowsThroughProfitReporting(t *testing.T) {
 
 	recorded, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
 		SubscriptionIDs:    ids,
-		BenefitType:        model.CustomerBenefitTypeManual,
-		BenefitName:        "测试福利",
+		BenefitType:        model.CustomerBenefitTypeExtension,
+		BenefitName:        "赠送延期福利",
 		ActualCostYuan:     "5.00",
 		PerceivedValueYuan: "20.00",
 		BenefitDate:        "2026-08-10",
@@ -103,6 +104,302 @@ func TestCustomerBenefitCostFlowsThroughProfitReporting(t *testing.T) {
 	}
 	if len(export.CustomerBenefits) != 1 || export.CustomerBenefits[0].ActualCostCents != 500 {
 		t.Fatalf("exported benefits = %#v", export.CustomerBenefits)
+	}
+}
+
+func TestRecordCustomerBenefitsAcceptsNewAndLegacyTypesAndRejectsInvalid(t *testing.T) {
+	tests := []struct {
+		name        string
+		benefitType string
+		wantType    string
+		wantError   bool
+	}{
+		{name: "extension", benefitType: model.CustomerBenefitTypeExtension, wantType: model.CustomerBenefitTypeExtension},
+		{name: "price discount", benefitType: model.CustomerBenefitTypePriceDiscount, wantType: model.CustomerBenefitTypePriceDiscount},
+		{name: "legacy renewal milestone", benefitType: model.CustomerBenefitTypeRenewalMilestone, wantType: model.CustomerBenefitTypeExtension},
+		{name: "legacy loyalty care", benefitType: model.CustomerBenefitTypeLoyaltyCare, wantType: model.CustomerBenefitTypeExtension},
+		{name: "legacy price increase", benefitType: model.CustomerBenefitTypePriceIncrease, wantType: model.CustomerBenefitTypePriceDiscount},
+		{name: "legacy service recovery", benefitType: model.CustomerBenefitTypeServiceRecovery, wantType: model.CustomerBenefitTypeExtension},
+		{name: "legacy manual", benefitType: model.CustomerBenefitTypeManual, wantType: model.CustomerBenefitTypeExtension},
+		{name: "invalid", benefitType: "coupon", wantError: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := openGoalTestService(t)
+			ids := createCustomerCareTestSubscriptions(t, service, "benefit-test@example.com", "", 1)
+			recorded, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+				SubscriptionIDs: ids,
+				BenefitType:     test.benefitType,
+				BenefitName:     "已线下发放",
+				BenefitDate:     "2026-08-15",
+			})
+			if test.wantError {
+				if err == nil {
+					t.Fatalf("RecordCustomerBenefits(%q) succeeded, want error", test.benefitType)
+				}
+				return
+			}
+			if err != nil || recorded != 1 {
+				t.Fatalf("RecordCustomerBenefits(%q) = %d, %v; want 1, nil", test.benefitType, recorded, err)
+			}
+			benefits, listErr := service.Store.ListCustomerBenefits()
+			if listErr != nil {
+				t.Fatal(listErr)
+			}
+			if len(benefits) != 1 || benefits[0].BenefitType != test.wantType {
+				t.Fatalf("stored benefits = %#v", benefits)
+			}
+		})
+	}
+}
+
+func TestRecordCustomerBenefitsCanonicalizesAliasesBeforeDuplicateCheck(t *testing.T) {
+	tests := []struct {
+		name        string
+		legacyType  string
+		currentType string
+	}{
+		{
+			name:        "extension alias",
+			legacyType:  model.CustomerBenefitTypeServiceRecovery,
+			currentType: model.CustomerBenefitTypeExtension,
+		},
+		{
+			name:        "price discount alias",
+			legacyType:  model.CustomerBenefitTypePriceIncrease,
+			currentType: model.CustomerBenefitTypePriceDiscount,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := openGoalTestService(t)
+			ids := createCustomerCareTestSubscriptions(t, service, "duplicate-alias@example.com", "", 1)
+			subscription, err := service.Store.GetSubscription(ids[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := service.Store.CreateCustomerBenefits([]model.CustomerBenefit{{
+				BatchID:                   "legacy-benefit",
+				SubscriptionID:            ids[0],
+				BenefitType:               test.legacyType,
+				BenefitName:               "同一份福利",
+				BenefitDate:               "2026-08-15",
+				CustomerGroupSizeSnapshot: 1,
+				CurrentPriceCentsSnapshot: subscription.PricePerPersonCents,
+				CreatedAt:                 time.Date(2026, time.August, 15, 4, 0, 0, 0, time.UTC),
+			}}); err != nil {
+				t.Fatal(err)
+			}
+			input := RecordCustomerBenefitsInput{
+				SubscriptionIDs: ids,
+				BenefitType:     test.currentType,
+				BenefitName:     "同一份福利",
+				BenefitDate:     "2026-08-15",
+			}
+			if _, err := service.RecordCustomerBenefits(input); err == nil {
+				t.Fatal("RecordCustomerBenefits() succeeded against historical alias, want duplicate error")
+			}
+			input.BenefitType = test.legacyType
+			if _, err := service.RecordCustomerBenefits(input); err == nil {
+				t.Fatal("legacy RecordCustomerBenefits() retry succeeded, want duplicate error")
+			}
+			benefits, err := service.Store.ListCustomerBenefits()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(benefits) != 1 {
+				t.Fatalf("benefits = %#v; want only the historical row", benefits)
+			}
+		})
+	}
+}
+
+func TestRecordCustomerBenefitsRollsBackBatchWhenHistoricalAliasExists(t *testing.T) {
+	service := openGoalTestService(t)
+	ids := createCustomerCareTestSubscriptions(t, service, "duplicate-batch@example.com", "", 2)
+	subscription, err := service.Store.GetSubscription(ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Store.CreateCustomerBenefits([]model.CustomerBenefit{{
+		BatchID:                   "legacy-batch",
+		SubscriptionID:            ids[0],
+		BenefitType:               model.CustomerBenefitTypeServiceRecovery,
+		BenefitName:               "同一份福利",
+		BenefitDate:               "2026-08-15",
+		CustomerGroupSizeSnapshot: 1,
+		CurrentPriceCentsSnapshot: subscription.PricePerPersonCents,
+		CreatedAt:                 time.Date(2026, time.August, 15, 4, 0, 0, 0, time.UTC),
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+		SubscriptionIDs: []int64{ids[1], ids[0]},
+		BenefitType:     model.CustomerBenefitTypeExtension,
+		BenefitName:     "同一份福利",
+		BenefitDate:     "2026-08-15",
+	}); err == nil {
+		t.Fatal("RecordCustomerBenefits() succeeded for batch containing a historical alias")
+	}
+	benefits, err := service.Store.ListCustomerBenefits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(benefits) != 1 || benefits[0].SubscriptionID != ids[0] {
+		t.Fatalf("benefits after rollback = %#v; want only the historical row", benefits)
+	}
+}
+
+func TestRecordCustomerBenefitsRejectsStaleUITranslationKey(t *testing.T) {
+	service := openGoalTestService(t)
+	ids := createCustomerCareTestSubscriptions(t, service, "stale-ui@example.com", "", 1)
+	if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+		SubscriptionIDs: ids,
+		BenefitType:     model.CustomerBenefitTypeExtension,
+		BenefitName:     "goals.care.defaultBenefitName.extension",
+		BenefitDate:     "2026-08-15",
+	}); err == nil || !strings.Contains(err.Error(), "刷新") {
+		t.Fatalf("RecordCustomerBenefits() error = %v; want refresh error", err)
+	}
+}
+
+func TestCustomerBenefitRecommendationsUseOnlyCurrentTypes(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, cycle.Location)
+	tests := []struct {
+		name     string
+		member   PricingCandidate
+		wantType string
+	}{
+		{
+			name:     "default review",
+			member:   PricingCandidate{RenewalCount: 2},
+			wantType: model.CustomerBenefitTypeExtension,
+		},
+		{
+			name:     "first cycle",
+			member:   PricingCandidate{RenewalCount: 0},
+			wantType: model.CustomerBenefitTypeExtension,
+		},
+		{
+			name: "service recovery",
+			member: PricingCandidate{
+				RenewalCount:   2,
+				BlockedCode:    "after_sales_recovery",
+				NextReviewDate: "2026-08-20",
+			},
+			wantType: model.CustomerBenefitTypeExtension,
+		},
+		{
+			name: "accepted increase",
+			member: PricingCandidate{
+				RenewalCount:             2,
+				PaidPeriodsAfterIncrease: 1,
+				LastPriceIncreaseDate:    "2026-07-01",
+			},
+			wantType: model.CustomerBenefitTypePriceDiscount,
+		},
+		{
+			name:     "first renewal",
+			member:   PricingCandidate{RenewalCount: 1},
+			wantType: model.CustomerBenefitTypeExtension,
+		},
+		{
+			name:     "core retention",
+			member:   PricingCandidate{RenewalCount: 2, CustomerTier: "core"},
+			wantType: model.CustomerBenefitTypeExtension,
+		},
+	}
+
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			member := test.member
+			member.SubscriptionID = int64(index + 1)
+			member.NextDueDate = "2026-09-15"
+			candidate := buildCustomerBenefitCandidate(
+				customerBenefitGroup{ID: member.SubscriptionID, Members: []PricingCandidate{member}},
+				nil,
+				now,
+			)
+			if candidate.SuggestedBenefitType != test.wantType {
+				t.Fatalf("suggested type = %q, want %q; candidate = %#v", candidate.SuggestedBenefitType, test.wantType, candidate)
+			}
+			if candidate.SuggestedBenefitType != model.CustomerBenefitTypeExtension &&
+				candidate.SuggestedBenefitType != model.CustomerBenefitTypePriceDiscount {
+				t.Fatalf("legacy recommendation type returned: %q", candidate.SuggestedBenefitType)
+			}
+		})
+	}
+}
+
+func TestCustomerBenefitRecommendationDeduplicatesLegacyAndCurrentTypes(t *testing.T) {
+	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, cycle.Location)
+	tests := []struct {
+		name          string
+		member        PricingCandidate
+		benefitType   string
+		benefitDate   string
+		notReasonCode string
+	}{
+		{
+			name:          "legacy service recovery",
+			member:        PricingCandidate{RenewalCount: 2, BlockedCode: "after_sales_recovery", NextReviewDate: "2026-08-20"},
+			benefitType:   model.CustomerBenefitTypeServiceRecovery,
+			benefitDate:   "2026-07-22",
+			notReasonCode: "service_recovery",
+		},
+		{
+			name:          "current extension after recovery",
+			member:        PricingCandidate{RenewalCount: 2, BlockedCode: "after_sales_recovery", NextReviewDate: "2026-08-20"},
+			benefitType:   model.CustomerBenefitTypeExtension,
+			benefitDate:   "2026-07-22",
+			notReasonCode: "service_recovery",
+		},
+		{
+			name:          "legacy increase thank-you",
+			member:        PricingCandidate{RenewalCount: 2, PaidPeriodsAfterIncrease: 1, LastPriceIncreaseDate: "2026-01-01"},
+			benefitType:   model.CustomerBenefitTypePriceIncrease,
+			benefitDate:   "2026-01-02",
+			notReasonCode: "increase_accepted",
+		},
+		{
+			name:          "current price discount",
+			member:        PricingCandidate{RenewalCount: 2, PaidPeriodsAfterIncrease: 1, LastPriceIncreaseDate: "2026-01-01"},
+			benefitType:   model.CustomerBenefitTypePriceDiscount,
+			benefitDate:   "2026-01-02",
+			notReasonCode: "increase_accepted",
+		},
+		{
+			name:          "legacy first-renewal milestone",
+			member:        PricingCandidate{RenewalCount: 1},
+			benefitType:   model.CustomerBenefitTypeRenewalMilestone,
+			benefitDate:   "2026-01-02",
+			notReasonCode: "first_renewal",
+		},
+		{
+			name:          "current extension after first renewal",
+			member:        PricingCandidate{RenewalCount: 1},
+			benefitType:   model.CustomerBenefitTypeExtension,
+			benefitDate:   "2026-01-02",
+			notReasonCode: "first_renewal",
+		},
+	}
+
+	for index, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			member := test.member
+			member.SubscriptionID = int64(index + 1)
+			member.NextDueDate = "2026-09-15"
+			candidate := buildCustomerBenefitCandidate(
+				customerBenefitGroup{ID: member.SubscriptionID, Members: []PricingCandidate{member}},
+				[]model.CustomerBenefit{{BenefitType: test.benefitType, BenefitDate: test.benefitDate}},
+				now,
+			)
+			if candidate.ReasonCode == test.notReasonCode {
+				t.Fatalf("duplicate recommendation was not suppressed: %#v", candidate)
+			}
+		})
 	}
 }
 

@@ -1057,6 +1057,8 @@ interface RepricingAnalysis {
 }
 
 export type CustomerBenefitType =
+  | "extension"
+  | "price_discount"
   | "renewal_milestone"
   | "loyalty_care"
   | "price_increase_thanks"

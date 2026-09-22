@@ -57,6 +57,33 @@ func (store *Store) CreateCustomerBenefits(benefits []model.CustomerBenefit) err
 		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
 		}
+		equivalentTypes := equivalentCustomerBenefitTypes(benefit.BenefitType)
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(equivalentTypes)), ",")
+		duplicateArgs := make([]any, 0, 3+len(equivalentTypes))
+		duplicateArgs = append(
+			duplicateArgs,
+			benefit.SubscriptionID,
+			benefit.BenefitDate,
+			benefit.BenefitName,
+		)
+		for _, benefitType := range equivalentTypes {
+			duplicateArgs = append(duplicateArgs, benefitType)
+		}
+		var alreadyRecorded bool
+		if queryErr := transaction.QueryRow(`
+			SELECT EXISTS (
+				SELECT 1
+				FROM customer_benefits
+				WHERE subscription_id = ?
+				  AND benefit_date = ?
+				  AND benefit_name = ?
+				  AND benefit_type IN (`+placeholders+`)
+			)`, duplicateArgs...).Scan(&alreadyRecorded); queryErr != nil {
+			return queryErr
+		}
+		if alreadyRecorded {
+			return ErrCustomerBenefitAlreadyRecorded
+		}
 		result, insertErr := transaction.Exec(`
 			INSERT INTO customer_benefits (
 				batch_id, subscription_id, benefit_type, benefit_name,
@@ -120,6 +147,31 @@ func (store *Store) CreateCustomerBenefits(benefits []model.CustomerBenefit) err
 		}
 	}
 	return transaction.Commit()
+}
+
+func equivalentCustomerBenefitTypes(value string) []string {
+	switch value {
+	case model.CustomerBenefitTypeExtension,
+		model.CustomerBenefitTypeRenewalMilestone,
+		model.CustomerBenefitTypeLoyaltyCare,
+		model.CustomerBenefitTypeServiceRecovery,
+		model.CustomerBenefitTypeManual:
+		return []string{
+			model.CustomerBenefitTypeExtension,
+			model.CustomerBenefitTypeRenewalMilestone,
+			model.CustomerBenefitTypeLoyaltyCare,
+			model.CustomerBenefitTypeServiceRecovery,
+			model.CustomerBenefitTypeManual,
+		}
+	case model.CustomerBenefitTypePriceDiscount,
+		model.CustomerBenefitTypePriceIncrease:
+		return []string{
+			model.CustomerBenefitTypePriceDiscount,
+			model.CustomerBenefitTypePriceIncrease,
+		}
+	default:
+		return []string{value}
+	}
 }
 
 func scanCustomerBenefit(scanner scannable) (model.CustomerBenefit, error) {
