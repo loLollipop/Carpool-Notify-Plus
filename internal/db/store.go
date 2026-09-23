@@ -4350,6 +4350,70 @@ func (store *Store) ListNotificationActivitySince(since time.Time) ([]model.Noti
 	return activities, rows.Err()
 }
 
+// UnresolvedNotificationFailureSummary describes the latest delivery failures
+// that have not since been followed by a successful outcome on the same
+// subscription and channel. LatestFailureID identifies the newest unresolved
+// occurrence, so operation-task acknowledgements do not carry across failures.
+type UnresolvedNotificationFailureSummary struct {
+	Count           int
+	LatestFailureID int64
+}
+
+// GetUnresolvedNotificationFailureSummary returns one unresolved failure per
+// active subscription and channel. Pending rows without an error and canceled
+// rows are not delivery outcomes and therefore cannot hide an earlier failure.
+func (store *Store) GetUnresolvedNotificationFailureSummary() (UnresolvedNotificationFailureSummary, error) {
+	var summary UnresolvedNotificationFailureSummary
+	err := store.database.QueryRow(`
+		WITH outcomes AS (
+			SELECT log.subscription_id, log.channel, log.last_error, log.updated_at, log.id,
+			       substr(log.updated_at, 1, 19) || '.' ||
+			       CASE
+				       WHEN instr(log.updated_at, '.') > 0 THEN
+					       substr(
+						       substr(
+							       log.updated_at,
+							       instr(log.updated_at, '.') + 1,
+							       instr(log.updated_at, 'Z') - instr(log.updated_at, '.') - 1
+						       ) || '000000000',
+						       1,
+						       9
+					       )
+				       ELSE '000000000'
+			       END AS outcome_time
+			FROM notification_log AS log
+			INNER JOIN subscriptions AS subscription ON subscription.id = log.subscription_id
+			WHERE subscription.deleted_at IS NULL
+			  AND subscription.archived_at IS NULL
+			  AND log.kind IN (?, ?, ?)
+			  AND (log.status = ? OR log.last_error != '')
+		), ranked_outcomes AS (
+			SELECT id, last_error, outcome_time,
+			       ROW_NUMBER() OVER (
+				       PARTITION BY subscription_id, channel
+				       ORDER BY outcome_time DESC, id DESC
+			       ) AS channel_rank
+			FROM outcomes
+		), unresolved AS (
+			SELECT id, outcome_time
+			FROM ranked_outcomes
+			WHERE channel_rank = 1 AND last_error != ''
+		)
+		SELECT COUNT(1), COALESCE((
+			SELECT id
+			FROM unresolved
+			ORDER BY outcome_time DESC, id DESC
+			LIMIT 1
+		), 0)
+		FROM unresolved`,
+		model.NotificationKindScheduled,
+		model.NotificationKindPriceIncreaseNotice,
+		model.NotificationKindManualCustomerEmail,
+		model.NotificationStatusSuccess,
+	).Scan(&summary.Count, &summary.LatestFailureID)
+	return summary, err
+}
+
 // LatestErrorsBySubscription returns the latest unresolved channel error per
 // active subscription. Only actual delivery outcomes participate: a new,
 // unattempted pending row or a canceled row cannot hide an earlier failure.

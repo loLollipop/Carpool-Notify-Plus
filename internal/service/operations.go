@@ -111,6 +111,10 @@ func (service *SubscriptionService) GetOperationsOverview() (OperationsOverview,
 	if err != nil {
 		return OperationsOverview{}, err
 	}
+	notificationFailures, err := service.Store.GetUnresolvedNotificationFailureSummary()
+	if err != nil {
+		return OperationsOverview{}, err
+	}
 	billsPage, err := service.ListBillsPage()
 	if err != nil {
 		return OperationsOverview{}, err
@@ -163,13 +167,13 @@ func (service *SubscriptionService) GetOperationsOverview() (OperationsOverview,
 	buildRedemptionOperationTasks(redemptions, &overview.Tasks)
 	buildRenewalOperationTasks(renewals, &overview.Tasks)
 	buildAfterSalesOperationTasks(afterSales.Cases, &overview.Tasks)
-	buildNotificationOperationTask(dashboard, &overview.Tasks)
+	buildNotificationOperationTask(notificationFailures.Count, notificationFailures.LatestFailureID, &overview.Tasks)
 	buildAccountRenewalOperationTasks(accounts, now, &overview.Work, &overview.Tasks)
 
 	overview.Work.PendingRedemptionCount = len(redemptions)
 	overview.Work.PendingRenewalCount = len(renewals)
 	overview.Work.PendingAfterSalesCount = afterSales.Summary.PendingCount + afterSales.Summary.ReviewCount
-	overview.Work.FailedNotificationCount = dashboard.NotifyFailed30d
+	overview.Work.FailedNotificationCount = notificationFailures.Count
 	overview.Work.UrgentCount = overview.Work.OverdueCount +
 		overview.Work.PendingRedemptionCount +
 		overview.Work.PendingRenewalCount +
@@ -483,22 +487,16 @@ func buildAfterSalesOperationTasks(views []AfterSalesCaseView, tasks *[]Operatio
 	}
 }
 
-func buildNotificationOperationTask(dashboard Dashboard, tasks *[]OperationTask) {
-	if dashboard.NotifyFailed30d <= 0 {
+func buildNotificationOperationTask(failureCount int, latestFailureID int64, tasks *[]OperationTask) {
+	if failureCount <= 0 {
 		return
-	}
-	latestFailureID := int64(0)
-	for _, activity := range dashboard.NotificationActivity {
-		if activity.Status == "failed" && activity.ID > latestFailureID {
-			latestFailureID = activity.ID
-		}
 	}
 	*tasks = append(*tasks, OperationTask{
 		ID:       fmt.Sprintf("notification-failures:%d", latestFailureID),
 		Kind:     "notification_failed",
 		Tone:     "critical",
 		Priority: 88,
-		Name:     fmt.Sprintf("%d", dashboard.NotifyFailed30d),
+		Name:     fmt.Sprintf("%d", failureCount),
 		Route:    "/settings",
 	})
 }

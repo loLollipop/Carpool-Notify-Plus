@@ -240,3 +240,178 @@ func TestOperationAcknowledgementIsOccurrenceSpecific(t *testing.T) {
 		t.Fatalf("next occurrence = %#v, want a new 2026-08-22 task", overview.Notifications[0])
 	}
 }
+
+func TestOperationsOverviewNotificationFailureRecoveryAndNewOccurrence(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.September, 23, 12, 0, 0, 0, cycle.Location)
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name:             "notification recovery",
+		BusinessType:     model.SubscriptionBusinessPlus,
+		PriceYuan:        "68.00",
+		CostYuan:         "20.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "recovery@example.com",
+		CustomerWechat:   "recovery-wechat",
+		BoardedAt:        "2026-09-20",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstFailure, err := subscriptionService.Store.UpsertPendingNotification(
+		subscriptionID, "2026-10-20", 3, model.ChannelSMTP, model.NotificationKindScheduled,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.Store.MarkNotificationFailure(firstFailure.ID, 5, "smtp failed", nil, true); err != nil {
+		t.Fatal(err)
+	}
+
+	findFailureTask := func(overview service.OperationsOverview) *service.OperationTask {
+		t.Helper()
+		for index := range overview.Notifications {
+			if overview.Notifications[index].Kind == "notification_failed" {
+				return &overview.Notifications[index]
+			}
+		}
+		return nil
+	}
+
+	overview, err := subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstTask := findFailureTask(overview)
+	if overview.Work.FailedNotificationCount != 1 || overview.Work.UrgentCount != 1 || firstTask == nil {
+		t.Fatalf("overview with failure = %#v, want one urgent notification task", overview)
+	}
+	firstTaskID := fmt.Sprintf("notification-failures:%d", firstFailure.ID)
+	if firstTask.ID != firstTaskID || firstTask.Name != "1" {
+		t.Fatalf("failure task = %#v, want occurrence %q with count 1", firstTask, firstTaskID)
+	}
+	if !firstTask.Unread {
+		t.Fatalf("initial failure task = %#v, want unread", firstTask)
+	}
+	if count, acknowledgeErr := subscriptionService.AcknowledgeOperationTasks([]string{firstTaskID}); acknowledgeErr != nil || count != 1 {
+		t.Fatalf("acknowledge first failure occurrence = %d, %v", count, acknowledgeErr)
+	}
+	overview, err = subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstTask = findFailureTask(overview)
+	if firstTask == nil || firstTask.Unread {
+		t.Fatalf("acknowledged failure task = %#v, want unresolved but read", firstTask)
+	}
+
+	if err := subscriptionService.Store.RecordManualCustomerEmailSuccess(subscriptionID); err != nil {
+		t.Fatal(err)
+	}
+	overview, err = subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Dashboard.NotifyFailed30d != 1 || len(overview.Dashboard.NotificationActivity) != 1 {
+		t.Fatalf("historical dashboard after recovery = %#v, want preserved failed audit row", overview.Dashboard)
+	}
+	if overview.Work.FailedNotificationCount != 0 || overview.Work.UrgentCount != 0 || findFailureTask(overview) != nil {
+		t.Fatalf("operations after recovery = %#v, want no unresolved failure", overview.Work)
+	}
+
+	secondFailure, err := subscriptionService.Store.UpsertPendingNotification(
+		subscriptionID, "2026-11-19", 3, model.ChannelSMTP, model.NotificationKindScheduled,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.Store.MarkNotificationFailure(secondFailure.ID, 1, "smtp failed again", nil, true); err != nil {
+		t.Fatal(err)
+	}
+	overview, err = subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondTask := findFailureTask(overview)
+	secondTaskID := fmt.Sprintf("notification-failures:%d", secondFailure.ID)
+	if overview.Work.FailedNotificationCount != 1 || secondTask == nil || secondTask.ID != secondTaskID || !secondTask.Unread {
+		t.Fatalf("new failure occurrence = %#v / %#v, want unread task %q", overview.Work, secondTask, secondTaskID)
+	}
+	if secondTask.ID == firstTaskID {
+		t.Fatalf("new failure reused acknowledged occurrence ID %q", secondTask.ID)
+	}
+}
+
+func TestOperationsOverviewNotificationFailuresAreIsolatedBySubscriptionAndChannel(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.September, 23, 12, 0, 0, 0, cycle.Location)
+	}
+	createSubscription := func(name, email string) int64 {
+		t.Helper()
+		id, createErr := subscriptionService.CreateWithInitialBill(service.CreateInput{
+			Name:             name,
+			BusinessType:     model.SubscriptionBusinessPlus,
+			PriceYuan:        "68.00",
+			CostYuan:         "20.00",
+			CronExpr:         "interval:30d",
+			NotifyOffsetsRaw: "3",
+			CustomerEmail:    email,
+			CustomerWechat:   name + "-wechat",
+			BoardedAt:        "2026-09-20",
+		})
+		if createErr != nil {
+			t.Fatal(createErr)
+		}
+		return id
+	}
+	fail := func(subscriptionID int64, dueDate, channel, message string) {
+		t.Helper()
+		log, logErr := subscriptionService.Store.UpsertPendingNotification(
+			subscriptionID, dueDate, 3, channel, model.NotificationKindScheduled,
+		)
+		if logErr != nil {
+			t.Fatal(logErr)
+		}
+		if logErr = subscriptionService.Store.MarkNotificationFailure(log.ID, 5, message, nil, true); logErr != nil {
+			t.Fatal(logErr)
+		}
+	}
+
+	firstSubscriptionID := createSubscription("first channels", "first@example.com")
+	fail(firstSubscriptionID, "2026-10-20", model.ChannelSMTP, "smtp failed")
+	fail(firstSubscriptionID, "2026-10-20", model.ChannelIYUU, "iyuu failed")
+	if err := subscriptionService.Store.RecordManualCustomerEmailSuccess(firstSubscriptionID); err != nil {
+		t.Fatal(err)
+	}
+	overview, err := subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Work.FailedNotificationCount != 1 {
+		t.Fatalf("failure count after SMTP recovery = %d, want unresolved IYUU failure", overview.Work.FailedNotificationCount)
+	}
+
+	secondSubscriptionID := createSubscription("second channels", "second@example.com")
+	fail(secondSubscriptionID, "2026-10-20", model.ChannelSMTP, "second smtp failed")
+	overview, err = subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Work.FailedNotificationCount != 2 {
+		t.Fatalf("failure count across subscription/channel pairs = %d, want 2", overview.Work.FailedNotificationCount)
+	}
+	if err := subscriptionService.Store.RecordManualCustomerEmailSuccess(secondSubscriptionID); err != nil {
+		t.Fatal(err)
+	}
+	overview, err = subscriptionService.GetOperationsOverview()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overview.Work.FailedNotificationCount != 1 {
+		t.Fatalf("failure count after one subscription recovers = %d, want 1", overview.Work.FailedNotificationCount)
+	}
+}
