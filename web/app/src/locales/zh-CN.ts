@@ -1134,6 +1134,7 @@ export default {
       account: "所属账号",
       accountPlaceholder: "请选择账号",
       accountSerialTitle: "账号定位序号 {{number}}",
+      spaceUnnamed: "未命名空间",
       accountHint: "仅显示仍有空闲车位的账号；保存时自动占用一个空闲车位。账号在「账号」页管理。",
       plusAccountHint: "请先在「账号」页创建 Plus 账号并将席位数设为 1，保存后会占用该席位。",
       accountCostHint: "账号默认月成本 ¥{{cost}}",
@@ -1281,6 +1282,8 @@ export default {
       renewalConfirmDesc:
         "将为「{{name}}」登记 {{date}} 的续费成本 ¥{{amount}}。重复提交不会重复计费。",
       occupancyTitle: "点击查看占用车位",
+      historyLock: "保留历史",
+      historyLockTitle: "为保留账单、成本及历史记录，账号不可删除",
       occupiedLock: "占用中",
       occupiedLockTitle: "有活跃订阅占用时不可删除",
       frozenUntil: "冷却至 {{time}}",

@@ -27,6 +27,7 @@ type OperationTask struct {
 	RenewalApplicationID int64  `json:"renewal_application_id"`
 	AccountID            int64  `json:"account_id"`
 	AccountSerial        int64  `json:"account_serial"`
+	AccountDisplayEmail  string `json:"account_display_email"`
 	SeatID               int64  `json:"seat_id"`
 	Name                 string `json:"name"`
 	CustomerEmail        string `json:"customer_email"`
@@ -321,21 +322,22 @@ func buildOperationsCapacity(
 			}
 			summary.SeatReleasing7Days++
 			*tasks = append(*tasks, OperationTask{
-				ID:            fmt.Sprintf("seat-release:%d:%s", seat.Seat.ID, cycle.FormatDate(frozenUntil.In(cycle.Location))),
-				Kind:          "seat_release",
-				Tone:          "info",
-				Priority:      45 - days,
-				AccountID:     account.Account.ID,
-				AccountSerial: account.DisplaySerial,
-				SeatID:        seat.Seat.ID,
-				Name:          seat.FrozenSubscriptionName,
-				CustomerEmail: seat.FrozenCustomerEmail,
-				AccountName:   account.Account.Name,
-				SeatName:      seat.Seat.Name,
-				DueDate:       cycle.FormatDate(frozenUntil.In(cycle.Location)),
-				DueAtLabel:    seat.FrozenUntilLabel,
-				DaysRemaining: days,
-				Route:         fmt.Sprintf("/accounts?action=freeze&seat=%d", seat.Seat.ID),
+				ID:                  fmt.Sprintf("seat-release:%d:%s", seat.Seat.ID, cycle.FormatDate(frozenUntil.In(cycle.Location))),
+				Kind:                "seat_release",
+				Tone:                "info",
+				Priority:            45 - days,
+				AccountID:           account.Account.ID,
+				AccountSerial:       account.DisplaySerial,
+				AccountDisplayEmail: account.DisplayEmail,
+				SeatID:              seat.Seat.ID,
+				Name:                seat.FrozenSubscriptionName,
+				CustomerEmail:       seat.FrozenCustomerEmail,
+				AccountName:         account.Account.Name,
+				SeatName:            seat.Seat.Name,
+				DueDate:             cycle.FormatDate(frozenUntil.In(cycle.Location)),
+				DueAtLabel:          seat.FrozenUntilLabel,
+				DaysRemaining:       days,
+				Route:               fmt.Sprintf("/accounts?action=freeze&seat=%d", seat.Seat.ID),
 			})
 		}
 	}
@@ -391,23 +393,24 @@ func buildSubscriptionOperationTasks(
 			dueAmountCents += amountCents
 		}
 		*tasks = append(*tasks, OperationTask{
-			ID:             fmt.Sprintf("subscription:%d:%s", view.Subscription.ID, view.NextDueDate),
-			Kind:           kind,
-			Tone:           tone,
-			Priority:       priority,
-			SubscriptionID: view.Subscription.ID,
-			Name:           view.Subscription.Name,
-			CustomerEmail:  view.Subscription.CustomerEmail,
-			CustomerWechat: view.Subscription.CustomerWechat,
-			AccountName:    view.AccountName,
-			AccountSerial:  view.AccountSerial,
-			SeatName:       view.SeatName,
-			DueDate:        view.NextDueDate,
-			DaysRemaining:  view.DaysRemaining,
-			AmountYuan:     cycle.FormatCents(amountCents),
-			CycleDesc:      view.CycleDesc,
-			OneMonthRental: isOneMonthRental(view.Subscription),
-			Route:          route,
+			ID:                  fmt.Sprintf("subscription:%d:%s", view.Subscription.ID, view.NextDueDate),
+			Kind:                kind,
+			Tone:                tone,
+			Priority:            priority,
+			SubscriptionID:      view.Subscription.ID,
+			Name:                view.Subscription.Name,
+			CustomerEmail:       view.Subscription.CustomerEmail,
+			CustomerWechat:      view.Subscription.CustomerWechat,
+			AccountName:         view.AccountName,
+			AccountSerial:       view.AccountSerial,
+			AccountDisplayEmail: view.AccountDisplayEmail,
+			SeatName:            view.SeatName,
+			DueDate:             view.NextDueDate,
+			DaysRemaining:       view.DaysRemaining,
+			AmountYuan:          cycle.FormatCents(amountCents),
+			CycleDesc:           view.CycleDesc,
+			OneMonthRental:      isOneMonthRental(view.Subscription),
+			Route:               route,
 		})
 	}
 	work.OverdueAmountYuan = cycle.FormatCents(overdueAmountCents)
@@ -450,6 +453,7 @@ func buildRenewalOperationTasks(views []RenewalApplicationView, tasks *[]Operati
 			CustomerEmail:        application.CustomerEmail,
 			AccountName:          view.AccountEmail,
 			AccountSerial:        view.AccountSerial,
+			AccountDisplayEmail:  view.AccountDisplayEmail,
 			SeatName:             view.SeatName,
 			DueDate:              application.DueDate,
 			DueAtLabel:           view.CreatedAtLabel,
@@ -467,22 +471,23 @@ func buildAfterSalesOperationTasks(views []AfterSalesCaseView, tasks *[]Operatio
 			continue
 		}
 		*tasks = append(*tasks, OperationTask{
-			ID:               fmt.Sprintf("after-sales:%d", caseItem.ID),
-			Kind:             "after_sales",
-			Tone:             "critical",
-			Priority:         92,
-			SubscriptionID:   caseItem.SubscriptionID,
-			AfterSalesCaseID: caseItem.ID,
-			AccountID:        caseItem.AccountID,
-			AccountSerial:    view.AccountSerial,
-			Name:             caseItem.CustomerEmail,
-			CustomerEmail:    caseItem.CustomerEmail,
-			CustomerWechat:   caseItem.CustomerWechat,
-			AccountName:      caseItem.AccountName,
-			DueDate:          caseItem.PeriodEnd,
-			DueAtLabel:       view.ExpiresAtLabel,
-			AmountYuan:       view.RefundAmountYuan,
-			Route:            fmt.Sprintf("/after-sales?case=%d", caseItem.ID),
+			ID:                  fmt.Sprintf("after-sales:%d", caseItem.ID),
+			Kind:                "after_sales",
+			Tone:                "critical",
+			Priority:            92,
+			SubscriptionID:      caseItem.SubscriptionID,
+			AfterSalesCaseID:    caseItem.ID,
+			AccountID:           caseItem.AccountID,
+			AccountSerial:       view.AccountSerial,
+			AccountDisplayEmail: view.AccountDisplayEmail,
+			Name:                caseItem.CustomerEmail,
+			CustomerEmail:       caseItem.CustomerEmail,
+			CustomerWechat:      caseItem.CustomerWechat,
+			AccountName:         caseItem.AccountName,
+			DueDate:             caseItem.PeriodEnd,
+			DueAtLabel:          view.ExpiresAtLabel,
+			AmountYuan:          view.RefundAmountYuan,
+			Route:               fmt.Sprintf("/after-sales?case=%d", caseItem.ID),
 		})
 	}
 }
@@ -523,18 +528,19 @@ func buildAccountRenewalOperationTasks(
 		}
 		work.AccountRenewalCount++
 		*tasks = append(*tasks, OperationTask{
-			ID:            fmt.Sprintf("account-renewal:%d:%s", account.ID, cycle.FormatDate(renewalAt)),
-			Kind:          "account_renewal",
-			Tone:          "info",
-			Priority:      55 - days,
-			AccountID:     account.ID,
-			AccountSerial: view.DisplaySerial,
-			Name:          account.Email,
-			AccountName:   account.Name,
-			DueDate:       cycle.FormatDate(renewalAt),
-			DaysRemaining: days,
-			AmountYuan:    cycle.FormatCents(account.CostCents),
-			Route:         "/accounts",
+			ID:                  fmt.Sprintf("account-renewal:%d:%s", account.ID, cycle.FormatDate(renewalAt)),
+			Kind:                "account_renewal",
+			Tone:                "info",
+			Priority:            55 - days,
+			AccountID:           account.ID,
+			AccountSerial:       view.DisplaySerial,
+			AccountDisplayEmail: view.DisplayEmail,
+			Name:                account.Email,
+			AccountName:         account.Name,
+			DueDate:             cycle.FormatDate(renewalAt),
+			DaysRemaining:       days,
+			AmountYuan:          cycle.FormatCents(account.CostCents),
+			Route:               "/accounts",
 		})
 	}
 }

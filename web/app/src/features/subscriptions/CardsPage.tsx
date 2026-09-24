@@ -261,9 +261,9 @@ function SubscriptionCard({
             ) : null}
             <span
               className="min-w-0 truncate"
-              title={view.account_name || subscription.name}
+              title={view.account_display_email || view.account_name || subscription.name}
             >
-              {view.account_name || subscription.name}
+              {view.account_display_email || view.account_name || subscription.name}
             </span>
           </h3>
           <div className="mt-1.5 flex min-h-5 flex-wrap items-center gap-1.5">
@@ -541,7 +541,7 @@ export function CardsPage() {
   const openRenew = (view: SubscriptionView) => {
     setDuePaidTarget({
       subscriptionId: view.subscription.id,
-      name: view.account_name || view.subscription.name,
+      name: view.account_display_email || view.account_name || view.subscription.name,
       priceYuan: view.price_yuan,
       cycleDesc: view.cycle_desc,
       dueDate: view.next_due_date,
@@ -613,6 +613,7 @@ export function CardsPage() {
         view.subscription.business_type,
         String(view.subscription.id),
         ...accountSerialSearchTerms(view.account_serial),
+        view.account_display_email,
         view.account_name,
         view.seat_name,
         view.subscription.remark,
@@ -713,8 +714,8 @@ export function CardsPage() {
       items: orderedSource.map((view) => ({
         id: view.subscription.id,
         title: view.subscription.customer_email || view.subscription.name,
-        subtitle: view.subscription.customer_wechat || formatAccountLabel(view.account_serial, view.account_name),
-        meta: [formatAccountLabel(view.account_serial, view.account_name), view.seat_name, view.next_due_date, view.cycle_desc],
+        subtitle: view.subscription.customer_wechat || formatAccountLabel(view.account_serial, view.account_display_email || view.account_name),
+        meta: [formatAccountLabel(view.account_serial, view.account_display_email || view.account_name), view.seat_name, view.next_due_date, view.cycle_desc],
         value: `¥${view.price_yuan}`,
         valueTone: key === "pending" ? "warning" : key === "renewed" ? "success" : "default",
         searchText: view.subscription.remark,

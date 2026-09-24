@@ -96,10 +96,14 @@ func (service *SubscriptionService) loadAccountViewSnapshot() (accountViewSnapsh
 			snapshot.pendingAfterSalesByAccount[caseItem.AccountID]++
 		}
 	}
+	snapshot.linkedCountBySeat, err = service.Store.CountAllSubscriptionLinksBySeat()
+	if err != nil {
+		return accountViewSnapshot{}, err
+	}
 	return snapshot, nil
 }
 
-func buildAccountViewFromSnapshot(account model.Account, snapshot accountViewSnapshot) (AccountView, error) {
+func buildAccountViewFromSnapshot(account model.Account, snapshot accountViewSnapshot, identities accountIdentityIndex) (AccountView, error) {
 	seats := snapshot.seatsByAccount[account.ID]
 	sort.SliceStable(seats, func(left int, right int) bool { return seats[left].ID < seats[right].ID })
 	seatViews := make([]SeatView, 0, len(seats))
@@ -113,12 +117,13 @@ func buildAccountViewFromSnapshot(account model.Account, snapshot accountViewSna
 	}
 	view := AccountView{
 		Account:       account,
-		DisplaySerial: accountDisplaySerial(account),
+		DisplaySerial: identities.identity(account.ID).Serial,
+		DisplayEmail:  identities.identity(account.ID).Email,
 		Seats:         seatViews,
 		SeatTotal:     len(seatViews),
 		SeatUsed:      usedCount,
 		IsFull:        len(seatViews) > 0 && usedCount >= len(seatViews),
-		CanDelete:     usedCount == 0,
+		CanDelete:     false,
 	}
 	if strings.TrimSpace(account.BannedAt) == "" {
 		renewalAt, err := nextAccountCostRenewalFromLatestPeriod(
@@ -171,7 +176,7 @@ func buildSeatViewFromSnapshot(seat model.Seat, snapshot accountViewSnapshot) Se
 			view.FrozenUntilLabel = subscription.SeatFrozenUntil.In(cycle.Location).Format("2006-01-02 15:04")
 		}
 	}
-	view.CanDelete = !view.Occupied && !view.Frozen
+	view.CanDelete = view.LinkedSubscriptionCount == 0 && !view.Occupied && !view.Frozen
 	return view
 }
 

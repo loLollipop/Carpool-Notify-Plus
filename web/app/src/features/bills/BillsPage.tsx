@@ -71,7 +71,7 @@ function billIdentity(bill: BillView) {
     plusRental,
     primaryName: plusRental
       ? bill.subscription_name
-      : formatAccountLabel(bill.account_serial, bill.account_name || bill.subscription_name),
+      : formatAccountLabel(bill.account_serial, bill.account_display_email || bill.account_name || bill.subscription_name),
     customerLine: plusRental
       ? [bill.customer_email, bill.customer_wechat].filter(Boolean).join(" · ") || bill.subscription_name
       : bill.customer_email || bill.subscription_name,
@@ -304,6 +304,7 @@ export function BillsPage() {
       [
         bill.subscription_name,
         ...accountSerialSearchTerms(bill.account_serial),
+        bill.account_display_email,
         bill.account_name,
         bill.account_email,
         bill.account_space_name,
@@ -333,7 +334,7 @@ export function BillsPage() {
       id: `bill:${bill.id}`,
       title: identify(bill),
       subtitle: bill.customer_wechat || bill.subscription_name,
-      meta: [formatAccountLabel(bill.account_serial, bill.account_name), bill.seat_name, bill.due_date, bill.paid_at_label],
+      meta: [formatAccountLabel(bill.account_serial, bill.account_display_email || bill.account_name), bill.seat_name, bill.due_date, bill.paid_at_label],
       value,
       searchText: `${bill.subscription_name} ${bill.account_email} ${bill.account_space_name}`,
     })
@@ -342,9 +343,9 @@ export function BillsPage() {
     const refundItem = (refund: (typeof refundDetails)[number], negative = false): StatDetailItem => ({
       id: `refund:${refund.id}`,
       title: refund.customer_email || refund.customer_wechat || refund.account_name || `#${refund.id}`,
-      subtitle: refund.customer_wechat || formatAccountLabel(refund.account_serial, refund.account_name),
+      subtitle: refund.customer_wechat || formatAccountLabel(refund.account_serial, refund.account_display_email || refund.account_name),
       meta: [
-        formatAccountLabel(refund.account_serial, refund.account_name, ""),
+        formatAccountLabel(refund.account_serial, refund.account_display_email || refund.account_name, ""),
         refund.processed_at_label,
         refund.period_end,
         refund.note,

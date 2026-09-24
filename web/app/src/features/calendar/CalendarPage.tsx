@@ -59,6 +59,7 @@ function EventPill({
   const label =
     occurrence.customer_email ||
     occurrence.customer_wechat ||
+    occurrence.account_display_email ||
     occurrence.account_name ||
     occurrence.name
   return (
@@ -85,7 +86,7 @@ function EventPill({
       </TooltipTrigger>
       <TooltipContent side="top" className="grid gap-0.5">
         <span className="font-semibold">
-          {formatAccountLabel(occurrence.account_serial, occurrence.account_name || occurrence.name)}
+          {formatAccountLabel(occurrence.account_serial, occurrence.account_display_email || occurrence.account_name || occurrence.name)}
         </span>
         {occurrence.customer_email ? <span>{occurrence.customer_email}</span> : null}
         {!occurrence.customer_email && occurrence.customer_wechat ? <span>{occurrence.customer_wechat}</span> : null}
@@ -366,7 +367,7 @@ function TaskRow({
         <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
           <span>{occurrence.due_date}</span>
           <span className="truncate">
-            {[formatAccountLabel(occurrence.account_serial, occurrence.account_name, ""), occurrence.seat_name].filter(Boolean).join(" · ")}
+            {[formatAccountLabel(occurrence.account_serial, occurrence.account_display_email || occurrence.account_name, ""), occurrence.seat_name].filter(Boolean).join(" · ")}
           </span>
           <span>{occurrence.cycle_desc}</span>
         </span>
@@ -582,9 +583,9 @@ function ActivityWorkspace({ calendar, onView }: { calendar: CalendarMonth; onVi
                 {occurrence ? <span>{maskAmount(amountsHidden, `¥${occurrence.price_yuan}`)}</span> : null}
                 <span>
                   {occurrence
-                    ? formatAccountLabel(occurrence.account_serial, occurrence.account_name)
+                    ? formatAccountLabel(occurrence.account_serial, occurrence.account_display_email || occurrence.account_name)
                     : subscription
-                      ? formatAccountLabel(subscription.account_serial, subscription.account_name)
+                      ? formatAccountLabel(subscription.account_serial, subscription.account_display_email || subscription.account_name)
                       : "-"}
                 </span>
               </span>

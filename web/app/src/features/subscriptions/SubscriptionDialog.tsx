@@ -276,7 +276,13 @@ export function SubscriptionDialog({
                               {account.display_serial}
                             </span>
                             <span className="max-w-44 shrink-0 truncate font-medium">
-                              {account.name}
+                              {account.display_email || account.email || account.name}
+                            </span>
+                            <span
+                              className="max-w-36 shrink-0 truncate text-xs text-muted-foreground"
+                              title={`${account.space_name || t("subscriptionDialog.spaceUnnamed")} · ID ${account.id}`}
+                            >
+                              {account.space_name || t("subscriptionDialog.spaceUnnamed")} · #{account.id}
                             </span>
                             {account.remark ? (
                               <span

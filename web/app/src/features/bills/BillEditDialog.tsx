@@ -43,7 +43,7 @@ export function BillEditDialog({
   const billLabel = bill
     ? `${bill.business_type === "plus"
         ? bill.subscription_name
-        : formatAccountLabel(bill.account_serial, bill.account_name || bill.subscription_name)} · ${
+        : formatAccountLabel(bill.account_serial, bill.account_display_email || bill.account_name || bill.subscription_name)} · ${
         bill.customer_email || bill.subscription_name
       } · ${bill.due_date} · `
     : ""

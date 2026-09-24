@@ -71,15 +71,16 @@ type RedemptionStatusView struct {
 
 // RedemptionApplicationView is the operator-facing row.
 type RedemptionApplicationView struct {
-	Application      model.RedemptionApplication `json:"application"`
-	CreatedAtLabel   string                      `json:"created_at_label"`
-	InvitedAtLabel   string                      `json:"invited_at_label"`
-	AccountName      string                      `json:"account_name"`
-	AccountSerial    int64                       `json:"account_serial"`
-	AccountEmail     string                      `json:"account_email"`
-	AccountSpace     string                      `json:"account_space_name"`
-	SeatName         string                      `json:"seat_name"`
-	SubscriptionName string                      `json:"subscription_name"`
+	Application         model.RedemptionApplication `json:"application"`
+	CreatedAtLabel      string                      `json:"created_at_label"`
+	InvitedAtLabel      string                      `json:"invited_at_label"`
+	AccountName         string                      `json:"account_name"`
+	AccountSerial       int64                       `json:"account_serial"`
+	AccountDisplayEmail string                      `json:"account_display_email"`
+	AccountEmail        string                      `json:"account_email"`
+	AccountSpace        string                      `json:"account_space_name"`
+	SeatName            string                      `json:"seat_name"`
+	SubscriptionName    string                      `json:"subscription_name"`
 }
 
 // RedemptionInviteInput creates the real subscription when the operator has
@@ -292,9 +293,13 @@ func (service *SubscriptionService) ListRedemptionApplicationsView(status string
 	if err != nil {
 		return nil, err
 	}
+	identities, err := service.accountIdentities()
+	if err != nil {
+		return nil, err
+	}
 	views := make([]RedemptionApplicationView, 0, len(applications))
 	for _, application := range applications {
-		view, err := service.buildRedemptionApplicationView(application)
+		view, err := service.buildRedemptionApplicationView(application, identities)
 		if err != nil {
 			return nil, err
 		}
@@ -399,7 +404,8 @@ func (service *SubscriptionService) InviteRedemptionApplication(applicationID in
 		}
 		if autoAssign && (errors.Is(err, db.ErrActiveSeatOccupied) ||
 			errors.Is(err, db.ErrReplacementAccountBanned) ||
-			errors.Is(err, db.ErrReplacementSeatUnavailable)) {
+			errors.Is(err, db.ErrReplacementSeatUnavailable) ||
+			errors.Is(err, db.ErrSeatStateChanged)) {
 			continue
 		}
 		switch {
@@ -411,8 +417,10 @@ func (service *SubscriptionService) InviteRedemptionApplication(applicationID in
 			return 0, fmt.Errorf("所选母号已封禁，请选择其他空间")
 		case errors.Is(err, db.ErrReplacementSeatUnavailable), errors.Is(err, sql.ErrNoRows):
 			return 0, fmt.Errorf("所选车位或兑换申请不存在，请刷新后重试")
+		case errors.Is(err, db.ErrSeatStateChanged):
+			return 0, fmt.Errorf("车位状态已变化，请刷新重试")
 		}
-		return 0, err
+		return 0, publicSubscriptionMutationError(err)
 	}
 	return 0, fmt.Errorf("空闲席位状态刚刚发生变化，请重试自动分配")
 }
@@ -458,20 +466,21 @@ func (service *SubscriptionService) buildRedemptionStatusView(application model.
 	return view
 }
 
-func (service *SubscriptionService) buildRedemptionApplicationView(application model.RedemptionApplication) (RedemptionApplicationView, error) {
+func (service *SubscriptionService) buildRedemptionApplicationView(application model.RedemptionApplication, supplied ...accountIdentityIndex) (RedemptionApplicationView, error) {
+	identities, err := service.accountIdentities(supplied...)
+	if err != nil {
+		return RedemptionApplicationView{}, err
+	}
 	view := RedemptionApplicationView{
 		Application:    application,
 		CreatedAtLabel: cycle.FormatDateTime(application.CreatedAt),
 		InvitedAtLabel: formatOptionalTime(application.InvitedAt),
 	}
 	if application.AssignedAccountID > 0 {
-		account, err := service.Store.GetAccount(application.AssignedAccountID)
-		if err != nil && err != sql.ErrNoRows {
-			return RedemptionApplicationView{}, err
-		}
-		if err == nil {
+		if account, exists := identities.accounts[application.AssignedAccountID]; exists {
 			view.AccountName = account.Name
-			view.AccountSerial = accountDisplaySerial(account)
+			view.AccountSerial = identities.identity(account.ID).Serial
+			view.AccountDisplayEmail = identities.identity(account.ID).Email
 			view.AccountEmail = account.Email
 			view.AccountSpace = account.SpaceName
 		}

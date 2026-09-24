@@ -22,14 +22,16 @@ type BanAccountInput struct {
 }
 
 type AfterSalesCaseView struct {
-	Case                     model.AfterSalesCase `json:"case"`
-	AccountSerial            int64                `json:"account_serial"`
-	ReplacementAccountSerial int64                `json:"replacement_account_serial"`
-	PaidAmountYuan           string               `json:"paid_amount_yuan"`
-	RefundAmountYuan         string               `json:"refund_amount_yuan"`
-	StatusLabel              string               `json:"status_label"`
-	ProcessedAtLabel         string               `json:"processed_at_label"`
-	ExpiresAtLabel           string               `json:"expires_at_label"`
+	Case                           model.AfterSalesCase `json:"case"`
+	AccountSerial                  int64                `json:"account_serial"`
+	AccountDisplayEmail            string               `json:"account_display_email"`
+	ReplacementAccountDisplayEmail string               `json:"replacement_account_display_email"`
+	ReplacementAccountSerial       int64                `json:"replacement_account_serial"`
+	PaidAmountYuan                 string               `json:"paid_amount_yuan"`
+	RefundAmountYuan               string               `json:"refund_amount_yuan"`
+	StatusLabel                    string               `json:"status_label"`
+	ProcessedAtLabel               string               `json:"processed_at_label"`
+	ExpiresAtLabel                 string               `json:"expires_at_label"`
 }
 
 type CancellationRequestResult struct {
@@ -169,18 +171,18 @@ func (service *SubscriptionService) ListAfterSalesPage() (AfterSalesPage, error)
 	if err != nil {
 		return AfterSalesPage{}, err
 	}
-	accountSerials := accountDisplaySerials(accounts)
+	identities := newAccountIdentityIndex(accounts)
 	page := AfterSalesPage{
 		Cases:        make([]AfterSalesCaseView, 0, len(cases)),
 		SummaryCases: make([]AfterSalesCaseView, 0, len(allCases)),
 	}
 	for _, caseItem := range cases {
-		page.Cases = append(page.Cases, buildAfterSalesCaseView(caseItem, accountSerials))
+		page.Cases = append(page.Cases, buildAfterSalesCaseView(caseItem, identities))
 	}
 	// Completed rows leave the working list after 24 hours, but the KPI cards
 	// are historical operational/financial totals and must not silently reset.
 	for _, caseItem := range allCases {
-		page.SummaryCases = append(page.SummaryCases, buildAfterSalesCaseView(caseItem, accountSerials))
+		page.SummaryCases = append(page.SummaryCases, buildAfterSalesCaseView(caseItem, identities))
 		page.Summary.TotalCount++
 		switch caseItem.Status {
 		case model.AfterSalesStatusRefunded:
@@ -203,15 +205,23 @@ func (service *SubscriptionService) ListAfterSalesPage() (AfterSalesPage, error)
 
 func buildAfterSalesCaseView(
 	caseItem model.AfterSalesCase,
-	accountSerials map[int64]int64,
+	identities accountIdentityIndex,
 ) AfterSalesCaseView {
 	view := AfterSalesCaseView{
 		Case:                     caseItem,
-		AccountSerial:            accountDisplaySerialForID(accountSerials, caseItem.AccountID),
-		ReplacementAccountSerial: accountDisplaySerialForID(accountSerials, caseItem.ReplacementAccountID),
+		AccountSerial:            identities.identity(caseItem.AccountID).Serial,
+		ReplacementAccountSerial: identities.identity(caseItem.ReplacementAccountID).Serial,
 		PaidAmountYuan:           cycle.FormatCents(caseItem.PaidAmountCents),
 		RefundAmountYuan:         cycle.FormatCents(caseItem.RefundAmountCents),
 		StatusLabel:              afterSalesStatusLabel(caseItem.Status),
+	}
+	view.AccountDisplayEmail = identities.identity(caseItem.AccountID).Email
+	if view.AccountDisplayEmail == "" {
+		view.AccountDisplayEmail = caseItem.AccountEmail
+	}
+	view.ReplacementAccountDisplayEmail = identities.identity(caseItem.ReplacementAccountID).Email
+	if view.ReplacementAccountDisplayEmail == "" {
+		view.ReplacementAccountDisplayEmail = caseItem.ReplacementAccountEmail
 	}
 	if caseItem.ProcessedAt != nil {
 		view.ProcessedAtLabel = caseItem.ProcessedAt.In(cycle.Location).Format("2006-01-02 15:04")
@@ -285,6 +295,9 @@ func (service *SubscriptionService) SetAfterSalesCaseRefunded(caseID int64, refu
 		if errors.Is(err, db.ErrAfterSalesOriginalSeatBusy) {
 			return fmt.Errorf("原车位已被其他订阅占用，无法撤销退款状态")
 		}
+		if errors.Is(err, db.ErrSeatReferenceMissing) {
+			return fmt.Errorf("原车位已不存在，无法撤销退款状态")
+		}
 		if errors.Is(err, db.ErrAfterSalesRefundExceedsPayment) {
 			return fmt.Errorf("退款金额超过该账单剩余可退金额，请刷新后重试")
 		}
@@ -341,12 +354,14 @@ func (service *SubscriptionService) ReassignAfterSalesCase(
 			return fmt.Errorf("该售后记录已经处理完成")
 		case errors.Is(err, db.ErrReplacementAccountBanned):
 			return fmt.Errorf("新的母号也已封禁，请选择其他空间")
-		case errors.Is(err, db.ErrReplacementSeatUnavailable):
+		case errors.Is(err, db.ErrReplacementSeatUnavailable), errors.Is(err, db.ErrSeatReferenceMissing):
 			return fmt.Errorf("所选母号没有可用车位")
 		case errors.Is(err, db.ErrReplacementSeatOccupied):
 			return fmt.Errorf("所选车位已被占用，请刷新后重试")
 		case errors.Is(err, db.ErrReplacementSeatUnchanged):
 			return fmt.Errorf("新车位不能与当前车位相同")
+		case errors.Is(err, db.ErrSeatStateChanged):
+			return fmt.Errorf("车位状态已变化，请刷新重试")
 		case errors.Is(err, db.ErrCancellationNotReassignable):
 			return fmt.Errorf("主动退订只能完成退款，不能安排新空间")
 		case errors.Is(err, sql.ErrNoRows):

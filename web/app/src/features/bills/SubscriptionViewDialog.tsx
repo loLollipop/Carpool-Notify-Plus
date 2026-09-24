@@ -43,7 +43,7 @@ export function SubscriptionViewDialog({
   const primaryName = plusRental
     ? bill?.subscription_name || ""
     : bill
-      ? formatAccountLabel(bill.account_serial, bill.account_name || bill.subscription_name)
+      ? formatAccountLabel(bill.account_serial, bill.account_display_email || bill.account_name || bill.subscription_name)
       : ""
   const customerLine = bill?.customer_email || bill?.subscription_name || ""
 
@@ -145,7 +145,7 @@ export function SubscriptionViewDialog({
               {!plusRental ? (
                 <>
                   <ViewItem label={t("accounts.email")} mono>
-                    {bill.account_email || "—"}
+                    {bill.account_display_email || bill.account_email || "—"}
                   </ViewItem>
                   <ViewItem label={t("accounts.spaceName")}>
                     {bill.account_space_name || "—"}

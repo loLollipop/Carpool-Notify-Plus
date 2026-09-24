@@ -300,7 +300,7 @@ func TestDeleteSeatBlockedWhenOccupied(t *testing.T) {
 	}
 }
 
-func TestDeleteSeatClearsHistoricalLinks(t *testing.T) {
+func TestDeleteSeatPreservesHistoricalLinks(t *testing.T) {
 	subscriptionService := openTestService(t)
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "历史车位账号", "可删位")
 	subscriptionID, err := subscriptionService.Create(service.CreateInput{
@@ -316,15 +316,15 @@ func TestDeleteSeatClearsHistoricalLinks(t *testing.T) {
 	if err := subscriptionService.Archive(subscriptionID); err != nil {
 		t.Fatal(err)
 	}
-	if err := subscriptionService.DeleteSeat(seatIDs[0]); err != nil {
-		t.Fatalf("DeleteSeat free seat with history: %v", err)
+	if err := subscriptionService.DeleteSeat(seatIDs[0]); err == nil {
+		t.Fatal("DeleteSeat must reject a seat with history")
 	}
 	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if archived.SeatID != 0 {
-		t.Fatalf("SeatID after clear = %d, want 0", archived.SeatID)
+	if archived.SeatID != seatIDs[0] {
+		t.Fatalf("SeatID changed: got %d, want %d", archived.SeatID, seatIDs[0])
 	}
 }
 
@@ -346,14 +346,54 @@ func TestDeleteAccountBlockedWhenActive(t *testing.T) {
 	}
 }
 
-func TestDeleteAccountCascadesFreeSeats(t *testing.T) {
+func TestDeleteAccountPreservesCostsAndSeats(t *testing.T) {
 	subscriptionService := openTestService(t)
-	accountID, _ := createTestAccountWithSeats(t, subscriptionService, "空闲账号", "车位1", "车位2")
-	if err := subscriptionService.DeleteAccount(accountID); err != nil {
-		t.Fatalf("DeleteAccount free account: %v", err)
+	accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{Name: "空闲账号", SeatCount: 2, CostYuan: "125"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := subscriptionService.Store.GetAccount(accountID); err == nil {
-		t.Fatal("expected account deleted")
+	before, err := subscriptionService.Store.ListAccountCostRecords(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.DeleteAccount(accountID); err == nil {
+		t.Fatal("DeleteAccount must reject persisted accounts")
+	}
+	account, err := subscriptionService.Store.GetAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if account.BannedAt != "" || account.TotalCostCents != 12500 {
+		t.Fatalf("account changed: %#v", account)
+	}
+	after, err := subscriptionService.Store.ListAccountCostRecords(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("cost ledger changed: before=%#v after=%#v", before, after)
+	}
+	view, err := subscriptionService.GetAccountView(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if view.CanDelete || len(view.Seats) != 2 {
+		t.Fatalf("unexpected account view: %#v", view)
+	}
+}
+
+func TestDeleteUnusedExtraSeat(t *testing.T) {
+	subscriptionService := openTestService(t)
+	accountID, seats := createTestAccountWithSeats(t, subscriptionService, "empty", "first", "extra")
+	if err := subscriptionService.DeleteSeat(seats[1]); err != nil {
+		t.Fatal(err)
+	}
+	remaining, err := subscriptionService.Store.ListSeatsByAccount(accountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(remaining) != 1 || remaining[0].ID != seats[0] {
+		t.Fatalf("remaining seats: %#v", remaining)
 	}
 }
 

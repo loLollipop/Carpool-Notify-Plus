@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -17,7 +20,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const sessionAuthKey = "authenticated"
+const (
+	sessionAuthKey        = "authenticated"
+	sessionAuthVersionKey = "auth_version"
+)
 
 // Server holds HTTP handlers and dependencies for the JSON API + SPA host.
 type Server struct {
@@ -26,6 +32,7 @@ type Server struct {
 	SandboxMode    bool
 	Config         config.Config
 	PasswordHash   []byte
+	AuthVersion    string
 	// DistDir is the built SPA directory (web/dist); non-API routes fall back to its index.html.
 	DistDir string
 
@@ -47,6 +54,7 @@ func NewServer(subscriptionService *service.SubscriptionService, configuration c
 		Service:             subscriptionService,
 		Config:              configuration,
 		PasswordHash:        passwordHash,
+		AuthVersion:         authenticationVersion(configuration.SessionSecret, configuration.Password),
 		DistDir:             distDir,
 		publicSubmitLimiter: newFixedWindowLimiter(publicSubmitLimit, publicSubmitWindow),
 		publicStatusLimiter: newFixedWindowLimiter(publicStatusLimit, publicStatusWindow),
@@ -185,7 +193,7 @@ func (server *Server) registerBusinessRoutes(routes *gin.RouterGroup) {
 func (server *Server) requireAPIAuth() gin.HandlerFunc {
 	return func(context *gin.Context) {
 		session := sessions.Default(context)
-		if session.Get(sessionAuthKey) != true {
+		if !server.sessionAuthenticated(session) {
 			context.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"ok": false, "error": "未登录"})
 			return
 		}
@@ -197,7 +205,7 @@ func (server *Server) getSession(context *gin.Context) {
 	session := sessions.Default(context)
 	context.JSON(http.StatusOK, gin.H{
 		"ok":            true,
-		"authenticated": session.Get(sessionAuthKey) == true,
+		"authenticated": server.sessionAuthenticated(session),
 	})
 }
 
@@ -224,11 +232,26 @@ func (server *Server) postLogin(context *gin.Context) {
 	server.clearLoginFailures(clientIP)
 	session := sessions.Default(context)
 	session.Set(sessionAuthKey, true)
+	session.Set(sessionAuthVersionKey, server.AuthVersion)
 	if err := session.Save(); err != nil {
 		respondError(context, http.StatusInternalServerError, "会话保存失败")
 		return
 	}
 	respondOK(context, nil)
+}
+
+func authenticationVersion(sessionSecret string, password string) string {
+	mac := hmac.New(sha256.New, []byte(sessionSecret))
+	_, _ = mac.Write([]byte(password))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func (server *Server) sessionAuthenticated(session sessions.Session) bool {
+	if session.Get(sessionAuthKey) != true {
+		return false
+	}
+	version, ok := session.Get(sessionAuthVersionKey).(string)
+	return ok && hmac.Equal([]byte(version), []byte(server.AuthVersion))
 }
 
 func (server *Server) postLogout(context *gin.Context) {

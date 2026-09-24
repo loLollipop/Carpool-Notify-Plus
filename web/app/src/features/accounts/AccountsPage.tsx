@@ -334,7 +334,9 @@ function AccountMobileCard({
   const occupants = (view.seats ?? []).filter((seat) => seat.occupied || seat.frozen)
   const accountName = view.account.name.trim()
   const accountEmail = view.account.email.trim()
-  const showAccountEmail = accountEmail !== "" && accountEmail !== accountName
+  const displayEmail = view.display_email.trim()
+  const primaryAccountName = displayEmail || accountName
+  const showAccountEmail = displayEmail === "" && accountEmail !== "" && accountEmail !== accountName
 
   return (
     <Card className="relative gap-0 overflow-hidden p-0 animate-fade-up">
@@ -357,7 +359,7 @@ function AccountMobileCard({
             <div className="min-w-0">
               <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                 <h2 className="min-w-0 break-all text-sm font-semibold leading-5">
-                  {view.account.name}
+                  {primaryAccountName}
                 </h2>
               </div>
               {showAccountEmail ? (
@@ -508,7 +510,7 @@ function AccountMobileCard({
           </Button>
         ) : (
           <span className="ml-auto text-xs text-muted-foreground">
-            {t("accounts.occupiedLock")}
+            {t("accounts.historyLock")}
           </span>
         )}
       </div>
@@ -631,7 +633,7 @@ export function AccountsPage() {
     setStatDetail(null)
     setRenewalTarget({
       id: view.account.id,
-      name: view.account.email || view.account.name,
+      name: view.display_email || view.account.email || view.account.name,
       renewalDate: view.next_renewal_date,
       amountYuan: formatCents(view.account.zero_renewal_next_month ? 0 : view.account.cost_cents),
     })
@@ -682,8 +684,12 @@ export function AccountsPage() {
       title,
       items: orderedAccounts.map((view) => ({
         id: view.account.id,
-        title: formatAccountLabel(view.display_serial, view.account.email || view.account.name),
-        subtitle: view.account.email && view.account.email !== view.account.name
+        title: formatAccountLabel(
+          view.display_serial,
+          view.display_email || view.account.email || view.account.name,
+        ),
+        subtitle: (view.display_email || view.account.email) &&
+          (view.display_email || view.account.email) !== view.account.name
           ? view.account.name
           : view.account.space_name,
         meta: [
@@ -702,7 +708,7 @@ export function AccountsPage() {
         valueTone: nextFilter === "renewal"
           ? undefined
           : view.account.banned_at || view.is_full ? "danger" : "success",
-        searchText: view.account.remark,
+        searchText: [view.display_email, view.account.remark].filter(Boolean).join(" "),
       })),
     })
   }
@@ -734,6 +740,7 @@ export function AccountsPage() {
       const nextRenewalDate = getNextMonthlyRenewalDate(view.account.opened_at)
       return [
         view.account.name,
+        view.display_email,
         ...accountSerialSearchTerms(view.display_serial),
         view.account.remark,
         view.account.payment_method,
@@ -869,12 +876,12 @@ export function AccountsPage() {
                 onBan={() =>
                   setBanTarget({
                     id: view.account.id,
-                    name: view.account.name,
+                    name: view.display_email || view.account.email || view.account.name,
                     activeCount: view.seat_used,
                   })
                 }
                 onDelete={() =>
-                  setDeleteTarget({ id: view.account.id, name: view.account.name })
+                  setDeleteTarget({ id: view.account.id, name: view.display_email || view.account.email || view.account.name })
                 }
               />
             ))}
@@ -902,7 +909,9 @@ export function AccountsPage() {
                 const occupants = (view.seats ?? []).filter((seat) => seat.occupied || seat.frozen)
                 const accountName = view.account.name.trim()
                 const accountEmail = view.account.email.trim()
-                const showAccountEmail = accountEmail !== "" && accountEmail !== accountName
+                const displayEmail = view.display_email.trim()
+                const primaryAccountName = displayEmail || accountName
+                const showAccountEmail = displayEmail === "" && accountEmail !== "" && accountEmail !== accountName
                 return (
                   <TableRow
                     key={view.account.id}
@@ -922,8 +931,8 @@ export function AccountsPage() {
                         <AccountSerial number={view.display_serial} className="mt-0.5 size-8 text-xs" />
                         <div className="min-w-0">
                           <div className="flex min-w-0 items-center gap-1.5">
-                            <div className="min-w-0 truncate font-medium" title={view.account.name}>
-                              {view.account.name}
+                            <div className="min-w-0 truncate font-medium" title={primaryAccountName}>
+                              {primaryAccountName}
                             </div>
                           </div>
                           {showAccountEmail ? (
@@ -1068,7 +1077,7 @@ export function AccountsPage() {
                             onClick={() =>
                               setBanTarget({
                                 id: view.account.id,
-                                name: view.account.name,
+                                name: view.display_email || view.account.email || view.account.name,
                                 activeCount: view.seat_used,
                               })
                             }
@@ -1083,7 +1092,7 @@ export function AccountsPage() {
                             size="sm"
                             className="text-destructive hover:text-destructive"
                             onClick={() =>
-                              setDeleteTarget({ id: view.account.id, name: view.account.name })
+                              setDeleteTarget({ id: view.account.id, name: view.display_email || view.account.email || view.account.name })
                             }
                           >
                             <Trash2 data-slot="icon" />
@@ -1092,9 +1101,9 @@ export function AccountsPage() {
                         ) : (
                           <span
                             className="px-2 text-xs text-muted-foreground"
-                            title={t("accounts.occupiedLockTitle")}
+                            title={t("accounts.historyLockTitle")}
                           >
-                            {t("accounts.occupiedLock")}
+                            {t("accounts.historyLock")}
                           </span>
                         )}
                       </div>

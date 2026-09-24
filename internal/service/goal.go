@@ -145,6 +145,7 @@ type PricingCandidate struct {
 	SubscriptionID                   int64    `json:"subscription_id"`
 	AccountID                        int64    `json:"account_id"`
 	AccountSerial                    int64    `json:"account_serial"`
+	AccountDisplayEmail              string   `json:"account_display_email"`
 	Name                             string   `json:"name"`
 	CustomerEmail                    string   `json:"customer_email"`
 	CustomerWechat                   string   `json:"customer_wechat"`
@@ -1408,7 +1409,7 @@ func (service *SubscriptionService) buildPricingCandidates(
 		return nil, err
 	}
 	activeAccountIDs := make(map[int64]struct{}, len(accounts))
-	accountSerials := accountDisplaySerials(accounts)
+	identities := newAccountIdentityIndex(accounts)
 	for _, account := range accounts {
 		if strings.TrimSpace(account.BannedAt) == "" {
 			activeAccountIDs[account.ID] = struct{}{}
@@ -1514,7 +1515,8 @@ func (service *SubscriptionService) buildPricingCandidates(
 		candidate := PricingCandidate{
 			SubscriptionID:          subscription.ID,
 			AccountID:               subscription.AccountID,
-			AccountSerial:           accountDisplaySerialForID(accountSerials, subscription.AccountID),
+			AccountSerial:           identities.identity(subscription.AccountID).Serial,
+			AccountDisplayEmail:     identities.identity(subscription.AccountID).Email,
 			Name:                    subscription.Name,
 			CustomerEmail:           subscription.CustomerEmail,
 			CustomerWechat:          subscription.CustomerWechat,

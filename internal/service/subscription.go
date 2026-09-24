@@ -126,6 +126,7 @@ type SubscriptionView struct {
 	LastError                  string             `json:"last_error"`
 	AccountID                  int64              `json:"account_id"`
 	AccountSerial              int64              `json:"account_serial"`
+	AccountDisplayEmail        string             `json:"account_display_email"`
 	AccountName                string             `json:"account_name"`
 	SeatID                     int64              `json:"seat_id"`
 	SeatName                   string             `json:"seat_name"`
@@ -223,13 +224,12 @@ func (service *SubscriptionService) allocateActiveAccountCosts(views []Subscript
 		return err
 	}
 	allocatedCosts := activeAllocatedCostCentsFromAccounts(subscriptions, accounts)
-	accountSerials := accountDisplaySerials(accounts)
+	identities := newAccountIdentityIndex(accounts)
 	for index := range views {
 		costCents := allocatedCosts[views[index].Subscription.ID]
-		views[index].AccountSerial = accountDisplaySerialForID(
-			accountSerials,
-			views[index].Subscription.AccountID,
-		)
+		identity := identities.identity(views[index].Subscription.AccountID)
+		views[index].AccountSerial = identity.Serial
+		views[index].AccountDisplayEmail = identity.Email
 		views[index].AllocatedCostYuan = cycle.FormatCents(costCents)
 		views[index].AllocatedProfitYuan = cycle.FormatCents(
 			countedAmountCents(views[index].Subscription) - costCents,
@@ -306,7 +306,12 @@ func (service *SubscriptionService) buildView(
 	subscription model.Subscription,
 	now time.Time,
 	lastError string,
+	supplied ...accountIdentityIndex,
 ) (SubscriptionView, error) {
+	identities, err := service.accountIdentities(supplied...)
+	if err != nil {
+		return SubscriptionView{}, err
+	}
 	paidDueDates, err := service.Store.ListPaidDueDatesForSubscription(subscription.ID)
 	if err != nil {
 		return SubscriptionView{}, err
@@ -327,16 +332,9 @@ func (service *SubscriptionService) buildView(
 	if err != nil {
 		return SubscriptionView{}, err
 	}
-	if subscription.AccountID > 0 {
-		view.AccountSerial = subscription.AccountID
-		account, accountErr := service.Store.GetAccount(subscription.AccountID)
-		if accountErr != nil && accountErr != sql.ErrNoRows {
-			return SubscriptionView{}, accountErr
-		}
-		if accountErr == nil {
-			view.AccountSerial = accountDisplaySerial(account)
-		}
-	}
+	identity := identities.identity(subscription.AccountID)
+	view.AccountSerial = identity.Serial
+	view.AccountDisplayEmail = identity.Email
 	return view, nil
 }
 
@@ -599,7 +597,7 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 	if err != nil {
 		return Dashboard{}, err
 	}
-	accountSerials := accountDisplaySerials(accountRows)
+	identities := newAccountIdentityIndex(accountRows)
 	var totalCostCents int64
 	for _, account := range accountRows {
 		totalCostCents += account.TotalCostCents
@@ -692,22 +690,24 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		accountName := displayAccountName(subscription)
 		amountCents := countedAmountCents(subscription)
 		amountBars = append(amountBars, AmountBar{
-			SubscriptionID: subscription.ID,
-			Name:           subscription.Name,
-			CustomerEmail:  subscription.CustomerEmail,
-			AccountSerial:  accountDisplaySerialForID(accountSerials, subscription.AccountID),
-			AccountName:    accountName,
-			AmountYuan:     cycle.FormatCents(amountCents),
-			AmountCents:    amountCents,
+			SubscriptionID:      subscription.ID,
+			Name:                subscription.Name,
+			CustomerEmail:       subscription.CustomerEmail,
+			AccountSerial:       identities.identity(subscription.AccountID).Serial,
+			AccountDisplayEmail: identities.identity(subscription.AccountID).Email,
+			AccountName:         accountName,
+			AmountYuan:          cycle.FormatCents(amountCents),
+			AmountCents:         amountCents,
 		})
 		accountKey := accountAmountKey(subscription.BusinessType, subscription.AccountID, accountName)
 		bucket, exists := accountTotals[accountKey]
 		if !exists {
 			bucket = &accountAmountBucket{
-				Key:           accountKey,
-				AccountID:     subscription.AccountID,
-				AccountSerial: accountDisplaySerialForID(accountSerials, subscription.AccountID),
-				AccountName:   accountName,
+				Key:                 accountKey,
+				AccountID:           subscription.AccountID,
+				AccountSerial:       identities.identity(subscription.AccountID).Serial,
+				AccountDisplayEmail: identities.identity(subscription.AccountID).Email,
+				AccountName:         accountName,
 			}
 			accountTotals[accountKey] = bucket
 		}
@@ -728,14 +728,15 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 	accounts := make([]AccountBreakdown, 0, len(accountTotals))
 	for _, bucket := range accountTotals {
 		accounts = append(accounts, AccountBreakdown{
-			Key:           bucket.Key,
-			AccountID:     bucket.AccountID,
-			AccountSerial: bucket.AccountSerial,
-			AccountName:   bucket.AccountName,
-			Type:          bucket.AccountName,
-			Count:         bucket.count,
-			AmountYuan:    cycle.FormatCents(bucket.cents),
-			AmountCents:   bucket.cents,
+			Key:                 bucket.Key,
+			AccountID:           bucket.AccountID,
+			AccountSerial:       bucket.AccountSerial,
+			AccountDisplayEmail: bucket.AccountDisplayEmail,
+			AccountName:         bucket.AccountName,
+			Type:                bucket.AccountName,
+			Count:               bucket.count,
+			AmountYuan:          cycle.FormatCents(bucket.cents),
+			AmountCents:         bucket.cents,
 		})
 	}
 	sort.Slice(accounts, func(left int, right int) bool {
@@ -854,21 +855,23 @@ type NotificationActivity struct {
 
 // AmountBar is one row in the amount distribution chart.
 type AmountBar struct {
-	SubscriptionID int64  `json:"subscription_id"`
-	Name           string `json:"name"`
-	CustomerEmail  string `json:"customer_email"`
-	AccountSerial  int64  `json:"account_serial"`
-	AccountName    string `json:"account_name"`
-	AmountYuan     string `json:"amount_yuan"`
-	AmountCents    int64  `json:"amount_cents"`
+	SubscriptionID      int64  `json:"subscription_id"`
+	Name                string `json:"name"`
+	CustomerEmail       string `json:"customer_email"`
+	AccountSerial       int64  `json:"account_serial"`
+	AccountDisplayEmail string `json:"account_display_email"`
+	AccountName         string `json:"account_name"`
+	AmountYuan          string `json:"amount_yuan"`
+	AmountCents         int64  `json:"amount_cents"`
 }
 
 // AccountBreakdown is one slice in the account chart.
 type AccountBreakdown struct {
-	Key           string `json:"key"`
-	AccountID     int64  `json:"account_id"`
-	AccountSerial int64  `json:"account_serial"`
-	AccountName   string `json:"account_name"`
+	Key                 string `json:"key"`
+	AccountID           int64  `json:"account_id"`
+	AccountSerial       int64  `json:"account_serial"`
+	AccountDisplayEmail string `json:"account_display_email"`
+	AccountName         string `json:"account_name"`
 	// Type is a legacy alias of AccountName retained for export compatibility.
 	Type        string `json:"type"`
 	Count       int    `json:"count"`
@@ -877,12 +880,13 @@ type AccountBreakdown struct {
 }
 
 type accountAmountBucket struct {
-	Key           string
-	AccountID     int64
-	AccountSerial int64
-	AccountName   string
-	count         int
-	cents         int64
+	Key                 string
+	AccountID           int64
+	AccountSerial       int64
+	AccountDisplayEmail string
+	AccountName         string
+	count               int
+	cents               int64
 }
 
 func accountAmountKey(businessType string, accountID int64, accountName string) string {
@@ -1363,6 +1367,12 @@ func (service *SubscriptionService) Copy(subscriptionID int64, targetSeatID int6
 }
 
 func publicSubscriptionMutationError(err error) error {
+	if errors.Is(err, db.ErrSeatReferenceMissing) {
+		return fmt.Errorf("所选车位已不存在，请刷新后选择其他车位")
+	}
+	if errors.Is(err, db.ErrSeatReferenced) {
+		return fmt.Errorf("该车位已有订阅历史，不能删除")
+	}
 	if errors.Is(err, db.ErrActiveSeatOccupied) {
 		return fmt.Errorf("所选车位已被其他活跃订阅占用，请刷新后重试")
 	}
@@ -1402,7 +1412,7 @@ func (service *SubscriptionService) ListArchivedView() ([]SubscriptionView, erro
 	if err != nil {
 		return nil, err
 	}
-	accountSerials := accountDisplaySerials(accounts)
+	identities := newAccountIdentityIndex(accounts)
 	multiPeriodRenewalEnds, err := service.Store.ListApprovedMultiPeriodRenewalEndDates(
 		subscriptionIDsForProgress(subscriptions),
 	)
@@ -1426,7 +1436,8 @@ func (service *SubscriptionService) ListArchivedView() ([]SubscriptionView, erro
 		if err != nil {
 			return nil, err
 		}
-		view.AccountSerial = accountDisplaySerialForID(accountSerials, subscription.AccountID)
+		view.AccountSerial = identities.identity(subscription.AccountID).Serial
+		view.AccountDisplayEmail = identities.identity(subscription.AccountID).Email
 		billCount, err := service.Store.CountBillsForSubscription(subscription.ID)
 		if err != nil {
 			return nil, err

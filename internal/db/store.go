@@ -446,6 +446,9 @@ func (store *Store) migrate() error {
 	if err := store.ensureActiveSeatOccupancyTriggers(); err != nil {
 		return err
 	}
+	if err := store.ensureSeatReferenceTriggers(); err != nil {
+		return err
+	}
 	if err := store.backfillAccountCostRecords(); err != nil {
 		return err
 	}
@@ -1956,7 +1959,7 @@ func insertSubscription(
 		if isActiveSeatOccupancyError(err) {
 			return 0, ErrActiveSeatOccupied
 		}
-		return 0, err
+		return 0, seatReferenceError(err)
 	}
 	return result.LastInsertId()
 }
@@ -2375,7 +2378,7 @@ func updateSubscriptionWithExecutor(
 		if isActiveSeatOccupancyError(err) {
 			return ErrActiveSeatOccupied
 		}
-		return err
+		return seatReferenceError(err)
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
@@ -3397,7 +3400,7 @@ func (store *Store) CreateSubscriptionAndInviteRedemption(
 
 	subscriptionID, err := insertSubscription(transaction, subscription, now)
 	if err != nil {
-		return 0, err
+		return 0, seatStateWriteError(err)
 	}
 	if err := insertInitialBill(
 		transaction,
@@ -3407,7 +3410,7 @@ func (store *Store) CreateSubscriptionAndInviteRedemption(
 		storedBillCostCents(subscription),
 		now,
 	); err != nil {
-		return 0, err
+		return 0, seatStateWriteError(err)
 	}
 
 	result, err := transaction.Exec(`
@@ -3431,7 +3434,7 @@ func (store *Store) CreateSubscriptionAndInviteRedemption(
 		model.RedemptionStatusPending,
 	)
 	if err != nil {
-		return 0, err
+		return 0, seatStateWriteError(err)
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
@@ -3441,7 +3444,7 @@ func (store *Store) CreateSubscriptionAndInviteRedemption(
 		return 0, ErrRedemptionAlreadyProcessed
 	}
 	if err := transaction.Commit(); err != nil {
-		return 0, err
+		return 0, seatStateWriteError(err)
 	}
 	return subscriptionID, nil
 }
@@ -3511,6 +3514,13 @@ func (store *Store) GetAccountByName(name string) (model.Account, error) {
 
 // CreateAccount inserts a new account and its initial cumulative cost entry.
 func (store *Store) CreateAccount(account model.Account, initialCostCents int64, periodDate string) (int64, error) {
+	return store.CreateAccountWithSeats(account, initialCostCents, periodDate, nil)
+}
+
+// CreateAccountWithSeats creates the account, its opening cost record, and all
+// initial seats as one unit. A failed seat insert therefore cannot leave a
+// partially initialized account behind.
+func (store *Store) CreateAccountWithSeats(account model.Account, initialCostCents int64, periodDate string, seatNames []string) (int64, error) {
 	now := formatTime(time.Now().UTC())
 	zeroRenewalNextMonth := 0
 	if account.ZeroRenewalNextMonth {
@@ -3561,6 +3571,18 @@ func (store *Store) CreateAccount(account model.Account, initialCostCents int64,
 	); err != nil {
 		return 0, err
 	}
+	for _, seatName := range seatNames {
+		if _, err := transaction.Exec(`
+			INSERT INTO seats (account_id, name, created_at, updated_at)
+			VALUES (?, ?, ?, ?)`,
+			accountID,
+			strings.TrimSpace(seatName),
+			now,
+			now,
+		); err != nil {
+			return 0, err
+		}
+	}
 	if err := transaction.Commit(); err != nil {
 		return 0, err
 	}
@@ -3571,6 +3593,17 @@ func (store *Store) CreateAccount(account model.Account, initialCostCents int64,
 // ordinary opening ledger entry follows the monthly cost; later ledger history
 // remains immutable and a cost change applies only to future renewals.
 func (store *Store) UpdateAccount(account model.Account) error {
+	return store.updateAccountAndSeatCount(account, 0)
+}
+
+// UpdateAccountWithSeatCount updates metadata, opening-cost alignment, and
+// optional seat resizing in one transaction. targetSeatCount <= 0 preserves
+// the existing seat rows for compatibility with direct Store callers.
+func (store *Store) UpdateAccountWithSeatCount(account model.Account, targetSeatCount int) error {
+	return store.updateAccountAndSeatCount(account, targetSeatCount)
+}
+
+func (store *Store) updateAccountAndSeatCount(account model.Account, targetSeatCount int) error {
 	now := formatTime(time.Now().UTC())
 	zeroRenewalNextMonth := 0
 	if account.ZeroRenewalNextMonth {
@@ -3606,7 +3639,7 @@ func (store *Store) UpdateAccount(account model.Account) error {
 		account.ID,
 	)
 	if err != nil {
-		return err
+		return seatStateWriteError(err)
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
@@ -3633,7 +3666,7 @@ func (store *Store) UpdateAccount(account model.Account) error {
 		model.AccountCostSourceInitial,
 		account.CostCents,
 	); err != nil {
-		return fmt.Errorf("align initial account cost amount: %w", err)
+		return fmt.Errorf("align initial account cost amount: %w", seatStateWriteError(err))
 	}
 	if openedAt := strings.TrimSpace(account.OpenedAt); openedAt != "" {
 		if _, err := transaction.Exec(`
@@ -3663,10 +3696,64 @@ func (store *Store) UpdateAccount(account model.Account) error {
 			model.AccountCostSourceRenewal,
 			model.AccountCostSourceZeroRenewal,
 		); err != nil {
-			return fmt.Errorf("align initial account cost period: %w", err)
+			return fmt.Errorf("align initial account cost period: %w", seatStateWriteError(err))
 		}
 	}
-	return transaction.Commit()
+	if targetSeatCount > 0 {
+		rows, err := transaction.Query(`
+			SELECT id
+			FROM seats
+			WHERE account_id = ?
+			ORDER BY id ASC`, account.ID)
+		if err != nil {
+			return err
+		}
+		seatIDs := make([]int64, 0)
+		for rows.Next() {
+			var seatID int64
+			if err := rows.Scan(&seatID); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			seatIDs = append(seatIDs, seatID)
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if targetSeatCount > len(seatIDs) {
+			for index := len(seatIDs) + 1; index <= targetSeatCount; index++ {
+				if _, err := transaction.Exec(`
+					INSERT INTO seats (account_id, name, created_at, updated_at)
+					VALUES (?, ?, ?, ?)`, account.ID, fmt.Sprintf("车位%d", index), now, now); err != nil {
+					return seatStateWriteError(err)
+				}
+			}
+		} else if targetSeatCount < len(seatIDs) {
+			toRemove := len(seatIDs) - targetSeatCount
+			for index := len(seatIDs) - 1; index >= 0 && toRemove > 0; index-- {
+				result, err := transaction.Exec(`
+					DELETE FROM seats
+					WHERE id = ?
+					  AND NOT EXISTS (
+						SELECT 1 FROM subscriptions WHERE seat_id = seats.id
+					  )`, seatIDs[index])
+				if err != nil {
+					return seatStateWriteError(seatReferenceError(err))
+				}
+				removed, err := result.RowsAffected()
+				if err != nil {
+					return err
+				}
+				if removed == 1 {
+					toRemove--
+				}
+			}
+			if toRemove > 0 {
+				return ErrSeatReferenced
+			}
+		}
+	}
+	return seatStateWriteError(transaction.Commit())
 }
 
 // LatestAutomaticAccountCostPeriod returns the latest initialized or renewed period.
@@ -3794,20 +3881,9 @@ func (store *Store) ListAccountCostRecords(accountID int64) ([]model.AccountCost
 	return records, rows.Err()
 }
 
-// DeleteAccount removes an account. Callers must ensure no seats remain.
+// DeleteAccount preserves the immutable account anchor and its cost ledger.
 func (store *Store) DeleteAccount(accountID int64) error {
-	result, err := store.database.Exec(`DELETE FROM accounts WHERE id = ?`, accountID)
-	if err != nil {
-		return err
-	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rowsAffected == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return ErrAccountHistoryProtected
 }
 
 // ListSeatsByAccount returns seats for one account ordered by id.
@@ -3905,11 +3981,11 @@ func (store *Store) UpdateSeat(seat model.Seat) error {
 	return nil
 }
 
-// DeleteSeat removes a seat. Callers must ensure it is not occupied by an active subscription.
+// DeleteSeat atomically rejects all subscription references, including history.
 func (store *Store) DeleteSeat(seatID int64) error {
 	result, err := store.database.Exec(`DELETE FROM seats WHERE id = ?`, seatID)
 	if err != nil {
-		return err
+		return seatReferenceError(err)
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
@@ -4112,13 +4188,13 @@ func (store *Store) CountUnavailableSeatsByAccount(accountID int64, now time.Tim
 	return count, err
 }
 
-// CountSubscriptionsLinkedToSeat counts non-deleted subscriptions (active or archived) on a seat.
+// CountSubscriptionsLinkedToSeat includes active, archived and soft-deleted history.
 func (store *Store) CountSubscriptionsLinkedToSeat(seatID int64) (int, error) {
 	var count int
 	err := store.database.QueryRow(`
 		SELECT COUNT(1)
 		FROM subscriptions
-		WHERE seat_id = ? AND deleted_at IS NULL`,
+		WHERE seat_id = ?`,
 		seatID,
 	).Scan(&count)
 	return count, err

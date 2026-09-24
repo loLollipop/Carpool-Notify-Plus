@@ -758,7 +758,10 @@ function InvitePanel({
                       {seats[0].account.display_serial}
                     </span>
                     <span className="max-w-40 truncate text-xs text-muted-foreground">
-                      {seats[0].account.email || seats[0].account.name}
+                      {seats[0].account.display_email || seats[0].account.email || seats[0].account.name}
+                    </span>
+                    <span className="max-w-32 truncate text-xs text-muted-foreground">
+                      {seats[0].account.space_name || "未命名空间"} · #{seats[0].account.id}
                     </span>
                     <span className="text-xs text-muted-foreground">{seats[0].seat.name}</span>
                   </span>
@@ -773,7 +776,10 @@ function InvitePanel({
                     >
                       {option.account.display_serial}
                     </span>
-                    <span className="max-w-40 truncate font-medium">{option.account.name}</span>
+                    <span className="max-w-40 truncate font-medium">{option.account.display_email || option.account.email || option.account.name}</span>
+                    <span className="max-w-32 truncate text-xs text-muted-foreground">
+                      {option.account.space_name || "未命名空间"} · #{option.account.id}
+                    </span>
                     <span className="text-xs text-muted-foreground">{option.seat.name}</span>
                     <span className="ml-auto text-xs tabular-nums text-muted-foreground">
                       ¥{option.account.cost_yuan}
@@ -805,7 +811,7 @@ function InvitePanel({
       {selectedSeat ? (
         <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
           <span className="rounded-md bg-muted px-2 py-1">
-            母号：{selectedSeat.account.display_serial} · {selectedSeat.account.email || selectedSeat.account.name}
+            母号：{selectedSeat.account.display_serial} · {selectedSeat.account.display_email || selectedSeat.account.email || selectedSeat.account.name}
           </span>
           {selectedSeat.account.space_name ? (
             <span className="rounded-md bg-muted px-2 py-1">空间：{selectedSeat.account.space_name}</span>
@@ -998,7 +1004,7 @@ function RedemptionCard({
             </div>
             <div className="mt-2 grid gap-1 text-muted-foreground">
               <span className="truncate">
-                母号：{view.account_serial > 0 ? `${view.account_serial} · ` : ""}{view.account_email || view.account_name || "-"}
+                母号：{view.account_serial > 0 ? `${view.account_serial} · ` : ""}{view.account_display_email || view.account_email || view.account_name || "-"}
               </span>
               <span className="truncate">空间：{view.account_space_name || "-"}</span>
               <span className="truncate">车位：{view.seat_name || "-"}</span>
@@ -1061,6 +1067,7 @@ function RenewalReviewManager() {
       return [
         view.application.customer_email,
         view.service_label,
+        view.account_display_email,
         view.account_email,
         view.seat_name,
         view.application.due_date,
@@ -1163,7 +1170,7 @@ function RenewalReviewManager() {
                 <div className="flex justify-between gap-4"><span>固定套餐</span><strong className="text-foreground">{view.service_label} · {view.cycle_desc}</strong></div>
                 <div className="flex justify-between gap-4"><span>续费范围</span><strong className="text-foreground tabular-nums">{view.application.due_date} 至 {view.application.period_end_date || "—"}</strong></div>
                 {view.business_type === "team" ? (
-                  <div className="flex justify-between gap-4"><span>分配位置</span><strong className="min-w-0 truncate text-foreground">{view.account_serial > 0 ? `${view.account_serial}号 · ` : ""}{view.account_email || "母号"} · {view.seat_name || "席位"}</strong></div>
+                  <div className="flex justify-between gap-4"><span>分配位置</span><strong className="min-w-0 truncate text-foreground">{view.account_serial > 0 ? `${view.account_serial}号 · ` : ""}{view.account_display_email || view.account_email || "母号"} · {view.seat_name || "席位"}</strong></div>
                 ) : null}
                 {view.processed_at_label ? <div className="flex justify-between gap-4"><span>处理时间</span><strong className="text-foreground">{view.processed_at_label}</strong></div> : null}
                 {view.application.operator_note ? <div className="rounded-md bg-muted/50 px-3 py-2 leading-5">{view.application.operator_note}</div> : null}
@@ -1247,6 +1254,7 @@ export function RedemptionsPage() {
         view.application.operator_note,
         ...accountSerialSearchTerms(view.account_serial),
         view.account_name,
+        view.account_display_email,
         view.account_email,
         view.account_space_name,
         view.seat_name,
@@ -1312,7 +1320,7 @@ export function RedemptionsPage() {
     subtitle: view.application.customer_contact || view.application.redeem_code,
     meta: [
       view.created_at_label,
-      formatAccountLabel(view.account_serial, view.account_name, ""),
+      formatAccountLabel(view.account_serial, view.account_display_email || view.account_name, ""),
       view.seat_name,
       view.application.operator_note,
     ],
@@ -1327,7 +1335,7 @@ export function RedemptionsPage() {
         title: "可用空位",
         items: seats.map(({ account, seat }) => ({
           id: seat.id,
-          title: `${account.display_serial} · ${account.email || account.name}`,
+          title: `${account.display_serial} · ${account.display_email || account.email || account.name}`,
           subtitle: account.space_name || account.name,
           meta: [seat.name, account.remark],
           value: "可分配",

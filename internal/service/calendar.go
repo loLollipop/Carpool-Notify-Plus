@@ -79,6 +79,7 @@ type CalendarOccurrenceView struct {
 	Paid                      bool     `json:"paid"`
 	AccountName               string   `json:"account_name"`
 	AccountSerial             int64    `json:"account_serial"`
+	AccountDisplayEmail       string   `json:"account_display_email"`
 	SeatName                  string   `json:"seat_name"`
 	AccountID                 int64    `json:"account_id"`
 	SeatID                    int64    `json:"seat_id"`
@@ -390,9 +391,11 @@ func (service *SubscriptionService) calendarMonth(
 
 	subscriptions := make([]model.Subscription, 0, len(subscriptionViews))
 	accountSerialBySubscription := make(map[int64]int64, len(subscriptionViews))
+	accountEmailBySubscription := make(map[int64]string, len(subscriptionViews))
 	for _, view := range subscriptionViews {
 		subscriptions = append(subscriptions, view.Subscription)
 		accountSerialBySubscription[view.Subscription.ID] = view.AccountSerial
+		accountEmailBySubscription[view.Subscription.ID] = view.AccountDisplayEmail
 	}
 	allocatedCosts, err := service.activeAllocatedCostCents(subscriptions)
 	if err != nil {
@@ -444,6 +447,7 @@ func (service *SubscriptionService) calendarMonth(
 					paid,
 					billsByOccurrence[dueOccurrenceKey{subscriptionID: subscription.ID, dueDate: dueDate}],
 					allocatedCosts[subscription.ID],
+					accountEmailBySubscription[subscription.ID],
 				))
 			}
 			continue
@@ -470,6 +474,7 @@ func (service *SubscriptionService) calendarMonth(
 				paid,
 				billsByOccurrence[dueOccurrenceKey{subscriptionID: subscription.ID, dueDate: dueDate}],
 				allocatedCosts[subscription.ID],
+				accountEmailBySubscription[subscription.ID],
 			))
 			cursor = cycle.StartOfDay(dueAt).AddDate(0, 0, 1).Add(-time.Nanosecond)
 		}
@@ -574,6 +579,7 @@ func (service *SubscriptionService) buildActionableCalendarOccurrences(
 			false,
 			model.Bill{},
 			allocatedCosts[view.Subscription.ID],
+			view.AccountDisplayEmail,
 		)
 		// Preserve the exact value that made this row actionable so the calendar
 		// and dashboard cannot disagree if a request crosses midnight.
@@ -599,6 +605,7 @@ func (service *SubscriptionService) buildOccurrenceView(
 	paid bool,
 	bill model.Bill,
 	allocatedCostCents int64,
+	accountDisplayEmail string,
 ) CalendarOccurrenceView {
 	dueDate := cycle.FormatDate(dueAt)
 	amountCents := billAmountCentsForDueDate(subscription, dueDate)
@@ -636,6 +643,7 @@ func (service *SubscriptionService) buildOccurrenceView(
 		Paid:                      paid,
 		AccountName:               displayAccountName(subscription),
 		AccountSerial:             accountSerial,
+		AccountDisplayEmail:       accountDisplayEmail,
 		SeatName:                  subscription.SeatName,
 		AccountID:                 subscription.AccountID,
 		SeatID:                    subscription.SeatID,

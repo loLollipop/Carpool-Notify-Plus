@@ -58,6 +58,7 @@ export interface SubscriptionView {
   last_error: string
   account_id: number
   account_serial: number
+  account_display_email?: string
   account_name: string
   seat_id: number
   seat_name: string
@@ -117,6 +118,7 @@ export interface RedemptionApplicationView {
   invited_at_label: string
   account_name: string
   account_serial: number
+  account_display_email?: string
   account_email: string
   account_space_name: string
   seat_name: string
@@ -150,6 +152,7 @@ export interface CalendarOccurrence {
   paid: boolean
   account_name: string
   account_serial: number
+  account_display_email?: string
   seat_name: string
   account_id: number
   seat_id: number
@@ -198,6 +201,7 @@ interface AmountBar {
   name: string
   customer_email: string
   account_serial: number
+  account_display_email?: string
   account_name: string
   amount_yuan: string
   amount_cents: number
@@ -208,6 +212,7 @@ export interface RenewalSubscriptionView {
   business_type: SubscriptionBusinessType
   service_label: string
   account_serial: number
+  account_display_email?: string
   seat_name: string
   due_date: string
   period_end_date: string
@@ -269,6 +274,7 @@ export interface RenewalApplicationView {
   amount_yuan: string
   cycle_desc: string
   account_serial: number
+  account_display_email?: string
   account_email: string
   seat_name: string
   created_at_label: string
@@ -279,6 +285,7 @@ interface AccountBreakdown {
   key: string
   account_id: number
   account_serial: number
+  account_display_email?: string
   account_name: string
   type: string
   count: number
@@ -329,6 +336,7 @@ export interface OperationTask {
   renewal_application_id: number
   account_id: number
   account_serial: number
+  account_display_email?: string
   seat_id: number
   name: string
   customer_email: string
@@ -461,6 +469,7 @@ export interface SeatView {
 export interface AccountView {
   account: Account
   display_serial: number
+  display_email: string
   seats: SeatView[] | null
   seat_total: number
   seat_used: number
@@ -526,7 +535,9 @@ interface AfterSalesCase {
 export interface AfterSalesCaseView {
   case: AfterSalesCase
   account_serial: number
+  account_display_email?: string
   replacement_account_serial: number
+  replacement_account_display_email?: string
   paid_amount_yuan: string
   refund_amount_yuan: string
   status_label: string
@@ -556,6 +567,7 @@ export interface SeatOption {
 export interface AccountOption {
   id: number
   display_serial: number
+  display_email?: string
   name: string
   remark: string
   payment_method: string
@@ -577,6 +589,7 @@ export interface BillView {
   subscription_name: string
   business_type: SubscriptionBusinessType
   account_serial: number
+  account_display_email?: string
   account_name: string
   account_email: string
   account_space_name: string
@@ -670,6 +683,7 @@ interface RefundDetail {
   subscription_id: number
   business_type: SubscriptionBusinessType
   account_serial: number
+  account_display_email?: string
   customer_email: string
   customer_wechat: string
   account_name: string
@@ -927,6 +941,7 @@ export interface PricingCandidate {
   subscription_id: number
   account_id: number
   account_serial: number
+  account_display_email?: string
   name: string
   customer_email: string
   customer_wechat: string

@@ -136,7 +136,7 @@ function getPositiveAccounts(summary: BillsSummary) {
     .filter((item) => item.amount_cents > 0)
     .map((item) => ({
       key: item.key,
-      name: formatAccountLabel(item.account_serial, item.account_name),
+      name: formatAccountLabel(item.account_serial, item.account_display_email || item.account_name),
       searchName: item.account_name,
       cents: item.amount_cents,
       count: item.count,

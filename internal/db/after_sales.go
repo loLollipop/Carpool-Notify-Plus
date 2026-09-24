@@ -486,7 +486,7 @@ func (store *Store) SetAfterSalesCaseRefunded(
 			subscriptionID,
 		)
 		if err != nil {
-			return err
+			return seatReferenceError(err)
 		}
 		rowsAffected, err = result.RowsAffected()
 		if err != nil {
@@ -542,7 +542,7 @@ func (store *Store) SetAfterSalesCaseRefunded(
 			subscriptionID,
 		)
 		if err != nil {
-			return err
+			return seatReferenceError(err)
 		}
 		rowsAffected, err = result.RowsAffected()
 		if err != nil {
@@ -745,11 +745,11 @@ func (store *Store) ReassignAfterSalesCase(
 		if isActiveSeatOccupancyError(err) {
 			return ErrReplacementSeatOccupied
 		}
-		return err
+		return seatStateWriteError(seatReferenceError(err))
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
-		return err
+		return seatStateWriteError(err)
 	}
 	if rowsAffected != 1 {
 		return sql.ErrNoRows
@@ -776,7 +776,7 @@ func (store *Store) ReassignAfterSalesCase(
 		model.AfterSalesStatusReview,
 	)
 	if err != nil {
-		return err
+		return seatStateWriteError(err)
 	}
 	rowsAffected, err = result.RowsAffected()
 	if err != nil {
@@ -786,7 +786,7 @@ func (store *Store) ReassignAfterSalesCase(
 		return ErrAfterSalesProcessed
 	}
 
-	return transaction.Commit()
+	return seatStateWriteError(transaction.Commit())
 }
 
 func scanAfterSalesCase(scanner scannable) (model.AfterSalesCase, error) {

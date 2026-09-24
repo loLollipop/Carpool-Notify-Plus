@@ -2,6 +2,7 @@ package service
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/mail"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 )
 
@@ -19,6 +21,7 @@ var accountRemarkSerialPattern = regexp.MustCompile(`(?:\(([0-9]+)\)|（([0-9]+)
 type AccountView struct {
 	Account           model.Account `json:"account"`
 	DisplaySerial     int64         `json:"display_serial"`
+	DisplayEmail      string        `json:"display_email"`
 	Seats             []SeatView    `json:"seats"`
 	SeatTotal         int           `json:"seat_total"`
 	SeatUsed          int           `json:"seat_used"`
@@ -115,9 +118,10 @@ func (service *SubscriptionService) ListAccountsView() ([]AccountView, error) {
 	if err != nil {
 		return nil, err
 	}
+	identities := newAccountIdentityIndex(accounts)
 	views := make([]AccountView, 0, len(accounts))
 	for _, account := range accounts {
-		view, err := buildAccountViewFromSnapshot(account, snapshot)
+		view, err := buildAccountViewFromSnapshot(account, snapshot, identities)
 		if err != nil {
 			return nil, err
 		}
@@ -146,6 +150,10 @@ func (service *SubscriptionService) GetAccountView(accountID int64) (AccountView
 }
 
 func (service *SubscriptionService) buildAccountView(account model.Account) (AccountView, error) {
+	identities, err := service.accountIdentities()
+	if err != nil {
+		return AccountView{}, err
+	}
 	seats, err := service.Store.ListSeatsByAccount(account.ID)
 	if err != nil {
 		return AccountView{}, err
@@ -164,13 +172,14 @@ func (service *SubscriptionService) buildAccountView(account model.Account) (Acc
 	}
 	view := AccountView{
 		Account:       account,
-		DisplaySerial: accountDisplaySerial(account),
+		DisplaySerial: identities.identity(account.ID).Serial,
+		DisplayEmail:  identities.identity(account.ID).Email,
 		Seats:         seatViews,
 		SeatTotal:     len(seatViews),
 		SeatUsed:      usedCount,
 		IsFull:        len(seatViews) > 0 && usedCount >= len(seatViews),
-		// No active occupancy: delete cascades free seats (history seat links are cleared).
-		CanDelete: usedCount == 0,
+		// Persisted account IDs and costs are historical anchors.
+		CanDelete: false,
 	}
 	if strings.TrimSpace(account.BannedAt) == "" {
 		renewalAt, err := service.nextAccountCostRenewal(account)
@@ -252,8 +261,8 @@ func (service *SubscriptionService) buildSeatView(seat model.Seat) (SeatView, er
 		return SeatView{}, err
 	}
 	view.LinkedSubscriptionCount = linkedCount
-	// Free seats can be deleted; historical links are cleared on delete.
-	view.CanDelete = !view.Occupied && !view.Frozen
+	// Historical references also prevent deletion.
+	view.CanDelete = linkedCount == 0 && !view.Occupied && !view.Frozen
 	return view, nil
 }
 
@@ -282,7 +291,7 @@ func (service *SubscriptionService) CreateAccount(input CreateAccountInput) (int
 		initialCostPeriod = openedAt
 	}
 
-	accountID, err := service.Store.CreateAccount(model.Account{
+	accountID, err := service.Store.CreateAccountWithSeats(model.Account{
 		Name:                 name,
 		Remark:               strings.TrimSpace(input.Remark),
 		PaymentMethod:        strings.TrimSpace(input.PaymentMethod),
@@ -291,17 +300,9 @@ func (service *SubscriptionService) CreateAccount(input CreateAccountInput) (int
 		OpenedAt:             openedAt,
 		CostCents:            costCents,
 		ZeroRenewalNextMonth: input.ZeroRenewalNextMonth,
-	}, costCents, initialCostPeriod)
+	}, costCents, initialCostPeriod, seatNames)
 	if err != nil {
 		return 0, err
-	}
-	for _, seatName := range seatNames {
-		if _, err := service.Store.CreateSeat(model.Seat{
-			AccountID: accountID,
-			Name:      seatName,
-		}); err != nil {
-			return 0, err
-		}
 	}
 	return accountID, nil
 }
@@ -348,7 +349,7 @@ func (service *SubscriptionService) UpdateAccount(accountID int64, input UpdateA
 			return err
 		}
 	}
-	if err := service.Store.UpdateAccount(model.Account{
+	if err := service.Store.UpdateAccountWithSeatCount(model.Account{
 		ID:                   accountID,
 		Name:                 name,
 		Remark:               strings.TrimSpace(input.Remark),
@@ -358,13 +359,14 @@ func (service *SubscriptionService) UpdateAccount(accountID int64, input UpdateA
 		OpenedAt:             openedAt,
 		CostCents:            costCents,
 		ZeroRenewalNextMonth: input.ZeroRenewalNextMonth,
-	}); err != nil {
-		return err
-	}
-	if input.SeatCount > 0 {
-		if err := service.resizeAccountSeats(accountID, input.SeatCount); err != nil {
-			return err
+	}, input.SeatCount); err != nil {
+		if errors.Is(err, db.ErrSeatReferenced) {
+			return fmt.Errorf("可释放的空闲车位不足，无法缩减到 %d", input.SeatCount)
 		}
+		if errors.Is(err, db.ErrSeatStateChanged) {
+			return fmt.Errorf("账号或车位状态已变化，请刷新后重试")
+		}
+		return err
 	}
 	return nil
 }
@@ -373,120 +375,19 @@ func (service *SubscriptionService) validateAccountSeatCount(accountID int64, ta
 	if targetCount < model.MinInitialSeatCount || targetCount > model.MaxInitialSeatCount {
 		return fmt.Errorf("车位数量须为 %d～%d 的整数", model.MinInitialSeatCount, model.MaxInitialSeatCount)
 	}
-	usedCount, err := service.Store.CountUnavailableSeatsByAccount(accountID, service.now())
+	usedCount, err := service.Store.CountReferencedSeatsByAccount(accountID)
 	if err != nil {
 		return err
 	}
 	if targetCount < usedCount {
-		return fmt.Errorf("车位数量不能少于当前占用数 %d", usedCount)
+		return fmt.Errorf("车位数量不能少于已有订阅历史的车位数 %d", usedCount)
 	}
 	return nil
 }
 
-// resizeAccountSeats sets the number of seat rows under an account.
-// Growing appends auto-named free seats; shrinking only removes free seats.
-func (service *SubscriptionService) resizeAccountSeats(accountID int64, targetCount int) error {
-	if targetCount < model.MinInitialSeatCount || targetCount > model.MaxInitialSeatCount {
-		return fmt.Errorf("车位数量须为 %d～%d 的整数", model.MinInitialSeatCount, model.MaxInitialSeatCount)
-	}
-	seats, err := service.Store.ListSeatsByAccount(accountID)
-	if err != nil {
-		return err
-	}
-	currentCount := len(seats)
-	if targetCount == currentCount {
-		return nil
-	}
-
-	occupiedIDs := map[int64]struct{}{}
-	for _, seat := range seats {
-		_, err := service.Store.GetActiveSubscriptionBySeatID(seat.ID)
-		if err == nil {
-			occupiedIDs[seat.ID] = struct{}{}
-			continue
-		}
-		if err != sql.ErrNoRows {
-			return err
-		}
-		if _, err := service.Store.GetFrozenSubscriptionBySeatID(seat.ID, service.now()); err == nil {
-			occupiedIDs[seat.ID] = struct{}{}
-			continue
-		} else if err != sql.ErrNoRows {
-			return err
-		}
-	}
-	usedCount := len(occupiedIDs)
-	if targetCount < usedCount {
-		return fmt.Errorf("车位数量不能少于当前占用数 %d", usedCount)
-	}
-
-	if targetCount > currentCount {
-		// Prefer continuing 车位N numbering after the highest existing numeric suffix when possible.
-		nextIndex := currentCount + 1
-		for index := 0; index < targetCount-currentCount; index++ {
-			seatName := fmt.Sprintf("车位%d", nextIndex+index)
-			if _, err := service.Store.CreateSeat(model.Seat{
-				AccountID: accountID,
-				Name:      seatName,
-			}); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-
-	// Shrink: delete free seats from the end so occupied seats stay put.
-	toRemove := currentCount - targetCount
-	for index := len(seats) - 1; index >= 0 && toRemove > 0; index-- {
-		seat := seats[index]
-		if _, occupied := occupiedIDs[seat.ID]; occupied {
-			continue
-		}
-		if err := service.DeleteSeat(seat.ID); err != nil {
-			return err
-		}
-		toRemove--
-	}
-	if toRemove > 0 {
-		return fmt.Errorf("可释放的空闲车位不足，无法缩减到 %d", targetCount)
-	}
-	return nil
-}
-
-// DeleteAccount removes an account that has no active seat occupancy.
-// Free seats are removed first; historical seat links on archived/soft-deleted
-// subscriptions are cleared so bills keep subscription_id only.
+// DeleteAccount preserves account identity, bills and the cost ledger.
 func (service *SubscriptionService) DeleteAccount(accountID int64) error {
-	if _, err := service.Store.GetAccount(accountID); err != nil {
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("账号不存在")
-		}
-		return err
-	}
-	activeCount, err := service.Store.CountUnavailableSeatsByAccount(accountID, service.now())
-	if err != nil {
-		return err
-	}
-	if activeCount > 0 {
-		return fmt.Errorf("该账号仍有活跃或冻结中的车位，暂时无法删除")
-	}
-	afterSalesCount, err := service.Store.CountAfterSalesCasesByAccount(accountID)
-	if err != nil {
-		return err
-	}
-	if afterSalesCount > 0 {
-		return fmt.Errorf("该账号已有售后退款记录，为保留历史凭据不可删除")
-	}
-	seats, err := service.Store.ListSeatsByAccount(accountID)
-	if err != nil {
-		return err
-	}
-	for _, seat := range seats {
-		if err := service.DeleteSeat(seat.ID); err != nil {
-			return err
-		}
-	}
-	return service.Store.DeleteAccount(accountID)
+	return db.ErrAccountHistoryProtected
 }
 
 // CreateSeat adds a named seat under an account.
@@ -608,8 +509,7 @@ func (service *SubscriptionService) ReleaseSeatFreeze(seatID int64) error {
 	return nil
 }
 
-// DeleteSeat removes a free seat. Historical subscriptions keep their bills via
-// subscription_id; seat_id is cleared so the seat row can be dropped.
+// DeleteSeat removes only seats that have never been referenced by a subscription.
 func (service *SubscriptionService) DeleteSeat(seatID int64) error {
 	if _, err := service.Store.GetSeat(seatID); err != nil {
 		if err == sql.ErrNoRows {
@@ -629,10 +529,16 @@ func (service *SubscriptionService) DeleteSeat(seatID int64) error {
 	} else if err != sql.ErrNoRows {
 		return err
 	}
-	if err := service.Store.ClearSeatLinksForSeat(seatID); err != nil {
+	if err := service.Store.DeleteSeat(seatID); err != nil {
+		if errors.Is(err, db.ErrSeatReferenced) {
+			return fmt.Errorf("该车位已有订阅历史，为保留账单及历史记录不可删除")
+		}
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("车位不存在")
+		}
 		return err
 	}
-	return service.Store.DeleteSeat(seatID)
+	return nil
 }
 
 // SeatOption is a selectable seat for subscription forms.
@@ -647,6 +553,7 @@ type SeatOption struct {
 type AccountOption struct {
 	ID                   int64        `json:"id"`
 	DisplaySerial        int64        `json:"display_serial"`
+	DisplayEmail         string       `json:"display_email"`
 	Name                 string       `json:"name"`
 	Remark               string       `json:"remark"`
 	PaymentMethod        string       `json:"payment_method"`
@@ -669,6 +576,7 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 	if err != nil {
 		return nil, err
 	}
+	identities := newAccountIdentityIndex(accounts)
 	options := make([]AccountOption, 0, len(accounts))
 	for _, account := range accounts {
 		allSeats, err := service.Store.ListSeatsByAccount(account.ID)
@@ -714,7 +622,8 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 		}
 		options = append(options, AccountOption{
 			ID:                   account.ID,
-			DisplaySerial:        accountDisplaySerial(account),
+			DisplaySerial:        identities.identity(account.ID).Serial,
+			DisplayEmail:         identities.identity(account.ID).Email,
 			Name:                 account.Name,
 			Remark:               account.Remark,
 			PaymentMethod:        account.PaymentMethod,
@@ -738,27 +647,115 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 // treated as an override; all other remarks fall back to the immutable import
 // order stored in the account ID.
 func accountDisplaySerial(account model.Account) int64 {
-	matches := accountRemarkSerialPattern.FindStringSubmatch(strings.TrimSpace(account.Remark))
-	if len(matches) == 0 {
-		return account.ID
-	}
-	raw := matches[1]
-	if raw == "" {
-		raw = matches[2]
-	}
-	serial, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || serial <= 0 {
+	serial, ok := accountRemarkSerial(account.Remark)
+	if !ok {
 		return account.ID
 	}
 	return serial
 }
 
 func accountDisplaySerials(accounts []model.Account) map[int64]int64 {
+	type displayIdentity struct {
+		groupKey       string
+		explicitSerial int64
+	}
+
+	identities := make(map[int64]displayIdentity, len(accounts))
+	firstByGroup := make(map[string]model.Account, len(accounts))
+	for _, account := range accounts {
+		serial, hasExplicitSerial := accountRemarkSerial(account.Remark)
+		groupEmail := accountGroupingEmail(account)
+		groupKey := strings.ToLower(strings.TrimSpace(groupEmail))
+		identity := displayIdentity{groupKey: groupKey}
+		if hasExplicitSerial {
+			identity.explicitSerial = serial
+		}
+		identities[account.ID] = identity
+		if groupKey == "" {
+			continue
+		}
+		first, exists := firstByGroup[groupKey]
+		if !exists || account.ID < first.ID {
+			firstByGroup[groupKey] = account
+		}
+	}
+
 	serials := make(map[int64]int64, len(accounts))
 	for _, account := range accounts {
-		serials[account.ID] = accountDisplaySerial(account)
+		identity := identities[account.ID]
+		if identity.explicitSerial > 0 {
+			serials[account.ID] = identity.explicitSerial
+			continue
+		}
+		if first, exists := firstByGroup[identity.groupKey]; identity.groupKey != "" && exists {
+			serials[account.ID] = accountDisplaySerial(first)
+			continue
+		}
+		serials[account.ID] = account.ID
 	}
 	return serials
+}
+
+func accountRemarkSerial(remark string) (int64, bool) {
+	matches := accountRemarkSerialPattern.FindStringSubmatch(strings.TrimSpace(remark))
+	if len(matches) == 0 {
+		return 0, false
+	}
+	raw := matches[1]
+	if raw == "" {
+		raw = matches[2]
+	}
+	serial, err := strconv.ParseInt(raw, 10, 64)
+	return serial, err == nil && serial > 0 && serial <= 9007199254740991
+}
+
+func accountDisplayEmail(account model.Account) string {
+	if _, email := accountRemarkIdentity(account.Remark); email != "" {
+		return email
+	}
+	if email := strings.TrimSpace(account.Email); email != "" {
+		return email
+	}
+	return strings.TrimSpace(account.Name)
+}
+
+func accountGroupingEmail(account model.Account) string {
+	if _, email := accountRemarkIdentity(account.Remark); email != "" {
+		return email
+	}
+	if email := parseStandaloneEmail(account.Email); email != "" {
+		return email
+	}
+	return parseStandaloneEmail(account.Name)
+}
+
+func accountRemarkIdentity(remark string) (int64, string) {
+	trimmed := strings.TrimSpace(remark)
+	indices := accountRemarkSerialPattern.FindStringSubmatchIndex(trimmed)
+	if len(indices) == 0 {
+		return 0, ""
+	}
+	serial, ok := accountRemarkSerial(trimmed)
+	if !ok {
+		return 0, ""
+	}
+	email := parseStandaloneEmail(strings.TrimSpace(trimmed[:indices[0]]))
+	if email == "" {
+		return 0, ""
+	}
+	return serial, email
+}
+
+func parseStandaloneEmail(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || !strings.Contains(raw, "@") {
+		return ""
+	}
+	address, err := mail.ParseAddress(raw)
+	if err != nil || address.Name != "" || strings.TrimSpace(address.Address) != raw {
+		return ""
+	}
+	return raw
 }
 
 func accountDisplaySerialForID(serials map[int64]int64, accountID int64) int64 {

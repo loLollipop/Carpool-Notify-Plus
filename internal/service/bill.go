@@ -15,46 +15,47 @@ import (
 
 // BillView is one bill row for the bills list page.
 type BillView struct {
-	ID               int64     `json:"id"`
-	SubscriptionID   int64     `json:"subscription_id"`
-	SubscriptionName string    `json:"subscription_name"`
-	BusinessType     string    `json:"business_type"`
-	AccountSerial    int64     `json:"account_serial"`
-	AccountName      string    `json:"account_name"`
-	AccountEmail     string    `json:"account_email"`
-	AccountSpaceName string    `json:"account_space_name"`
-	AccountOpenedAt  string    `json:"account_opened_at"`
-	SeatName         string    `json:"seat_name"`
-	CustomerEmail    string    `json:"customer_email"`
-	CustomerWechat   string    `json:"customer_wechat"`
-	DueDate          string    `json:"due_date"`
-	AmountYuan       string    `json:"amount_yuan"`
-	AmountCents      int64     `json:"amount_cents"`
-	CostCents        int64     `json:"cost_cents"`
-	RefundYuan       string    `json:"refund_yuan"`
-	RefundCents      int64     `json:"refund_cents"`
-	NetAmountYuan    string    `json:"net_amount_yuan"`
-	NetAmountCents   int64     `json:"net_amount_cents"`
-	Note             string    `json:"note"`
-	PaidAtLabel      string    `json:"paid_at_label"`
-	PaidAt           time.Time `json:"paid_at"`
-	Archived         bool      `json:"archived"`
-	StatusLabel      string    `json:"status_label"`
-	TradeURL         string    `json:"trade_url"`
-	PriceYuan        string    `json:"price_yuan"`
-	CostYuan         string    `json:"cost_yuan"`
-	AgencyFeeYuan    string    `json:"agency_fee_yuan"`
-	IsResale         bool      `json:"is_resale"`
-	ProfitYuan       string    `json:"profit_yuan"`
-	CycleDesc        string    `json:"cycle_desc"`
-	CronExpr         string    `json:"cron_expr"`
-	OffsetsText      string    `json:"offsets_text"`
-	Remark           string    `json:"remark"`
-	BoardedAt        string    `json:"boarded_at"`
-	ArchivedAtLabel  string    `json:"archived_at_label"`
-	ChannelLabels    string    `json:"channel_labels"`
-	AccountID        int64     `json:"account_id"`
-	SeatID           int64     `json:"seat_id"`
+	ID                  int64     `json:"id"`
+	SubscriptionID      int64     `json:"subscription_id"`
+	SubscriptionName    string    `json:"subscription_name"`
+	BusinessType        string    `json:"business_type"`
+	AccountSerial       int64     `json:"account_serial"`
+	AccountDisplayEmail string    `json:"account_display_email"`
+	AccountName         string    `json:"account_name"`
+	AccountEmail        string    `json:"account_email"`
+	AccountSpaceName    string    `json:"account_space_name"`
+	AccountOpenedAt     string    `json:"account_opened_at"`
+	SeatName            string    `json:"seat_name"`
+	CustomerEmail       string    `json:"customer_email"`
+	CustomerWechat      string    `json:"customer_wechat"`
+	DueDate             string    `json:"due_date"`
+	AmountYuan          string    `json:"amount_yuan"`
+	AmountCents         int64     `json:"amount_cents"`
+	CostCents           int64     `json:"cost_cents"`
+	RefundYuan          string    `json:"refund_yuan"`
+	RefundCents         int64     `json:"refund_cents"`
+	NetAmountYuan       string    `json:"net_amount_yuan"`
+	NetAmountCents      int64     `json:"net_amount_cents"`
+	Note                string    `json:"note"`
+	PaidAtLabel         string    `json:"paid_at_label"`
+	PaidAt              time.Time `json:"paid_at"`
+	Archived            bool      `json:"archived"`
+	StatusLabel         string    `json:"status_label"`
+	TradeURL            string    `json:"trade_url"`
+	PriceYuan           string    `json:"price_yuan"`
+	CostYuan            string    `json:"cost_yuan"`
+	AgencyFeeYuan       string    `json:"agency_fee_yuan"`
+	IsResale            bool      `json:"is_resale"`
+	ProfitYuan          string    `json:"profit_yuan"`
+	CycleDesc           string    `json:"cycle_desc"`
+	CronExpr            string    `json:"cron_expr"`
+	OffsetsText         string    `json:"offsets_text"`
+	Remark              string    `json:"remark"`
+	BoardedAt           string    `json:"boarded_at"`
+	ArchivedAtLabel     string    `json:"archived_at_label"`
+	ChannelLabels       string    `json:"channel_labels"`
+	AccountID           int64     `json:"account_id"`
+	SeatID              int64     `json:"seat_id"`
 }
 
 // BillsSummary is the top KPI + chart model for the bills page.
@@ -94,20 +95,21 @@ type BillsSummary struct {
 // dialogs with the financial summary, including manually entered refunds that
 // are not linked to a bill.
 type RefundDetail struct {
-	ID               int64  `json:"id"`
-	BillID           int64  `json:"bill_id"`
-	SubscriptionID   int64  `json:"subscription_id"`
-	BusinessType     string `json:"business_type"`
-	AccountSerial    int64  `json:"account_serial"`
-	CustomerEmail    string `json:"customer_email"`
-	CustomerWechat   string `json:"customer_wechat"`
-	AccountName      string `json:"account_name"`
-	PeriodEnd        string `json:"period_end"`
-	ProcessedMonth   string `json:"processed_month"`
-	ProcessedAtLabel string `json:"processed_at_label"`
-	AmountCents      int64  `json:"amount_cents"`
-	AmountYuan       string `json:"amount_yuan"`
-	Note             string `json:"note"`
+	ID                  int64  `json:"id"`
+	BillID              int64  `json:"bill_id"`
+	SubscriptionID      int64  `json:"subscription_id"`
+	BusinessType        string `json:"business_type"`
+	AccountSerial       int64  `json:"account_serial"`
+	AccountDisplayEmail string `json:"account_display_email"`
+	CustomerEmail       string `json:"customer_email"`
+	CustomerWechat      string `json:"customer_wechat"`
+	AccountName         string `json:"account_name"`
+	PeriodEnd           string `json:"period_end"`
+	ProcessedMonth      string `json:"processed_month"`
+	ProcessedAtLabel    string `json:"processed_at_label"`
+	AmountCents         int64  `json:"amount_cents"`
+	AmountYuan          string `json:"amount_yuan"`
+	Note                string `json:"note"`
 }
 
 // MonthAmountBar is one month bucket in the bills trend chart.
@@ -168,6 +170,7 @@ func (service *SubscriptionService) ListBillsPage() (BillsPage, error) {
 	if err != nil {
 		return BillsPage{}, err
 	}
+	identities := newAccountIdentityIndex(accounts)
 	accountByID := make(map[int64]model.Account, len(accounts))
 	for _, account := range accounts {
 		accountByID[account.ID] = account
@@ -182,7 +185,7 @@ func (service *SubscriptionService) ListBillsPage() (BillsPage, error) {
 				account = &owner
 			}
 		}
-		views = append(views, buildBillViewFromSnapshot(bill, refundsByBill[bill.ID], subscription, account))
+		views = append(views, buildBillViewFromSnapshot(bill, refundsByBill[bill.ID], subscription, account, identities))
 	}
 	var accountCostCents int64
 	for _, account := range accounts {
@@ -213,6 +216,7 @@ func (service *SubscriptionService) ListBillsPage() (BillsPage, error) {
 			accountCostCents,
 			expenses,
 			service.now(),
+			identities,
 		),
 	}, nil
 }
@@ -227,6 +231,10 @@ func (service *SubscriptionService) ListBillsView() ([]BillView, error) {
 }
 
 func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents int64) (BillView, error) {
+	identities, err := service.accountIdentities()
+	if err != nil {
+		return BillView{}, err
+	}
 	subscription, err := service.Store.GetSubscriptionIncludingArchived(bill.SubscriptionID)
 	if err != nil && err != sql.ErrNoRows {
 		return BillView{}, err
@@ -235,17 +243,11 @@ func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents i
 	var accountSnapshot *model.Account
 	if err == nil {
 		subscriptionSnapshot = &subscription
-		if subscription.AccountID > 0 {
-			account, accountErr := service.Store.GetAccount(subscription.AccountID)
-			if accountErr != nil && accountErr != sql.ErrNoRows {
-				return BillView{}, accountErr
-			}
-			if accountErr == nil {
-				accountSnapshot = &account
-			}
+		if account, exists := identities.accounts[subscription.AccountID]; exists {
+			accountSnapshot = &account
 		}
 	}
-	return buildBillViewFromSnapshot(bill, refundCents, subscriptionSnapshot, accountSnapshot), nil
+	return buildBillViewFromSnapshot(bill, refundCents, subscriptionSnapshot, accountSnapshot, identities), nil
 }
 
 // buildBillViewFromSnapshot is intentionally database-free. ListBillsPage
@@ -255,6 +257,7 @@ func buildBillViewFromSnapshot(
 	refundCents int64,
 	subscription *model.Subscription,
 	account *model.Account,
+	identities accountIdentityIndex,
 ) BillView {
 	subscriptionName := fmt.Sprintf("订阅 #%d", bill.SubscriptionID)
 	businessType := model.SubscriptionBusinessTeam
@@ -315,7 +318,7 @@ func buildBillViewFromSnapshot(
 			archivedAtLabel = subscription.ArchivedAt.In(cycle.Location).Format("2006-01-02 15:04")
 		}
 		if account != nil {
-			accountSerial = accountDisplaySerial(*account)
+			accountSerial = identities.identity(account.ID).Serial
 			accountEmail = account.Email
 			accountSpaceName = account.SpaceName
 			accountOpenedAt = account.OpenedAt
@@ -329,46 +332,47 @@ func buildBillViewFromSnapshot(
 
 	netAmountCents := bill.AmountCents - refundCents
 	return BillView{
-		ID:               bill.ID,
-		SubscriptionID:   bill.SubscriptionID,
-		SubscriptionName: subscriptionName,
-		BusinessType:     businessType,
-		AccountSerial:    accountSerial,
-		AccountName:      accountName,
-		AccountEmail:     accountEmail,
-		AccountSpaceName: accountSpaceName,
-		AccountOpenedAt:  accountOpenedAt,
-		SeatName:         seatName,
-		CustomerEmail:    customerEmail,
-		CustomerWechat:   customerWechat,
-		AccountID:        accountID,
-		SeatID:           seatID,
-		DueDate:          bill.DueDate,
-		AmountYuan:       cycle.FormatCents(bill.AmountCents),
-		AmountCents:      bill.AmountCents,
-		CostCents:        reportedCostCents,
-		RefundYuan:       cycle.FormatCents(refundCents),
-		RefundCents:      refundCents,
-		NetAmountYuan:    cycle.FormatCents(netAmountCents),
-		NetAmountCents:   netAmountCents,
-		Note:             bill.Note,
-		PaidAtLabel:      formatPaidAtLabel(bill.PaidAt),
-		PaidAt:           bill.PaidAt,
-		Archived:         archived,
-		StatusLabel:      statusLabel,
-		TradeURL:         tradeURL,
-		PriceYuan:        priceYuan,
-		CostYuan:         costYuan,
-		AgencyFeeYuan:    agencyFeeYuan,
-		IsResale:         isResale,
-		ProfitYuan:       profitYuan,
-		CycleDesc:        cycleDesc,
-		CronExpr:         cronExpr,
-		OffsetsText:      offsetsText,
-		Remark:           remark,
-		BoardedAt:        boardedAt,
-		ArchivedAtLabel:  archivedAtLabel,
-		ChannelLabels:    channelLabels,
+		ID:                  bill.ID,
+		SubscriptionID:      bill.SubscriptionID,
+		SubscriptionName:    subscriptionName,
+		BusinessType:        businessType,
+		AccountSerial:       accountSerial,
+		AccountDisplayEmail: identities.identity(accountID).Email,
+		AccountName:         accountName,
+		AccountEmail:        accountEmail,
+		AccountSpaceName:    accountSpaceName,
+		AccountOpenedAt:     accountOpenedAt,
+		SeatName:            seatName,
+		CustomerEmail:       customerEmail,
+		CustomerWechat:      customerWechat,
+		AccountID:           accountID,
+		SeatID:              seatID,
+		DueDate:             bill.DueDate,
+		AmountYuan:          cycle.FormatCents(bill.AmountCents),
+		AmountCents:         bill.AmountCents,
+		CostCents:           reportedCostCents,
+		RefundYuan:          cycle.FormatCents(refundCents),
+		RefundCents:         refundCents,
+		NetAmountYuan:       cycle.FormatCents(netAmountCents),
+		NetAmountCents:      netAmountCents,
+		Note:                bill.Note,
+		PaidAtLabel:         formatPaidAtLabel(bill.PaidAt),
+		PaidAt:              bill.PaidAt,
+		Archived:            archived,
+		StatusLabel:         statusLabel,
+		TradeURL:            tradeURL,
+		PriceYuan:           priceYuan,
+		CostYuan:            costYuan,
+		AgencyFeeYuan:       agencyFeeYuan,
+		IsResale:            isResale,
+		ProfitYuan:          profitYuan,
+		CycleDesc:           cycleDesc,
+		CronExpr:            cronExpr,
+		OffsetsText:         offsetsText,
+		Remark:              remark,
+		BoardedAt:           boardedAt,
+		ArchivedAtLabel:     archivedAtLabel,
+		ChannelLabels:       channelLabels,
 	}
 }
 
@@ -397,6 +401,7 @@ func buildBillsSummaryWithOperatingExpenses(
 	accountCostCents int64,
 	operatingExpenses []model.OperatingExpense,
 	now time.Time,
+	supplied ...accountIdentityIndex,
 ) BillsSummary {
 	now = now.In(cycle.Location)
 	thisMonthKey := now.Format("2006-01")
@@ -424,6 +429,13 @@ func buildBillsSummaryWithOperatingExpenses(
 	subscriptionTotals := map[int64]*AmountBar{}
 	accountTotals := map[string]*accountAmountBucket{}
 	accountSerialByID := map[int64]int64{}
+	accountEmailByID := map[int64]string{}
+	if len(supplied) > 0 {
+		for id, identity := range supplied[0].identities {
+			accountSerialByID[id] = identity.Serial
+			accountEmailByID[id] = identity.Email
+		}
+	}
 	refundDetails := make([]RefundDetail, 0)
 	monthTotals := map[string]struct {
 		count       int
@@ -434,6 +446,7 @@ func buildBillsSummaryWithOperatingExpenses(
 	for _, view := range views {
 		if view.AccountID > 0 && view.AccountSerial > 0 {
 			accountSerialByID[view.AccountID] = view.AccountSerial
+			accountEmailByID[view.AccountID] = view.AccountDisplayEmail
 		}
 		netAmountCents := view.NetAmountCents
 		if view.NetAmountYuan == "" {
@@ -472,11 +485,12 @@ func buildBillsSummaryWithOperatingExpenses(
 		bar, exists := subscriptionTotals[view.SubscriptionID]
 		if !exists {
 			bar = &AmountBar{
-				SubscriptionID: view.SubscriptionID,
-				Name:           view.SubscriptionName,
-				CustomerEmail:  view.CustomerEmail,
-				AccountSerial:  view.AccountSerial,
-				AccountName:    view.AccountName,
+				SubscriptionID:      view.SubscriptionID,
+				Name:                view.SubscriptionName,
+				CustomerEmail:       view.CustomerEmail,
+				AccountSerial:       view.AccountSerial,
+				AccountDisplayEmail: view.AccountDisplayEmail,
+				AccountName:         view.AccountName,
 			}
 			subscriptionTotals[view.SubscriptionID] = bar
 		}
@@ -487,10 +501,11 @@ func buildBillsSummaryWithOperatingExpenses(
 		accountBucket, exists := accountTotals[accountKey]
 		if !exists {
 			accountBucket = &accountAmountBucket{
-				Key:           accountKey,
-				AccountID:     view.AccountID,
-				AccountSerial: view.AccountSerial,
-				AccountName:   view.AccountName,
+				Key:                 accountKey,
+				AccountID:           view.AccountID,
+				AccountSerial:       view.AccountSerial,
+				AccountDisplayEmail: view.AccountDisplayEmail,
+				AccountName:         view.AccountName,
 			}
 			accountTotals[accountKey] = accountBucket
 		}
@@ -510,19 +525,24 @@ func buildBillsSummaryWithOperatingExpenses(
 			continue
 		}
 		totalRefundCents += caseItem.RefundAmountCents
+		displayEmail := accountEmailByID[caseItem.AccountID]
+		if displayEmail == "" {
+			displayEmail = caseItem.AccountEmail
+		}
 		detail := RefundDetail{
-			ID:             caseItem.ID,
-			BillID:         caseItem.BillID,
-			SubscriptionID: caseItem.SubscriptionID,
-			BusinessType:   caseItem.BusinessType,
-			AccountSerial:  accountDisplaySerialForID(accountSerialByID, caseItem.AccountID),
-			CustomerEmail:  caseItem.CustomerEmail,
-			CustomerWechat: caseItem.CustomerWechat,
-			AccountName:    caseItem.AccountName,
-			PeriodEnd:      caseItem.PeriodEnd,
-			AmountCents:    caseItem.RefundAmountCents,
-			AmountYuan:     cycle.FormatCents(caseItem.RefundAmountCents),
-			Note:           caseItem.Note,
+			ID:                  caseItem.ID,
+			BillID:              caseItem.BillID,
+			SubscriptionID:      caseItem.SubscriptionID,
+			BusinessType:        caseItem.BusinessType,
+			AccountSerial:       accountDisplaySerialForID(accountSerialByID, caseItem.AccountID),
+			AccountDisplayEmail: displayEmail,
+			CustomerEmail:       caseItem.CustomerEmail,
+			CustomerWechat:      caseItem.CustomerWechat,
+			AccountName:         caseItem.AccountName,
+			PeriodEnd:           caseItem.PeriodEnd,
+			AmountCents:         caseItem.RefundAmountCents,
+			AmountYuan:          cycle.FormatCents(caseItem.RefundAmountCents),
+			Note:                caseItem.Note,
 		}
 		if caseItem.ProcessedAt == nil {
 			refundDetails = append(refundDetails, detail)
@@ -560,14 +580,15 @@ func buildBillsSummaryWithOperatingExpenses(
 	accounts := make([]AccountBreakdown, 0, len(accountTotals))
 	for _, bucket := range accountTotals {
 		accounts = append(accounts, AccountBreakdown{
-			Key:           bucket.Key,
-			AccountID:     bucket.AccountID,
-			AccountSerial: bucket.AccountSerial,
-			AccountName:   bucket.AccountName,
-			Type:          bucket.AccountName,
-			Count:         bucket.count,
-			AmountYuan:    cycle.FormatCents(bucket.cents),
-			AmountCents:   bucket.cents,
+			Key:                 bucket.Key,
+			AccountID:           bucket.AccountID,
+			AccountSerial:       bucket.AccountSerial,
+			AccountDisplayEmail: bucket.AccountDisplayEmail,
+			AccountName:         bucket.AccountName,
+			Type:                bucket.AccountName,
+			Count:               bucket.count,
+			AmountYuan:          cycle.FormatCents(bucket.cents),
+			AmountCents:         bucket.cents,
 		})
 	}
 	sort.Slice(accounts, func(left int, right int) bool {

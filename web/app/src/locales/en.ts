@@ -1136,6 +1136,7 @@ export default {
       account: "Account",
       accountPlaceholder: "Choose an account",
       accountSerialTitle: "Account reference number {{number}}",
+      spaceUnnamed: "Unnamed workspace",
       accountHint:
         "Only accounts with free seats are listed; saving occupies one free seat. Manage accounts on the Accounts page.",
       plusAccountHint: "Create the Plus account on Accounts with exactly one seat; saving occupies that seat.",
@@ -1284,6 +1285,8 @@ export default {
       renewalConfirmDesc:
         "Record the {{date}} renewal cost of ¥{{amount}} for “{{name}}”. Repeated submissions will not charge twice.",
       occupancyTitle: "Click to view occupied seats",
+      historyLock: "History protected",
+      historyLockTitle: "Accounts are kept to preserve bills, costs and history",
       occupiedLock: "In use",
       occupiedLockTitle: "Cannot delete while active subscriptions occupy seats",
       frozenUntil: "Cooling until {{time}}",

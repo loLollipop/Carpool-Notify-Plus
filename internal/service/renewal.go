@@ -32,22 +32,23 @@ type RenewalSubmitResult struct {
 }
 
 type RenewalSubscriptionView struct {
-	SubscriptionID    int64                 `json:"subscription_id"`
-	BusinessType      string                `json:"business_type"`
-	ServiceLabel      string                `json:"service_label"`
-	AccountSerial     int64                 `json:"account_serial"`
-	SeatName          string                `json:"seat_name"`
-	DueDate           string                `json:"due_date"`
-	PeriodEndDate     string                `json:"period_end_date"`
-	DaysRemaining     int                   `json:"days_remaining"`
-	StatusLabel       string                `json:"status_label"`
-	AmountYuan        string                `json:"amount_yuan"`
-	CycleDesc         string                `json:"cycle_desc"`
-	PeriodCount       int                   `json:"period_count"`
-	PeriodOptions     []RenewalPeriodOption `json:"period_options"`
-	Renewable         bool                  `json:"renewable"`
-	PendingReview     bool                  `json:"pending_review"`
-	UnavailableReason string                `json:"unavailable_reason"`
+	SubscriptionID      int64                 `json:"subscription_id"`
+	BusinessType        string                `json:"business_type"`
+	ServiceLabel        string                `json:"service_label"`
+	AccountSerial       int64                 `json:"account_serial"`
+	AccountDisplayEmail string                `json:"account_display_email"`
+	SeatName            string                `json:"seat_name"`
+	DueDate             string                `json:"due_date"`
+	PeriodEndDate       string                `json:"period_end_date"`
+	DaysRemaining       int                   `json:"days_remaining"`
+	StatusLabel         string                `json:"status_label"`
+	AmountYuan          string                `json:"amount_yuan"`
+	CycleDesc           string                `json:"cycle_desc"`
+	PeriodCount         int                   `json:"period_count"`
+	PeriodOptions       []RenewalPeriodOption `json:"period_options"`
+	Renewable           bool                  `json:"renewable"`
+	PendingReview       bool                  `json:"pending_review"`
+	UnavailableReason   string                `json:"unavailable_reason"`
 }
 
 type RenewalPeriodOption struct {
@@ -77,16 +78,17 @@ type RenewalStatusView struct {
 }
 
 type RenewalApplicationView struct {
-	Application      model.RenewalApplication `json:"application"`
-	BusinessType     string                   `json:"business_type"`
-	ServiceLabel     string                   `json:"service_label"`
-	AmountYuan       string                   `json:"amount_yuan"`
-	CycleDesc        string                   `json:"cycle_desc"`
-	AccountSerial    int64                    `json:"account_serial"`
-	AccountEmail     string                   `json:"account_email"`
-	SeatName         string                   `json:"seat_name"`
-	CreatedAtLabel   string                   `json:"created_at_label"`
-	ProcessedAtLabel string                   `json:"processed_at_label"`
+	Application         model.RenewalApplication `json:"application"`
+	BusinessType        string                   `json:"business_type"`
+	ServiceLabel        string                   `json:"service_label"`
+	AmountYuan          string                   `json:"amount_yuan"`
+	CycleDesc           string                   `json:"cycle_desc"`
+	AccountSerial       int64                    `json:"account_serial"`
+	AccountDisplayEmail string                   `json:"account_display_email"`
+	AccountEmail        string                   `json:"account_email"`
+	SeatName            string                   `json:"seat_name"`
+	CreatedAtLabel      string                   `json:"created_at_label"`
+	ProcessedAtLabel    string                   `json:"processed_at_label"`
 }
 
 type RenewalDecisionInput struct {
@@ -118,6 +120,10 @@ func (service *SubscriptionService) LookupRenewalSubscriptions(input RenewalLook
 		pendingPeriods[renewalPeriodKey(application.SubscriptionID, application.DueDate)] = struct{}{}
 	}
 
+	identities, err := service.accountIdentities()
+	if err != nil {
+		return RenewalLookupView{}, err
+	}
 	result := RenewalLookupView{
 		CustomerEmail: email,
 		Subscriptions: make([]RenewalSubscriptionView, 0),
@@ -126,7 +132,7 @@ func (service *SubscriptionService) LookupRenewalSubscriptions(input RenewalLook
 		if !strings.EqualFold(strings.TrimSpace(subscription.CustomerEmail), email) {
 			continue
 		}
-		view, err := service.buildRenewalSubscriptionView(subscription, pendingPeriods)
+		view, err := service.buildRenewalSubscriptionView(subscription, pendingPeriods, identities)
 		if err != nil {
 			return RenewalLookupView{}, err
 		}
@@ -272,6 +278,10 @@ func (service *SubscriptionService) ListRenewalApplicationsView(status string) (
 	if err != nil {
 		return nil, err
 	}
+	identities, err := service.accountIdentities()
+	if err != nil {
+		return nil, err
+	}
 	views := make([]RenewalApplicationView, 0, len(applications))
 	for _, application := range applications {
 		if application.PeriodCount <= 0 {
@@ -298,12 +308,9 @@ func (service *SubscriptionService) ListRenewalApplicationsView(status string) (
 				}
 			}
 			if subscription.AccountID > 0 {
-				account, accountErr := service.Store.GetAccount(subscription.AccountID)
-				if accountErr != nil && accountErr != sql.ErrNoRows {
-					return nil, accountErr
-				}
-				if accountErr == nil {
-					view.AccountSerial = accountDisplaySerial(account)
+				if account, exists := identities.accounts[subscription.AccountID]; exists {
+					view.AccountSerial = identities.identity(account.ID).Serial
+					view.AccountDisplayEmail = identities.identity(account.ID).Email
 					view.AccountEmail = account.Email
 				}
 			}
@@ -389,8 +396,13 @@ func (service *SubscriptionService) RejectRenewalApplication(applicationID int64
 func (service *SubscriptionService) buildRenewalSubscriptionView(
 	subscription model.Subscription,
 	pendingPeriods map[string]struct{},
+	supplied ...accountIdentityIndex,
 ) (RenewalSubscriptionView, error) {
-	view, err := service.buildView(subscription, service.now(), "")
+	identities, err := service.accountIdentities(supplied...)
+	if err != nil {
+		return RenewalSubscriptionView{}, err
+	}
+	view, err := service.buildView(subscription, service.now(), "", identities)
 	if err != nil {
 		return RenewalSubscriptionView{}, err
 	}
@@ -419,13 +431,8 @@ func (service *SubscriptionService) buildRenewalSubscriptionView(
 	}
 	result.AmountYuan = result.PeriodOptions[0].AmountYuan
 	result.PeriodEndDate = result.PeriodOptions[0].PeriodEndDate
-	if subscription.AccountID > 0 {
-		account, accountErr := service.Store.GetAccount(subscription.AccountID)
-		if accountErr != nil {
-			return RenewalSubscriptionView{}, accountErr
-		}
-		result.AccountSerial = accountDisplaySerial(account)
-	}
+	result.AccountSerial = identities.identity(subscription.AccountID).Serial
+	result.AccountDisplayEmail = identities.identity(subscription.AccountID).Email
 	switch {
 	case result.DaysRemaining < 0:
 		result.StatusLabel = fmt.Sprintf("已逾期 %d 天", -result.DaysRemaining)
