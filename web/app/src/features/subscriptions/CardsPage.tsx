@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Clock3,
   Ellipsis,
+  Gift,
   Mail,
   Pencil,
   Receipt,
@@ -17,8 +18,12 @@ import {
 
 import { archiveSubscription, deleteMistakenTeamSubscription } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
-import { useCalendar, useDashboard, useSubscriptions } from "@/api/queries"
-import type { CalendarOccurrence, SubscriptionView } from "@/api/types"
+import { useCalendar, useDashboard, useGoals, useSubscriptions } from "@/api/queries"
+import type {
+  CalendarOccurrence,
+  CustomerBenefitCandidate,
+  SubscriptionView,
+} from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
 import { DueStatusBadge } from "@/components/due-status-badge"
 import { WeChatIcon } from "@/components/icons/wechat-icon"
@@ -59,6 +64,7 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDialog"
+import { CustomerBenefitDialog } from "@/features/goals/CustomerBenefitDialog"
 import { accountSerialSearchTerms, formatAccountLabel } from "@/lib/account-display"
 import { cn, compareISODateStrings } from "@/lib/utils"
 import { ReminderPreviewDialog } from "./ReminderPreviewDialog"
@@ -66,6 +72,11 @@ import { SubscriptionDialog } from "./SubscriptionDialog"
 import { prefillFromView, type SubscriptionPrefill } from "./subscription-prefill"
 
 type CardsFilter = "all" | "due" | "pending" | "paid" | "archived"
+
+type BenefitTarget = {
+  candidate: CustomerBenefitCandidate
+  label: string
+} | null
 
 const EMPTY_SUBSCRIPTION_VIEWS: SubscriptionView[] = []
 const USERS_PER_PAGE = 9
@@ -211,6 +222,11 @@ function SubscriptionCard({
   onArchive,
   onDelete,
   onGoAfterSales,
+  benefitCandidate,
+  benefitLoading,
+  benefitError,
+  onGiveBenefit,
+  onRetryBenefits,
 }: {
   view: SubscriptionView
   index: number
@@ -220,6 +236,11 @@ function SubscriptionCard({
   onArchive: (view: SubscriptionView) => void
   onDelete: (view: SubscriptionView) => void
   onGoAfterSales: (caseId: number) => void
+  benefitCandidate: CustomerBenefitCandidate | null
+  benefitLoading: boolean
+  benefitError: boolean
+  onGiveBenefit: (candidate: CustomerBenefitCandidate) => void
+  onRetryBenefits: () => void
 }) {
   const { t } = useTranslation()
   const subscription = view.subscription
@@ -230,6 +251,13 @@ function SubscriptionCard({
   const displayedCostYuan = view.allocated_cost_yuan || view.cost_yuan
   const displayedProfitYuan = view.allocated_profit_yuan || view.profit_yuan
   const accountBadgeStyle = teamAccountBadgeStyle(view.account_serial)
+  const benefitButtonLabel = benefitLoading
+    ? t("cards.benefitLoading")
+    : benefitError
+      ? t("cards.benefitLoadFailed")
+      : benefitCandidate?.selectable
+        ? t("cards.giveBenefit")
+        : t("cards.benefitUnavailable")
   const accentClass = archived || cancellationPending
     ? "bg-muted-foreground/35"
     : view.days_remaining <= 0
@@ -294,6 +322,25 @@ function SubscriptionCard({
           />
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          {!archived && !cancellationPending ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0 border border-gold/25 bg-gold/[0.08] text-gold shadow-sm hover:bg-gold/[0.16] hover:text-gold disabled:border-border/60 disabled:bg-muted/45 disabled:text-muted-foreground/45 disabled:shadow-none"
+              disabled={benefitLoading || (!benefitError && !benefitCandidate?.selectable)}
+              aria-label={benefitButtonLabel}
+              title={benefitButtonLabel}
+              onClick={() => {
+                if (benefitError) {
+                  onRetryBenefits()
+                  return
+                }
+                if (benefitCandidate?.selectable) onGiveBenefit(benefitCandidate)
+              }}
+            >
+              <Gift aria-hidden="true" />
+            </Button>
+          ) : null}
           {cancellationPending ? (
             <Badge variant="secondary" className="shrink-0 font-normal">
               <Clock3 />
@@ -439,12 +486,14 @@ export function CardsPage() {
   const { refetch: refetchSubscriptions } = subscriptionsQuery
   const dashboardQuery = useDashboard()
   const calendarQuery = useCalendar()
+  const goalsQuery = useGoals()
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<SubscriptionPrefill | null>(null)
   const [duePaidTarget, setDuePaidTarget] = React.useState<DuePaidTarget | null>(null)
   const [reminderId, setReminderId] = React.useState<number | null>(null)
   const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
+  const [benefitTarget, setBenefitTarget] = React.useState<BenefitTarget>(null)
   const [archiveTarget, setArchiveTarget] = React.useState<{
     id: number
     name: string
@@ -520,6 +569,20 @@ export function CardsPage() {
     [subscriptionsQuery.data?.archived],
   )
   const calendar = calendarQuery.data
+
+  const benefitCandidatesBySubscriptionID = React.useMemo(() => {
+    const candidates = goalsQuery.data?.customer_care.candidates ?? []
+    const candidatesByID = new Map<number, CustomerBenefitCandidate>()
+    for (const candidate of candidates) {
+      const subscriptionIDs = candidate.subscription_ids?.length
+        ? candidate.subscription_ids
+        : [candidate.subscription_id]
+      for (const subscriptionID of subscriptionIDs) {
+        candidatesByID.set(subscriptionID, candidate)
+      }
+    }
+    return candidatesByID
+  }, [goalsQuery.data?.customer_care.candidates])
 
   const nextCancellationExpiry = React.useMemo(() => {
     const expiries = activeViews
@@ -815,6 +878,24 @@ export function CardsPage() {
                   })
                 }
                 onGoAfterSales={(caseId) => navigate(`/after-sales?case=${caseId}`)}
+                benefitCandidate={
+                  benefitCandidatesBySubscriptionID.get(view.subscription.id) ?? null
+                }
+                benefitLoading={goalsQuery.isPending}
+                benefitError={goalsQuery.isError}
+                onGiveBenefit={(candidate) =>
+                  setBenefitTarget({
+                    candidate,
+                    label:
+                      candidate.display_name ||
+                      candidate.customer_email ||
+                      candidate.customer_wechat ||
+                      view.subscription.name,
+                  })
+                }
+                onRetryBenefits={() => {
+                  void goalsQuery.refetch()
+                }}
               />
             ))}
           </div>
@@ -852,6 +933,15 @@ export function CardsPage() {
       )}
 
       <SubscriptionDialog open={dialogOpen} onOpenChange={setDialogOpen} prefill={editing} />
+      <CustomerBenefitDialog
+        open={benefitTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setBenefitTarget(null)
+        }}
+        subscriptionIds={benefitTarget ? [benefitTarget.candidate.subscription_id] : []}
+        suggestedType={benefitTarget?.candidate.suggested_benefit_type}
+        targetLabel={benefitTarget?.label}
+      />
       <DuePaidDialog
         open={duePaidTarget !== null}
         onOpenChange={(open) => {

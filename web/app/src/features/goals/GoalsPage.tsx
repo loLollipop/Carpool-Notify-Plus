@@ -42,7 +42,6 @@ import {
   completeBusinessGoal,
   createBusinessGoal,
   exemptGoalBulkPricing,
-  recordGoalCustomerBenefits,
   refreshGoalMarket,
   scheduleGoalBulkNextPrice,
   scheduleGoalManualNextPrices,
@@ -62,7 +61,6 @@ import type {
   ForecastScenario,
   GoalCenter,
   PricingCandidate,
-  RecordCustomerBenefitsInput,
 } from "@/api/types"
 import { AmountPrivacyToggle } from "@/components/amount-privacy-toggle"
 import { ConfirmDialog } from "@/components/confirm-dialog"
@@ -106,6 +104,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { maskAmount } from "@/lib/amount-privacy"
 import { cn } from "@/lib/utils"
+import { CustomerBenefitDialog } from "./CustomerBenefitDialog"
 
 function yuan(cents: number) {
   return `\u00a5${(cents / 100).toLocaleString("zh-CN", {
@@ -143,18 +142,6 @@ function repricingDetailAmountCents(
 
 function inputYuan(cents: number) {
   return (cents / 100).toFixed(2)
-}
-
-function shanghaiToday() {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: "Asia/Shanghai",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date())
-  const value = (type: "year" | "month" | "day") =>
-    parts.find((part) => part.type === type)?.value ?? ""
-  return `${value("year")}-${value("month")}-${value("day")}`
 }
 
 function GoalDialog({
@@ -2944,6 +2931,7 @@ function BulkPricingPanel({
 }
 
 const customerCarePageSize = 8
+const monthlyOutcomePageSize = 32
 
 type MonthlyOutcomeEvent = {
   date: string
@@ -2953,12 +2941,6 @@ type MonthlyOutcomeEvent = {
 type MonthlyOutcomeDot = {
   date: string | null
   kind: "neutral" | MonthlyOutcomeEvent["kind"]
-}
-
-function daysInLifecycleMonth(month: string) {
-  const [year, monthNumber] = month.split("-").map(Number)
-  if (!Number.isInteger(year) || !Number.isInteger(monthNumber)) return 30
-  return new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()
 }
 
 function monthlyOutcomeSummary(renewals: number, churns: number) {
@@ -2973,33 +2955,30 @@ function monthlyOutcomeSummary(renewals: number, churns: number) {
   }
 }
 
-function monthlyOutcomeTimeline(
-  month: string,
-  recordedOutcomes: MonthlyOutcomeEvent[],
-) {
-  const dayCount = daysInLifecycleMonth(month)
+function monthlyOutcomePage(recordedOutcomes: MonthlyOutcomeEvent[]) {
   const outcomes = [...recordedOutcomes]
     .sort((left, right) => left.date.localeCompare(right.date))
-  const slotCount = Math.max(dayCount, outcomes.length)
-  const dots: MonthlyOutcomeDot[] = Array.from({ length: slotCount }, () => ({
-    date: null,
-    kind: "neutral",
-  }))
-  let previousSlot = -1
+  const page = Math.floor(outcomes.length / monthlyOutcomePageSize) + 1
+  const pageCount = page
+  const pageOutcomes = outcomes.slice(
+    (page - 1) * monthlyOutcomePageSize,
+    page * monthlyOutcomePageSize,
+  )
+  const dots: MonthlyOutcomeDot[] = [
+    ...pageOutcomes,
+    ...Array.from(
+      { length: monthlyOutcomePageSize - pageOutcomes.length },
+      (): MonthlyOutcomeDot => ({ date: null, kind: "neutral" }),
+    ),
+  ]
 
-  outcomes.forEach((outcome, index) => {
-    const parsedDay = Number(outcome.date.slice(-2))
-    const day = Number.isInteger(parsedDay)
-      ? Math.min(dayCount, Math.max(1, parsedDay))
-      : 1 + Math.round((index * (dayCount - 1)) / Math.max(outcomes.length - 1, 1))
-    const preferredSlot = Math.round(((day - 1) * (slotCount - 1)) / Math.max(dayCount - 1, 1))
-    const lastAvailableSlot = slotCount - (outcomes.length - index)
-    const slot = Math.max(previousSlot + 1, Math.min(preferredSlot, lastAvailableSlot))
-    dots[slot] = outcome
-    previousSlot = slot
-  })
-
-  return dots
+  return {
+    dots,
+    outcomes: pageOutcomes,
+    page,
+    pageCount,
+    filledCount: pageOutcomes.length,
+  }
 }
 
 function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
@@ -3162,11 +3141,8 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                   )
                   const hasCompleteOutcomeDetails = month.outcomes.length === outcomeCount
                   const recordedOutcomes = hasCompleteOutcomeDetails ? month.outcomes : []
-                  const outcomeDots = monthlyOutcomeTimeline(
-                    month.month,
-                    recordedOutcomes,
-                  )
-                  const outcomeSequence = recordedOutcomes
+                  const outcomePage = monthlyOutcomePage(recordedOutcomes)
+                  const outcomeSequence = outcomePage.outcomes
                     .map((outcome) => t(
                       `goals.care.prediction.outcomeEvent.${outcome.kind}`,
                       { date: outcome.date },
@@ -3180,6 +3156,12 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                         churns: month.churns,
                         share: renewalShare,
                       })
+                  const outcomePageAriaLabel = t("goals.care.prediction.outcomePageAria", {
+                    current: outcomePage.page,
+                    total: outcomePage.pageCount,
+                    count: outcomePage.filledCount,
+                    capacity: monthlyOutcomePageSize,
+                  })
 
                   return (
                     <div
@@ -3187,10 +3169,10 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                       className="relative overflow-hidden rounded-xl border border-border/65 bg-card/80 px-3 py-3 shadow-sm"
                       role="listitem"
                       aria-label={outcomeSequence
-                        ? `${monthAriaLabel}。${t("goals.care.prediction.outcomeSequenceAria", {
+                        ? `${monthAriaLabel}。${outcomePageAriaLabel}。${t("goals.care.prediction.outcomeSequenceAria", {
                             events: outcomeSequence,
                           })}`
-                        : monthAriaLabel}
+                        : `${monthAriaLabel}。${outcomePageAriaLabel}`}
                     >
                       <div aria-hidden="true" className="absolute inset-x-0 top-0 h-px bg-border/90" />
                       <div className="flex items-baseline justify-between gap-3">
@@ -3208,10 +3190,12 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
 
                       <div className="mt-2.5 rounded-lg border border-border/45 bg-muted/[0.14] px-3 py-2.5">
                         <div
-                          className="mx-auto grid w-full max-w-[240px] grid-cols-8 justify-items-center gap-x-2.5 gap-y-2"
+                          className="mx-auto grid w-full max-w-[240px] grid-cols-8 grid-rows-4 justify-items-center gap-x-2.5 gap-y-2"
+                          data-outcome-page={outcomePage.page}
+                          data-outcome-page-count={outcomePage.pageCount}
                           aria-hidden="true"
                         >
-                          {outcomeDots.map((dot, index) => (
+                          {outcomePage.dots.map((dot, index) => (
                             <span
                               key={index}
                               data-outcome-kind={dot.kind}
@@ -3233,8 +3217,18 @@ function PredictionReadinessPanel({ data }: { data: GoalCenter }) {
                           ))}
                         </div>
                         <div className="mt-2 flex items-center justify-between text-[9px] text-muted-foreground/55">
-                          <span>{t("goals.care.prediction.timelineStart")}</span>
-                          <span>{t("goals.care.prediction.timelineEnd")}</span>
+                          <span>
+                            {t("goals.care.prediction.outcomePage", {
+                              current: outcomePage.page,
+                              total: outcomePage.pageCount,
+                            })}
+                          </span>
+                          <span>
+                            {t("goals.care.prediction.outcomePageFill", {
+                              count: outcomePage.filledCount,
+                              capacity: monthlyOutcomePageSize,
+                            })}
+                          </span>
                         </div>
                       </div>
 
@@ -3501,23 +3495,8 @@ function CustomerCarePanel({
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [historyOpen, setHistoryOpen] = React.useState(false)
   const [statDetail, setStatDetail] = React.useState<StatDetailState | null>(null)
-  const [benefitType, setBenefitType] = React.useState<CustomerBenefitType>("extension")
-  const [benefitName, setBenefitName] = React.useState("")
-  const [actualCost, setActualCost] = React.useState("")
-  const [perceivedValue, setPerceivedValue] = React.useState("")
-  const [benefitDate, setBenefitDate] = React.useState(shanghaiToday)
-  const [note, setNote] = React.useState("")
-
-  const mutation = useAppMutation(
-    (input: RecordCustomerBenefitsInput) => recordGoalCustomerBenefits(input),
-    {
-      scope: "goals",
-      onSuccess: () => {
-        setDialogOpen(false)
-        setSelected(new Set())
-      },
-    },
-  )
+  const [suggestedBenefitType, setSuggestedBenefitType] =
+    React.useState<CustomerBenefitType>("extension")
 
   const validSelected = React.useMemo(() => {
     const selectableIDs = new Set(
@@ -3604,12 +3583,7 @@ function CustomerCarePanel({
     )
     const suggestedType =
       suggestedTypes.size === 1 ? [...suggestedTypes][0] : "extension"
-    setBenefitType(suggestedType)
-    setBenefitName(t(`goals.care.defaultBenefitName.${suggestedType}`))
-    setActualCost("")
-    setPerceivedValue("")
-    setBenefitDate(shanghaiToday())
-    setNote("")
+    setSuggestedBenefitType(suggestedType)
     setDialogOpen(true)
   }
 
@@ -3945,137 +3919,14 @@ function CustomerCarePanel({
         amountsHidden={amountsHidden}
       />
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent aria-describedby={undefined} className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>{t("goals.care.dialog.title")}</DialogTitle>
-          </DialogHeader>
-          <form
-            className="grid gap-4"
-            onSubmit={(event) => {
-              event.preventDefault()
-              mutation.mutate({
-                subscription_ids: selectedCandidates.map((candidate) => candidate.subscription_id),
-                benefit_type: benefitType,
-                benefit_name: benefitName,
-                actual_cost_yuan: actualCost,
-                perceived_value_yuan: perceivedValue,
-                benefit_date: benefitDate,
-                note,
-              })
-            }}
-          >
-            <div className="rounded-md border bg-muted/25 p-3 text-xs leading-5 text-muted-foreground">
-              {t("goals.care.dialog.summary", { count: selectedCandidates.length })}
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="benefit-type">{t("goals.care.dialog.type")}</Label>
-                <Select
-                  value={benefitType}
-                  onValueChange={(value) => {
-                    const nextType = value as CustomerBenefitType
-                    setBenefitType(nextType)
-                    setBenefitName(t(`goals.care.defaultBenefitName.${nextType}`))
-                  }}
-                >
-                  <SelectTrigger id="benefit-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(
-                      ["extension", "price_discount"] as CustomerBenefitType[]
-                    ).map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {t(`goals.care.benefitType.${type}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="benefit-date">{t("goals.care.dialog.date")}</Label>
-                <Input
-                  id="benefit-date"
-                  type="date"
-                  max={shanghaiToday()}
-                  value={benefitDate}
-                  onChange={(event) => setBenefitDate(event.target.value)}
-                  required
-                />
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="benefit-name">{t("goals.care.dialog.name")}</Label>
-              <Input
-                id="benefit-name"
-                value={benefitName}
-                onChange={(event) => setBenefitName(event.target.value)}
-                placeholder={t(`goals.care.dialog.namePlaceholder.${benefitType}`)}
-                required
-              />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label htmlFor="benefit-cost">{t("goals.care.dialog.actualCost")}</Label>
-                <div className="relative">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
-                  <Input
-                    id="benefit-cost"
-                    className="pl-7 tabular-nums"
-                    inputMode="decimal"
-                    value={actualCost}
-                    onChange={(event) => setActualCost(event.target.value)}
-                    placeholder="0.00"
-                  />
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  {t("goals.care.dialog.actualCostHint")}
-                </p>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="benefit-value">{t("goals.care.dialog.perceivedValue")}</Label>
-                <div className="relative">
-                  <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
-                  <Input
-                    id="benefit-value"
-                    className="pl-7 tabular-nums"
-                    inputMode="decimal"
-                    value={perceivedValue}
-                    onChange={(event) => setPerceivedValue(event.target.value)}
-                    placeholder="0.00"
-                  />
-                </div>
-                <p className="text-[11px] text-muted-foreground">
-                  {t("goals.care.dialog.perceivedValueHint")}
-                </p>
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="benefit-note">{t("goals.care.dialog.note")}</Label>
-              <Textarea
-                id="benefit-note"
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                placeholder={t("goals.care.dialog.notePlaceholder")}
-                rows={3}
-              />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                {t("common.cancel")}
-              </Button>
-              <Button
-                type="submit"
-                disabled={mutation.isPending || selectedCandidates.length === 0 || !benefitName.trim()}
-              >
-                <Gift />
-                {mutation.isPending ? t("common.saving") : t("goals.care.dialog.confirm")}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <CustomerBenefitDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        subscriptionIds={selectedCandidates.map((candidate) => candidate.subscription_id)}
+        suggestedType={suggestedBenefitType}
+        targetLabel={selectedCandidates.length === 1 ? selectedCandidates[0].display_name : undefined}
+        onSuccess={() => setSelected(new Set())}
+      />
       <StatDetailDialog
         open={statDetail !== null}
         onOpenChange={(open) => {

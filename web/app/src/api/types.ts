@@ -1082,6 +1082,7 @@ export type CustomerBenefitType =
 
 export interface CustomerBenefitCandidate {
   subscription_id: number
+  subscription_ids?: number[] | null
   customer_email: string
   customer_wechat: string
   display_name: string

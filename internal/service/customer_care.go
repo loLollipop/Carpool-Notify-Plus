@@ -31,26 +31,27 @@ const (
 )
 
 type CustomerBenefitCandidate struct {
-	SubscriptionID         int64  `json:"subscription_id"`
-	CustomerEmail          string `json:"customer_email"`
-	CustomerWechat         string `json:"customer_wechat"`
-	DisplayName            string `json:"display_name"`
-	CustomerTier           string `json:"customer_tier"`
-	SeatCount              int    `json:"seat_count"`
-	CurrentCycleValueCents int64  `json:"current_cycle_value_cents"`
-	MonthlyValueCents      int64  `json:"monthly_value_cents"`
-	RenewalCount           int    `json:"renewal_count"`
-	RelationshipDays       int    `json:"relationship_days"`
-	NextDueDate            string `json:"next_due_date"`
-	LastPaidDate           string `json:"last_paid_date"`
-	LastBenefitDate        string `json:"last_benefit_date"`
-	NextEligibleDate       string `json:"next_eligible_date"`
-	RecommendedDate        string `json:"recommended_date"`
-	ReasonCode             string `json:"reason_code"`
-	SuggestedBenefitType   string `json:"suggested_benefit_type"`
-	Status                 string `json:"status"`
-	Recommended            bool   `json:"recommended"`
-	Selectable             bool   `json:"selectable"`
+	SubscriptionID         int64   `json:"subscription_id"`
+	SubscriptionIDs        []int64 `json:"subscription_ids"`
+	CustomerEmail          string  `json:"customer_email"`
+	CustomerWechat         string  `json:"customer_wechat"`
+	DisplayName            string  `json:"display_name"`
+	CustomerTier           string  `json:"customer_tier"`
+	SeatCount              int     `json:"seat_count"`
+	CurrentCycleValueCents int64   `json:"current_cycle_value_cents"`
+	MonthlyValueCents      int64   `json:"monthly_value_cents"`
+	RenewalCount           int     `json:"renewal_count"`
+	RelationshipDays       int     `json:"relationship_days"`
+	NextDueDate            string  `json:"next_due_date"`
+	LastPaidDate           string  `json:"last_paid_date"`
+	LastBenefitDate        string  `json:"last_benefit_date"`
+	NextEligibleDate       string  `json:"next_eligible_date"`
+	RecommendedDate        string  `json:"recommended_date"`
+	ReasonCode             string  `json:"reason_code"`
+	SuggestedBenefitType   string  `json:"suggested_benefit_type"`
+	Status                 string  `json:"status"`
+	Recommended            bool    `json:"recommended"`
+	Selectable             bool    `json:"selectable"`
 }
 
 type CustomerBenefitView struct {
@@ -286,6 +287,7 @@ func buildCustomerBenefitCandidate(
 	representative := group.Members[0]
 	candidate := CustomerBenefitCandidate{
 		SubscriptionID:         representative.SubscriptionID,
+		SubscriptionIDs:        make([]int64, 0, len(group.Members)),
 		CustomerEmail:          representative.CustomerEmail,
 		CustomerWechat:         representative.CustomerWechat,
 		DisplayName:            representative.Name,
@@ -307,6 +309,7 @@ func buildCustomerBenefitCandidate(
 	// now have one auditable meaning: normalized monthly customer revenue.
 	candidate.CurrentCycleValueCents = candidate.MonthlyValueCents
 	for _, member := range group.Members {
+		candidate.SubscriptionIDs = append(candidate.SubscriptionIDs, member.SubscriptionID)
 		if candidate.CustomerEmail == "" && member.CustomerEmail != "" {
 			candidate.CustomerEmail = member.CustomerEmail
 		}

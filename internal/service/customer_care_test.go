@@ -434,6 +434,9 @@ func TestCustomerCareMergesMultiSeatIdentityAndStartsCooldown(t *testing.T) {
 		candidate.ReasonCode != "first_renewal" || candidate.CurrentCycleValueCents != 20000 {
 		t.Fatalf("merged care candidate = %#v", candidate)
 	}
+	if !reflect.DeepEqual(candidate.SubscriptionIDs, ids) {
+		t.Fatalf("candidate subscription IDs = %#v, want %#v", candidate.SubscriptionIDs, ids)
+	}
 
 	if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
 		SubscriptionIDs:    []int64{candidate.SubscriptionID},
