@@ -40,11 +40,11 @@ func TestScheduledNextPriceProtectsCurrentPeriodAndAppliesOnRenewal(t *testing.T
 	}
 
 	input.NextPriceYuan = "45.00"
-	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+	if err := subscriptionService.Update(subscriptionID, withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input)); err != nil {
 		t.Fatal(err)
 	}
 	input.Remark = "保留已安排调价"
-	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+	if err := subscriptionService.Update(subscriptionID, withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input)); err != nil {
 		t.Fatal(err)
 	}
 	updated, err := subscriptionService.Get(subscriptionID)
@@ -344,7 +344,7 @@ func TestScheduledPriceIncreaseSendsAdvanceNotice(t *testing.T) {
 		t.Fatal(err)
 	}
 	input.NextPriceYuan = "108.00"
-	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+	if err := subscriptionService.Update(subscriptionID, withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input)); err != nil {
 		t.Fatal(err)
 	}
 	subscription, err := subscriptionService.Get(subscriptionID)
@@ -462,7 +462,7 @@ func TestScheduledPriceDecreaseUsesDiscountCustomerTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	input.NextPriceYuan = "25.00"
-	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+	if err := subscriptionService.Update(subscriptionID, withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input)); err != nil {
 		t.Fatal(err)
 	}
 	_, subject, body, err := subscriptionService.PreviewCustomerEmail(subscriptionID)
@@ -494,11 +494,11 @@ func TestScheduledNextPriceCanBeCancelled(t *testing.T) {
 		t.Fatal(err)
 	}
 	input.NextPriceYuan = "45.00"
-	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+	if err := subscriptionService.Update(subscriptionID, withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input)); err != nil {
 		t.Fatal(err)
 	}
 	input.NextPriceYuan = ""
-	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+	if err := subscriptionService.Update(subscriptionID, withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input)); err != nil {
 		t.Fatal(err)
 	}
 	subscription, err := subscriptionService.Get(subscriptionID)
@@ -540,7 +540,7 @@ func TestCanceledPriceIncreaseNoticeIsNotRetriedAsRegularEmail(t *testing.T) {
 		t.Fatal(err)
 	}
 	input.NextPriceYuan = "108.00"
-	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+	if err := subscriptionService.Update(subscriptionID, withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := subscriptionService.Store.UpsertPendingNotification(
@@ -554,7 +554,7 @@ func TestCanceledPriceIncreaseNoticeIsNotRetriedAsRegularEmail(t *testing.T) {
 	}
 
 	input.NextPriceYuan = ""
-	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+	if err := subscriptionService.Update(subscriptionID, withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input)); err != nil {
 		t.Fatal(err)
 	}
 	recorder := &recordingSender{}
@@ -600,7 +600,7 @@ func TestPlusNextPriceKeepsCostSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	input.NextPriceYuan = "78.00"
-	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+	if err := subscriptionService.Update(subscriptionID, withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input)); err != nil {
 		t.Fatal(err)
 	}
 	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-07-31", true); err != nil {
@@ -640,7 +640,7 @@ func TestScheduledNextPriceSupportsDecreaseAndUsesDiscountTemplate(t *testing.T)
 		t.Fatal(err)
 	}
 	input.NextPriceYuan = "80.00"
-	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+	if err := subscriptionService.Update(subscriptionID, withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input)); err != nil {
 		t.Fatal(err)
 	}
 	updated, err := subscriptionService.Get(subscriptionID)

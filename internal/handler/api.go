@@ -12,6 +12,7 @@ import (
 
 	"carpool-notify/internal/config"
 	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 	"carpool-notify/internal/notify"
 	"carpool-notify/internal/service"
@@ -767,20 +768,21 @@ func (server *Server) postRejectRenewalApplication(context *gin.Context) {
 // ---- Subscription mutations ---------------------------------------------------
 
 type subscriptionRequest struct {
-	Name           string `json:"name"`
-	BusinessType   string `json:"business_type"`
-	PriceYuan      string `json:"price_yuan"`
-	NextPriceYuan  string `json:"next_price_yuan"`
-	CostYuan       string `json:"cost_yuan"`
-	CronExpr       string `json:"cron_expr"`
-	NotifyOffsets  []int  `json:"notify_offsets"`
-	Remark         string `json:"remark"`
-	TradeURL       string `json:"trade_url"`
-	CustomerEmail  string `json:"customer_email"`
-	CustomerWechat string `json:"customer_wechat"`
-	AccountID      int64  `json:"account_id"`
-	SeatID         int64  `json:"seat_id"`
-	BoardedAt      string `json:"boarded_at"`
+	ExpectedUpdatedAt string `json:"expected_updated_at"`
+	Name              string `json:"name"`
+	BusinessType      string `json:"business_type"`
+	PriceYuan         string `json:"price_yuan"`
+	NextPriceYuan     string `json:"next_price_yuan"`
+	CostYuan          string `json:"cost_yuan"`
+	CronExpr          string `json:"cron_expr"`
+	NotifyOffsets     []int  `json:"notify_offsets"`
+	Remark            string `json:"remark"`
+	TradeURL          string `json:"trade_url"`
+	CustomerEmail     string `json:"customer_email"`
+	CustomerWechat    string `json:"customer_wechat"`
+	AccountID         int64  `json:"account_id"`
+	SeatID            int64  `json:"seat_id"`
+	BoardedAt         string `json:"boarded_at"`
 }
 
 func offsetsToRaw(offsets []int) string {
@@ -793,20 +795,21 @@ func offsetsToRaw(offsets []int) string {
 
 func (request subscriptionRequest) toCreateInput() service.CreateInput {
 	return service.CreateInput{
-		Name:             request.Name,
-		BusinessType:     request.BusinessType,
-		PriceYuan:        request.PriceYuan,
-		NextPriceYuan:    request.NextPriceYuan,
-		CostYuan:         request.CostYuan,
-		CronExpr:         request.CronExpr,
-		NotifyOffsetsRaw: offsetsToRaw(request.NotifyOffsets),
-		Remark:           request.Remark,
-		TradeURL:         request.TradeURL,
-		CustomerEmail:    request.CustomerEmail,
-		CustomerWechat:   request.CustomerWechat,
-		AccountID:        request.AccountID,
-		SeatID:           request.SeatID,
-		BoardedAt:        request.BoardedAt,
+		ExpectedUpdatedAt: request.ExpectedUpdatedAt,
+		Name:              request.Name,
+		BusinessType:      request.BusinessType,
+		PriceYuan:         request.PriceYuan,
+		NextPriceYuan:     request.NextPriceYuan,
+		CostYuan:          request.CostYuan,
+		CronExpr:          request.CronExpr,
+		NotifyOffsetsRaw:  offsetsToRaw(request.NotifyOffsets),
+		Remark:            request.Remark,
+		TradeURL:          request.TradeURL,
+		CustomerEmail:     request.CustomerEmail,
+		CustomerWechat:    request.CustomerWechat,
+		AccountID:         request.AccountID,
+		SeatID:            request.SeatID,
+		BoardedAt:         request.BoardedAt,
 	}
 }
 
@@ -944,6 +947,10 @@ func (server *Server) putUpdateSubscription(context *gin.Context) {
 		return
 	}
 	if err := server.Service.Update(subscriptionID, request.toCreateInput()); err != nil {
+		if errors.Is(err, db.ErrSubscriptionStateChanged) {
+			respondError(context, http.StatusConflict, err.Error())
+			return
+		}
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
 	}

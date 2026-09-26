@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -182,8 +183,23 @@ func loadConfig(configPath string) (Config, error) {
 	if configuration.SessionSecret == "" {
 		return Config{}, fmt.Errorf("server.session_secret is required (config.toml or CARPOOL_SESSION_SECRET)")
 	}
+	if isPlaceholderCredential(configuration.Password) || utf8.RuneCountInString(configuration.Password) < 8 {
+		return Config{}, fmt.Errorf("server.password must contain at least 8 characters and must not use an example placeholder")
+	}
+	if isPlaceholderCredential(configuration.SessionSecret) || len(configuration.SessionSecret) < 32 {
+		return Config{}, fmt.Errorf("server.session_secret must contain at least 32 bytes of random secret material and must not use an example placeholder")
+	}
 
 	return configuration, nil
+}
+
+func isPlaceholderCredential(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "change-me", "change-me-to-a-long-random-string":
+		return true
+	default:
+		return false
+	}
 }
 
 // GotifyConfigured reports whether Gotify credentials are present.

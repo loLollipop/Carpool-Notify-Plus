@@ -746,14 +746,15 @@ func TestPendingAccountBanAfterSalesBlocksSubscriptionSideDoors(t *testing.T) {
 			name: "edit",
 			run: func() error {
 				return subscriptionService.Update(subscriptionID, service.CreateInput{
-					Name:             "不应保存的新名称",
-					PriceYuan:        "35.00",
-					CronExpr:         "interval:30d",
-					NotifyOffsetsRaw: "0",
-					CustomerEmail:    "customer@example.com",
-					CustomerWechat:   "wx-customer",
-					SeatID:           seats[0].ID,
-					BoardedAt:        "2026-08-01",
+					ExpectedUpdatedAt: currentSubscriptionVersion(t, subscriptionService, subscriptionID),
+					Name:              "不应保存的新名称",
+					PriceYuan:         "35.00",
+					CronExpr:          "interval:30d",
+					NotifyOffsetsRaw:  "0",
+					CustomerEmail:     "customer@example.com",
+					CustomerWechat:    "wx-customer",
+					SeatID:            seats[0].ID,
+					BoardedAt:         "2026-08-01",
 				})
 			},
 		},
@@ -815,8 +816,8 @@ func TestPendingAccountBanAfterSalesSuppressesQueuedNotificationRetry(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
-		t.Fatal(err)
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err == nil || !strings.Contains(err.Error(), "temporary failure") {
+		t.Fatalf("initial send error = %v, want transport failure", err)
 	}
 	if failing.calls != 1 {
 		t.Fatalf("initial notification attempts = %d, want 1", failing.calls)

@@ -10,10 +10,13 @@
 listen = ":8080"
 # SQLite 数据库路径
 db_path = "./data/carpool.db"
-# 登录密码（必填）
-password = "change-me"
-# Session 签名密钥，请换成足够长的随机串（必填）
-session_secret = "change-me-to-a-long-random-string"
+# 登录密码（必填，至少 8 个字符；建议使用密码管理器生成的长随机密码）
+# 示例占位值 change-me 不可用于启动，请填写自己的密码。
+password = ""
+# Session 签名密钥（必填，至少 32 字节；建议生成 32 随机字节并编码为十六进制）
+# 示例占位值 change-me-to-a-long-random-string 不可用于启动。
+# 更换密钥会使现有登录会话失效；不要把此密钥提交到版本库。
+session_secret = ""
 # HTTPS 部署必须保持 true；仅在本机通过 HTTP 调试时显式改为 false
 session_cookie_secure = true
 

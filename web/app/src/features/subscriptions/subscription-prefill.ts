@@ -6,6 +6,7 @@ import type {
 
 /** Normalized prefill payload for the subscription dialog (edit mode). */
 export interface SubscriptionPrefill {
+  expectedUpdatedAt: string
   id: number
   businessType: SubscriptionBusinessType
   name: string
@@ -37,6 +38,7 @@ function parseOffsetsText(offsetsText: string): number[] {
 export function prefillFromView(view: SubscriptionView): SubscriptionPrefill {
   return {
     id: view.subscription.id,
+    expectedUpdatedAt: view.subscription.updated_at,
     businessType: view.subscription.business_type || "team",
     name: view.subscription.name,
     priceYuan: view.price_yuan,
@@ -59,6 +61,7 @@ export function prefillFromView(view: SubscriptionView): SubscriptionPrefill {
 export function prefillFromSeat(seat: SeatView): SubscriptionPrefill {
   return {
     id: seat.active_subscription_id,
+    expectedUpdatedAt: seat.active_subscription_updated_at,
     businessType: seat.active_business_type || "team",
     name: seat.active_subscription_name,
     priceYuan: seat.active_price_yuan,

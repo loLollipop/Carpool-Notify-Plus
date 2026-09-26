@@ -410,7 +410,7 @@ func TestPlusRentalScheduleEditMovesOnlyInitialBill(t *testing.T) {
 	}
 
 	input.BoardedAt = "2026-07-02"
-	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+	if err := subscriptionService.Update(subscriptionID, withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-07-01"); !errors.Is(err, sql.ErrNoRows) {
@@ -456,7 +456,7 @@ func TestPlusRentalScheduleEditRejectsMultipleBillingPeriods(t *testing.T) {
 	}
 
 	input.BoardedAt = "2026-07-02"
-	err = subscriptionService.Update(subscriptionID, input)
+	err = subscriptionService.Update(subscriptionID, withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input))
 	if err == nil || !strings.Contains(err.Error(), "已有多期账单") {
 		t.Fatalf("schedule edit error = %v, want historical bill guard", err)
 	}

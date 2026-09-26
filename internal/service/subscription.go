@@ -792,11 +792,14 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 
 // CreateInput is validated form input for create/update.
 type CreateInput struct {
-	Name          string
-	BusinessType  string
-	PriceYuan     string
-	NextPriceYuan string
-	CostYuan      string
+	// ExpectedUpdatedAt is the version read when opening an edit form. Required
+	// by Update; ignored when creating a new subscription.
+	ExpectedUpdatedAt string
+	Name              string
+	BusinessType      string
+	PriceYuan         string
+	NextPriceYuan     string
+	CostYuan          string
 	// IsResale marks 串货; AgencyFeeYuan is the middleman fee (may be empty/0).
 	IsResale         bool
 	AgencyFeeYuan    string
@@ -955,9 +958,18 @@ func initialBillDueDate(subscription model.Subscription) (string, error) {
 
 // Update validates and updates a subscription.
 func (service *SubscriptionService) Update(subscriptionID int64, input CreateInput) error {
+	expectedUpdatedAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(input.ExpectedUpdatedAt))
+	if err != nil || expectedUpdatedAt.IsZero() {
+		return db.ErrSubscriptionStateChanged
+	}
 	previous, err := service.Store.GetSubscription(subscriptionID)
 	if err != nil {
 		return err
+	}
+	// Reject stale forms before computing prices or schedules from the current
+	// row. The Store also checks this same client version atomically at write time.
+	if !previous.UpdatedAt.Equal(expectedUpdatedAt) {
+		return db.ErrSubscriptionStateChanged
 	}
 	if err := service.ensureNoPendingAfterSales(subscriptionID, "编辑"); err != nil {
 		return err
@@ -973,6 +985,7 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 		subscription.AgencyFeeCents = previous.AgencyFeeCents
 	}
 	subscription.ID = subscriptionID
+	subscription.UpdatedAt = expectedUpdatedAt
 	scheduleChanged :=
 		(strings.TrimSpace(previous.BoardedAt) != strings.TrimSpace(subscription.BoardedAt) ||
 			strings.TrimSpace(previous.CronExpr) != strings.TrimSpace(subscription.CronExpr))
@@ -1367,6 +1380,9 @@ func (service *SubscriptionService) Copy(subscriptionID int64, targetSeatID int6
 }
 
 func publicSubscriptionMutationError(err error) error {
+	if errors.Is(err, db.ErrSubscriptionStateChanged) {
+		return db.ErrSubscriptionStateChanged
+	}
 	if errors.Is(err, db.ErrSeatReferenceMissing) {
 		return fmt.Errorf("所选车位已不存在，请刷新后选择其他车位")
 	}
@@ -2990,31 +3006,34 @@ func (service *SubscriptionService) sendToEnabledChannels(ctx context.Context, t
 	}
 
 	_, registry := service.runtimeConfigSnapshot()
-	var failures []string
+	var failures []error
 	for _, channel := range enabledChannels {
 		sender, ok := registry.Get(channel)
 		if !ok {
-			failures = append(failures, channel+": not configured")
+			failures = append(failures, fmt.Errorf("%s: not configured", channel))
 			if subscriptionID > 0 {
-				_ = service.Store.InsertTestNotificationLog(subscriptionID, channel, model.NotificationStatusFailed, "channel not configured")
+				if err := service.Store.InsertTestNotificationLog(subscriptionID, channel, model.NotificationStatusFailed, "channel not configured"); err != nil {
+					failures = append(failures, fmt.Errorf("persist %s test notification result: %w", channel, err))
+				}
 			}
 			continue
 		}
 		if err := sender.Send(ctx, title, message); err != nil {
-			failures = append(failures, channel+": "+err.Error())
+			failures = append(failures, fmt.Errorf("%s: %w", channel, err))
 			if subscriptionID > 0 {
-				_ = service.Store.InsertTestNotificationLog(subscriptionID, channel, model.NotificationStatusFailed, err.Error())
+				if logErr := service.Store.InsertTestNotificationLog(subscriptionID, channel, model.NotificationStatusFailed, err.Error()); logErr != nil {
+					failures = append(failures, fmt.Errorf("persist %s test notification result: %w", channel, logErr))
+				}
 			}
 			continue
 		}
 		if subscriptionID > 0 {
-			_ = service.Store.InsertTestNotificationLog(subscriptionID, channel, model.NotificationStatusSuccess, "")
+			if err := service.Store.InsertTestNotificationLog(subscriptionID, channel, model.NotificationStatusSuccess, ""); err != nil {
+				failures = append(failures, fmt.Errorf("persist %s test notification result: %w", channel, err))
+			}
 		}
 	}
-	if len(failures) > 0 {
-		return fmt.Errorf("%s", strings.Join(failures, "; "))
-	}
-	return nil
+	return errors.Join(failures...)
 }
 
 // ProcessDueNotifications plans and sends due scheduled notifications.
@@ -3055,10 +3074,11 @@ func (service *SubscriptionService) ProcessDueNotifications(ctx context.Context)
 	}
 	groups := make([]*digestGroup, 0)
 	groupIndex := map[string]int{}
+	var failures []error
 
 	for _, logEntry := range pendingLogs {
 		if notificationWindowExpired(logEntry, today) {
-			_ = service.Store.MarkNotificationCanceled(logEntry.ID)
+			failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationCanceled(logEntry.ID)))
 			continue
 		}
 		if !notificationSendDateMatches(logEntry, now, today) {
@@ -3066,13 +3086,13 @@ func (service *SubscriptionService) ProcessDueNotifications(ctx context.Context)
 		}
 		expectedChannel, ok := scheduledChannelForOffset(logEntry.OffsetDays)
 		if !ok || logEntry.Channel != expectedChannel {
-			_ = service.Store.MarkNotificationFailure(
+			failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationFailure(
 				logEntry.ID,
 				logEntry.AttemptCount,
 				"scheduled channel no longer used",
 				nil,
 				true,
-			)
+			)))
 			continue
 		}
 		key := logEntry.Channel + "|" + cycle.FormatDate(now)
@@ -3091,10 +3111,10 @@ func (service *SubscriptionService) ProcessDueNotifications(ctx context.Context)
 
 	for _, group := range groups {
 		if err := service.attemptScheduledSend(ctx, group.channel, group.logs); err != nil {
-			continue
+			failures = append(failures, fmt.Errorf("scheduled %s notifications: %w", group.channel, err))
 		}
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
 func (service *SubscriptionService) planSubscription(
@@ -3272,7 +3292,7 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 	_, registry := service.runtimeConfigSnapshot()
 	sender, ok := registry.Get(model.ChannelSMTP)
 
-	var failures []string
+	var failures []error
 	for _, logEntry := range logEntries {
 		if logEntry.Status == model.NotificationStatusSuccess ||
 			logEntry.Status == model.NotificationStatusFailed ||
@@ -3280,33 +3300,33 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 			continue
 		}
 		if logEntry.AttemptCount >= maxAttempts {
-			_ = service.Store.MarkNotificationFailure(logEntry.ID, logEntry.AttemptCount, logEntry.LastError, nil, true)
+			failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationFailure(logEntry.ID, logEntry.AttemptCount, logEntry.LastError, nil, true)))
 			continue
 		}
 		paid, err := service.Store.IsDuePaid(logEntry.SubscriptionID, logEntry.DueDate)
 		if err != nil {
-			return err
+			return errors.Join(append(failures, err)...)
 		}
 		if paid {
-			_ = service.Store.MarkNotificationCanceled(logEntry.ID)
+			failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationCanceled(logEntry.ID)))
 			continue
 		}
 		subscription, err := service.Store.GetSubscription(logEntry.SubscriptionID)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				_ = service.Store.MarkNotificationFailure(logEntry.ID, logEntry.AttemptCount, "subscription missing", nil, true)
+				failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationFailure(logEntry.ID, logEntry.AttemptCount, "subscription missing", nil, true)))
 				continue
 			}
-			return err
+			return errors.Join(append(failures, err)...)
 		}
 		if isPlusSubscription(subscription) {
-			_ = service.Store.MarkNotificationFailure(
+			failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationFailure(
 				logEntry.ID,
 				logEntry.AttemptCount+1,
 				"Plus rentals do not send customer email",
 				nil,
 				true,
-			)
+			)))
 			continue
 		}
 		if logEntry.Kind == model.NotificationKindPriceIncreaseNotice &&
@@ -3314,27 +3334,24 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 			// A failed or interrupted advance notice can outlive the pricing plan
 			// that created it. Close it instead of falling back to the ordinary
 			// renewal template and sending an unexpected email 30 days early.
-			_ = service.Store.MarkNotificationCanceled(logEntry.ID)
+			failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationCanceled(logEntry.ID)))
 			continue
 		}
 		if !ok {
 			logEntry.AttemptCount++
-			_ = service.failWithRetry(logEntry, "smtp is not configured")
-			failures = append(failures, "smtp is not configured")
+			failures = append(failures, errors.New("smtp is not configured"), service.failWithRetry(logEntry, "smtp is not configured"))
 			continue
 		}
 		customerEmail := strings.TrimSpace(subscription.CustomerEmail)
 		if customerEmail == "" {
 			logEntry.AttemptCount = logEntry.AttemptCount + 1
-			_ = service.failWithRetry(logEntry, "customer email missing")
-			failures = append(failures, "customer email missing")
+			failures = append(failures, errors.New("customer email missing"), service.failWithRetry(logEntry, "customer email missing"))
 			continue
 		}
 		dueAt, err := parseTemplateDueDate(logEntry.DueDate)
 		if err != nil {
 			logEntry.AttemptCount = logEntry.AttemptCount + 1
-			_ = service.failWithRetry(logEntry, err.Error())
-			failures = append(failures, err.Error())
+			failures = append(failures, err, service.failWithRetry(logEntry, err.Error()))
 			continue
 		}
 		var message string
@@ -3345,23 +3362,18 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 		}
 		if err != nil {
 			logEntry.AttemptCount = logEntry.AttemptCount + 1
-			_ = service.failWithRetry(logEntry, err.Error())
-			failures = append(failures, err.Error())
+			failures = append(failures, err, service.failWithRetry(logEntry, err.Error()))
 			continue
 		}
 		subject := customerEmailSubjectForNotification(subscription, dueAt, logEntry.Kind)
 		if err := sendCustomerSMTP(ctx, sender, customerEmail, subject, message); err != nil {
 			logEntry.AttemptCount = logEntry.AttemptCount + 1
-			_ = service.failWithRetry(logEntry, err.Error())
-			failures = append(failures, err.Error())
+			failures = append(failures, err, service.failWithRetry(logEntry, err.Error()))
 			continue
 		}
-		_ = service.Store.MarkNotificationSuccess(logEntry.ID, logEntry.AttemptCount+1)
+		failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationSuccess(logEntry.ID, logEntry.AttemptCount+1)))
 	}
-	if len(failures) > 0 {
-		return fmt.Errorf("%s", strings.Join(failures, "; "))
-	}
-	return nil
+	return errors.Join(failures...)
 }
 
 type smtpAddressedSender interface {
@@ -3397,12 +3409,14 @@ func sendCustomerSMTP(ctx context.Context, sender notify.Sender, recipient strin
 func (service *SubscriptionService) attemptDigestSend(ctx context.Context, channel string, logEntries []model.NotificationLog) error {
 	_, registry := service.runtimeConfigSnapshot()
 	sender, ok := registry.Get(channel)
+	var failures []error
 	if !ok {
+		failures = append(failures, errors.New("channel not configured"))
 		for _, logEntry := range logEntries {
 			logEntry.AttemptCount = logEntry.AttemptCount + 1
-			_ = service.failWithRetry(logEntry, "channel not configured")
+			failures = append(failures, service.failWithRetry(logEntry, "channel not configured"))
 		}
-		return fmt.Errorf("channel not configured")
+		return errors.Join(failures...)
 	}
 
 	type digestItem struct {
@@ -3418,35 +3432,35 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 			continue
 		}
 		if logEntry.AttemptCount >= maxAttempts {
-			_ = service.Store.MarkNotificationFailure(logEntry.ID, logEntry.AttemptCount, logEntry.LastError, nil, true)
+			failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationFailure(logEntry.ID, logEntry.AttemptCount, logEntry.LastError, nil, true)))
 			continue
 		}
 		paid, err := service.Store.IsDuePaid(logEntry.SubscriptionID, logEntry.DueDate)
 		if err != nil {
-			return err
+			return errors.Join(append(failures, err)...)
 		}
 		if paid {
-			_ = service.Store.MarkNotificationCanceled(logEntry.ID)
+			failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationCanceled(logEntry.ID)))
 			continue
 		}
 		subscription, err := service.Store.GetSubscription(logEntry.SubscriptionID)
 		if err != nil {
 			if err == sql.ErrNoRows {
-				_ = service.Store.MarkNotificationFailure(logEntry.ID, logEntry.AttemptCount, "subscription missing", nil, true)
+				failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationFailure(logEntry.ID, logEntry.AttemptCount, "subscription missing", nil, true)))
 				continue
 			}
-			return err
+			return errors.Join(append(failures, err)...)
 		}
 		dueAt, err := parseTemplateDueDate(logEntry.DueDate)
 		if err != nil {
 			logEntry.AttemptCount = logEntry.AttemptCount + 1
-			_ = service.failWithRetry(logEntry, err.Error())
+			failures = append(failures, err, service.failWithRetry(logEntry, err.Error()))
 			continue
 		}
 		message, err := service.renderMessageForDueDate(subscription, dueAt)
 		if err != nil {
 			logEntry.AttemptCount = logEntry.AttemptCount + 1
-			_ = service.failWithRetry(logEntry, err.Error())
+			failures = append(failures, err, service.failWithRetry(logEntry, err.Error()))
 			continue
 		}
 		items = append(items, digestItem{
@@ -3456,7 +3470,7 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 		})
 	}
 	if len(items) == 0 {
-		return nil
+		return errors.Join(failures...)
 	}
 
 	seenSubscription := map[int64]struct{}{}
@@ -3473,17 +3487,18 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 	title := digestTitle(len(parts))
 
 	if err := sender.Send(ctx, title, body); err != nil {
+		failures = append(failures, err)
 		for _, item := range items {
 			logEntry := item.logEntry
 			logEntry.AttemptCount = logEntry.AttemptCount + 1
-			_ = service.failWithRetry(logEntry, err.Error())
+			failures = append(failures, service.failWithRetry(logEntry, err.Error()))
 		}
-		return err
+		return errors.Join(failures...)
 	}
 	for _, item := range items {
-		_ = service.Store.MarkNotificationSuccess(item.logEntry.ID, item.logEntry.AttemptCount+1)
+		failures = append(failures, notificationStateError(item.logEntry.ID, service.Store.MarkNotificationSuccess(item.logEntry.ID, item.logEntry.AttemptCount+1)))
 	}
-	return nil
+	return errors.Join(failures...)
 }
 
 // buildDigestBody joins rendered Team renewal and Plus renewal-rental messages.
@@ -3504,7 +3519,7 @@ func (service *SubscriptionService) failWithRetry(logEntry model.NotificationLog
 		attemptCount = 1
 	}
 	if attemptCount >= maxAttempts {
-		return service.Store.MarkNotificationFailure(logEntry.ID, attemptCount, lastError, nil, true)
+		return notificationStateError(logEntry.ID, service.Store.MarkNotificationFailure(logEntry.ID, attemptCount, lastError, nil, true))
 	}
 	// Exponential backoff: 1m, 2m, 4m, 8m, 16m based on attempt number.
 	delayMinutes := 1 << (attemptCount - 1)
@@ -3512,5 +3527,12 @@ func (service *SubscriptionService) failWithRetry(logEntry model.NotificationLog
 		delayMinutes = 16
 	}
 	nextRetry := service.now().UTC().Add(time.Duration(delayMinutes) * time.Minute)
-	return service.Store.MarkNotificationFailure(logEntry.ID, attemptCount, lastError, &nextRetry, false)
+	return notificationStateError(logEntry.ID, service.Store.MarkNotificationFailure(logEntry.ID, attemptCount, lastError, &nextRetry, false))
+}
+
+func notificationStateError(logID int64, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("persist notification %d state: %w", logID, err)
 }

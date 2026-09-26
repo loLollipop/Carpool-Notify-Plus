@@ -11,6 +11,19 @@ import (
 	"carpool-notify/internal/model"
 )
 
+// Legacy corruption fixtures bypass the guarded edit API deliberately.
+func simulateLegacyScheduleEdit(t *testing.T, path string, subscriptionID int64, boardedAt string) {
+	t.Helper()
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	if _, err := database.Exec(`UPDATE subscriptions SET boarded_at = ? WHERE id = ?`, boardedAt, subscriptionID); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOpenBackfillsOneCurrentCostRecordForLegacyAccount(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "legacy.db")
 	database, err := sql.Open("sqlite", databasePath)
@@ -199,7 +212,7 @@ func TestOpenReconcilesOnlySingleOrdinaryInitialAccountCost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if inserted, err := store.AccrueAccountRenewal(renewedID, "2026-08-19"); err != nil || !inserted {
+	if inserted, err := store.AccrueAccountRenewal(renewedID, "2026-08-19", "2026-07-19"); err != nil || !inserted {
 		t.Fatalf("insert renewal = %v, %v", inserted, err)
 	}
 	historicalID, err := store.CreateAccount(model.Account{
@@ -742,11 +755,7 @@ func TestOpenRepairsMisdatedPlusInitialBillAfterLegacyScheduleEdit(t *testing.T)
 	}
 
 	// Reproduce the old edit path: boarded_at changed, but the only bill did not.
-	subscription.ID = subscriptionID
-	subscription.BoardedAt = "2026-08-08"
-	if err := store.UpdateSubscription(subscription); err != nil {
-		t.Fatal(err)
-	}
+	simulateLegacyScheduleEdit(t, databasePath, subscriptionID, "2026-08-08")
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -806,11 +815,7 @@ func TestOpenRepairsMisdatedTeamInitialBillAfterLegacyScheduleEdit(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	subscription.ID = subscriptionID
-	subscription.BoardedAt = "2026-08-08"
-	if err := store.UpdateSubscription(subscription); err != nil {
-		t.Fatal(err)
-	}
+	simulateLegacyScheduleEdit(t, databasePath, subscriptionID, "2026-08-08")
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}

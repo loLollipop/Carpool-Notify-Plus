@@ -802,8 +802,8 @@ func TestProcessDueNotificationsSkipsQueuedRetryAfterOccurrenceIsPaid(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
-		t.Fatal(err)
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err == nil || !strings.Contains(err.Error(), "temporary failure") {
+		t.Fatalf("initial send error = %v, want transport failure", err)
 	}
 	if failing.calls != 1 {
 		t.Fatalf("initial notification sends = %d, want 1", failing.calls)
@@ -973,8 +973,8 @@ func TestProcessDueNotificationsSchedulesRetryFromServiceClock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
-		t.Fatal(err)
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err == nil || !strings.Contains(err.Error(), "temporary failure") {
+		t.Fatalf("initial send error = %v, want transport failure", err)
 	}
 	if failing.calls != 1 {
 		t.Fatalf("initial notification sends = %d, want 1", failing.calls)
@@ -1011,8 +1011,8 @@ func TestProcessDueNotificationsSkipsRetryAfterReminderDate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := subscriptionService.ProcessDueNotifications(context.Background()); err != nil {
-		t.Fatal(err)
+	if err := subscriptionService.ProcessDueNotifications(context.Background()); err == nil || !strings.Contains(err.Error(), "temporary failure") {
+		t.Fatalf("initial send error = %v, want transport failure", err)
 	}
 	if failing.calls != 1 {
 		t.Fatalf("initial notification sends = %d, want 1", failing.calls)

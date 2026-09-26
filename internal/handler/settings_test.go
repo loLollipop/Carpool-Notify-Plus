@@ -29,7 +29,7 @@ func TestPutSettingsRollsBackConfigFileWhenDatabaseSaveFails(t *testing.T) {
 	configPath := filepath.Join(directory, "config.toml")
 	originalConfig := []byte(`[server]
 password = "admin-password"
-session_secret = "session-secret"
+session_secret = "test-only-session-secret-at-least-32-bytes"
 
 [smtp]
 host = "smtp.old.example"

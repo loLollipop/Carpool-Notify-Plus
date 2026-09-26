@@ -448,6 +448,7 @@ export interface SeatView {
   frozen_subscription_name: string
   frozen_customer_email: string
   active_subscription_id: number
+  active_subscription_updated_at: string
   active_subscription_name: string
   active_business_type: SubscriptionBusinessType
   active_price_yuan: string
@@ -799,6 +800,7 @@ interface NotificationActivity {
 }
 
 export interface SubscriptionInput {
+  expected_updated_at?: string
   name: string
   business_type: SubscriptionBusinessType
   price_yuan: string

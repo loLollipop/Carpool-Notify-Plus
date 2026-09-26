@@ -1,13 +1,100 @@
 package service_test
 
 import (
+	"errors"
 	"testing"
 	"time"
 
 	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 	"carpool-notify/internal/service"
 )
+
+func TestAccountRenewalsRejectOpeningDateEditAfterReadingSchedule(t *testing.T) {
+	for _, path := range []string{"scheduler", "manual"} {
+		for _, zero := range []bool{false, true} {
+			t.Run(path+map[bool]string{false: "/paid", true: "/zero"}[zero], func(t *testing.T) {
+				subscriptionService := openTestService(t)
+				now := time.Date(2026, time.September, 2, 12, 0, 0, 0, cycle.Location)
+				subscriptionService.Clock = func() time.Time { return now }
+				accountID, err := subscriptionService.CreateAccount(service.CreateAccountInput{
+					Name: "owner@example.com", OpenedAt: "2026-08-01", CostYuan: "20.00",
+					ZeroRenewalNextMonth: zero, SeatCount: 1,
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				oldView, err := subscriptionService.GetAccountView(accountID)
+				if err != nil || oldView.NextRenewalDate != "2026-09-01" {
+					t.Fatalf("original schedule = %#v, %v", oldView, err)
+				}
+				// Both renewal paths read the account before reading the clock.
+				// Commit the edit at this boundary to deterministically exercise the
+				// reverse ordering without timing-dependent goroutines or DB mocks.
+				edited := false
+				subscriptionService.Clock = func() time.Time {
+					if !edited {
+						edited = true
+						if err := subscriptionService.UpdateAccount(accountID, service.UpdateAccountInput{
+							Name: "owner@example.com", OpenedAt: "2026-08-02", CostYuan: "25.00",
+							ZeroRenewalNextMonth: zero, SeatCount: 1,
+						}); err != nil {
+							t.Fatal(err)
+						}
+					}
+					return now
+				}
+				if path == "scheduler" {
+					err = subscriptionService.ProcessAccountCostRenewals()
+				} else {
+					var inserted bool
+					inserted, err = subscriptionService.MarkAccountRenewed(accountID, oldView.NextRenewalDate)
+					if inserted {
+						t.Fatal("stale manual renewal was inserted")
+					}
+				}
+				if !edited || !errors.Is(err, db.ErrAccountRenewalStateChanged) {
+					t.Fatalf("edited = %v, stale renewal error = %v", edited, err)
+				}
+				records, err := subscriptionService.Store.ListAccountCostRecords(accountID)
+				if err != nil || len(records) != 1 || records[0].PeriodDate != "2026-08-02" || records[0].AmountCents != 2500 {
+					t.Fatalf("stale renewal affected ledger: %#v, %v", records, err)
+				}
+				freshView, err := subscriptionService.GetAccountView(accountID)
+				if err != nil || freshView.NextRenewalDate != "2026-09-02" {
+					t.Fatalf("fresh schedule = %#v, %v", freshView, err)
+				}
+				// Recompute, then repeat: only one renewal in this month is allowed.
+				for attempt := 0; attempt < 2; attempt++ {
+					if path == "scheduler" {
+						err = subscriptionService.ProcessAccountCostRenewals()
+					} else {
+						var inserted bool
+						inserted, err = subscriptionService.MarkAccountRenewed(accountID, freshView.NextRenewalDate)
+						if inserted != (attempt == 0) {
+							t.Fatalf("attempt %d inserted = %v", attempt, inserted)
+						}
+					}
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				records, err = subscriptionService.Store.ListAccountCostRecords(accountID)
+				if err != nil || len(records) != 2 || records[1].PeriodDate != "2026-09-02" {
+					t.Fatalf("recomputed ledger = %#v, %v", records, err)
+				}
+				wantAmount, wantSource := int64(2500), model.AccountCostSourceRenewal
+				if zero {
+					wantAmount, wantSource = 0, model.AccountCostSourceZeroRenewal
+				}
+				if records[1].AmountCents != wantAmount || records[1].Source != wantSource {
+					t.Fatalf("recomputed renewal = %#v", records[1])
+				}
+			})
+		}
+	}
+}
 
 func TestAccountCostRenewalsUseMonthlyAnniversaryAndKeepRecurringZero(t *testing.T) {
 	subscriptionService := openTestService(t)

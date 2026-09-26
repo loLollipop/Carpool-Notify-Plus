@@ -134,9 +134,11 @@ go run scripts/seed_test_data.go
 [server]
 listen = ":8080"
 db_path = "./data/carpool.db"
-password = "change-me"
-session_secret = "change-me-to-a-long-random-string"
+password = ""
+session_secret = ""
 ```
+
+`password` 必须设置为至少 8 个字符的自定义密码，`session_secret` 必须设置为至少 32 字节的随机密钥。空值和 `change-me` 等占位值都会被启动校验拒绝。
 
 通知渠道为可选配置：
 

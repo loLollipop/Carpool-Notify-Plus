@@ -130,6 +130,7 @@ export function PlusRentalDialog({
   const saveMutation = useAppMutation(
     (values: FormValues) => {
       const input: SubscriptionInput = {
+        expected_updated_at: prefill?.expectedUpdatedAt,
         name: values.name.trim(),
         business_type: "plus",
         price_yuan: values.price_yuan.trim(),

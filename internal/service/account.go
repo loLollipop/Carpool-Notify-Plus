@@ -34,16 +34,17 @@ type AccountView struct {
 
 // SeatView is one seat with optional active subscription occupancy.
 type SeatView struct {
-	Seat                   model.Seat `json:"seat"`
-	Occupied               bool       `json:"occupied"`
-	Frozen                 bool       `json:"frozen"`
-	FrozenUntil            string     `json:"frozen_until"`
-	FrozenUntilLabel       string     `json:"frozen_until_label"`
-	FrozenSubscriptionName string     `json:"frozen_subscription_name"`
-	FrozenCustomerEmail    string     `json:"frozen_customer_email"`
-	ActiveSubscriptionID   int64      `json:"active_subscription_id"`
-	ActiveSubscriptionName string     `json:"active_subscription_name"`
-	ActiveBusinessType     string     `json:"active_business_type"`
+	Seat                        model.Seat `json:"seat"`
+	Occupied                    bool       `json:"occupied"`
+	Frozen                      bool       `json:"frozen"`
+	FrozenUntil                 string     `json:"frozen_until"`
+	FrozenUntilLabel            string     `json:"frozen_until_label"`
+	FrozenSubscriptionName      string     `json:"frozen_subscription_name"`
+	FrozenCustomerEmail         string     `json:"frozen_customer_email"`
+	ActiveSubscriptionID        int64      `json:"active_subscription_id"`
+	ActiveSubscriptionUpdatedAt string     `json:"active_subscription_updated_at"`
+	ActiveSubscriptionName      string     `json:"active_subscription_name"`
+	ActiveBusinessType          string     `json:"active_business_type"`
 	// Edit form fields for the occupying subscription (empty when free).
 	ActivePriceYuan                 string `json:"active_price_yuan"`
 	ActiveNextPriceYuan             string `json:"active_next_price_yuan"`
@@ -213,6 +214,7 @@ func (service *SubscriptionService) buildSeatView(seat model.Seat) (SeatView, er
 	if err == nil {
 		view.Occupied = true
 		view.ActiveSubscriptionID = activeSubscription.ID
+		view.ActiveSubscriptionUpdatedAt = activeSubscription.UpdatedAt.UTC().Format(time.RFC3339Nano)
 		view.ActiveSubscriptionName = activeSubscription.Name
 		view.ActiveBusinessType = activeSubscription.BusinessType
 		view.ActivePriceYuan = cycle.FormatCents(activeSubscription.PricePerPersonCents)
@@ -310,7 +312,7 @@ func (service *SubscriptionService) CreateAccount(input CreateAccountInput) (int
 // UpdateAccount updates account name, remark, and optional seat capacity.
 // When SeatCount > 0, seat rows are resized to that count (cannot shrink below active occupancy).
 func (service *SubscriptionService) UpdateAccount(accountID int64, input UpdateAccountInput) error {
-	storedAccount, err := service.Store.GetAccount(accountID)
+	_, err := service.Store.GetAccount(accountID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("账号不存在")
@@ -331,17 +333,6 @@ func (service *SubscriptionService) UpdateAccount(accountID int64, input UpdateA
 		return err
 	}
 	email = defaultAccountEmail(email, name)
-	if openedAt != strings.TrimSpace(storedAccount.OpenedAt) {
-		costRecords, listErr := service.Store.ListAccountCostRecords(accountID)
-		if listErr != nil {
-			return listErr
-		}
-		for _, record := range costRecords {
-			if record.Source == model.AccountCostSourceRenewal || record.Source == model.AccountCostSourceZeroRenewal {
-				return fmt.Errorf("该账号已有续费成本记录，为避免重复计费，不能再修改开通日期")
-			}
-		}
-	}
 	// Validate capacity before persisting metadata/cost changes. Previously an
 	// invalid shrink returned an error after those unrelated fields were saved.
 	if input.SeatCount > 0 {
@@ -360,6 +351,9 @@ func (service *SubscriptionService) UpdateAccount(accountID int64, input UpdateA
 		CostCents:            costCents,
 		ZeroRenewalNextMonth: input.ZeroRenewalNextMonth,
 	}, input.SeatCount); err != nil {
+		if errors.Is(err, db.ErrAccountOpeningDateLocked) {
+			return fmt.Errorf("该账号已有续费成本记录，为避免重复计费，不能再修改开通日期")
+		}
 		if errors.Is(err, db.ErrSeatReferenced) {
 			return fmt.Errorf("可释放的空闲车位不足，无法缩减到 %d", input.SeatCount)
 		}

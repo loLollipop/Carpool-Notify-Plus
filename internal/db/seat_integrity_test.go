@@ -37,6 +37,10 @@ func TestSeatReferenceConstraintsAndLegacyReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sub, err = store.GetSubscription(sub.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sub.SeatID = seatID + 100
 	if err := store.UpdateSubscription(sub); !errors.Is(err, ErrSeatReferenceMissing) {
 		t.Fatalf("update error = %v", err)
@@ -120,6 +124,10 @@ func TestSeatDeleteAssignmentLinearizesAcrossConnections(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
+					sub, err = first.GetSubscription(sub.ID)
+					if err != nil {
+						t.Fatal(err)
+					}
 				}
 				sub.SeatID = seatID
 				start := make(chan struct{})
@@ -136,7 +144,11 @@ func TestSeatDeleteAssignmentLinearizesAcrossConnections(t *testing.T) {
 				}()
 				close(start)
 				deleteErr, assignErr := <-deletion, <-assignment
-				if !((deleteErr == nil && errors.Is(assignErr, ErrSeatReferenceMissing)) || (assignErr == nil && errors.Is(deleteErr, ErrSeatReferenced))) {
+				// An edit reads its version before writing. If deletion commits
+				// meanwhile, the stale WAL snapshot must fail as a version conflict.
+				assignmentRejected := errors.Is(assignErr, ErrSeatReferenceMissing) ||
+					(mode == "update" && errors.Is(assignErr, ErrSubscriptionStateChanged))
+				if !((deleteErr == nil && assignmentRejected) || (assignErr == nil && errors.Is(deleteErr, ErrSeatReferenced))) {
 					t.Fatalf("delete=%v assignment=%v", deleteErr, assignErr)
 				}
 				var dangling int

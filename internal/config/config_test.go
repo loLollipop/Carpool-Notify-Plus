@@ -1,8 +1,10 @@
 package config_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"carpool-notify/internal/config"
@@ -16,7 +18,7 @@ func TestLoadFromTOML(t *testing.T) {
 listen = "127.0.0.1:9090"
 db_path = "./tmp.db"
 password = "toml-pass"
-session_secret = "toml-secret"
+session_secret = "test-only-session-secret-at-least-32-bytes"
 
 [gotify]
 url = "https://gotify.example.com/"
@@ -70,7 +72,7 @@ func TestEnvOverridesTOML(t *testing.T) {
 	content := `
 [server]
 password = "toml-pass"
-session_secret = "toml-secret"
+session_secret = "test-only-session-secret-at-least-32-bytes"
 `
 	if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
@@ -100,7 +102,7 @@ func TestUpdateNotificationConfigKeepsBlankSecrets(t *testing.T) {
 	content := `
 [server]
 password = "toml-pass"
-session_secret = "toml-secret"
+session_secret = "test-only-session-secret-at-least-32-bytes"
 
 [smtp]
 host = "smtp.old.example.com"
@@ -176,7 +178,7 @@ func TestUpdateNotificationConfigRollbackRestoresExactFile(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.toml")
 	original := []byte(`[server]
 password = "admin-password"
-session_secret = "session-secret"
+session_secret = "test-only-session-secret-at-least-32-bytes"
 
 [smtp]
 host = "smtp.old.example"
@@ -234,6 +236,54 @@ func TestValidateNotificationConfigRejectsInvalidSMTPAddresses(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			if err := config.ValidateNotificationConfig(input); err == nil {
 				t.Fatal("invalid SMTP configuration was accepted")
+			}
+		})
+	}
+}
+
+func TestLoadRejectsWeakCredentials(t *testing.T) {
+	const secret = "test-only-session-secret-at-least-32-bytes"
+	for _, test := range []struct {
+		name, password, session, field string
+	}{
+		{"placeholder password", "change-me", secret, "server.password"},
+		{"long placeholder password", "change-me-to-a-long-random-string", secret, "server.password"},
+		{"case and whitespace", " CHANGE-ME ", secret, "server.password"},
+		{"short password", "1234567", secret, "server.password"},
+		{"placeholder secret", "valid-password", "change-me", "server.session_secret"},
+		{"long placeholder secret", "valid-password", "change-me-to-a-long-random-string", "server.session_secret"},
+		{"short secret", "valid-password", strings.Repeat("x", 31), "server.session_secret"},
+		{"compatible minimum", "12345678", strings.Repeat("x", 32), ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, fromEnv := range []bool{false, true} {
+				configPath := filepath.Join(t.TempDir(), "credentials.toml")
+				password, session := test.password, test.session
+				if fromEnv {
+					password, session = "valid-password", secret
+					t.Setenv("CARPOOL_PASSWORD", test.password)
+					t.Setenv("CARPOOL_SESSION_SECRET", test.session)
+				} else {
+					t.Setenv("CARPOOL_PASSWORD", "")
+					t.Setenv("CARPOOL_SESSION_SECRET", "")
+				}
+				t.Setenv("SMTP_PORT", "")
+				t.Setenv("CARPOOL_SESSION_COOKIE_SECURE", "")
+				content := fmt.Sprintf("[server]\npassword = %q\nsession_secret = %q\n", password, session)
+				if err := os.WriteFile(configPath, []byte(content), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				oldArgs := os.Args
+				os.Args = []string{"carpool-notify", "-config", configPath}
+				_, err := config.Load()
+				os.Args = oldArgs
+				if test.field == "" {
+					if err != nil {
+						t.Fatalf("env=%v: valid credentials rejected: %v", fromEnv, err)
+					}
+				} else if err == nil || !strings.Contains(err.Error(), test.field) {
+					t.Fatalf("env=%v: error = %v, want %s validation", fromEnv, err, test.field)
+				}
 			}
 		})
 	}

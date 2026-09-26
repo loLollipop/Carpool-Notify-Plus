@@ -246,7 +246,7 @@ func TestTeamScheduleCorrectionMovesAndUpdatesOnlyInitialBill(t *testing.T) {
 
 	input.BoardedAt = "2026-07-02"
 	input.PriceYuan = "45.00"
-	if err := subscriptionService.Update(subscriptionID, input); err != nil {
+	if err := subscriptionService.Update(subscriptionID, withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-07-01"); !errors.Is(err, sql.ErrNoRows) {
@@ -764,13 +764,14 @@ func TestUpdateSubscriptionPriceSyncsCurrentPeriodBill(t *testing.T) {
 	}
 
 	if err := subscriptionService.Update(subscriptionID, service.CreateInput{
-		Name:             "改价同步",
-		PriceYuan:        "45.00",
-		CronExpr:         "0 0 1 * *",
-		NotifyOffsetsRaw: "",
-		AccountID:        accountID,
-		SeatID:           seatIDs[0],
-		BoardedAt:        "2026-01-01",
+		ExpectedUpdatedAt: currentSubscriptionVersion(t, subscriptionService, subscriptionID),
+		Name:              "改价同步",
+		PriceYuan:         "45.00",
+		CronExpr:          "0 0 1 * *",
+		NotifyOffsetsRaw:  "",
+		AccountID:         accountID,
+		SeatID:            seatIDs[0],
+		BoardedAt:         "2026-01-01",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -803,13 +804,14 @@ func TestUpdateLegacyResaleSubscriptionPreservesAccountingFields(t *testing.T) {
 	}
 
 	if err := subscriptionService.Update(subscriptionID, service.CreateInput{
-		Name:             "updated-name",
-		PriceYuan:        "30.00",
-		CronExpr:         "0 0 1 * *",
-		NotifyOffsetsRaw: "",
-		AccountID:        accountID,
-		SeatID:           seatIDs[0],
-		BoardedAt:        "2026-01-01",
+		ExpectedUpdatedAt: currentSubscriptionVersion(t, subscriptionService, subscriptionID),
+		Name:              "updated-name",
+		PriceYuan:         "30.00",
+		CronExpr:          "0 0 1 * *",
+		NotifyOffsetsRaw:  "",
+		AccountID:         accountID,
+		SeatID:            seatIDs[0],
+		BoardedAt:         "2026-01-01",
 	}); err != nil {
 		t.Fatal(err)
 	}

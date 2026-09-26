@@ -35,6 +35,9 @@ var (
 	ErrBillHasAfterSalesCase             = errors.New("bill is referenced by an after-sales case")
 	ErrBillOccurrenceConflict            = errors.New("bill occurrence already exists")
 	ErrInitialBillNotMovable             = errors.New("initial bill cannot be moved")
+	ErrSubscriptionStateChanged          = errors.New("订阅数据已变化，请刷新重试")
+	ErrAccountOpeningDateLocked          = errors.New("account opening date is locked by renewal history")
+	ErrAccountRenewalStateChanged        = errors.New("账号续费状态已变化，请刷新后重试")
 	ErrSubscriptionFinancialStateChanged = errors.New("subscription financial state changed")
 	ErrSubscriptionHasPendingAfterSales  = errors.New("subscription has a pending after-sales case")
 	ErrAfterSalesProcessed               = errors.New("after-sales case already processed")
@@ -1998,19 +2001,16 @@ func isActiveSeatOccupancyError(err error) bool {
 
 // UpdateSubscription updates an existing active (non-deleted, non-archived) subscription.
 func (store *Store) UpdateSubscription(subscription model.Subscription) error {
-	now := nextWriteTime(subscription.UpdatedAt)
-	err := updateSubscriptionWithExecutor(store.database, subscription, now)
-	if err != sql.ErrNoRows {
+	transaction, err := store.database.Begin()
+	if err != nil {
 		return err
 	}
-	pendingCount, pendingErr := store.CountPendingAfterSalesCasesBySubscription(subscription.ID)
-	if pendingErr != nil {
-		return pendingErr
+	defer func() { _ = transaction.Rollback() }()
+	now := nextWriteTime(subscription.UpdatedAt)
+	if err := updateSubscriptionWithExecutor(transaction, subscription, now, 0); err != nil {
+		return err
 	}
-	if pendingCount > 0 {
-		return ErrSubscriptionHasPendingAfterSales
-	}
-	return sql.ErrNoRows
+	return subscriptionStateWriteError(transaction.Commit())
 }
 
 // UpdateSubscriptionAndSyncBill atomically updates an active subscription and,
@@ -2028,37 +2028,22 @@ func (store *Store) UpdateSubscriptionAndSyncBill(
 	}
 	defer func() { _ = transaction.Rollback() }()
 
-	now := nextWriteTime(subscription.UpdatedAt)
-	if err := updateSubscriptionWithExecutor(transaction, subscription, now); err != nil {
-		if err == sql.ErrNoRows {
-			var pendingCount int
-			if pendingErr := transaction.QueryRow(`
-				SELECT COUNT(1)
-				FROM after_sales_cases
-				WHERE subscription_id = ? AND status IN (?, ?)`,
-				subscription.ID,
-				model.AfterSalesStatusPending,
-				model.AfterSalesStatusReview,
-			).Scan(&pendingCount); pendingErr != nil {
-				return pendingErr
-			}
-			if pendingCount > 0 {
-				return ErrSubscriptionHasPendingAfterSales
-			}
-		}
+	versionNow := nextWriteTime(subscription.UpdatedAt)
+	if err := updateSubscriptionWithExecutor(transaction, subscription, versionNow, 0); err != nil {
 		return err
 	}
+	eventNow := formatTime(time.Now().UTC())
 	if err := updateBillFinancialsForOccurrence(
 		transaction,
 		subscription.ID,
 		dueDate,
 		amountCents,
 		costCents,
-		now,
+		eventNow,
 	); err != nil {
 		return err
 	}
-	return transaction.Commit()
+	return subscriptionStateWriteError(transaction.Commit())
 }
 
 // UpdateSubscriptionNextPrices atomically updates only future pricing fields.
@@ -2073,7 +2058,6 @@ func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscript
 		return err
 	}
 	defer func() { _ = transaction.Rollback() }()
-	now := formatTime(time.Now().UTC())
 	today := cycle.FormatDate(time.Now().In(cycle.Location))
 	if len(reviewDates) > 0 && strings.TrimSpace(reviewDates[0]) != "" {
 		today = strings.TrimSpace(reviewDates[0])
@@ -2082,10 +2066,18 @@ func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscript
 		if subscription.NextPriceCents == nil || strings.TrimSpace(subscription.NextPriceEffectiveDueDate) == "" {
 			return fmt.Errorf("subscription %d has incomplete next price", subscription.ID)
 		}
+		storedUpdatedAt, err := subscriptionVersionForUpdate(transaction, subscription.ID, subscription.UpdatedAt)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrSubscriptionStateChanged
+			}
+			return err
+		}
 		result, updateErr := transaction.Exec(`
 			UPDATE subscriptions
 			SET next_price_cents = ?, next_price_effective_due_date = ?, updated_at = ?
 			WHERE id = ?
+			  AND updated_at = ?
 			  AND deleted_at IS NULL
 			  AND archived_at IS NULL
 			  AND LOWER(TRIM(COALESCE(business_type, 'team'))) = ?
@@ -2109,8 +2101,9 @@ func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscript
 			  )`,
 			*subscription.NextPriceCents,
 			strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
-			now,
+			nextWriteTime(subscription.UpdatedAt),
 			subscription.ID,
+			storedUpdatedAt,
 			model.SubscriptionBusinessTeam,
 			subscription.PricePerPersonCents,
 			subscription.CronExpr,
@@ -2121,17 +2114,17 @@ func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscript
 			today,
 		)
 		if updateErr != nil {
-			return updateErr
+			return subscriptionStateWriteError(updateErr)
 		}
 		affected, rowsErr := result.RowsAffected()
 		if rowsErr != nil {
 			return rowsErr
 		}
 		if affected != 1 {
-			return sql.ErrNoRows
+			return ErrSubscriptionStateChanged
 		}
 	}
-	return transaction.Commit()
+	return subscriptionStateWriteError(transaction.Commit())
 }
 
 // CorrectNextPriceEffectiveDueDate performs a compare-and-swap update for a
@@ -2184,6 +2177,10 @@ func (store *Store) UpdateSubscriptionAndMoveInitialBill(
 		return err
 	}
 	defer func() { _ = transaction.Rollback() }()
+	versionNow := nextWriteTime(subscription.UpdatedAt)
+	if err := updateSubscriptionWithExecutor(transaction, subscription, versionNow, 1); err != nil {
+		return err
+	}
 
 	var (
 		billCount     int
@@ -2202,7 +2199,7 @@ func (store *Store) UpdateSubscriptionAndMoveInitialBill(
 	if billCount != 1 || storedDueDate != strings.TrimSpace(oldDueDate) {
 		return ErrInitialBillNotMovable
 	}
-	now := nextWriteTime(subscription.UpdatedAt)
+	eventNow := formatTime(time.Now().UTC())
 	if strings.TrimSpace(oldDueDate) != strings.TrimSpace(newDueDate) {
 		if err := ensureBillUnreferenced(transaction, billID); err != nil {
 			return err
@@ -2212,7 +2209,7 @@ func (store *Store) UpdateSubscriptionAndMoveInitialBill(
 			SET due_date = ?, updated_at = ?
 			WHERE id = ?`,
 			strings.TrimSpace(newDueDate),
-			now,
+			eventNow,
 			billID,
 		)
 		if moveErr != nil {
@@ -2230,35 +2227,16 @@ func (store *Store) UpdateSubscriptionAndMoveInitialBill(
 		}
 	}
 
-	if err := updateSubscriptionWithExecutor(transaction, subscription, now); err != nil {
-		if err == sql.ErrNoRows {
-			var pendingCount int
-			if pendingErr := transaction.QueryRow(`
-				SELECT COUNT(1)
-				FROM after_sales_cases
-				WHERE subscription_id = ? AND status IN (?, ?)`,
-				subscription.ID,
-				model.AfterSalesStatusPending,
-				model.AfterSalesStatusReview,
-			).Scan(&pendingCount); pendingErr != nil {
-				return pendingErr
-			}
-			if pendingCount > 0 {
-				return ErrSubscriptionHasPendingAfterSales
-			}
-		}
-		return err
-	}
 	if err := updateBillFinancialsByID(
 		transaction,
 		billID,
 		amountCents,
 		costCents,
-		now,
+		eventNow,
 	); err != nil {
 		return err
 	}
-	return transaction.Commit()
+	return subscriptionStateWriteError(transaction.Commit())
 }
 
 func updateBillFinancialsForOccurrence(
@@ -2310,10 +2288,15 @@ func updateBillFinancialsByID(
 }
 
 func updateSubscriptionWithExecutor(
-	executor sqlExecer,
+	executor *sql.Tx,
 	subscription model.Subscription,
 	now string,
+	scheduleBillCount int,
 ) error {
+	storedUpdatedAt, err := subscriptionVersionForUpdate(executor, subscription.ID, subscription.UpdatedAt)
+	if err != nil {
+		return err
+	}
 	offsetsJSON, err := json.Marshal(subscription.NotifyOffsets)
 	if err != nil {
 		return err
@@ -2345,6 +2328,11 @@ func updateSubscriptionWithExecutor(
 					cost_cents = ?, is_resale = ?, agency_fee_cents = ?, cron_expr = ?, notify_offsets = ?,
                     channels = ?, remark = ?, trade_url = ?, customer_email = ?, customer_wechat = ?, subscription_type = ?, seat_id = ?, boarded_at = ?, updated_at = ?
                 WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL
+                  AND updated_at = ?
+                  AND (
+                    (TRIM(cron_expr) = ? AND TRIM(boarded_at) = ?)
+                    OR (SELECT COUNT(1) FROM bills WHERE subscription_id = subscriptions.id) = ?
+                  )
                   AND NOT EXISTS (
 					SELECT 1
 					FROM after_sales_cases
@@ -2371,6 +2359,10 @@ func updateSubscriptionWithExecutor(
 		boardedAt,
 		now,
 		subscription.ID,
+		storedUpdatedAt,
+		strings.TrimSpace(subscription.CronExpr),
+		boardedAt,
+		scheduleBillCount,
 		model.AfterSalesStatusPending,
 		model.AfterSalesStatusReview,
 	)
@@ -2378,16 +2370,53 @@ func updateSubscriptionWithExecutor(
 		if isActiveSeatOccupancyError(err) {
 			return ErrActiveSeatOccupied
 		}
-		return seatReferenceError(err)
+		return subscriptionStateWriteError(seatReferenceError(err))
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return err
 	}
 	if rowsAffected == 0 {
-		return sql.ErrNoRows
+		var pending bool
+		if err := executor.QueryRow(`
+			SELECT EXISTS (
+				SELECT 1 FROM after_sales_cases
+				WHERE subscription_id = subscriptions.id AND status IN (?, ?)
+			)
+			FROM subscriptions WHERE id = ?`,
+			model.AfterSalesStatusPending, model.AfterSalesStatusReview, subscription.ID,
+		).Scan(&pending); err != nil {
+			return err
+		}
+		if pending {
+			return ErrSubscriptionHasPendingAfterSales
+		}
+		return ErrSubscriptionStateChanged
 	}
 	return nil
+}
+
+// Compare versions as instants, but retain the original SQLite text for the
+// write guard. Legacy timestamps can have different zones or fractional precision.
+// The read and guarded write must share a transaction to reject stale snapshots.
+func subscriptionVersionForUpdate(transaction *sql.Tx, subscriptionID int64, expected time.Time) (string, error) {
+	var stored sql.NullString
+	if err := transaction.QueryRow(`SELECT updated_at FROM subscriptions WHERE id = ?`, subscriptionID).Scan(&stored); err != nil {
+		return "", subscriptionStateWriteError(err)
+	}
+	if !versionTimeMatches(stored.String, expected) {
+		return "", ErrSubscriptionStateChanged
+	}
+	return stored.String, nil
+}
+
+// A stale WAL read cannot be upgraded to a writer. Treat that SQLite conflict
+// like a failed version guard; callers must reload before retrying the edit.
+func subscriptionStateWriteError(err error) error {
+	if errors.Is(seatStateWriteError(err), ErrSeatStateChanged) {
+		return fmt.Errorf("%w: %v", ErrSubscriptionStateChanged, err)
+	}
+	return err
 }
 
 // SoftDeleteSubscription marks a subscription as deleted (legacy; prefer ArchiveSubscription).
@@ -2669,7 +2698,7 @@ func (store *Store) setDuePaid(
 			}
 			return err
 		}
-		if storedUpdatedAt != formatTime(expectedUpdatedAt.UTC()) {
+		if !versionTimeMatches(storedUpdatedAt, *expectedUpdatedAt) {
 			return ErrSubscriptionFinancialStateChanged
 		}
 	}
@@ -3615,11 +3644,25 @@ func (store *Store) updateAccountAndSeatCount(account model.Account, targetSeatC
 	}
 	defer func() { _ = transaction.Rollback() }()
 	var previousMonthlyCostCents int64
+	var previousOpenedAt string
 	if err := transaction.QueryRow(
-		`SELECT cost_cents FROM accounts WHERE id = ?`,
+		`SELECT cost_cents, opened_at FROM accounts WHERE id = ?`,
 		account.ID,
-	).Scan(&previousMonthlyCostCents); err != nil {
+	).Scan(&previousMonthlyCostCents, &previousOpenedAt); err != nil {
 		return err
+	}
+	if strings.TrimSpace(account.OpenedAt) != strings.TrimSpace(previousOpenedAt) {
+		var hasRenewals bool
+		if err := transaction.QueryRow(`
+			SELECT EXISTS (SELECT 1 FROM account_cost_records
+			WHERE account_id = ? AND source IN (?, ?))`,
+			account.ID, model.AccountCostSourceRenewal, model.AccountCostSourceZeroRenewal,
+		).Scan(&hasRenewals); err != nil {
+			return err
+		}
+		if hasRenewals {
+			return ErrAccountOpeningDateLocked
+		}
 	}
 
 	result, err := transaction.Exec(`
@@ -3793,7 +3836,12 @@ func (store *Store) HasAutomaticAccountCostPeriod(accountID int64, periodDate st
 // AccrueAccountRenewal inserts one idempotent renewal. The legacy
 // zero_renewal_next_month flag now represents recurring zero-cost renewals and
 // remains enabled until the operator explicitly disables it.
-func (store *Store) AccrueAccountRenewal(accountID int64, periodDate string) (bool, error) {
+// expectedOpenedAt must be the opening date used to calculate periodDate.
+func (store *Store) AccrueAccountRenewal(accountID int64, periodDate, expectedOpenedAt string) (bool, error) {
+	expectedOpenedAt = strings.TrimSpace(expectedOpenedAt)
+	if _, err := time.Parse("2006-01-02", expectedOpenedAt); err != nil {
+		return false, ErrAccountRenewalStateChanged
+	}
 	transaction, err := store.database.Begin()
 	if err != nil {
 		return false, err
@@ -3803,11 +3851,15 @@ func (store *Store) AccrueAccountRenewal(accountID int64, periodDate string) (bo
 	var monthlyCostCents int64
 	var zeroRenewal int
 	var bannedAt string
+	var openedAt string
 	if err := transaction.QueryRow(`
-		SELECT COALESCE(cost_cents, 0), COALESCE(zero_renewal_next_month, 0), COALESCE(banned_at, '')
+		SELECT COALESCE(cost_cents, 0), COALESCE(zero_renewal_next_month, 0), COALESCE(banned_at, ''), COALESCE(opened_at, '')
 		FROM accounts
-		WHERE id = ?`, accountID).Scan(&monthlyCostCents, &zeroRenewal, &bannedAt); err != nil {
+		WHERE id = ?`, accountID).Scan(&monthlyCostCents, &zeroRenewal, &bannedAt, &openedAt); err != nil {
 		return false, err
+	}
+	if strings.TrimSpace(openedAt) != expectedOpenedAt {
+		return false, ErrAccountRenewalStateChanged
 	}
 	if strings.TrimSpace(bannedAt) != "" {
 		return false, transaction.Commit()
@@ -3832,7 +3884,7 @@ func (store *Store) AccrueAccountRenewal(accountID int64, periodDate string) (bo
 		formatTime(time.Now().UTC()),
 	)
 	if err != nil {
-		return false, err
+		return false, accountRenewalStateWriteError(err)
 	}
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
@@ -3840,9 +3892,16 @@ func (store *Store) AccrueAccountRenewal(accountID int64, periodDate string) (bo
 	}
 	inserted := rowsAffected > 0
 	if err := transaction.Commit(); err != nil {
-		return false, err
+		return false, accountRenewalStateWriteError(err)
 	}
 	return inserted, nil
+}
+
+func accountRenewalStateWriteError(err error) error {
+	if errors.Is(seatStateWriteError(err), ErrSeatStateChanged) {
+		return fmt.Errorf("%w: %v", ErrAccountRenewalStateChanged, err)
+	}
+	return err
 }
 
 // ListAccountCostRecords returns one account's ledger in chronological order.
@@ -4978,6 +5037,15 @@ func scanNotificationLog(scanner scannable) (model.NotificationLog, error) {
 
 func formatTime(moment time.Time) string {
 	return moment.UTC().Format(time.RFC3339Nano)
+}
+
+// Empty, invalid and zero versions must never authorize a guarded write.
+func versionTimeMatches(stored string, expected time.Time) bool {
+	if expected.IsZero() {
+		return false
+	}
+	parsed, err := parseTime(stored)
+	return err == nil && !parsed.IsZero() && parsed.Equal(expected)
 }
 
 // nextWriteTime guarantees that an updated row receives a different version

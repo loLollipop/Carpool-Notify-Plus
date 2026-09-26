@@ -203,6 +203,7 @@ export function SubscriptionDialog({
   const saveMutation = useAppMutation(
     (values: FormValues) => {
       const input: SubscriptionInput = {
+        expected_updated_at: prefill?.expectedUpdatedAt,
         name: values.name.trim(),
         business_type: "team",
         price_yuan: values.price_yuan.trim(),
@@ -239,8 +240,11 @@ export function SubscriptionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent aria-describedby={undefined} className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
-        <DialogHeader>
+      <DialogContent
+        aria-describedby={undefined}
+        className="grid max-h-[calc(100dvh-2rem)] min-w-0 grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden p-0 sm:max-h-[92dvh] sm:max-w-2xl"
+      >
+        <DialogHeader className="border-b px-5 py-4 pr-12 sm:px-6">
           <DialogTitle>
             {isEdit ? t("subscriptionDialog.editTitle") : t("subscriptionDialog.createTitle")}
           </DialogTitle>
@@ -249,18 +253,47 @@ export function SubscriptionDialog({
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit((values) => saveMutation.mutate(values))}
-            className="grid gap-5"
+            className="grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto]"
           >
+            <div className="grid min-h-0 min-w-0 content-start gap-5 overflow-x-hidden overflow-y-auto px-5 py-5 sm:px-6">
             <FormField
               control={form.control}
               name="account_id"
               render={({ field }) => (
-                <FormItem>
+                <FormItem className="min-w-0">
                   <FormLabel>{t("subscriptionDialog.account")}</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder={t("subscriptionDialog.accountPlaceholder")} />
+                      <SelectTrigger className="min-w-0 overflow-hidden [&_[data-slot=select-value]]:min-w-0 [&_[data-slot=select-value]]:flex-1 [&_[data-slot=select-value]]:overflow-hidden">
+                        <SelectValue placeholder={t("subscriptionDialog.accountPlaceholder")}>
+                          {selectedAccount ? (
+                            <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left">
+                              <span
+                                className="grid size-6 shrink-0 place-items-center rounded-md bg-brand/10 font-mono text-[11px] font-bold tabular-nums text-brand"
+                                title={t("subscriptionDialog.accountSerialTitle", {
+                                  number: selectedAccount.display_serial,
+                                })}
+                              >
+                                {selectedAccount.display_serial}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate font-medium">
+                                {selectedAccount.display_email ||
+                                  selectedAccount.email ||
+                                  selectedAccount.name}
+                              </span>
+                              <span className="hidden max-w-40 shrink-0 truncate text-xs text-muted-foreground md:inline">
+                                {selectedAccount.space_name ||
+                                  t("subscriptionDialog.spaceUnnamed")} · #{selectedAccount.id}
+                              </span>
+                              <span className="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:inline">
+                                ¥{selectedAccount.cost_yuan}
+                              </span>
+                              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                                {selectedAccount.seat_used}/{selectedAccount.seat_total}
+                              </span>
+                            </span>
+                          ) : null}
+                        </SelectValue>
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -590,7 +623,9 @@ export function SubscriptionDialog({
               )}
             />
 
-            <DialogFooter>
+            </div>
+
+            <DialogFooter className="border-t bg-muted/20 px-5 py-4 sm:px-6">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 {t("common.cancel")}
               </Button>

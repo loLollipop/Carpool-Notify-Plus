@@ -321,7 +321,7 @@ func (store *Store) ApproveRenewalApplication(
 	if nextPriceMatches && storedNextPriceCents.Valid {
 		nextPriceMatches = storedNextPriceCents.Int64 == *subscription.NextPriceCents
 	}
-	if storedUpdatedAt != formatTime(subscription.UpdatedAt.UTC()) ||
+	if !versionTimeMatches(storedUpdatedAt, subscription.UpdatedAt) ||
 		storedBusinessType != subscription.BusinessType ||
 		storedPriceCents != subscription.PricePerPersonCents ||
 		!nextPriceMatches ||
@@ -348,7 +348,25 @@ func (store *Store) ApproveRenewalApplication(
 		}
 	}
 
-	now := formatTime(time.Now().UTC())
+	versionNow := nextWriteTime(subscription.UpdatedAt)
+	eventNow := formatTime(time.Now().UTC())
+	// Approval changes the financial state even when there is no scheduled price
+	// to apply. Invalidate every form opened before this approval in the same
+	// transaction as the bills, retaining the original timestamp for the CAS.
+	result, err := transaction.Exec(`
+		UPDATE subscriptions SET updated_at = ? WHERE id = ? AND updated_at = ?`,
+		versionNow, subscription.ID, storedUpdatedAt,
+	)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return ErrRenewalFinancialStateChanged
+	}
 	for _, bill := range bills {
 		if _, err := transaction.Exec(`
 			INSERT INTO bills (
@@ -359,9 +377,9 @@ func (store *Store) ApproveRenewalApplication(
 			bill.DueDate,
 			bill.AmountCents,
 			bill.CostCents,
-			now,
-			now,
-			now,
+			eventNow,
+			eventNow,
+			eventNow,
 		); err != nil {
 			return err
 		}
@@ -383,7 +401,7 @@ func (store *Store) ApproveRenewalApplication(
 		  AND next_price_effective_due_date <> ''
 		  AND next_price_effective_due_date <= ?
 		ON CONFLICT(subscription_id, effective_due_date) DO NOTHING`,
-		now,
+		eventNow,
 		subscription.ID,
 		lastDueDate,
 	); err != nil {
@@ -393,35 +411,33 @@ func (store *Store) ApproveRenewalApplication(
 		UPDATE subscriptions
 		SET price_per_person_cents = next_price_cents,
 			next_price_cents = NULL,
-			next_price_effective_due_date = '',
-			updated_at = ?
+			next_price_effective_due_date = ''
 		WHERE id = ?
 		  AND is_resale = 0
 		  AND next_price_cents IS NOT NULL
 		  AND next_price_effective_due_date <> ''
 		  AND next_price_effective_due_date <= ?`,
-		now,
 		subscription.ID,
 		lastDueDate,
 	); err != nil {
 		return err
 	}
 
-	result, err := transaction.Exec(`
+	result, err = transaction.Exec(`
 		UPDATE renewal_applications
 		SET status = ?, operator_note = ?, processed_at = ?, updated_at = ?
 		WHERE id = ? AND status = ?`,
 		model.RenewalStatusApproved,
 		strings.TrimSpace(operatorNote),
-		now,
-		now,
+		eventNow,
+		eventNow,
 		application.ID,
 		model.RenewalStatusPending,
 	)
 	if err != nil {
 		return err
 	}
-	affected, err := result.RowsAffected()
+	affected, err = result.RowsAffected()
 	if err != nil {
 		return err
 	}

@@ -222,3 +222,72 @@ func assertTableCounts(t *testing.T, store *Store, expected map[string]int) {
 		}
 	}
 }
+
+func TestAccountOpeningDateLockedByRenewalInsideUpdate(t *testing.T) {
+	for _, zero := range []bool{false, true} {
+		for _, resize := range []bool{false, true} {
+			store, err := Open(filepath.Join(t.TempDir(), "opening-date.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = store.Close() })
+			id, err := store.CreateAccountWithSeats(model.Account{
+				Name: "before", OpenedAt: "2026-08-01", CostCents: 1000, ZeroRenewalNextMonth: zero,
+			}, 1000, "2026-08-01", []string{"seat"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stale, err := store.GetAccount(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// This renewal arrives after the caller has loaded its edit snapshot.
+			if _, err := store.AccrueAccountRenewal(id, "2026-09-01", stale.OpenedAt); err != nil {
+				t.Fatal(err)
+			}
+			stale.Name, stale.OpenedAt, stale.CostCents = "after", "2026-08-02", 2000
+			if resize {
+				err = store.UpdateAccountWithSeatCount(stale, 2)
+			} else {
+				err = store.UpdateAccount(stale)
+			}
+			if !errors.Is(err, ErrAccountOpeningDateLocked) {
+				t.Fatalf("zero=%v resize=%v: error = %v", zero, resize, err)
+			}
+			stored, err := store.GetAccount(id)
+			if err != nil || stored.Name != "before" || stored.OpenedAt != "2026-08-01" || stored.CostCents != 1000 {
+				t.Fatalf("account changed: %#v, %v", stored, err)
+			}
+			assertTableCounts(t, store, map[string]int{"seats": 1, "account_cost_records": 2})
+			// Other metadata remains editable after renewal.
+			stale.OpenedAt = stored.OpenedAt
+			if err := store.UpdateAccount(stale); err != nil {
+				t.Fatalf("unchanged opening date rejected: %v", err)
+			}
+		}
+	}
+}
+
+func TestAccountRenewalRequiresValidOpeningDateSnapshot(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "renewal-version.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	id, err := store.CreateAccount(model.Account{
+		Name: "owner", OpenedAt: "2026-08-01", CostCents: 2000,
+	}, 2000, "2026-08-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"", " ", "invalid", "2026-02-30", "2026-08-02"} {
+		inserted, err := store.AccrueAccountRenewal(id, "2026-09-01", expected)
+		if inserted || !errors.Is(err, ErrAccountRenewalStateChanged) {
+			t.Fatalf("expected opening date %q: inserted = %v, error = %v", expected, inserted, err)
+		}
+	}
+	assertTableCounts(t, store, map[string]int{"account_cost_records": 1})
+	if inserted, err := store.AccrueAccountRenewal(id, "2026-09-01", "2026-08-01"); err != nil || !inserted {
+		t.Fatalf("valid snapshot: inserted = %v, error = %v", inserted, err)
+	}
+}

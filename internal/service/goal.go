@@ -3,6 +3,7 @@ package service
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -14,6 +15,7 @@ import (
 	"unicode"
 
 	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 )
 
@@ -2823,7 +2825,7 @@ func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInp
 		return 0, fmt.Errorf("没有可调价的 Team 用户")
 	}
 	if err := service.Store.UpdateSubscriptionNextPrices(updates, cycle.FormatDate(service.now())); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, db.ErrSubscriptionStateChanged) || err == sql.ErrNoRows {
 			return 0, fmt.Errorf("所选用户状态已变化，请刷新后重试")
 		}
 		return 0, err
@@ -2910,7 +2912,7 @@ func (service *SubscriptionService) ScheduleManualNextPrices(input ManualNextPri
 	}
 
 	if err := service.Store.UpdateSubscriptionNextPrices(updates, cycle.FormatDate(service.now())); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, db.ErrSubscriptionStateChanged) || err == sql.ErrNoRows {
 			return 0, fmt.Errorf("所选用户状态已变化，请刷新后重试")
 		}
 		return 0, err

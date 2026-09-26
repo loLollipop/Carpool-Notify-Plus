@@ -1,7 +1,6 @@
 package service
 
 import (
-	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -893,8 +892,8 @@ func TestBulkNextPriceStoreRejectsStaleFinancialState(t *testing.T) {
 	nextPriceCents := int64(9700)
 	stale.NextPriceCents = &nextPriceCents
 	stale.NextPriceEffectiveDueDate = "2026-09-14"
-	if err := service.Store.UpdateSubscriptionNextPrices([]model.Subscription{stale}); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("stale bulk update error = %v, want sql.ErrNoRows", err)
+	if err := service.Store.UpdateSubscriptionNextPrices([]model.Subscription{stale}); !errors.Is(err, db.ErrSubscriptionStateChanged) {
+		t.Fatalf("stale bulk update error = %v, want ErrSubscriptionStateChanged", err)
 	}
 	stored, err := service.Get(subscriptionID)
 	if err != nil {
@@ -2281,8 +2280,8 @@ func TestBulkPricingExemptionIsAtomicBlocksCurrentRoundAndReentersLater(t *testi
 	stalePrice := int64(9700)
 	stale.NextPriceCents = &stalePrice
 	stale.NextPriceEffectiveDueDate = "2026-10-14"
-	if err := service.Store.UpdateSubscriptionNextPrices([]model.Subscription{stale}, "2026-08-15"); err != sql.ErrNoRows {
-		t.Fatalf("store active-exemption guard err = %v, want sql.ErrNoRows", err)
+	if err := service.Store.UpdateSubscriptionNextPrices([]model.Subscription{stale}, "2026-08-15"); !errors.Is(err, db.ErrSubscriptionStateChanged) {
+		t.Fatalf("store active-exemption guard err = %v, want ErrSubscriptionStateChanged", err)
 	}
 
 	laterService := &SubscriptionService{

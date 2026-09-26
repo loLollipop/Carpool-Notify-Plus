@@ -146,6 +146,7 @@ func buildSeatViewFromSnapshot(seat model.Seat, snapshot accountViewSnapshot) Se
 	if subscription, exists := snapshot.activeBySeat[seat.ID]; exists {
 		view.Occupied = true
 		view.ActiveSubscriptionID = subscription.ID
+		view.ActiveSubscriptionUpdatedAt = subscription.UpdatedAt.UTC().Format(time.RFC3339Nano)
 		view.ActiveSubscriptionName = subscription.Name
 		view.ActiveBusinessType = subscription.BusinessType
 		view.ActivePriceYuan = cycle.FormatCents(subscription.PricePerPersonCents)

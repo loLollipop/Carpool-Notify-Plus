@@ -48,7 +48,7 @@ func (service *SubscriptionService) ProcessAccountCostRenewals() error {
 
 		openedAt, _ := time.ParseInLocation("2006-01-02", account.OpenedAt, cycle.Location)
 		for !renewalAt.After(today) {
-			if _, accrueErr := service.Store.AccrueAccountRenewal(account.ID, cycle.FormatDate(renewalAt)); accrueErr != nil {
+			if _, accrueErr := service.Store.AccrueAccountRenewal(account.ID, cycle.FormatDate(renewalAt), account.OpenedAt); accrueErr != nil {
 				renewalErrors = append(renewalErrors, fmt.Errorf("account %d renewal %s: %w", account.ID, cycle.FormatDate(renewalAt), accrueErr))
 				break
 			}
@@ -92,7 +92,7 @@ func (service *SubscriptionService) MarkAccountRenewed(accountID int64, periodDa
 	if periodAt.After(today.AddDate(0, 0, accountRenewalNoticeDays)) {
 		return false, fmt.Errorf("只能在到期前 %d 天内或逾期后登记续费", accountRenewalNoticeDays)
 	}
-	return service.Store.AccrueAccountRenewal(accountID, cycle.FormatDate(periodAt))
+	return service.Store.AccrueAccountRenewal(accountID, cycle.FormatDate(periodAt), account.OpenedAt)
 }
 
 func (service *SubscriptionService) nextAccountCostRenewal(account model.Account) (time.Time, error) {
