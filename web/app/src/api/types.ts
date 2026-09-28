@@ -1130,6 +1130,13 @@ export interface CustomerBenefitCandidate {
   status: "recommended" | "upcoming" | "observe" | "cooldown" | "hold" | "blocked"
   recommended: boolean
   selectable: boolean
+  extension_review_snapshots: ExtensionReviewSnapshot[] | null
+}
+
+export interface ExtensionReviewSnapshot {
+  subscription_id: number
+  expected_updated_at: string
+  expected_due_date: string
 }
 
 export interface CustomerBenefitView {
@@ -1268,6 +1275,7 @@ export interface RecordCustomerBenefitsInput {
   perceived_value_yuan: string
   benefit_date: string
   note: string
+  extension_review_snapshots?: ExtensionReviewSnapshot[]
 }
 
 export interface RedemptionRejectInput {

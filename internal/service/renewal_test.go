@@ -327,6 +327,70 @@ func TestSelfServiceRenewalCanPurchaseMultipleOriginalPeriods(t *testing.T) {
 	}
 }
 
+func TestMultiPeriodRenewalProgressKeepsFullWindowAfterExtension(t *testing.T) {
+	subscriptionService := openTestService(t)
+	subscriptionService.Clock = func() time.Time {
+		return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
+	}
+	enableTestRenewalPayment(t, subscriptionService)
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "延期多周期母号", "车位1")
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
+		Name: "延期多周期客户", PriceYuan: "90", CronExpr: "interval:30d",
+		NotifyOffsetsRaw: "3", CustomerEmail: "extended-multi-period@example.com",
+		SeatID: seatIDs[0], BoardedAt: "2026-08-01",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lookup, err := subscriptionService.LookupRenewalSubscriptions(service.RenewalLookupInput{
+		CustomerEmail: "extended-multi-period@example.com",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
+		CustomerEmail: lookup.CustomerEmail, SubscriptionID: subscriptionID, PeriodCount: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	applications, err := subscriptionService.ListRenewalApplicationsView(model.RenewalStatusPending)
+	if err != nil || len(applications) != 1 {
+		t.Fatalf("applications = %#v, %v", applications, err)
+	}
+	application := applications[0].Application
+	if err := subscriptionService.ApproveRenewalApplication(application.ID, service.RenewalDecisionInput{}); err != nil {
+		t.Fatal(err)
+	}
+	reviewedViews, err := subscriptionService.ListView()
+	if err != nil || len(reviewedViews) != 1 {
+		t.Fatalf("extension review view = %#v, %v", reviewedViews, err)
+	}
+	if _, err := subscriptionService.RecordCustomerBenefits(service.RecordCustomerBenefitsInput{
+		SubscriptionIDs: []int64{subscriptionID}, BenefitType: model.CustomerBenefitTypeExtension,
+		ExtensionDays: 9, OperationKey: "test-multi-period-extension", BenefitDate: "2026-08-20",
+		ExtensionReviewSnapshots: []service.ExtensionReviewSnapshot{{
+			SubscriptionID: subscriptionID, ExpectedUpdatedAt: reviewedViews[0].Subscription.UpdatedAt.Format(time.RFC3339Nano),
+			ExpectedDueDate: reviewedViews[0].NextDueDate,
+		}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	views, err := subscriptionService.ListView()
+	if err != nil || len(views) != 1 || views[0].NextDueDate != "2026-11-08" ||
+		views[0].DaysRemaining != 80 || views[0].CycleDays != 99 {
+		t.Fatalf("extended multi-period progress = %#v, %v; want 80/99 days", views, err)
+	}
+	stored, err := subscriptionService.Store.GetRenewalApplication(application.ID)
+	if err != nil || stored.PeriodEndDate != "2026-10-30" {
+		t.Fatalf("renewal snapshot changed = %#v, %v", stored, err)
+	}
+	for _, dueDate := range []string{"2026-08-31", "2026-09-30"} {
+		if _, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, dueDate); err != nil {
+			t.Fatalf("historical bill %s changed: %v", dueDate, err)
+		}
+	}
+}
+
 func TestSelfServiceRenewalRejectsTooManyPeriods(t *testing.T) {
 	subscriptionService := openTestService(t)
 	subscriptionService.Clock = func() time.Time {

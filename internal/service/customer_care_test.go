@@ -63,13 +63,15 @@ func TestCustomerBenefitCostFlowsThroughProfitReporting(t *testing.T) {
 	}
 
 	recorded, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
-		SubscriptionIDs:    ids,
-		BenefitType:        model.CustomerBenefitTypeExtension,
-		BenefitName:        "赠送延期福利",
-		ExtensionDays:      7,
-		ActualCostYuan:     "5.00",
-		PerceivedValueYuan: "20.00",
-		BenefitDate:        "2026-08-10",
+		SubscriptionIDs:          ids,
+		BenefitType:              model.CustomerBenefitTypeExtension,
+		OperationKey:             "test-extension-cost-flow",
+		BenefitName:              "赠送延期福利",
+		ExtensionDays:            7,
+		ActualCostYuan:           "5.00",
+		PerceivedValueYuan:       "20.00",
+		BenefitDate:              "2026-08-10",
+		ExtensionReviewSnapshots: extensionReviewSnapshots(t, service, ids),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -139,6 +141,8 @@ func TestRecordCustomerBenefitsAcceptsNewAndLegacyTypesAndRejectsInvalid(t *test
 			switch test.benefitType {
 			case model.CustomerBenefitTypeExtension:
 				input.ExtensionDays = 7
+				input.OperationKey = "test-extension-acceptance"
+				input.ExtensionReviewSnapshots = extensionReviewSnapshots(t, service, ids)
 			case model.CustomerBenefitTypePriceDiscount:
 				input.PriceDiscountYuan = "10.00"
 				input.OperationKey = "test-price-discount-accept"
@@ -315,11 +319,13 @@ func TestRecordCustomerBenefitsRequiresValidExtensionDays(t *testing.T) {
 			service := openGoalTestService(t)
 			ids := createCustomerCareTestSubscriptions(t, service, "extension-days@example.com", "", 1)
 			recorded, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
-				SubscriptionIDs: ids,
-				BenefitType:     model.CustomerBenefitTypeExtension,
-				BenefitName:     "客户端传入的名称不会覆盖延期天数",
-				ExtensionDays:   test.days,
-				BenefitDate:     "2026-08-15",
+				SubscriptionIDs:          ids,
+				BenefitType:              model.CustomerBenefitTypeExtension,
+				BenefitName:              "客户端传入的名称不会覆盖延期天数",
+				OperationKey:             "test-extension-days-validation",
+				ExtensionDays:            test.days,
+				BenefitDate:              "2026-08-15",
+				ExtensionReviewSnapshots: extensionReviewSnapshots(t, service, ids),
 			})
 			if test.wantError {
 				if err == nil || !strings.Contains(err.Error(), "延期天数") {
@@ -834,12 +840,15 @@ func TestCustomerCareMergesMultiSeatIdentityAndStartsCooldown(t *testing.T) {
 	service := openGoalTestService(t)
 	ids := createCustomerCareTestSubscriptions(t, service, "multi@example.com", "same-wechat", 2)
 	for _, subscriptionID := range ids {
-		if err := service.Store.SetDuePaid(subscriptionID, "2026-07-02", true, 10000, 0); err != nil {
+		if err := service.Store.SetDuePaid(subscriptionID, "2026-07-01", true, 10000, 0); err != nil {
 			t.Fatal(err)
 		}
-		if err := service.Store.SetDuePaid(subscriptionID, "2026-08-01", true, 10000, 0); err != nil {
+		if err := service.Store.SetDuePaid(subscriptionID, "2026-07-31", true, 10000, 0); err != nil {
 			t.Fatal(err)
 		}
+	}
+	service.Clock = func() time.Time {
+		return time.Date(2026, time.August, 25, 12, 0, 0, 0, cycle.Location)
 	}
 
 	pricingCandidates, err := service.buildPricingCandidates(nil, 0)
@@ -869,10 +878,14 @@ func TestCustomerCareMergesMultiSeatIdentityAndStartsCooldown(t *testing.T) {
 		SubscriptionIDs:    []int64{candidate.SubscriptionID},
 		BenefitType:        model.CustomerBenefitTypeRenewalMilestone,
 		BenefitName:        "首次续费礼",
+		OperationKey:       "test-extension-multi-seat-care",
 		ExtensionDays:      7,
 		ActualCostYuan:     "2.00",
 		PerceivedValueYuan: "10.00",
 		BenefitDate:        "2026-08-15",
+		ExtensionReviewSnapshots: extensionReviewSnapshots(
+			t, service, []int64{candidate.SubscriptionID},
+		),
 	}); err != nil {
 		t.Fatal(err)
 	}

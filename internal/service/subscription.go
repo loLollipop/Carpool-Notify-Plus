@@ -348,7 +348,7 @@ func (service *SubscriptionService) buildViewWithPaidDueDates(
 	paidDueDates []string,
 	multiPeriodRenewalEnds map[string]struct{},
 ) (SubscriptionView, error) {
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return SubscriptionView{}, err
 	}
@@ -387,6 +387,14 @@ func (service *SubscriptionService) buildViewWithPaidDueDates(
 	_, periodStartPaid := paidDueSet[cycle.FormatDate(periodStart)]
 	if oneMonthRental {
 		displayDue = oneMonthEnd
+	} else if !isPlusSubscription(subscription) {
+		// Team rows use the effective schedule directly. Keeping the legacy
+		// pre-pass here would make a non-midnight cron revisit the paid date at
+		// 00:00 and then at its trigger time, exhausting the bounded search.
+		displayDue, err = schedule.FirstUnpaid(now, paidDueDates)
+		if err != nil {
+			return SubscriptionView{}, err
+		}
 	} else if len(paidDueDates) > 0 {
 		// The earliest recorded bill is the beginning of trustworthy ledger
 		// history. This avoids treating every period before a legacy import as
@@ -422,7 +430,8 @@ func (service *SubscriptionService) buildViewWithPaidDueDates(
 	if !isPlusSubscription(subscription) {
 		progressStart := lastDue
 		hasProgressStart := hasLastDue
-		if _, isExplicitMultiPeriodPurchase := multiPeriodRenewalEnds[cycle.FormatDate(displayDue)]; !isExplicitMultiPeriodPurchase {
+		effectiveMultiPeriodEnds := effectiveRenewalEndDates(subscription, multiPeriodRenewalEnds)
+		if _, isExplicitMultiPeriodPurchase := effectiveMultiPeriodEnds[cycle.FormatDate(displayDue)]; !isExplicitMultiPeriodPurchase {
 			progressStart, hasProgressStart = schedule.LastDue(displayDue.Add(-time.Nanosecond))
 		}
 		if strings.TrimSpace(subscription.BoardedAt) != "" {
@@ -517,6 +526,26 @@ func (service *SubscriptionService) buildViewWithPaidDueDates(
 		CancellationCaseID:         subscription.CancellationCaseID,
 		CancellationExpiresAtLabel: cancellationExpiresAtLabel,
 	}, nil
+}
+
+func effectiveRenewalEndDates(
+	subscription model.Subscription,
+	historical map[string]struct{},
+) map[string]struct{} {
+	if len(historical) == 0 || len(subscription.DueExtensions) == 0 {
+		return historical
+	}
+	effective := make(map[string]struct{}, len(historical))
+	for date := range historical {
+		mapped := date
+		for _, extension := range subscription.DueExtensions {
+			if mapped == extension.PreviousEffectiveDueDate {
+				mapped = extension.EffectiveDueDate
+			}
+		}
+		effective[mapped] = struct{}{}
+	}
+	return effective
 }
 
 func firstUnpaidDue(
@@ -954,7 +983,7 @@ func (service *SubscriptionService) CreateWithInitialBill(input CreateInput) (in
 }
 
 func initialBillDueDate(subscription model.Subscription) (string, error) {
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return "", err
 	}
@@ -996,9 +1025,13 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 	}
 	subscription.ID = subscriptionID
 	subscription.UpdatedAt = expectedUpdatedAt
+	subscription.DueExtensions = previous.DueExtensions
 	scheduleChanged :=
 		(strings.TrimSpace(previous.BoardedAt) != strings.TrimSpace(subscription.BoardedAt) ||
 			strings.TrimSpace(previous.CronExpr) != strings.TrimSpace(subscription.CronExpr))
+	if scheduleChanged && len(previous.DueExtensions) > 0 {
+		return fmt.Errorf("该订阅已发放延期，为保护赠送时长不能修改开始日期或计费周期")
+	}
 	if err := service.configureNextPrice(previous, &subscription, scheduleChanged); err != nil {
 		return err
 	}
@@ -1099,7 +1132,7 @@ func (service *SubscriptionService) configureNextPrice(
 			if err != nil {
 				return err
 			}
-			schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+			schedule, err := subscription.BillingSchedule()
 			if err != nil {
 				return err
 			}
@@ -1119,7 +1152,7 @@ func (service *SubscriptionService) configureNextPrice(
 }
 
 func nextPriceEffectiveDueDate(subscription model.Subscription, now time.Time) (string, error) {
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return "", err
 	}
@@ -1182,7 +1215,7 @@ func (service *SubscriptionService) NormalizeScheduledNextPriceEffectiveDates() 
 func (service *SubscriptionService) firstFutureUnpaidDueDate(
 	subscription model.Subscription,
 ) (string, error) {
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return "", err
 	}
@@ -1202,7 +1235,7 @@ func (service *SubscriptionService) firstFutureUnpaidDueDate(
 }
 
 func currentPeriodBillDueDate(subscription model.Subscription, now time.Time) (string, error) {
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return "", err
 	}
@@ -2566,7 +2599,7 @@ func (service *SubscriptionService) nextDueForTemplate(subscription model.Subscr
 		_, periodEnd, err := oneMonthRentalPeriod(subscription)
 		return periodEnd, err
 	}
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -2951,6 +2984,10 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 		CustomerBenefits:                   benefits,
 		OperatingExpenses:                  operatingExpenses,
 	}
+	payload.SubscriptionDueExtensions, err = service.Store.ListSubscriptionDueExtensions()
+	if err != nil {
+		return model.ExportPayload{}, err
+	}
 	for _, subscription := range subscriptions {
 		profitCents := countedProfitCents(subscription)
 		accountName := displayAccountName(subscription)
@@ -3166,7 +3203,7 @@ func (service *SubscriptionService) planSubscription(
 	today string,
 ) error {
 	_ = ctx
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return nil
 	}
@@ -3371,6 +3408,20 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 			)))
 			continue
 		}
+		if len(subscription.DueExtensions) > 0 {
+			schedule, scheduleErr := subscription.BillingSchedule()
+			if scheduleErr != nil {
+				return scheduleErr
+			}
+			valid, checkErr := schedule.IsDueDate(logEntry.DueDate)
+			if checkErr != nil {
+				return checkErr
+			}
+			if !valid {
+				failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationCanceled(logEntry.ID)))
+				continue
+			}
+		}
 		if logEntry.Kind == model.NotificationKindPriceIncreaseNotice &&
 			!priceChangeAppliesForDueDate(subscription, logEntry.DueDate) {
 			// A failed or interrupted advance notice can outlive the pricing plan
@@ -3492,6 +3543,20 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 				continue
 			}
 			return errors.Join(append(failures, err)...)
+		}
+		if len(subscription.DueExtensions) > 0 {
+			schedule, scheduleErr := subscription.BillingSchedule()
+			if scheduleErr != nil {
+				return scheduleErr
+			}
+			valid, checkErr := schedule.IsDueDate(logEntry.DueDate)
+			if checkErr != nil {
+				return checkErr
+			}
+			if !valid {
+				failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationCanceled(logEntry.ID)))
+				continue
+			}
 		}
 		dueAt, err := parseTemplateDueDate(logEntry.DueDate)
 		if err != nil {

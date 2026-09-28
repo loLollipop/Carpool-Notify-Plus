@@ -530,7 +530,7 @@ func buildRenewalPeriodPlan(
 	if err != nil {
 		return renewalPeriodPlan{}, err
 	}
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return renewalPeriodPlan{}, fmt.Errorf("读取原计费周期失败: %w", err)
 	}
@@ -552,7 +552,10 @@ func buildRenewalPeriodPlan(
 			CostCents:      billDefaultCostCents(subscription),
 		})
 		plan.AmountCents += amountCents
-		nextDue := schedule.NextDue(dueAt)
+		// Billing APIs persist a date rather than the cron trigger's clock time.
+		// Advance from the end of that calendar day so a 09:30 schedule cannot
+		// select the same logical period again for the next bill.
+		nextDue := schedule.NextDue(cycle.StartOfDay(dueAt).AddDate(0, 0, 1).Add(-time.Nanosecond))
 		if !nextDue.After(dueAt) {
 			return renewalPeriodPlan{}, fmt.Errorf("原计费周期无法继续推进")
 		}

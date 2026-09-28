@@ -268,16 +268,17 @@ func (server *Server) postGoalBulkPricingExemption(context *gin.Context) {
 }
 
 type recordCustomerBenefitsRequest struct {
-	SubscriptionIDs    []int64 `json:"subscription_ids"`
-	BenefitType        string  `json:"benefit_type"`
-	BenefitName        string  `json:"benefit_name"`
-	OperationKey       string  `json:"operation_key"`
-	ExtensionDays      int     `json:"extension_days"`
-	PriceDiscountYuan  string  `json:"price_discount_yuan"`
-	ActualCostYuan     string  `json:"actual_cost_yuan"`
-	PerceivedValueYuan string  `json:"perceived_value_yuan"`
-	BenefitDate        string  `json:"benefit_date"`
-	Note               string  `json:"note"`
+	SubscriptionIDs          []int64                           `json:"subscription_ids"`
+	BenefitType              string                            `json:"benefit_type"`
+	BenefitName              string                            `json:"benefit_name"`
+	OperationKey             string                            `json:"operation_key"`
+	ExtensionDays            int                               `json:"extension_days"`
+	PriceDiscountYuan        string                            `json:"price_discount_yuan"`
+	ActualCostYuan           string                            `json:"actual_cost_yuan"`
+	PerceivedValueYuan       string                            `json:"perceived_value_yuan"`
+	BenefitDate              string                            `json:"benefit_date"`
+	Note                     string                            `json:"note"`
+	ExtensionReviewSnapshots []service.ExtensionReviewSnapshot `json:"extension_review_snapshots"`
 }
 
 func (server *Server) postGoalCustomerBenefits(context *gin.Context) {
@@ -288,22 +289,30 @@ func (server *Server) postGoalCustomerBenefits(context *gin.Context) {
 		return
 	}
 	recorded, err := server.Service.RecordCustomerBenefits(service.RecordCustomerBenefitsInput{
-		SubscriptionIDs:    request.SubscriptionIDs,
-		BenefitType:        request.BenefitType,
-		BenefitName:        request.BenefitName,
-		OperationKey:       request.OperationKey,
-		ExtensionDays:      request.ExtensionDays,
-		PriceDiscountYuan:  request.PriceDiscountYuan,
-		ActualCostYuan:     request.ActualCostYuan,
-		PerceivedValueYuan: request.PerceivedValueYuan,
-		BenefitDate:        request.BenefitDate,
-		Note:               request.Note,
+		SubscriptionIDs:          request.SubscriptionIDs,
+		BenefitType:              request.BenefitType,
+		BenefitName:              request.BenefitName,
+		OperationKey:             request.OperationKey,
+		ExtensionDays:            request.ExtensionDays,
+		PriceDiscountYuan:        request.PriceDiscountYuan,
+		ActualCostYuan:           request.ActualCostYuan,
+		PerceivedValueYuan:       request.PerceivedValueYuan,
+		BenefitDate:              request.BenefitDate,
+		Note:                     request.Note,
+		ExtensionReviewSnapshots: request.ExtensionReviewSnapshots,
 	})
 	if err != nil {
+		if errors.Is(err, db.ErrSubscriptionStateChanged) {
+			respondError(context, http.StatusConflict, err.Error())
+			return
+		}
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
 	}
 	message := fmt.Sprintf("已登记 %d 位客户的福利发放记录", recorded)
+	if request.ExtensionDays > 0 {
+		message = fmt.Sprintf("已为 %d 个订阅延期 %d 天，并登记福利记录", recorded, request.ExtensionDays)
+	}
 	if strings.TrimSpace(request.PriceDiscountYuan) != "" &&
 		(request.BenefitType == model.CustomerBenefitTypePriceDiscount ||
 			request.BenefitType == model.CustomerBenefitTypePriceIncrease) {

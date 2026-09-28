@@ -788,7 +788,7 @@ func (service *SubscriptionService) buildProfitForecast(
 		if _, frozen := frozenSubscriptions[subscription.ID]; frozen || cycle.IsOneMonthRentalExpression(subscription.CronExpr) {
 			continue
 		}
-		schedule, parseErr := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+		schedule, parseErr := subscription.BillingSchedule()
 		if parseErr != nil {
 			continue
 		}
@@ -2433,7 +2433,7 @@ func earliestRepricingReviewDate(
 	reviewAt := cycle.StartOfDay(startedAt).AddDate(0, 0, minimumRelationshipDays)
 	remainingPeriods := minimumPaidPeriods - paidPeriodCount
 	if remainingPeriods > 0 {
-		schedule, parseErr := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+		schedule, parseErr := subscription.BillingSchedule()
 		if parseErr != nil {
 			return ""
 		}
@@ -3038,7 +3038,7 @@ func pricingExemptionReviewDate(
 	if err != nil {
 		return "", err
 	}
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return "", err
 	}

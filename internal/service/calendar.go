@@ -126,7 +126,7 @@ func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate str
 			return fmt.Errorf("单月短租只有首期租金，不能登记续租；到期后请确认结束出租")
 		}
 	}
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return err
 	}
@@ -174,7 +174,7 @@ func (service *SubscriptionService) ListDuePeriodOptions(subscriptionID int64, p
 	if err != nil {
 		return nil, err
 	}
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return nil, err
 	}
@@ -337,7 +337,7 @@ func (service *SubscriptionService) NextUnpaidDueDate(subscriptionID int64, afte
 	if err != nil {
 		return "", err
 	}
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return "", err
 	}
@@ -456,7 +456,7 @@ func (service *SubscriptionService) calendarMonth(
 			}
 			continue
 		}
-		schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+		schedule, err := subscription.BillingSchedule()
 		if err != nil {
 			return CalendarMonthView{}, err
 		}
@@ -675,7 +675,7 @@ func calendarPeriodCostCents(
 	if isPlusSubscription(subscription) || subscription.IsResale || monthlyAllocatedCostCents <= 0 {
 		return monthlyAllocatedCostCents
 	}
-	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return monthlyAllocatedCostCents
 	}

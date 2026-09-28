@@ -4,7 +4,11 @@ import { Gift } from "lucide-react"
 
 import { recordGoalCustomerBenefits } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
-import type { CustomerBenefitType, RecordCustomerBenefitsInput } from "@/api/types"
+import type {
+  CustomerBenefitType,
+  ExtensionReviewSnapshot,
+  RecordCustomerBenefitsInput,
+} from "@/api/types"
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
@@ -35,6 +39,7 @@ type CustomerBenefitDialogProps = {
   suggestedType?: CustomerBenefitType
   targetLabel?: string
   currentPriceCents?: number
+  extensionReviewSnapshots: ExtensionReviewSnapshot[]
   onSuccess?: () => void
 }
 
@@ -79,11 +84,14 @@ function CustomerBenefitForm({
   suggestedType,
   targetLabel,
   currentPriceCents,
+  extensionReviewSnapshots,
   onSuccess,
 }: Omit<CustomerBenefitDialogProps, "open">) {
   const { t } = useTranslation()
   const fieldID = React.useId()
   const [operationKey] = React.useState(createBenefitOperationKey)
+  const [reviewedSubscriptionIds] = React.useState(subscriptionIds)
+  const [reviewSnapshots] = React.useState(extensionReviewSnapshots)
   const initialBenefitType = supportedBenefitType(suggestedType)
   const [benefitType, setBenefitType] = React.useState<SupportedBenefitType>(initialBenefitType)
   const [extensionDays, setExtensionDays] = React.useState("")
@@ -98,7 +106,7 @@ function CustomerBenefitForm({
   const mutation = useAppMutation(
     (input: RecordCustomerBenefitsInput) => recordGoalCustomerBenefits(input),
     {
-      scope: "goals",
+      scope: "all",
       onSuccess: () => {
         onOpenChange(false)
         onSuccess?.()
@@ -106,10 +114,10 @@ function CustomerBenefitForm({
     },
   )
 
-  const summaryKey = targetLabel && subscriptionIds.length === 1
+  const summaryKey = targetLabel && reviewedSubscriptionIds.length === 1
     ? `goals.care.dialog.singleSummary.${benefitType}`
     : `goals.care.dialog.summary.${benefitType}`
-  const summary = t(summaryKey, { name: targetLabel, count: subscriptionIds.length })
+  const summary = t(summaryKey, { name: targetLabel, count: reviewedSubscriptionIds.length })
   const parsedExtensionDays = Number(extensionDays)
   const hasValidExtensionDays = /^\d+$/.test(extensionDays)
     && Number.isInteger(parsedExtensionDays)
@@ -147,7 +155,7 @@ function CustomerBenefitForm({
               return
             }
             mutation.mutate({
-              subscription_ids: subscriptionIds,
+              subscription_ids: reviewedSubscriptionIds,
               benefit_type: benefitType,
               benefit_name: benefitType === "extension" ? extensionBenefitName : "",
               operation_key: operationKey,
@@ -157,6 +165,9 @@ function CustomerBenefitForm({
               perceived_value_yuan: perceivedValue,
               benefit_date: benefitDate,
               note,
+              extension_review_snapshots: benefitType === "extension"
+                ? reviewSnapshots
+                : undefined,
             })
           }}
         >
@@ -338,7 +349,9 @@ function CustomerBenefitForm({
             <Button
               type="submit"
               disabled={mutation.isPending
-                || subscriptionIds.length === 0
+                || reviewedSubscriptionIds.length === 0
+                || (benefitType === "extension"
+                  && reviewSnapshots.length !== reviewedSubscriptionIds.length)
                 || (benefitType === "extension" && !hasValidExtensionDays)
                 || (benefitType === "price_discount" && !hasValidPriceDiscount)}
             >
@@ -358,6 +371,7 @@ export function CustomerBenefitDialog({
   suggestedType,
   targetLabel,
   currentPriceCents,
+  extensionReviewSnapshots,
   onSuccess,
 }: CustomerBenefitDialogProps) {
   return (
@@ -369,6 +383,7 @@ export function CustomerBenefitDialog({
           suggestedType={suggestedType}
           targetLabel={targetLabel}
           currentPriceCents={currentPriceCents}
+          extensionReviewSnapshots={extensionReviewSnapshots}
           onSuccess={onSuccess}
         />
       ) : null}

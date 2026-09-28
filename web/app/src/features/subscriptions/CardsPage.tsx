@@ -22,6 +22,7 @@ import { useCalendar, useDashboard, useGoals, useSubscriptions } from "@/api/que
 import type {
   CalendarOccurrence,
   CustomerBenefitCandidate,
+  ExtensionReviewSnapshot,
   SubscriptionView,
 } from "@/api/types"
 import { ConfirmDialog } from "@/components/confirm-dialog"
@@ -78,6 +79,7 @@ type BenefitTarget = {
   label: string
   subscriptionID: number
   currentPriceCents: number
+  extensionReviewSnapshot: ExtensionReviewSnapshot
 } | null
 
 const EMPTY_SUBSCRIPTION_VIEWS: SubscriptionView[] = []
@@ -895,6 +897,11 @@ export function CardsPage() {
                       view.subscription.name,
                     subscriptionID: view.subscription.id,
                     currentPriceCents: view.subscription.price_per_person_cents,
+                    extensionReviewSnapshot: {
+                      subscription_id: view.subscription.id,
+                      expected_updated_at: view.subscription.updated_at,
+                      expected_due_date: view.next_due_date,
+                    },
                   })
                 }
                 onRetryBenefits={() => {
@@ -946,6 +953,7 @@ export function CardsPage() {
         suggestedType={benefitTarget?.candidate.suggested_benefit_type}
         targetLabel={benefitTarget?.label}
         currentPriceCents={benefitTarget?.currentPriceCents}
+        extensionReviewSnapshots={benefitTarget ? [benefitTarget.extensionReviewSnapshot] : []}
       />
       <DuePaidDialog
         open={duePaidTarget !== null}

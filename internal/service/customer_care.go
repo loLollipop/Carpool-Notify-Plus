@@ -34,27 +34,28 @@ const (
 )
 
 type CustomerBenefitCandidate struct {
-	SubscriptionID         int64   `json:"subscription_id"`
-	SubscriptionIDs        []int64 `json:"subscription_ids"`
-	CustomerEmail          string  `json:"customer_email"`
-	CustomerWechat         string  `json:"customer_wechat"`
-	DisplayName            string  `json:"display_name"`
-	CustomerTier           string  `json:"customer_tier"`
-	SeatCount              int     `json:"seat_count"`
-	CurrentCycleValueCents int64   `json:"current_cycle_value_cents"`
-	MonthlyValueCents      int64   `json:"monthly_value_cents"`
-	RenewalCount           int     `json:"renewal_count"`
-	RelationshipDays       int     `json:"relationship_days"`
-	NextDueDate            string  `json:"next_due_date"`
-	LastPaidDate           string  `json:"last_paid_date"`
-	LastBenefitDate        string  `json:"last_benefit_date"`
-	NextEligibleDate       string  `json:"next_eligible_date"`
-	RecommendedDate        string  `json:"recommended_date"`
-	ReasonCode             string  `json:"reason_code"`
-	SuggestedBenefitType   string  `json:"suggested_benefit_type"`
-	Status                 string  `json:"status"`
-	Recommended            bool    `json:"recommended"`
-	Selectable             bool    `json:"selectable"`
+	SubscriptionID           int64                     `json:"subscription_id"`
+	SubscriptionIDs          []int64                   `json:"subscription_ids"`
+	CustomerEmail            string                    `json:"customer_email"`
+	CustomerWechat           string                    `json:"customer_wechat"`
+	DisplayName              string                    `json:"display_name"`
+	CustomerTier             string                    `json:"customer_tier"`
+	SeatCount                int                       `json:"seat_count"`
+	CurrentCycleValueCents   int64                     `json:"current_cycle_value_cents"`
+	MonthlyValueCents        int64                     `json:"monthly_value_cents"`
+	RenewalCount             int                       `json:"renewal_count"`
+	RelationshipDays         int                       `json:"relationship_days"`
+	NextDueDate              string                    `json:"next_due_date"`
+	LastPaidDate             string                    `json:"last_paid_date"`
+	LastBenefitDate          string                    `json:"last_benefit_date"`
+	NextEligibleDate         string                    `json:"next_eligible_date"`
+	RecommendedDate          string                    `json:"recommended_date"`
+	ReasonCode               string                    `json:"reason_code"`
+	SuggestedBenefitType     string                    `json:"suggested_benefit_type"`
+	Status                   string                    `json:"status"`
+	Recommended              bool                      `json:"recommended"`
+	Selectable               bool                      `json:"selectable"`
+	ExtensionReviewSnapshots []ExtensionReviewSnapshot `json:"extension_review_snapshots"`
 }
 
 type CustomerBenefitView struct {
@@ -125,16 +126,25 @@ type CustomerCareCenter struct {
 }
 
 type RecordCustomerBenefitsInput struct {
-	SubscriptionIDs    []int64
-	BenefitType        string
-	BenefitName        string
-	OperationKey       string
-	ExtensionDays      int
-	PriceDiscountYuan  string
-	ActualCostYuan     string
-	PerceivedValueYuan string
-	BenefitDate        string
-	Note               string
+	SubscriptionIDs          []int64
+	BenefitType              string
+	BenefitName              string
+	OperationKey             string
+	ExtensionDays            int
+	PriceDiscountYuan        string
+	ActualCostYuan           string
+	PerceivedValueYuan       string
+	BenefitDate              string
+	Note                     string
+	ExtensionReviewSnapshots []ExtensionReviewSnapshot
+}
+
+// ExtensionReviewSnapshot is the subscription version and unpaid boundary the
+// operator actually saw before opening the extension confirmation dialog.
+type ExtensionReviewSnapshot struct {
+	SubscriptionID    int64  `json:"subscription_id"`
+	ExpectedUpdatedAt string `json:"expected_updated_at"`
+	ExpectedDueDate   string `json:"expected_due_date"`
 }
 
 type customerBenefitGroup struct {
@@ -165,6 +175,10 @@ func (service *SubscriptionService) buildCustomerCare(
 	if err != nil {
 		return CustomerCareCenter{}, err
 	}
+	activeSubscriptionsByID := make(map[int64]model.Subscription, len(activeSubscriptions))
+	for _, subscription := range activeSubscriptions {
+		activeSubscriptionsByID[subscription.ID] = subscription
+	}
 
 	refundedBillIDs := fullyRefundedBillIDs(afterSalesCases, bills)
 	views := buildCustomerBenefitViews(
@@ -185,10 +199,19 @@ func (service *SubscriptionService) buildCustomerCare(
 			}
 			return groupBenefits[left].ID > groupBenefits[right].ID
 		})
-		careCandidates = append(
-			careCandidates,
-			buildCustomerBenefitCandidate(group, groupBenefits, service.now()),
-		)
+		candidate := buildCustomerBenefitCandidate(group, groupBenefits, service.now())
+		for _, member := range group.Members {
+			subscription, exists := activeSubscriptionsByID[member.SubscriptionID]
+			if !exists {
+				continue
+			}
+			candidate.ExtensionReviewSnapshots = append(candidate.ExtensionReviewSnapshots, ExtensionReviewSnapshot{
+				SubscriptionID:    member.SubscriptionID,
+				ExpectedUpdatedAt: subscription.UpdatedAt.Format(time.RFC3339Nano),
+				ExpectedDueDate:   member.NextDueDate,
+			})
+		}
+		careCandidates = append(careCandidates, candidate)
 	}
 	sortCustomerBenefitCandidates(careCandidates)
 
@@ -1059,19 +1082,22 @@ func betaPosteriorApproximation(successes int, failures int) (int, int, int) {
 func (service *SubscriptionService) RecordCustomerBenefits(
 	input RecordCustomerBenefitsInput,
 ) (int, error) {
+	requestedBenefitType := strings.TrimSpace(input.BenefitType)
 	for _, subscriptionID := range input.SubscriptionIDs {
 		if subscriptionID <= 0 {
 			return 0, fmt.Errorf("包含无效的订阅 ID")
 		}
 	}
 	subscriptionIDs := uniquePositiveIDs(input.SubscriptionIDs)
+	if requestedBenefitType == model.CustomerBenefitTypeExtension && len(subscriptionIDs) != len(input.SubscriptionIDs) {
+		return 0, fmt.Errorf("延期订阅列表包含重复项，请刷新后重试")
+	}
 	if len(subscriptionIDs) == 0 {
 		return 0, fmt.Errorf("请至少选择一位客户")
 	}
 	if len(subscriptionIDs) > maximumBenefitSelection {
 		return 0, fmt.Errorf("单次最多登记 %d 位客户", maximumBenefitSelection)
 	}
-	requestedBenefitType := strings.TrimSpace(input.BenefitType)
 	benefitType, validBenefitType := canonicalCustomerBenefitType(requestedBenefitType)
 	if !validBenefitType {
 		return 0, fmt.Errorf("福利分类无效")
@@ -1084,6 +1110,7 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	}
 	var priceDiscountCents int64
 	schedulePriceDiscount := false
+	applyExtension := benefitType == model.CustomerBenefitTypeExtension && input.ExtensionDays > 0
 	if benefitType == model.CustomerBenefitTypeExtension {
 		if legacyBenefitType && input.ExtensionDays == 0 && benefitName != "" {
 			// Historical clients only supplied a free-form name. Keep their legacy
@@ -1106,8 +1133,19 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	}
 	operationKey := strings.TrimSpace(input.OperationKey)
 	if operationKey != "" && !validCustomerBenefitOperationKey(operationKey) ||
-		schedulePriceDiscount && operationKey == "" {
+		(schedulePriceDiscount || applyExtension) && operationKey == "" {
 		return 0, fmt.Errorf("操作标识无效，请刷新后重试")
+	}
+	extensionExpectations := make([]db.DueExtensionExpectation, 0, len(subscriptionIDs))
+	if applyExtension {
+		validatedExpectations, validationErr := service.validateExtensionReviewSnapshots(
+			subscriptionIDs,
+			input.ExtensionReviewSnapshots,
+		)
+		if validationErr != nil {
+			return 0, validationErr
+		}
+		extensionExpectations = validatedExpectations
 	}
 	if benefitName == "" && !schedulePriceDiscount {
 		return 0, fmt.Errorf("请填写福利名称")
@@ -1223,6 +1261,7 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 			outcomeDueDate = laterDate(outcomeDueDate, latestDueByCustomerGroup[groupID])
 		}
 		records = append(records, model.CustomerBenefit{
+			ExtensionDays:             input.ExtensionDays,
 			BatchID:                   batchID,
 			SubscriptionID:            subscriptionID,
 			BenefitType:               benefitType,
@@ -1250,6 +1289,8 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 			service.now(),
 			cycle.FormatDate(service.now()),
 		)
+	} else if applyExtension {
+		persistErr = service.Store.CreateCustomerBenefitsAndExtendDueDates(records, extensionExpectations, service.now())
 	} else {
 		persistErr = service.Store.CreateCustomerBenefits(records)
 	}
@@ -1258,12 +1299,94 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 		case errors.Is(persistErr, db.ErrCustomerBenefitAlreadyRecorded):
 			return 0, fmt.Errorf("所选客户今天已登记过相同福利")
 		case errors.Is(persistErr, sql.ErrNoRows), errors.Is(persistErr, db.ErrSubscriptionStateChanged):
-			return 0, fmt.Errorf("所选客户状态已变化，请刷新后重试")
+			return 0, fmt.Errorf("所选客户状态已变化，请刷新后重试: %w", db.ErrSubscriptionStateChanged)
 		default:
 			return 0, persistErr
 		}
 	}
 	return len(records), nil
+}
+
+func (service *SubscriptionService) validateExtensionReviewSnapshots(
+	subscriptionIDs []int64,
+	snapshots []ExtensionReviewSnapshot,
+) ([]db.DueExtensionExpectation, error) {
+	if len(snapshots) != len(subscriptionIDs) {
+		return nil, fmt.Errorf("延期审核快照与所选订阅不一致，请刷新后重试")
+	}
+	selected := make(map[int64]struct{}, len(subscriptionIDs))
+	for _, subscriptionID := range subscriptionIDs {
+		selected[subscriptionID] = struct{}{}
+	}
+	expectationsByID := make(map[int64]db.DueExtensionExpectation, len(snapshots))
+	for _, snapshot := range snapshots {
+		if snapshot.SubscriptionID <= 0 {
+			return nil, fmt.Errorf("延期审核快照包含无效的订阅 ID，请刷新后重试")
+		}
+		if _, exists := selected[snapshot.SubscriptionID]; !exists {
+			return nil, fmt.Errorf("延期审核快照与所选订阅不一致，请刷新后重试")
+		}
+		if _, duplicate := expectationsByID[snapshot.SubscriptionID]; duplicate {
+			return nil, fmt.Errorf("延期审核快照包含重复项，请刷新后重试")
+		}
+		expectedUpdatedAt := strings.TrimSpace(snapshot.ExpectedUpdatedAt)
+		updatedAt, err := time.Parse(time.RFC3339Nano, expectedUpdatedAt)
+		if err != nil || updatedAt.IsZero() {
+			return nil, fmt.Errorf("延期审核快照的订阅版本无效，请刷新后重试")
+		}
+		expectedDueDate := strings.TrimSpace(snapshot.ExpectedDueDate)
+		parsedDueDate, err := time.ParseInLocation("2006-01-02", expectedDueDate, cycle.Location)
+		if err != nil || cycle.FormatDate(parsedDueDate) != expectedDueDate {
+			return nil, fmt.Errorf("延期审核快照的账期无效，请刷新后重试")
+		}
+		expectationsByID[snapshot.SubscriptionID] = db.DueExtensionExpectation{
+			SubscriptionID:           snapshot.SubscriptionID,
+			UpdatedAt:                updatedAt,
+			PreviousEffectiveDueDate: expectedDueDate,
+		}
+	}
+
+	bills, err := service.Store.ListBills()
+	if err != nil {
+		return nil, err
+	}
+	paidDatesBySubscriptionID := make(map[int64][]string)
+	for _, bill := range bills {
+		paidDatesBySubscriptionID[bill.SubscriptionID] = append(
+			paidDatesBySubscriptionID[bill.SubscriptionID],
+			bill.DueDate,
+		)
+	}
+	expectations := make([]db.DueExtensionExpectation, 0, len(subscriptionIDs))
+	for _, subscriptionID := range subscriptionIDs {
+		expectation, exists := expectationsByID[subscriptionID]
+		if !exists {
+			return nil, fmt.Errorf("延期审核快照与所选订阅不一致，请刷新后重试")
+		}
+		subscription, err := service.Store.GetSubscription(subscriptionID)
+		if err != nil || !subscription.UpdatedAt.Equal(expectation.UpdatedAt) {
+			return nil, fmt.Errorf("所选客户账期已变化，请刷新后重试: %w", db.ErrSubscriptionStateChanged)
+		}
+		schedule, err := subscription.BillingSchedule()
+		if err != nil {
+			return nil, err
+		}
+		dueDate, err := schedule.FirstUnpaid(service.now(), paidDatesBySubscriptionID[subscriptionID])
+		if err != nil {
+			return nil, err
+		}
+		if cycle.FormatDate(dueDate) != expectation.PreviousEffectiveDueDate {
+			return nil, fmt.Errorf("所选客户账期已变化，请刷新后重试: %w", db.ErrSubscriptionStateChanged)
+		}
+		expectations = append(expectations, expectation)
+	}
+	return expectations, nil
+}
+
+// ApplyCustomerBenefitExtension repairs only the explicitly approved historical
+// record. It requires a known target/date and never guesses days from a name.
+func (service *SubscriptionService) ApplyCustomerBenefitExtension(benefitID, subscriptionID int64, days int, expectedDueDate string) (model.SubscriptionDueExtension, bool, error) {
+	return service.Store.ApplyCustomerBenefitExtension(benefitID, subscriptionID, days, expectedDueDate, service.now())
 }
 
 func validCustomerBenefitOperationKey(value string) bool {

@@ -16,7 +16,9 @@ const customerBenefitSelectColumns = `
 	next_due_date_snapshot, customer_email_snapshot,
 	customer_wechat_snapshot, customer_tier_snapshot,
 	customer_group_size_snapshot, current_price_cents_snapshot,
-	renewal_count_snapshot, recommendation_code, note, created_at`
+	renewal_count_snapshot, recommendation_code, note, created_at,
+	COALESCE((SELECT extension_days FROM subscription_due_extensions WHERE customer_benefit_id = customer_benefits.id), 0),
+	(SELECT created_at FROM subscription_due_extensions WHERE customer_benefit_id = customer_benefits.id)`
 
 // ListCustomerBenefits returns immutable delivery history, newest first.
 func (store *Store) ListCustomerBenefits() ([]model.CustomerBenefit, error) {
@@ -137,7 +139,7 @@ func nextPricesAtFirstUnpaidDueWithTransaction(
 	scheduled := append([]model.Subscription(nil), subscriptions...)
 	for index := range scheduled {
 		subscription := &scheduled[index]
-		schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+		schedule, err := subscription.BillingSchedule()
 		if err != nil {
 			return nil, err
 		}
@@ -196,7 +198,8 @@ func createCustomerBenefitsWithTransaction(
 	transaction *sql.Tx,
 	benefits []model.CustomerBenefit,
 ) error {
-	for _, benefit := range benefits {
+	for index := range benefits {
+		benefit := benefits[index]
 		createdAt := benefit.CreatedAt
 		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
@@ -213,6 +216,7 @@ func createCustomerBenefitsWithTransaction(
 		for _, benefitType := range equivalentTypes {
 			duplicateArgs = append(duplicateArgs, benefitType)
 		}
+		duplicateArgs = append(duplicateArgs, benefit.ExtensionDays)
 		var alreadyRecorded bool
 		if queryErr := transaction.QueryRow(`
 			SELECT EXISTS (
@@ -222,6 +226,7 @@ func createCustomerBenefitsWithTransaction(
 				  AND benefit_date = ?
 				  AND benefit_name = ?
 				  AND benefit_type IN (`+placeholders+`)
+				  AND (? = 0 OR batch_id NOT LIKE 'benefit-operation-v1:%')
 			)`, duplicateArgs...).Scan(&alreadyRecorded); queryErr != nil {
 			return queryErr
 		}
@@ -289,6 +294,10 @@ func createCustomerBenefitsWithTransaction(
 		if affected != 1 {
 			return sql.ErrNoRows
 		}
+		benefits[index].ID, insertErr = result.LastInsertId()
+		if insertErr != nil {
+			return insertErr
+		}
 	}
 	return nil
 }
@@ -321,6 +330,7 @@ func equivalentCustomerBenefitTypes(value string) []string {
 func scanCustomerBenefit(scanner scannable) (model.CustomerBenefit, error) {
 	var benefit model.CustomerBenefit
 	var createdAt string
+	var extensionAppliedAt sql.NullString
 	if err := scanner.Scan(
 		&benefit.ID,
 		&benefit.BatchID,
@@ -340,6 +350,8 @@ func scanCustomerBenefit(scanner scannable) (model.CustomerBenefit, error) {
 		&benefit.RecommendationCode,
 		&benefit.Note,
 		&createdAt,
+		&benefit.ExtensionDays,
+		&extensionAppliedAt,
 	); err != nil {
 		return model.CustomerBenefit{}, err
 	}
@@ -348,5 +360,12 @@ func scanCustomerBenefit(scanner scannable) (model.CustomerBenefit, error) {
 		return model.CustomerBenefit{}, fmt.Errorf("parse customer benefit created_at: %w", err)
 	}
 	benefit.CreatedAt = parsed
+	if extensionAppliedAt.Valid {
+		appliedAt, err := parseTime(extensionAppliedAt.String)
+		if err != nil {
+			return model.CustomerBenefit{}, err
+		}
+		benefit.ExtensionAppliedAt = &appliedAt
+	}
 	return benefit, nil
 }

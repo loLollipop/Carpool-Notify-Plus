@@ -98,7 +98,7 @@ func TestSubscriptionScheduleEditRechecksBillCount(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// A new bill need not modify the subscription's timestamp.
+			// A new bill invalidates the subscription version atomically.
 			if err := store.SetDuePaid(id, "2026-10-01", true, 3000); err != nil {
 				t.Fatal(err)
 			}
@@ -115,7 +115,7 @@ func TestSubscriptionScheduleEditRechecksBillCount(t *testing.T) {
 				t.Fatalf("%s error = %v, want bill-count conflict", path, err)
 			}
 			stored, err := store.GetSubscription(id)
-			if err != nil || stored.BoardedAt != "2026-09-01" || !stored.UpdatedAt.Equal(stale.UpdatedAt) {
+			if err != nil || stored.BoardedAt != "2026-09-01" || !stored.UpdatedAt.After(stale.UpdatedAt) {
 				t.Fatalf("schedule changed: %#v, %v", stored, err)
 			}
 			bill, err := store.GetBillByOccurrence(id, "2026-10-01")

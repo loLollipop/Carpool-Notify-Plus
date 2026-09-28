@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"carpool-notify/internal/cycle"
+)
 
 const (
 	ChannelGotify = "gotify"
@@ -327,24 +331,26 @@ type SubscriptionPriceChange struct {
 // cost and decision-time snapshots are immutable so later retention analysis
 // does not accidentally use today's price or customer tier for an old action.
 type CustomerBenefit struct {
-	ID                        int64     `json:"id"`
-	BatchID                   string    `json:"batch_id"`
-	SubscriptionID            int64     `json:"subscription_id"`
-	BenefitType               string    `json:"benefit_type"`
-	BenefitName               string    `json:"benefit_name"`
-	ActualCostCents           int64     `json:"actual_cost_cents"`
-	PerceivedValueCents       int64     `json:"perceived_value_cents"`
-	BenefitDate               string    `json:"benefit_date"`
-	NextDueDateSnapshot       string    `json:"next_due_date_snapshot"`
-	CustomerEmailSnapshot     string    `json:"customer_email_snapshot"`
-	CustomerWechatSnapshot    string    `json:"customer_wechat_snapshot"`
-	CustomerTierSnapshot      string    `json:"customer_tier_snapshot"`
-	CustomerGroupSizeSnapshot int       `json:"customer_group_size_snapshot"`
-	CurrentPriceCentsSnapshot int64     `json:"current_price_cents_snapshot"`
-	RenewalCountSnapshot      int       `json:"renewal_count_snapshot"`
-	RecommendationCode        string    `json:"recommendation_code"`
-	Note                      string    `json:"note"`
-	CreatedAt                 time.Time `json:"created_at"`
+	ID                        int64      `json:"id"`
+	BatchID                   string     `json:"batch_id"`
+	SubscriptionID            int64      `json:"subscription_id"`
+	BenefitType               string     `json:"benefit_type"`
+	BenefitName               string     `json:"benefit_name"`
+	ActualCostCents           int64      `json:"actual_cost_cents"`
+	PerceivedValueCents       int64      `json:"perceived_value_cents"`
+	BenefitDate               string     `json:"benefit_date"`
+	NextDueDateSnapshot       string     `json:"next_due_date_snapshot"`
+	CustomerEmailSnapshot     string     `json:"customer_email_snapshot"`
+	CustomerWechatSnapshot    string     `json:"customer_wechat_snapshot"`
+	CustomerTierSnapshot      string     `json:"customer_tier_snapshot"`
+	CustomerGroupSizeSnapshot int        `json:"customer_group_size_snapshot"`
+	CurrentPriceCentsSnapshot int64      `json:"current_price_cents_snapshot"`
+	RenewalCountSnapshot      int        `json:"renewal_count_snapshot"`
+	RecommendationCode        string     `json:"recommendation_code"`
+	Note                      string     `json:"note"`
+	ExtensionDays             int        `json:"extension_days"`
+	ExtensionAppliedAt        *time.Time `json:"extension_applied_at,omitempty"`
+	CreatedAt                 time.Time  `json:"created_at"`
 }
 
 const OperatingExpenseCategoryXianyuPromotion = "xianyu_promotion"
@@ -421,13 +427,40 @@ type Subscription struct {
 	ArchivedAt *time.Time `json:"archived_at"`
 	// SeatFrozenUntil keeps a canceled Team seat unavailable after the refund
 	// is completed. Plus rentals have no seat and leave this field empty.
-	SeatFrozenUntil         *time.Time `json:"seat_frozen_until"`
-	CancellationRequestedAt *time.Time `json:"cancellation_requested_at"`
-	CancellationExpiresAt   *time.Time `json:"cancellation_expires_at"`
-	CancellationCaseID      int64      `json:"cancellation_case_id"`
-	DeletedAt               *time.Time `json:"deleted_at"`
-	CreatedAt               time.Time  `json:"created_at"`
-	UpdatedAt               time.Time  `json:"updated_at"`
+	SeatFrozenUntil         *time.Time                 `json:"seat_frozen_until"`
+	CancellationRequestedAt *time.Time                 `json:"cancellation_requested_at"`
+	CancellationExpiresAt   *time.Time                 `json:"cancellation_expires_at"`
+	CancellationCaseID      int64                      `json:"cancellation_case_id"`
+	DeletedAt               *time.Time                 `json:"deleted_at"`
+	DueExtensions           []SubscriptionDueExtension `json:"due_extensions,omitempty"`
+	CreatedAt               time.Time                  `json:"created_at"`
+	UpdatedAt               time.Time                  `json:"updated_at"`
+}
+
+// SubscriptionDueExtension is the immutable, auditable application of one
+// explicitly selected benefit to a logical billing boundary.
+type SubscriptionDueExtension struct {
+	ID                       int64     `json:"id"`
+	SubscriptionID           int64     `json:"subscription_id"`
+	CustomerBenefitID        int64     `json:"customer_benefit_id"`
+	BaseDueDate              string    `json:"base_due_date"`
+	ExtensionDays            int       `json:"extension_days"`
+	PreviousEffectiveDueDate string    `json:"previous_effective_due_date"`
+	EffectiveDueDate         string    `json:"effective_due_date"`
+	CreatedAt                time.Time `json:"created_at"`
+}
+
+// BillingSchedule is the effective schedule used by every billing consumer.
+func (subscription Subscription) BillingSchedule() (cycle.BillingSchedule, error) {
+	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	if err != nil {
+		return schedule, err
+	}
+	extensions := make([]cycle.DueExtension, 0, len(subscription.DueExtensions))
+	for _, extension := range subscription.DueExtensions {
+		extensions = append(extensions, cycle.DueExtension{BaseDueDate: extension.BaseDueDate, ExtensionDays: extension.ExtensionDays})
+	}
+	return schedule.WithExtensions(extensions)
 }
 
 // Bill is one paid occurrence for a subscription due date.
@@ -589,19 +622,20 @@ type TemplateData struct {
 
 // ExportPayload is the JSON export shape (no secrets).
 type ExportPayload struct {
-	ExportedAt                         string               `json:"exported_at"`
-	NotifyTemplate                     string               `json:"notify_template"`
-	CustomerEmailTemplate              string               `json:"customer_email_template"`
-	PriceIncreaseCustomerEmailTemplate string               `json:"price_increase_customer_email_template"`
-	PriceDecreaseCustomerEmailTemplate string               `json:"price_decrease_customer_email_template"`
-	EnabledChannels                    []string             `json:"enabled_channels"`
-	RedeemPageSettings                 RedeemPageSettings   `json:"redeem_page_settings"`
-	SeatFreezeDays                     int                  `json:"seat_freeze_days"`
-	RenewalApplicationAlertEmail       string               `json:"renewal_application_alert_email"`
-	Accounts                           []ExportAccount      `json:"accounts"`
-	Subscriptions                      []ExportSubscription `json:"subscriptions"`
-	CustomerBenefits                   []CustomerBenefit    `json:"customer_benefits"`
-	OperatingExpenses                  []OperatingExpense   `json:"operating_expenses"`
+	ExportedAt                         string                     `json:"exported_at"`
+	NotifyTemplate                     string                     `json:"notify_template"`
+	CustomerEmailTemplate              string                     `json:"customer_email_template"`
+	PriceIncreaseCustomerEmailTemplate string                     `json:"price_increase_customer_email_template"`
+	PriceDecreaseCustomerEmailTemplate string                     `json:"price_decrease_customer_email_template"`
+	EnabledChannels                    []string                   `json:"enabled_channels"`
+	RedeemPageSettings                 RedeemPageSettings         `json:"redeem_page_settings"`
+	SeatFreezeDays                     int                        `json:"seat_freeze_days"`
+	RenewalApplicationAlertEmail       string                     `json:"renewal_application_alert_email"`
+	Accounts                           []ExportAccount            `json:"accounts"`
+	Subscriptions                      []ExportSubscription       `json:"subscriptions"`
+	CustomerBenefits                   []CustomerBenefit          `json:"customer_benefits"`
+	SubscriptionDueExtensions          []SubscriptionDueExtension `json:"subscription_due_extensions"`
+	OperatingExpenses                  []OperatingExpense         `json:"operating_expenses"`
 }
 
 // ExportAccount is one account with seats in an export file.

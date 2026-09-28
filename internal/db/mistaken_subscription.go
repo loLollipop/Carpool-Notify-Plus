@@ -78,6 +78,7 @@ func (store *Store) DeleteMistakenTeamSubscription(subscriptionID int64) error {
 		"renewal_applications",
 		"notification_log",
 		"paid_due_occurrences",
+		"subscription_due_extensions",
 		"customer_benefits",
 		"pricing_exemptions",
 		"subscription_price_changes",

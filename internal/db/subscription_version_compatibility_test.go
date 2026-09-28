@@ -384,7 +384,13 @@ func TestSetDuePaidAcceptsLegacyVersionAndRejectsStale(t *testing.T) {
 			if err := store.SetDuePaidForSubscription(subscription, "2026-08-01", true, 3000, 500); err != nil {
 				t.Fatalf("legacy accounting: %v", err)
 			}
-			current := subscription
+			current, err := store.GetSubscription(subscription.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !current.UpdatedAt.After(subscription.UpdatedAt) {
+				t.Fatal("payment did not invalidate the old version")
+			}
 			current.PricePerPersonCents = 3500
 			if err := store.UpdateSubscription(current); err != nil {
 				t.Fatal(err)

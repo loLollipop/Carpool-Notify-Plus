@@ -308,10 +308,24 @@ func (store *Store) migrate() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_customer_benefits_subscription
 			ON customer_benefits(subscription_id, benefit_date DESC, id DESC);`,
+		`CREATE TABLE IF NOT EXISTS subscription_due_extensions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			subscription_id INTEGER NOT NULL REFERENCES subscriptions(id),
+			customer_benefit_id INTEGER NOT NULL UNIQUE REFERENCES customer_benefits(id),
+			base_due_date TEXT NOT NULL,
+			extension_days INTEGER NOT NULL CHECK(extension_days BETWEEN 1 AND 365),
+			previous_effective_due_date TEXT NOT NULL,
+			effective_due_date TEXT NOT NULL,
+			created_at TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_subscription_due_extensions_subscription
+			ON subscription_due_extensions(subscription_id, base_due_date, id);`,
 		`CREATE INDEX IF NOT EXISTS idx_customer_benefits_date
 			ON customer_benefits(benefit_date DESC, id DESC);`,
+		`DROP INDEX IF EXISTS idx_customer_benefits_delivery;`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_benefits_delivery
-			ON customer_benefits(subscription_id, benefit_date, benefit_type, benefit_name);`,
+			ON customer_benefits(subscription_id, benefit_date, benefit_type, benefit_name)
+			WHERE NOT (benefit_type = 'extension' AND batch_id LIKE 'benefit-operation-v1:%');`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_benefits_operation_subscription
 			ON customer_benefits(batch_id, subscription_id)
 			WHERE batch_id LIKE 'benefit-operation-v1:%';`,
@@ -1815,7 +1829,13 @@ func (store *Store) ListSubscriptions() ([]model.Subscription, error) {
 		}
 		subscriptions = append(subscriptions, subscription)
 	}
-	return subscriptions, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return store.loadSubscriptionExtensions(subscriptions)
 }
 
 // GetSubscription returns an active (non-deleted, non-archived) subscription by id.
@@ -1824,7 +1844,7 @@ func (store *Store) GetSubscription(subscriptionID int64) (model.Subscription, e
                 SELECT `+subscriptionSelectColumns+`
                 `+subscriptionFromJoin+`
                 WHERE subscription.id = ? AND subscription.deleted_at IS NULL AND subscription.archived_at IS NULL`, subscriptionID)
-	return scanSubscription(row)
+	return store.subscriptionWithExtensions(row)
 }
 
 // GetSubscriptionIncludingArchived returns a non-deleted subscription, including archived ones.
@@ -1833,7 +1853,7 @@ func (store *Store) GetSubscriptionIncludingArchived(subscriptionID int64) (mode
                 SELECT `+subscriptionSelectColumns+`
                 `+subscriptionFromJoin+`
                 WHERE subscription.id = ? AND subscription.deleted_at IS NULL`, subscriptionID)
-	return scanSubscription(row)
+	return store.subscriptionWithExtensions(row)
 }
 
 // ListArchivedSubscriptions returns non-deleted archived subscriptions ordered by archive time.
@@ -1856,7 +1876,13 @@ func (store *Store) ListArchivedSubscriptions() ([]model.Subscription, error) {
 		}
 		subscriptions = append(subscriptions, subscription)
 	}
-	return subscriptions, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return store.loadSubscriptionExtensions(subscriptions)
 }
 
 // CreateSubscription inserts a new active subscription.
@@ -2667,7 +2693,7 @@ func (store *Store) setDuePaid(
 		if err != nil {
 			return err
 		}
-		return store.deleteBillIfUnreferenced(bill.ID)
+		return store.deleteBillIfUnreferenced(bill.ID, expectedUpdatedAt)
 	}
 
 	existing, err := store.GetBillByOccurrence(subscriptionID, dueDate)
@@ -2731,6 +2757,9 @@ func (store *Store) setDuePaid(
 		return err
 	}
 	if inserted == 1 {
+		if err := touchSubscriptionWithTransaction(transaction, subscriptionID); err != nil {
+			return err
+		}
 		// A scheduled price becomes the regular price only after the first bill
 		// in its effective period is actually recorded. Removing that bill later
 		// deliberately does not rewrite the price or any historical bill.
@@ -2762,14 +2791,12 @@ func (store *Store) setDuePaid(
 			UPDATE subscriptions
 			SET price_per_person_cents = next_price_cents,
 				next_price_cents = NULL,
-				next_price_effective_due_date = '',
-				updated_at = ?
+				next_price_effective_due_date = ''
 			WHERE id = ?
 			  AND is_resale = 0
 			  AND next_price_cents IS NOT NULL
 			  AND next_price_effective_due_date <> ''
 			  AND next_price_effective_due_date <= ?`,
-			now,
 			subscriptionID,
 			strings.TrimSpace(dueDate),
 		); err != nil {
@@ -2962,12 +2989,24 @@ func (store *Store) DeleteBill(billID int64) error {
 	return store.deleteBillIfUnreferenced(billID)
 }
 
-func (store *Store) deleteBillIfUnreferenced(billID int64) error {
+func (store *Store) deleteBillIfUnreferenced(billID int64, expected ...*time.Time) error {
 	transaction, err := store.database.Begin()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = transaction.Rollback() }()
+	var subscriptionID int64
+	if err := transaction.QueryRow(`SELECT subscription_id FROM bills WHERE id = ?`, billID).Scan(&subscriptionID); err != nil {
+		return err
+	}
+	if len(expected) > 0 && expected[0] != nil {
+		if _, err := subscriptionVersionForUpdate(transaction, subscriptionID, *expected[0]); err != nil {
+			return ErrSubscriptionFinancialStateChanged
+		}
+	}
+	if err := touchSubscriptionWithTransaction(transaction, subscriptionID); err != nil {
+		return err
+	}
 
 	if err := ensureBillUnreferenced(transaction, billID); err != nil {
 		return err
@@ -3072,6 +3111,7 @@ func (store *Store) ResetBusinessData() error {
 		"notification_log",
 		"bills",
 		"paid_due_occurrences",
+		"subscription_due_extensions",
 		"customer_benefits",
 		"pricing_exemptions",
 		"subscription_price_changes",
@@ -4079,7 +4119,7 @@ func (store *Store) GetActiveSubscriptionBySeatID(seatID int64) (model.Subscript
 		  AND subscription.deleted_at IS NULL
 		  AND subscription.archived_at IS NULL
 		LIMIT 1`, seatID)
-	return scanSubscription(row)
+	return store.subscriptionWithExtensions(row)
 }
 
 // CountActiveSubscriptionsByAccount returns how many active subscriptions occupy seats on the account.
@@ -4196,7 +4236,7 @@ func (store *Store) GetFrozenSubscriptionBySeatID(seatID int64, now time.Time) (
 		  AND julianday(subscription.seat_frozen_until) > julianday(?)
 		ORDER BY subscription.seat_frozen_until DESC, subscription.id DESC
 		LIMIT 1`, seatID, formatTime(now.UTC()))
-	return scanSubscription(row)
+	return store.subscriptionWithExtensions(row)
 }
 
 // UpdateFrozenSubscriptionUntil changes one active cancellation freeze while
@@ -4291,7 +4331,9 @@ func (store *Store) GetNotificationLog(
 	return scanNotificationLog(row)
 }
 
-// UpsertPendingNotification creates a pending log if missing; returns the log.
+// UpsertPendingNotification creates a pending log if missing. A canceled row
+// is reactivated only when the current planner explicitly requests the exact
+// same due date, offset, channel and kind again.
 func (store *Store) UpsertPendingNotification(
 	subscriptionID int64,
 	dueDate string,
@@ -4301,6 +4343,16 @@ func (store *Store) UpsertPendingNotification(
 ) (model.NotificationLog, error) {
 	existing, err := store.GetNotificationLog(subscriptionID, dueDate, offsetDays, channel, kind)
 	if err == nil {
+		if existing.Status == model.NotificationStatusCanceled {
+			now := formatTime(time.Now().UTC())
+			if _, updateErr := store.database.Exec(`UPDATE notification_log
+				SET status = ?, attempt_count = 0, next_retry_at = NULL, last_error = '', updated_at = ?
+				WHERE id = ? AND status = ?`,
+				model.NotificationStatusPending, now, existing.ID, model.NotificationStatusCanceled); updateErr != nil {
+				return model.NotificationLog{}, updateErr
+			}
+			return store.GetNotificationLogByID(existing.ID)
+		}
 		return existing, nil
 	}
 	if err != sql.ErrNoRows {

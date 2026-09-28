@@ -24,12 +24,35 @@ const renewalSelectColumns = `
 	updated_at`
 
 func (store *Store) CreateRenewalApplication(application model.RenewalApplication) (int64, error) {
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	subscription, err := scanSubscription(transaction.QueryRow(`SELECT `+subscriptionSelectColumns+` `+subscriptionFromJoin+` WHERE subscription.id = ?`, application.SubscriptionID))
+	if err != nil {
+		return 0, err
+	}
+	subscription.DueExtensions, err = readDueExtensions(transaction, []int64{subscription.ID})
+	if err != nil {
+		return 0, err
+	}
+	if len(subscription.DueExtensions) > 0 {
+		schedule, err := subscription.BillingSchedule()
+		if err != nil {
+			return 0, err
+		}
+		valid, err := schedule.IsDueDate(application.DueDate)
+		if err != nil || !valid {
+			return 0, ErrRenewalFinancialStateChanged
+		}
+	}
 	periodCount := application.PeriodCount
 	if periodCount <= 0 {
 		periodCount = 1
 	}
 	now := formatTime(time.Now().UTC())
-	result, err := store.database.Exec(`
+	result, err := transaction.Exec(`
 		INSERT INTO renewal_applications (
 			tracking_token, subscription_id, customer_email, due_date,
 			period_count, period_end_date, amount_cents, status,
@@ -54,7 +77,14 @@ func (store *Store) CreateRenewalApplication(application model.RenewalApplicatio
 		}
 		return 0, err
 	}
-	return result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return 0, err
+	}
+	return id, nil
 }
 
 func (store *Store) GetRenewalApplication(applicationID int64) (model.RenewalApplication, error) {

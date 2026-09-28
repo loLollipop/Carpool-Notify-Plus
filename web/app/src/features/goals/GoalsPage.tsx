@@ -3926,6 +3926,11 @@ function CustomerCarePanel({
         subscriptionIds={selectedCandidates.map((candidate) => candidate.subscription_id)}
         suggestedType={suggestedBenefitType}
         targetLabel={selectedCandidates.length === 1 ? selectedCandidates[0].display_name : undefined}
+        extensionReviewSnapshots={selectedCandidates.flatMap((candidate) =>
+          (candidate.extension_review_snapshots ?? []).filter(
+            (snapshot) => snapshot.subscription_id === candidate.subscription_id,
+          ),
+        )}
         onSuccess={() => setSelected(new Set())}
       />
       <StatDetailDialog
