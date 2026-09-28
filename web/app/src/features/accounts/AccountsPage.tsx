@@ -50,7 +50,7 @@ import {
 import {
   getNextMonthlyRenewalDate,
 } from "@/lib/account-renewal"
-import { accountSerialSearchTerms, formatAccountLabel } from "@/lib/account-display"
+import { accountSerialSearchTerms, formatAccountLabel, formatAccountName } from "@/lib/account-display"
 import { AccountDialog, type AccountPrefill } from "./AccountDialog"
 import { AccountBanDialog, type AccountBanTarget } from "./AccountBanDialog"
 import { SeatFreezeDialog, type SeatFreezeTarget } from "./SeatFreezeDialog"
@@ -335,7 +335,7 @@ function AccountMobileCard({
   const accountName = view.account.name.trim()
   const accountEmail = view.account.email.trim()
   const displayEmail = view.display_email.trim()
-  const primaryAccountName = displayEmail || accountName
+  const primaryAccountName = formatAccountName(displayEmail || accountName, view.space_role)
   const showAccountEmail = displayEmail === "" && accountEmail !== "" && accountEmail !== accountName
 
   return (
@@ -633,7 +633,7 @@ export function AccountsPage() {
     setStatDetail(null)
     setRenewalTarget({
       id: view.account.id,
-      name: view.display_email || view.account.email || view.account.name,
+      name: formatAccountName(view.display_email || view.account.email || view.account.name, view.space_role),
       renewalDate: view.next_renewal_date,
       amountYuan: formatCents(view.account.zero_renewal_next_month ? 0 : view.account.cost_cents),
     })
@@ -687,6 +687,8 @@ export function AccountsPage() {
         title: formatAccountLabel(
           view.display_serial,
           view.display_email || view.account.email || view.account.name,
+          "-",
+          view.space_role,
         ),
         subtitle: (view.display_email || view.account.email) &&
           (view.display_email || view.account.email) !== view.account.name
@@ -876,12 +878,12 @@ export function AccountsPage() {
                 onBan={() =>
                   setBanTarget({
                     id: view.account.id,
-                    name: view.display_email || view.account.email || view.account.name,
+                    name: formatAccountName(view.display_email || view.account.email || view.account.name, view.space_role),
                     activeCount: view.seat_used,
                   })
                 }
                 onDelete={() =>
-                  setDeleteTarget({ id: view.account.id, name: view.display_email || view.account.email || view.account.name })
+                  setDeleteTarget({ id: view.account.id, name: formatAccountName(view.display_email || view.account.email || view.account.name, view.space_role) })
                 }
               />
             ))}
@@ -910,7 +912,7 @@ export function AccountsPage() {
                 const accountName = view.account.name.trim()
                 const accountEmail = view.account.email.trim()
                 const displayEmail = view.display_email.trim()
-                const primaryAccountName = displayEmail || accountName
+                const primaryAccountName = formatAccountName(displayEmail || accountName, view.space_role)
                 const showAccountEmail = displayEmail === "" && accountEmail !== "" && accountEmail !== accountName
                 return (
                   <TableRow
@@ -1077,7 +1079,7 @@ export function AccountsPage() {
                             onClick={() =>
                               setBanTarget({
                                 id: view.account.id,
-                                name: view.display_email || view.account.email || view.account.name,
+                                name: formatAccountName(view.display_email || view.account.email || view.account.name, view.space_role),
                                 activeCount: view.seat_used,
                               })
                             }
@@ -1092,7 +1094,7 @@ export function AccountsPage() {
                             size="sm"
                             className="text-destructive hover:text-destructive"
                             onClick={() =>
-                              setDeleteTarget({ id: view.account.id, name: view.display_email || view.account.email || view.account.name })
+                              setDeleteTarget({ id: view.account.id, name: formatAccountName(view.display_email || view.account.email || view.account.name, view.space_role) })
                             }
                           >
                             <Trash2 data-slot="icon" />

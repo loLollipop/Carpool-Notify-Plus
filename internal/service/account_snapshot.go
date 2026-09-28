@@ -115,10 +115,12 @@ func buildAccountViewFromSnapshot(account model.Account, snapshot accountViewSna
 		}
 		seatViews = append(seatViews, seatView)
 	}
+	identity := identities.identity(account.ID)
 	view := AccountView{
 		Account:       account,
-		DisplaySerial: identities.identity(account.ID).Serial,
-		DisplayEmail:  identities.identity(account.ID).Email,
+		DisplaySerial: identity.Serial,
+		DisplayEmail:  identity.Email,
+		SpaceRole:     identity.Role,
 		Seats:         seatViews,
 		SeatTotal:     len(seatViews),
 		SeatUsed:      usedCount,

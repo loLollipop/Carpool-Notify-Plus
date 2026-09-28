@@ -19,17 +19,18 @@ var accountRemarkSerialPattern = regexp.MustCompile(`(?:\(([0-9]+)\)|（([0-9]+)
 
 // AccountView is one account with seat occupancy for the accounts page and forms.
 type AccountView struct {
-	Account           model.Account `json:"account"`
-	DisplaySerial     int64         `json:"display_serial"`
-	DisplayEmail      string        `json:"display_email"`
-	Seats             []SeatView    `json:"seats"`
-	SeatTotal         int           `json:"seat_total"`
-	SeatUsed          int           `json:"seat_used"`
-	IsFull            bool          `json:"is_full"`
-	CanDelete         bool          `json:"can_delete"`
-	NextRenewalDate   string        `json:"next_renewal_date"`
-	RenewalThisMonth  bool          `json:"renewal_this_month"`
-	RenewalActionable bool          `json:"renewal_actionable"`
+	Account           model.Account    `json:"account"`
+	DisplaySerial     int64            `json:"display_serial"`
+	DisplayEmail      string           `json:"display_email"`
+	SpaceRole         AccountSpaceRole `json:"space_role"`
+	Seats             []SeatView       `json:"seats"`
+	SeatTotal         int              `json:"seat_total"`
+	SeatUsed          int              `json:"seat_used"`
+	IsFull            bool             `json:"is_full"`
+	CanDelete         bool             `json:"can_delete"`
+	NextRenewalDate   string           `json:"next_renewal_date"`
+	RenewalThisMonth  bool             `json:"renewal_this_month"`
+	RenewalActionable bool             `json:"renewal_actionable"`
 }
 
 // SeatView is one seat with optional active subscription occupancy.
@@ -171,10 +172,12 @@ func (service *SubscriptionService) buildAccountView(account model.Account) (Acc
 		}
 		seatViews = append(seatViews, seatView)
 	}
+	identity := identities.identity(account.ID)
 	view := AccountView{
 		Account:       account,
-		DisplaySerial: identities.identity(account.ID).Serial,
-		DisplayEmail:  identities.identity(account.ID).Email,
+		DisplaySerial: identity.Serial,
+		DisplayEmail:  identity.Email,
+		SpaceRole:     identity.Role,
 		Seats:         seatViews,
 		SeatTotal:     len(seatViews),
 		SeatUsed:      usedCount,
@@ -545,22 +548,23 @@ type SeatOption struct {
 
 // AccountOption is a selectable account with free/all seats for forms.
 type AccountOption struct {
-	ID                   int64        `json:"id"`
-	DisplaySerial        int64        `json:"display_serial"`
-	DisplayEmail         string       `json:"display_email"`
-	Name                 string       `json:"name"`
-	Remark               string       `json:"remark"`
-	PaymentMethod        string       `json:"payment_method"`
-	Email                string       `json:"email"`
-	SpaceName            string       `json:"space_name"`
-	OpenedAt             string       `json:"opened_at"`
-	CostYuan             string       `json:"cost_yuan"`
-	TotalCostYuan        string       `json:"total_cost_yuan"`
-	ZeroRenewalNextMonth bool         `json:"zero_renewal_next_month"`
-	SeatTotal            int          `json:"seat_total"`
-	SeatUsed             int          `json:"seat_used"`
-	IsFull               bool         `json:"is_full"`
-	Seats                []SeatOption `json:"seats"`
+	ID                   int64            `json:"id"`
+	DisplaySerial        int64            `json:"display_serial"`
+	DisplayEmail         string           `json:"display_email"`
+	SpaceRole            AccountSpaceRole `json:"space_role"`
+	Name                 string           `json:"name"`
+	Remark               string           `json:"remark"`
+	PaymentMethod        string           `json:"payment_method"`
+	Email                string           `json:"email"`
+	SpaceName            string           `json:"space_name"`
+	OpenedAt             string           `json:"opened_at"`
+	CostYuan             string           `json:"cost_yuan"`
+	TotalCostYuan        string           `json:"total_cost_yuan"`
+	ZeroRenewalNextMonth bool             `json:"zero_renewal_next_month"`
+	SeatTotal            int              `json:"seat_total"`
+	SeatUsed             int              `json:"seat_used"`
+	IsFull               bool             `json:"is_full"`
+	Seats                []SeatOption     `json:"seats"`
 }
 
 // ListAccountOptionsForForm returns accounts and seats for the subscription dialog.
@@ -614,10 +618,12 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 				Free:      true,
 			})
 		}
+		identity := identities.identity(account.ID)
 		options = append(options, AccountOption{
 			ID:                   account.ID,
-			DisplaySerial:        identities.identity(account.ID).Serial,
-			DisplayEmail:         identities.identity(account.ID).Email,
+			DisplaySerial:        identity.Serial,
+			DisplayEmail:         identity.Email,
+			SpaceRole:            identity.Role,
 			Name:                 account.Name,
 			Remark:               account.Remark,
 			PaymentMethod:        account.PaymentMethod,

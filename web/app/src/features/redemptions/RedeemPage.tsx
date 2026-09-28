@@ -62,6 +62,7 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { formatAccountName } from "@/lib/account-display"
 import { cn } from "@/lib/utils"
 
 const STORAGE_KEY = "carpool-notify:redemption-token"
@@ -1127,7 +1128,7 @@ function renewalTokenStorageKey(sandboxAccessToken: string) {
 function renewalSubscriptionCaption(item: RenewalSubscriptionView) {
   const parts: string[] = []
   if (item.business_type === "team" && item.account_serial > 0) {
-    parts.push(`${item.account_serial}号母号`)
+    parts.push(formatAccountName(`${item.account_serial}号母号`, item.account_space_role))
   }
   if (item.seat_name) parts.push(item.seat_name)
   return parts.join(" · ") || item.service_label

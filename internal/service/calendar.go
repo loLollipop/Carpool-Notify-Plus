@@ -58,40 +58,41 @@ type CalendarDayView struct {
 
 // CalendarOccurrenceView is one subscription occurrence on its due date.
 type CalendarOccurrenceView struct {
-	SubscriptionID            int64    `json:"subscription_id"`
-	Name                      string   `json:"name"`
-	BusinessType              string   `json:"business_type"`
-	DueDate                   string   `json:"due_date"`
-	DayNumber                 int      `json:"day_number"`
-	WeekdayLabel              string   `json:"weekday_label"`
-	PriceYuan                 string   `json:"price_yuan"`
-	CurrentPriceYuan          string   `json:"current_price_yuan"`
-	NextPriceYuan             string   `json:"next_price_yuan"`
-	NextPriceEffectiveDueDate string   `json:"next_price_effective_due_date"`
-	AmountCents               int64    `json:"-"`
-	CostYuan                  string   `json:"cost_yuan"`
-	AgencyFeeYuan             string   `json:"agency_fee_yuan"`
-	IsResale                  bool     `json:"is_resale"`
-	ProfitYuan                string   `json:"profit_yuan"`
-	CycleDesc                 string   `json:"cycle_desc"`
-	ReminderLabel             string   `json:"reminder_label"`
-	ChannelLabels             string   `json:"channel_labels"`
-	Paid                      bool     `json:"paid"`
-	AccountName               string   `json:"account_name"`
-	AccountSerial             int64    `json:"account_serial"`
-	AccountDisplayEmail       string   `json:"account_display_email"`
-	SeatName                  string   `json:"seat_name"`
-	AccountID                 int64    `json:"account_id"`
-	SeatID                    int64    `json:"seat_id"`
-	DaysRemaining             int      `json:"days_remaining"`
-	TradeURL                  string   `json:"trade_url"`
-	CronExpr                  string   `json:"cron_expr"`
-	OffsetsText               string   `json:"offsets_text"`
-	CustomerEmail             string   `json:"customer_email"`
-	CustomerWechat            string   `json:"customer_wechat"`
-	Channels                  []string `json:"channels"`
-	Remark                    string   `json:"remark"`
-	BoardedAt                 string   `json:"boarded_at"`
+	SubscriptionID            int64            `json:"subscription_id"`
+	Name                      string           `json:"name"`
+	BusinessType              string           `json:"business_type"`
+	DueDate                   string           `json:"due_date"`
+	DayNumber                 int              `json:"day_number"`
+	WeekdayLabel              string           `json:"weekday_label"`
+	PriceYuan                 string           `json:"price_yuan"`
+	CurrentPriceYuan          string           `json:"current_price_yuan"`
+	NextPriceYuan             string           `json:"next_price_yuan"`
+	NextPriceEffectiveDueDate string           `json:"next_price_effective_due_date"`
+	AmountCents               int64            `json:"-"`
+	CostYuan                  string           `json:"cost_yuan"`
+	AgencyFeeYuan             string           `json:"agency_fee_yuan"`
+	IsResale                  bool             `json:"is_resale"`
+	ProfitYuan                string           `json:"profit_yuan"`
+	CycleDesc                 string           `json:"cycle_desc"`
+	ReminderLabel             string           `json:"reminder_label"`
+	ChannelLabels             string           `json:"channel_labels"`
+	Paid                      bool             `json:"paid"`
+	AccountName               string           `json:"account_name"`
+	AccountSerial             int64            `json:"account_serial"`
+	AccountDisplayEmail       string           `json:"account_display_email"`
+	AccountSpaceRole          AccountSpaceRole `json:"account_space_role"`
+	SeatName                  string           `json:"seat_name"`
+	AccountID                 int64            `json:"account_id"`
+	SeatID                    int64            `json:"seat_id"`
+	DaysRemaining             int              `json:"days_remaining"`
+	TradeURL                  string           `json:"trade_url"`
+	CronExpr                  string           `json:"cron_expr"`
+	OffsetsText               string           `json:"offsets_text"`
+	CustomerEmail             string           `json:"customer_email"`
+	CustomerWechat            string           `json:"customer_wechat"`
+	Channels                  []string         `json:"channels"`
+	Remark                    string           `json:"remark"`
+	BoardedAt                 string           `json:"boarded_at"`
 }
 
 type dueOccurrenceKey struct {
@@ -392,10 +393,12 @@ func (service *SubscriptionService) calendarMonth(
 	subscriptions := make([]model.Subscription, 0, len(subscriptionViews))
 	accountSerialBySubscription := make(map[int64]int64, len(subscriptionViews))
 	accountEmailBySubscription := make(map[int64]string, len(subscriptionViews))
+	accountRoleBySubscription := make(map[int64]AccountSpaceRole, len(subscriptionViews))
 	for _, view := range subscriptionViews {
 		subscriptions = append(subscriptions, view.Subscription)
 		accountSerialBySubscription[view.Subscription.ID] = view.AccountSerial
 		accountEmailBySubscription[view.Subscription.ID] = view.AccountDisplayEmail
+		accountRoleBySubscription[view.Subscription.ID] = view.AccountSpaceRole
 	}
 	allocatedCosts, err := service.activeAllocatedCostCents(subscriptions)
 	if err != nil {
@@ -448,6 +451,7 @@ func (service *SubscriptionService) calendarMonth(
 					billsByOccurrence[dueOccurrenceKey{subscriptionID: subscription.ID, dueDate: dueDate}],
 					allocatedCosts[subscription.ID],
 					accountEmailBySubscription[subscription.ID],
+					accountRoleBySubscription[subscription.ID],
 				))
 			}
 			continue
@@ -475,6 +479,7 @@ func (service *SubscriptionService) calendarMonth(
 				billsByOccurrence[dueOccurrenceKey{subscriptionID: subscription.ID, dueDate: dueDate}],
 				allocatedCosts[subscription.ID],
 				accountEmailBySubscription[subscription.ID],
+				accountRoleBySubscription[subscription.ID],
 			))
 			cursor = cycle.StartOfDay(dueAt).AddDate(0, 0, 1).Add(-time.Nanosecond)
 		}
@@ -580,6 +585,7 @@ func (service *SubscriptionService) buildActionableCalendarOccurrences(
 			model.Bill{},
 			allocatedCosts[view.Subscription.ID],
 			view.AccountDisplayEmail,
+			view.AccountSpaceRole,
 		)
 		// Preserve the exact value that made this row actionable so the calendar
 		// and dashboard cannot disagree if a request crosses midnight.
@@ -606,6 +612,7 @@ func (service *SubscriptionService) buildOccurrenceView(
 	bill model.Bill,
 	allocatedCostCents int64,
 	accountDisplayEmail string,
+	accountSpaceRole AccountSpaceRole,
 ) CalendarOccurrenceView {
 	dueDate := cycle.FormatDate(dueAt)
 	amountCents := billAmountCentsForDueDate(subscription, dueDate)
@@ -644,6 +651,7 @@ func (service *SubscriptionService) buildOccurrenceView(
 		AccountName:               displayAccountName(subscription),
 		AccountSerial:             accountSerial,
 		AccountDisplayEmail:       accountDisplayEmail,
+		AccountSpaceRole:          accountSpaceRole,
 		SeatName:                  subscription.SeatName,
 		AccountID:                 subscription.AccountID,
 		SeatID:                    subscription.SeatID,

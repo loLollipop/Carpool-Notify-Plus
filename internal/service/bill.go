@@ -15,47 +15,48 @@ import (
 
 // BillView is one bill row for the bills list page.
 type BillView struct {
-	ID                  int64     `json:"id"`
-	SubscriptionID      int64     `json:"subscription_id"`
-	SubscriptionName    string    `json:"subscription_name"`
-	BusinessType        string    `json:"business_type"`
-	AccountSerial       int64     `json:"account_serial"`
-	AccountDisplayEmail string    `json:"account_display_email"`
-	AccountName         string    `json:"account_name"`
-	AccountEmail        string    `json:"account_email"`
-	AccountSpaceName    string    `json:"account_space_name"`
-	AccountOpenedAt     string    `json:"account_opened_at"`
-	SeatName            string    `json:"seat_name"`
-	CustomerEmail       string    `json:"customer_email"`
-	CustomerWechat      string    `json:"customer_wechat"`
-	DueDate             string    `json:"due_date"`
-	AmountYuan          string    `json:"amount_yuan"`
-	AmountCents         int64     `json:"amount_cents"`
-	CostCents           int64     `json:"cost_cents"`
-	RefundYuan          string    `json:"refund_yuan"`
-	RefundCents         int64     `json:"refund_cents"`
-	NetAmountYuan       string    `json:"net_amount_yuan"`
-	NetAmountCents      int64     `json:"net_amount_cents"`
-	Note                string    `json:"note"`
-	PaidAtLabel         string    `json:"paid_at_label"`
-	PaidAt              time.Time `json:"paid_at"`
-	Archived            bool      `json:"archived"`
-	StatusLabel         string    `json:"status_label"`
-	TradeURL            string    `json:"trade_url"`
-	PriceYuan           string    `json:"price_yuan"`
-	CostYuan            string    `json:"cost_yuan"`
-	AgencyFeeYuan       string    `json:"agency_fee_yuan"`
-	IsResale            bool      `json:"is_resale"`
-	ProfitYuan          string    `json:"profit_yuan"`
-	CycleDesc           string    `json:"cycle_desc"`
-	CronExpr            string    `json:"cron_expr"`
-	OffsetsText         string    `json:"offsets_text"`
-	Remark              string    `json:"remark"`
-	BoardedAt           string    `json:"boarded_at"`
-	ArchivedAtLabel     string    `json:"archived_at_label"`
-	ChannelLabels       string    `json:"channel_labels"`
-	AccountID           int64     `json:"account_id"`
-	SeatID              int64     `json:"seat_id"`
+	ID                  int64            `json:"id"`
+	SubscriptionID      int64            `json:"subscription_id"`
+	SubscriptionName    string           `json:"subscription_name"`
+	BusinessType        string           `json:"business_type"`
+	AccountSerial       int64            `json:"account_serial"`
+	AccountDisplayEmail string           `json:"account_display_email"`
+	AccountSpaceRole    AccountSpaceRole `json:"account_space_role"`
+	AccountName         string           `json:"account_name"`
+	AccountEmail        string           `json:"account_email"`
+	AccountSpaceName    string           `json:"account_space_name"`
+	AccountOpenedAt     string           `json:"account_opened_at"`
+	SeatName            string           `json:"seat_name"`
+	CustomerEmail       string           `json:"customer_email"`
+	CustomerWechat      string           `json:"customer_wechat"`
+	DueDate             string           `json:"due_date"`
+	AmountYuan          string           `json:"amount_yuan"`
+	AmountCents         int64            `json:"amount_cents"`
+	CostCents           int64            `json:"cost_cents"`
+	RefundYuan          string           `json:"refund_yuan"`
+	RefundCents         int64            `json:"refund_cents"`
+	NetAmountYuan       string           `json:"net_amount_yuan"`
+	NetAmountCents      int64            `json:"net_amount_cents"`
+	Note                string           `json:"note"`
+	PaidAtLabel         string           `json:"paid_at_label"`
+	PaidAt              time.Time        `json:"paid_at"`
+	Archived            bool             `json:"archived"`
+	StatusLabel         string           `json:"status_label"`
+	TradeURL            string           `json:"trade_url"`
+	PriceYuan           string           `json:"price_yuan"`
+	CostYuan            string           `json:"cost_yuan"`
+	AgencyFeeYuan       string           `json:"agency_fee_yuan"`
+	IsResale            bool             `json:"is_resale"`
+	ProfitYuan          string           `json:"profit_yuan"`
+	CycleDesc           string           `json:"cycle_desc"`
+	CronExpr            string           `json:"cron_expr"`
+	OffsetsText         string           `json:"offsets_text"`
+	Remark              string           `json:"remark"`
+	BoardedAt           string           `json:"boarded_at"`
+	ArchivedAtLabel     string           `json:"archived_at_label"`
+	ChannelLabels       string           `json:"channel_labels"`
+	AccountID           int64            `json:"account_id"`
+	SeatID              int64            `json:"seat_id"`
 }
 
 // BillsSummary is the top KPI + chart model for the bills page.
@@ -95,21 +96,22 @@ type BillsSummary struct {
 // dialogs with the financial summary, including manually entered refunds that
 // are not linked to a bill.
 type RefundDetail struct {
-	ID                  int64  `json:"id"`
-	BillID              int64  `json:"bill_id"`
-	SubscriptionID      int64  `json:"subscription_id"`
-	BusinessType        string `json:"business_type"`
-	AccountSerial       int64  `json:"account_serial"`
-	AccountDisplayEmail string `json:"account_display_email"`
-	CustomerEmail       string `json:"customer_email"`
-	CustomerWechat      string `json:"customer_wechat"`
-	AccountName         string `json:"account_name"`
-	PeriodEnd           string `json:"period_end"`
-	ProcessedMonth      string `json:"processed_month"`
-	ProcessedAtLabel    string `json:"processed_at_label"`
-	AmountCents         int64  `json:"amount_cents"`
-	AmountYuan          string `json:"amount_yuan"`
-	Note                string `json:"note"`
+	ID                  int64            `json:"id"`
+	BillID              int64            `json:"bill_id"`
+	SubscriptionID      int64            `json:"subscription_id"`
+	BusinessType        string           `json:"business_type"`
+	AccountSerial       int64            `json:"account_serial"`
+	AccountDisplayEmail string           `json:"account_display_email"`
+	AccountSpaceRole    AccountSpaceRole `json:"account_space_role"`
+	CustomerEmail       string           `json:"customer_email"`
+	CustomerWechat      string           `json:"customer_wechat"`
+	AccountName         string           `json:"account_name"`
+	PeriodEnd           string           `json:"period_end"`
+	ProcessedMonth      string           `json:"processed_month"`
+	ProcessedAtLabel    string           `json:"processed_at_label"`
+	AmountCents         int64            `json:"amount_cents"`
+	AmountYuan          string           `json:"amount_yuan"`
+	Note                string           `json:"note"`
 }
 
 // MonthAmountBar is one month bucket in the bills trend chart.
@@ -331,13 +333,15 @@ func buildBillViewFromSnapshot(
 	}
 
 	netAmountCents := bill.AmountCents - refundCents
+	identity := identities.identity(accountID)
 	return BillView{
 		ID:                  bill.ID,
 		SubscriptionID:      bill.SubscriptionID,
 		SubscriptionName:    subscriptionName,
 		BusinessType:        businessType,
 		AccountSerial:       accountSerial,
-		AccountDisplayEmail: identities.identity(accountID).Email,
+		AccountDisplayEmail: identity.Email,
+		AccountSpaceRole:    identity.roleForBusinessType(businessType),
 		AccountName:         accountName,
 		AccountEmail:        accountEmail,
 		AccountSpaceName:    accountSpaceName,
@@ -430,10 +434,12 @@ func buildBillsSummaryWithOperatingExpenses(
 	accountTotals := map[string]*accountAmountBucket{}
 	accountSerialByID := map[int64]int64{}
 	accountEmailByID := map[int64]string{}
+	accountRoleByID := map[int64]AccountSpaceRole{}
 	if len(supplied) > 0 {
 		for id, identity := range supplied[0].identities {
 			accountSerialByID[id] = identity.Serial
 			accountEmailByID[id] = identity.Email
+			accountRoleByID[id] = identity.Role
 		}
 	}
 	refundDetails := make([]RefundDetail, 0)
@@ -447,6 +453,7 @@ func buildBillsSummaryWithOperatingExpenses(
 		if view.AccountID > 0 && view.AccountSerial > 0 {
 			accountSerialByID[view.AccountID] = view.AccountSerial
 			accountEmailByID[view.AccountID] = view.AccountDisplayEmail
+			accountRoleByID[view.AccountID] = view.AccountSpaceRole
 		}
 		netAmountCents := view.NetAmountCents
 		if view.NetAmountYuan == "" {
@@ -490,6 +497,7 @@ func buildBillsSummaryWithOperatingExpenses(
 				CustomerEmail:       view.CustomerEmail,
 				AccountSerial:       view.AccountSerial,
 				AccountDisplayEmail: view.AccountDisplayEmail,
+				AccountSpaceRole:    view.AccountSpaceRole,
 				AccountName:         view.AccountName,
 			}
 			subscriptionTotals[view.SubscriptionID] = bar
@@ -505,6 +513,7 @@ func buildBillsSummaryWithOperatingExpenses(
 				AccountID:           view.AccountID,
 				AccountSerial:       view.AccountSerial,
 				AccountDisplayEmail: view.AccountDisplayEmail,
+				AccountSpaceRole:    view.AccountSpaceRole,
 				AccountName:         view.AccountName,
 			}
 			accountTotals[accountKey] = accountBucket
@@ -536,6 +545,7 @@ func buildBillsSummaryWithOperatingExpenses(
 			BusinessType:        caseItem.BusinessType,
 			AccountSerial:       accountDisplaySerialForID(accountSerialByID, caseItem.AccountID),
 			AccountDisplayEmail: displayEmail,
+			AccountSpaceRole:    accountDisplayIdentity{Role: accountRoleByID[caseItem.AccountID]}.roleForBusinessType(caseItem.BusinessType),
 			CustomerEmail:       caseItem.CustomerEmail,
 			CustomerWechat:      caseItem.CustomerWechat,
 			AccountName:         caseItem.AccountName,
@@ -584,6 +594,7 @@ func buildBillsSummaryWithOperatingExpenses(
 			AccountID:           bucket.AccountID,
 			AccountSerial:       bucket.AccountSerial,
 			AccountDisplayEmail: bucket.AccountDisplayEmail,
+			AccountSpaceRole:    bucket.AccountSpaceRole,
 			AccountName:         bucket.AccountName,
 			Type:                bucket.AccountName,
 			Count:               bucket.count,

@@ -37,6 +37,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { formatAccountName } from "@/lib/account-display"
 import { cn } from "@/lib/utils"
 import { todayShanghai, type SubscriptionPrefill } from "./subscription-prefill"
 
@@ -277,9 +278,10 @@ export function SubscriptionDialog({
                                 {selectedAccount.display_serial}
                               </span>
                               <span className="min-w-0 flex-1 truncate font-medium">
-                                {selectedAccount.display_email ||
-                                  selectedAccount.email ||
-                                  selectedAccount.name}
+                                {formatAccountName(
+                                  selectedAccount.display_email || selectedAccount.email || selectedAccount.name,
+                                  selectedAccount.space_role,
+                                )}
                               </span>
                               <span className="hidden max-w-40 shrink-0 truncate text-xs text-muted-foreground md:inline">
                                 {selectedAccount.space_name ||
@@ -309,7 +311,10 @@ export function SubscriptionDialog({
                               {account.display_serial}
                             </span>
                             <span className="max-w-44 shrink-0 truncate font-medium">
-                              {account.display_email || account.email || account.name}
+                              {formatAccountName(
+                                account.display_email || account.email || account.name,
+                                account.space_role,
+                              )}
                             </span>
                             <span
                               className="max-w-36 shrink-0 truncate text-xs text-muted-foreground"

@@ -77,6 +77,7 @@ type RedemptionApplicationView struct {
 	AccountName         string                      `json:"account_name"`
 	AccountSerial       int64                       `json:"account_serial"`
 	AccountDisplayEmail string                      `json:"account_display_email"`
+	AccountSpaceRole    AccountSpaceRole            `json:"account_space_role"`
 	AccountEmail        string                      `json:"account_email"`
 	AccountSpace        string                      `json:"account_space_name"`
 	SeatName            string                      `json:"seat_name"`
@@ -478,9 +479,11 @@ func (service *SubscriptionService) buildRedemptionApplicationView(application m
 	}
 	if application.AssignedAccountID > 0 {
 		if account, exists := identities.accounts[application.AssignedAccountID]; exists {
+			identity := identities.identity(account.ID)
 			view.AccountName = account.Name
-			view.AccountSerial = identities.identity(account.ID).Serial
-			view.AccountDisplayEmail = identities.identity(account.ID).Email
+			view.AccountSerial = identity.Serial
+			view.AccountDisplayEmail = identity.Email
+			view.AccountSpaceRole = identity.Role
 			view.AccountEmail = account.Email
 			view.AccountSpace = account.SpaceName
 		}

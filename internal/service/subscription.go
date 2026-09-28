@@ -127,6 +127,7 @@ type SubscriptionView struct {
 	AccountID                  int64              `json:"account_id"`
 	AccountSerial              int64              `json:"account_serial"`
 	AccountDisplayEmail        string             `json:"account_display_email"`
+	AccountSpaceRole           AccountSpaceRole   `json:"account_space_role"`
 	AccountName                string             `json:"account_name"`
 	SeatID                     int64              `json:"seat_id"`
 	SeatName                   string             `json:"seat_name"`
@@ -230,6 +231,7 @@ func (service *SubscriptionService) allocateActiveAccountCosts(views []Subscript
 		identity := identities.identity(views[index].Subscription.AccountID)
 		views[index].AccountSerial = identity.Serial
 		views[index].AccountDisplayEmail = identity.Email
+		views[index].AccountSpaceRole = identity.roleForBusinessType(views[index].Subscription.BusinessType)
 		views[index].AllocatedCostYuan = cycle.FormatCents(costCents)
 		views[index].AllocatedProfitYuan = cycle.FormatCents(
 			countedAmountCents(views[index].Subscription) - costCents,
@@ -335,6 +337,7 @@ func (service *SubscriptionService) buildView(
 	identity := identities.identity(subscription.AccountID)
 	view.AccountSerial = identity.Serial
 	view.AccountDisplayEmail = identity.Email
+	view.AccountSpaceRole = identity.roleForBusinessType(subscription.BusinessType)
 	return view, nil
 }
 
@@ -689,12 +692,14 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 	for _, subscription := range subscriptions {
 		accountName := displayAccountName(subscription)
 		amountCents := countedAmountCents(subscription)
+		identity := identities.identity(subscription.AccountID)
 		amountBars = append(amountBars, AmountBar{
 			SubscriptionID:      subscription.ID,
 			Name:                subscription.Name,
 			CustomerEmail:       subscription.CustomerEmail,
-			AccountSerial:       identities.identity(subscription.AccountID).Serial,
-			AccountDisplayEmail: identities.identity(subscription.AccountID).Email,
+			AccountSerial:       identity.Serial,
+			AccountDisplayEmail: identity.Email,
+			AccountSpaceRole:    identity.roleForBusinessType(subscription.BusinessType),
 			AccountName:         accountName,
 			AmountYuan:          cycle.FormatCents(amountCents),
 			AmountCents:         amountCents,
@@ -705,8 +710,9 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 			bucket = &accountAmountBucket{
 				Key:                 accountKey,
 				AccountID:           subscription.AccountID,
-				AccountSerial:       identities.identity(subscription.AccountID).Serial,
-				AccountDisplayEmail: identities.identity(subscription.AccountID).Email,
+				AccountSerial:       identity.Serial,
+				AccountDisplayEmail: identity.Email,
+				AccountSpaceRole:    identity.roleForBusinessType(subscription.BusinessType),
 				AccountName:         accountName,
 			}
 			accountTotals[accountKey] = bucket
@@ -732,6 +738,7 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 			AccountID:           bucket.AccountID,
 			AccountSerial:       bucket.AccountSerial,
 			AccountDisplayEmail: bucket.AccountDisplayEmail,
+			AccountSpaceRole:    bucket.AccountSpaceRole,
 			AccountName:         bucket.AccountName,
 			Type:                bucket.AccountName,
 			Count:               bucket.count,
@@ -858,23 +865,25 @@ type NotificationActivity struct {
 
 // AmountBar is one row in the amount distribution chart.
 type AmountBar struct {
-	SubscriptionID      int64  `json:"subscription_id"`
-	Name                string `json:"name"`
-	CustomerEmail       string `json:"customer_email"`
-	AccountSerial       int64  `json:"account_serial"`
-	AccountDisplayEmail string `json:"account_display_email"`
-	AccountName         string `json:"account_name"`
-	AmountYuan          string `json:"amount_yuan"`
-	AmountCents         int64  `json:"amount_cents"`
+	SubscriptionID      int64            `json:"subscription_id"`
+	Name                string           `json:"name"`
+	CustomerEmail       string           `json:"customer_email"`
+	AccountSerial       int64            `json:"account_serial"`
+	AccountDisplayEmail string           `json:"account_display_email"`
+	AccountSpaceRole    AccountSpaceRole `json:"account_space_role"`
+	AccountName         string           `json:"account_name"`
+	AmountYuan          string           `json:"amount_yuan"`
+	AmountCents         int64            `json:"amount_cents"`
 }
 
 // AccountBreakdown is one slice in the account chart.
 type AccountBreakdown struct {
-	Key                 string `json:"key"`
-	AccountID           int64  `json:"account_id"`
-	AccountSerial       int64  `json:"account_serial"`
-	AccountDisplayEmail string `json:"account_display_email"`
-	AccountName         string `json:"account_name"`
+	Key                 string           `json:"key"`
+	AccountID           int64            `json:"account_id"`
+	AccountSerial       int64            `json:"account_serial"`
+	AccountDisplayEmail string           `json:"account_display_email"`
+	AccountSpaceRole    AccountSpaceRole `json:"account_space_role"`
+	AccountName         string           `json:"account_name"`
 	// Type is a legacy alias of AccountName retained for export compatibility.
 	Type        string `json:"type"`
 	Count       int    `json:"count"`
@@ -887,6 +896,7 @@ type accountAmountBucket struct {
 	AccountID           int64
 	AccountSerial       int64
 	AccountDisplayEmail string
+	AccountSpaceRole    AccountSpaceRole
 	AccountName         string
 	count               int
 	cents               int64
@@ -1452,8 +1462,10 @@ func (service *SubscriptionService) ListArchivedView() ([]SubscriptionView, erro
 		if err != nil {
 			return nil, err
 		}
-		view.AccountSerial = identities.identity(subscription.AccountID).Serial
-		view.AccountDisplayEmail = identities.identity(subscription.AccountID).Email
+		identity := identities.identity(subscription.AccountID)
+		view.AccountSerial = identity.Serial
+		view.AccountDisplayEmail = identity.Email
+		view.AccountSpaceRole = identity.roleForBusinessType(subscription.BusinessType)
 		billCount, err := service.Store.CountBillsForSubscription(subscription.ID)
 		if err != nil {
 			return nil, err

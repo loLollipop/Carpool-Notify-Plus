@@ -32,7 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
-import { formatAccountLabel } from "@/lib/account-display"
+import { formatAccountLabel, formatAccountName } from "@/lib/account-display"
 import { maskAmount } from "@/lib/amount-privacy"
 import { cn } from "@/lib/utils"
 import { isOneMonthRentalCron } from "@/features/plus-rentals/rental-mode"
@@ -59,9 +59,10 @@ function EventPill({
   const label =
     occurrence.customer_email ||
     occurrence.customer_wechat ||
-    occurrence.account_display_email ||
-    occurrence.account_name ||
-    occurrence.name
+    formatAccountName(
+      occurrence.account_display_email || occurrence.account_name || occurrence.name,
+      occurrence.account_space_role,
+    )
   return (
     <Tooltip delayDuration={150}>
       <TooltipTrigger asChild>
@@ -86,7 +87,7 @@ function EventPill({
       </TooltipTrigger>
       <TooltipContent side="top" className="grid gap-0.5">
         <span className="font-semibold">
-          {formatAccountLabel(occurrence.account_serial, occurrence.account_display_email || occurrence.account_name || occurrence.name)}
+          {formatAccountLabel(occurrence.account_serial, occurrence.account_display_email || occurrence.account_name || occurrence.name, "-", occurrence.account_space_role)}
         </span>
         {occurrence.customer_email ? <span>{occurrence.customer_email}</span> : null}
         {!occurrence.customer_email && occurrence.customer_wechat ? <span>{occurrence.customer_wechat}</span> : null}
@@ -367,7 +368,7 @@ function TaskRow({
         <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
           <span>{occurrence.due_date}</span>
           <span className="truncate">
-            {[formatAccountLabel(occurrence.account_serial, occurrence.account_display_email || occurrence.account_name, ""), occurrence.seat_name].filter(Boolean).join(" · ")}
+            {[formatAccountLabel(occurrence.account_serial, occurrence.account_display_email || occurrence.account_name, "", occurrence.account_space_role), occurrence.seat_name].filter(Boolean).join(" · ")}
           </span>
           <span>{occurrence.cycle_desc}</span>
         </span>
@@ -583,9 +584,9 @@ function ActivityWorkspace({ calendar, onView }: { calendar: CalendarMonth; onVi
                 {occurrence ? <span>{maskAmount(amountsHidden, `¥${occurrence.price_yuan}`)}</span> : null}
                 <span>
                   {occurrence
-                    ? formatAccountLabel(occurrence.account_serial, occurrence.account_display_email || occurrence.account_name)
+                    ? formatAccountLabel(occurrence.account_serial, occurrence.account_display_email || occurrence.account_name, "-", occurrence.account_space_role)
                     : subscription
-                      ? formatAccountLabel(subscription.account_serial, subscription.account_display_email || subscription.account_name)
+                      ? formatAccountLabel(subscription.account_serial, subscription.account_display_email || subscription.account_name, "-", subscription.account_space_role)
                       : "-"}
                 </span>
               </span>

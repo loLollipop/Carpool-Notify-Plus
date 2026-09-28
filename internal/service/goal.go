@@ -144,72 +144,73 @@ type PricingRecommendation struct {
 // optional next-cycle repricing. Current-period prices and bills are never
 // mutated by the bulk action.
 type PricingCandidate struct {
-	SubscriptionID                   int64    `json:"subscription_id"`
-	AccountID                        int64    `json:"account_id"`
-	AccountSerial                    int64    `json:"account_serial"`
-	AccountDisplayEmail              string   `json:"account_display_email"`
-	Name                             string   `json:"name"`
-	CustomerEmail                    string   `json:"customer_email"`
-	CustomerWechat                   string   `json:"customer_wechat"`
-	AccountName                      string   `json:"account_name"`
-	SeatName                         string   `json:"seat_name"`
-	CurrentPriceCents                int64    `json:"current_price_cents"`
-	MarketMonthlyPriceCents          int64    `json:"market_monthly_price_cents"`
-	NextPriceCents                   *int64   `json:"next_price_cents"`
-	NextPriceEffectiveDate           string   `json:"next_price_effective_date"`
-	NextDueDate                      string   `json:"next_due_date"`
-	MarketPosition                   string   `json:"market_position"`
-	GapToMarketMedianCents           int64    `json:"gap_to_market_median_cents"`
-	SuggestedPriceCents              int64    `json:"suggested_price_cents"`
-	SuggestedMonthlyPriceCents       int64    `json:"suggested_monthly_price_cents"`
-	MaxIncreasePriceCents            int64    `json:"max_increase_price_cents"`
-	PaidPeriodCount                  int      `json:"paid_period_count"`
-	LastPaidDate                     string   `json:"last_paid_date"`
-	RelationshipDays                 int      `json:"relationship_days"`
-	LastPriceIncreaseDate            string   `json:"last_price_increase_date"`
-	BlockedCode                      string   `json:"blocked_code"`
-	NextReviewDate                   string   `json:"next_review_date"`
-	SuggestedMonthlyUplift           int64    `json:"suggested_monthly_uplift_cents"`
-	ScheduledMonthlyUplift           int64    `json:"scheduled_monthly_uplift_cents"`
-	MonthlyRevenueCents              int64    `json:"monthly_revenue_cents"`
-	CustomerGroupID                  int64    `json:"customer_group_id"`
-	CustomerGroupSize                int      `json:"customer_group_size"`
-	CustomerGroupCurrentPriceCents   int64    `json:"customer_group_current_price_cents"`
-	CustomerGroupMonthlyRevenueCents int64    `json:"customer_group_monthly_revenue_cents"`
-	CustomerTier                     string   `json:"customer_tier"`
-	RelationshipStage                string   `json:"relationship_stage"`
-	CustomerQualityScore             int      `json:"customer_quality_score"`
-	RelationshipScore                int      `json:"relationship_score"`
-	LoyaltyScore                     int      `json:"loyalty_score"`
-	ContactStrengthScore             int      `json:"contact_strength_score"`
-	RelationshipHealthScore          int      `json:"relationship_health_score"`
-	RelationshipLevel                string   `json:"relationship_level"`
-	RelationshipProfileConfidence    string   `json:"relationship_profile_confidence"`
-	PrimaryRelationshipTask          string   `json:"primary_relationship_task"`
-	NeedsContactFollowup             bool     `json:"needs_contact_followup"`
-	RelationshipSignalCodes          []string `json:"relationship_signal_codes"`
-	AdjustmentRisk                   string   `json:"adjustment_risk"`
-	ReadinessScore                   int      `json:"readiness_score"`
-	PriceGapPercent                  int      `json:"price_gap_percent"`
-	SuggestedIncreasePct             int      `json:"suggested_increase_percent"`
-	AnalysisCodes                    []string `json:"analysis_codes"`
-	ExpeditedReview                  bool     `json:"expedited_review"`
-	ExemptionCount                   int      `json:"exemption_count"`
-	LastExemptedAt                   string   `json:"last_exempted_at"`
-	ExemptionReviewDate              string   `json:"exemption_review_date"`
-	ExemptionReasonCode              string   `json:"exemption_reason_code"`
-	RenewalCount                     int      `json:"renewal_count"`
-	RenewalEvidence                  string   `json:"renewal_evidence"`
-	VerifiedPriceCents               int64    `json:"verified_price_cents"`
-	VerifiedMonthlyPriceCents        int64    `json:"verified_monthly_price_cents"`
-	VerifiedPriceIndex               *int     `json:"verified_price_index"`
-	PricePressureScore               int      `json:"price_pressure_score"`
-	PriceStableDays                  int      `json:"price_stable_days"`
-	PaidPeriodsAfterIncrease         int      `json:"paid_periods_after_increase"`
-	AfterSalesCaseCount              int      `json:"after_sales_case_count"`
-	Recommended                      bool     `json:"recommended"`
-	Eligible                         bool     `json:"eligible"`
-	BlockedReason                    string   `json:"blocked_reason"`
+	SubscriptionID                   int64            `json:"subscription_id"`
+	AccountID                        int64            `json:"account_id"`
+	AccountSerial                    int64            `json:"account_serial"`
+	AccountDisplayEmail              string           `json:"account_display_email"`
+	AccountSpaceRole                 AccountSpaceRole `json:"account_space_role"`
+	Name                             string           `json:"name"`
+	CustomerEmail                    string           `json:"customer_email"`
+	CustomerWechat                   string           `json:"customer_wechat"`
+	AccountName                      string           `json:"account_name"`
+	SeatName                         string           `json:"seat_name"`
+	CurrentPriceCents                int64            `json:"current_price_cents"`
+	MarketMonthlyPriceCents          int64            `json:"market_monthly_price_cents"`
+	NextPriceCents                   *int64           `json:"next_price_cents"`
+	NextPriceEffectiveDate           string           `json:"next_price_effective_date"`
+	NextDueDate                      string           `json:"next_due_date"`
+	MarketPosition                   string           `json:"market_position"`
+	GapToMarketMedianCents           int64            `json:"gap_to_market_median_cents"`
+	SuggestedPriceCents              int64            `json:"suggested_price_cents"`
+	SuggestedMonthlyPriceCents       int64            `json:"suggested_monthly_price_cents"`
+	MaxIncreasePriceCents            int64            `json:"max_increase_price_cents"`
+	PaidPeriodCount                  int              `json:"paid_period_count"`
+	LastPaidDate                     string           `json:"last_paid_date"`
+	RelationshipDays                 int              `json:"relationship_days"`
+	LastPriceIncreaseDate            string           `json:"last_price_increase_date"`
+	BlockedCode                      string           `json:"blocked_code"`
+	NextReviewDate                   string           `json:"next_review_date"`
+	SuggestedMonthlyUplift           int64            `json:"suggested_monthly_uplift_cents"`
+	ScheduledMonthlyUplift           int64            `json:"scheduled_monthly_uplift_cents"`
+	MonthlyRevenueCents              int64            `json:"monthly_revenue_cents"`
+	CustomerGroupID                  int64            `json:"customer_group_id"`
+	CustomerGroupSize                int              `json:"customer_group_size"`
+	CustomerGroupCurrentPriceCents   int64            `json:"customer_group_current_price_cents"`
+	CustomerGroupMonthlyRevenueCents int64            `json:"customer_group_monthly_revenue_cents"`
+	CustomerTier                     string           `json:"customer_tier"`
+	RelationshipStage                string           `json:"relationship_stage"`
+	CustomerQualityScore             int              `json:"customer_quality_score"`
+	RelationshipScore                int              `json:"relationship_score"`
+	LoyaltyScore                     int              `json:"loyalty_score"`
+	ContactStrengthScore             int              `json:"contact_strength_score"`
+	RelationshipHealthScore          int              `json:"relationship_health_score"`
+	RelationshipLevel                string           `json:"relationship_level"`
+	RelationshipProfileConfidence    string           `json:"relationship_profile_confidence"`
+	PrimaryRelationshipTask          string           `json:"primary_relationship_task"`
+	NeedsContactFollowup             bool             `json:"needs_contact_followup"`
+	RelationshipSignalCodes          []string         `json:"relationship_signal_codes"`
+	AdjustmentRisk                   string           `json:"adjustment_risk"`
+	ReadinessScore                   int              `json:"readiness_score"`
+	PriceGapPercent                  int              `json:"price_gap_percent"`
+	SuggestedIncreasePct             int              `json:"suggested_increase_percent"`
+	AnalysisCodes                    []string         `json:"analysis_codes"`
+	ExpeditedReview                  bool             `json:"expedited_review"`
+	ExemptionCount                   int              `json:"exemption_count"`
+	LastExemptedAt                   string           `json:"last_exempted_at"`
+	ExemptionReviewDate              string           `json:"exemption_review_date"`
+	ExemptionReasonCode              string           `json:"exemption_reason_code"`
+	RenewalCount                     int              `json:"renewal_count"`
+	RenewalEvidence                  string           `json:"renewal_evidence"`
+	VerifiedPriceCents               int64            `json:"verified_price_cents"`
+	VerifiedMonthlyPriceCents        int64            `json:"verified_monthly_price_cents"`
+	VerifiedPriceIndex               *int             `json:"verified_price_index"`
+	PricePressureScore               int              `json:"price_pressure_score"`
+	PriceStableDays                  int              `json:"price_stable_days"`
+	PaidPeriodsAfterIncrease         int              `json:"paid_periods_after_increase"`
+	AfterSalesCaseCount              int              `json:"after_sales_case_count"`
+	Recommended                      bool             `json:"recommended"`
+	Eligible                         bool             `json:"eligible"`
+	BlockedReason                    string           `json:"blocked_reason"`
 }
 
 type RepricingWindow struct {
@@ -1514,11 +1515,13 @@ func (service *SubscriptionService) buildPricingCandidates(
 		// gradual-increase safeguard without producing decimal recommendations.
 		maxIncreasePriceCents = roundPriceDownToYuan(maxIncreasePriceCents)
 		maxIncreasePriceCents = maxInt64(maxIncreasePriceCents, subscription.PricePerPersonCents)
+		identity := identities.identity(subscription.AccountID)
 		candidate := PricingCandidate{
 			SubscriptionID:          subscription.ID,
 			AccountID:               subscription.AccountID,
-			AccountSerial:           identities.identity(subscription.AccountID).Serial,
-			AccountDisplayEmail:     identities.identity(subscription.AccountID).Email,
+			AccountSerial:           identity.Serial,
+			AccountDisplayEmail:     identity.Email,
+			AccountSpaceRole:        identity.roleForBusinessType(subscription.BusinessType),
 			Name:                    subscription.Name,
 			CustomerEmail:           subscription.CustomerEmail,
 			CustomerWechat:          subscription.CustomerWechat,

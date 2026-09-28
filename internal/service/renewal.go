@@ -37,6 +37,7 @@ type RenewalSubscriptionView struct {
 	ServiceLabel        string                `json:"service_label"`
 	AccountSerial       int64                 `json:"account_serial"`
 	AccountDisplayEmail string                `json:"account_display_email"`
+	AccountSpaceRole    AccountSpaceRole      `json:"account_space_role"`
 	SeatName            string                `json:"seat_name"`
 	DueDate             string                `json:"due_date"`
 	PeriodEndDate       string                `json:"period_end_date"`
@@ -85,6 +86,7 @@ type RenewalApplicationView struct {
 	CycleDesc           string                   `json:"cycle_desc"`
 	AccountSerial       int64                    `json:"account_serial"`
 	AccountDisplayEmail string                   `json:"account_display_email"`
+	AccountSpaceRole    AccountSpaceRole         `json:"account_space_role"`
 	AccountEmail        string                   `json:"account_email"`
 	SeatName            string                   `json:"seat_name"`
 	CreatedAtLabel      string                   `json:"created_at_label"`
@@ -309,8 +311,10 @@ func (service *SubscriptionService) ListRenewalApplicationsView(status string) (
 			}
 			if subscription.AccountID > 0 {
 				if account, exists := identities.accounts[subscription.AccountID]; exists {
-					view.AccountSerial = identities.identity(account.ID).Serial
-					view.AccountDisplayEmail = identities.identity(account.ID).Email
+					identity := identities.identity(account.ID)
+					view.AccountSerial = identity.Serial
+					view.AccountDisplayEmail = identity.Email
+					view.AccountSpaceRole = identity.roleForBusinessType(subscription.BusinessType)
 					view.AccountEmail = account.Email
 				}
 			}
@@ -431,8 +435,10 @@ func (service *SubscriptionService) buildRenewalSubscriptionView(
 	}
 	result.AmountYuan = result.PeriodOptions[0].AmountYuan
 	result.PeriodEndDate = result.PeriodOptions[0].PeriodEndDate
-	result.AccountSerial = identities.identity(subscription.AccountID).Serial
-	result.AccountDisplayEmail = identities.identity(subscription.AccountID).Email
+	identity := identities.identity(subscription.AccountID)
+	result.AccountSerial = identity.Serial
+	result.AccountDisplayEmail = identity.Email
+	result.AccountSpaceRole = identity.roleForBusinessType(subscription.BusinessType)
 	switch {
 	case result.DaysRemaining < 0:
 		result.StatusLabel = fmt.Sprintf("已逾期 %d 天", -result.DaysRemaining)

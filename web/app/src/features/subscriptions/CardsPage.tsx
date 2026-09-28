@@ -65,7 +65,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDialog"
 import { CustomerBenefitDialog } from "@/features/goals/CustomerBenefitDialog"
-import { accountSerialSearchTerms, formatAccountLabel } from "@/lib/account-display"
+import { accountSerialSearchTerms, formatAccountLabel, formatAccountName } from "@/lib/account-display"
 import { cn, compareISODateStrings } from "@/lib/utils"
 import { ReminderPreviewDialog } from "./ReminderPreviewDialog"
 import { SubscriptionDialog } from "./SubscriptionDialog"
@@ -289,9 +289,9 @@ function SubscriptionCard({
             ) : null}
             <span
               className="min-w-0 truncate"
-              title={view.account_display_email || view.account_name || subscription.name}
+              title={formatAccountName(view.account_display_email || view.account_name || subscription.name, view.account_space_role)}
             >
-              {view.account_display_email || view.account_name || subscription.name}
+              {formatAccountName(view.account_display_email || view.account_name || subscription.name, view.account_space_role)}
             </span>
           </h3>
           <div className="mt-1.5 flex min-h-5 flex-wrap items-center gap-1.5">
@@ -604,7 +604,7 @@ export function CardsPage() {
   const openRenew = (view: SubscriptionView) => {
     setDuePaidTarget({
       subscriptionId: view.subscription.id,
-      name: view.account_display_email || view.account_name || view.subscription.name,
+      name: formatAccountName(view.account_display_email || view.account_name || view.subscription.name, view.account_space_role),
       priceYuan: view.price_yuan,
       cycleDesc: view.cycle_desc,
       dueDate: view.next_due_date,
@@ -777,8 +777,8 @@ export function CardsPage() {
       items: orderedSource.map((view) => ({
         id: view.subscription.id,
         title: view.subscription.customer_email || view.subscription.name,
-        subtitle: view.subscription.customer_wechat || formatAccountLabel(view.account_serial, view.account_display_email || view.account_name),
-        meta: [formatAccountLabel(view.account_serial, view.account_display_email || view.account_name), view.seat_name, view.next_due_date, view.cycle_desc],
+        subtitle: view.subscription.customer_wechat || formatAccountLabel(view.account_serial, view.account_display_email || view.account_name, "-", view.account_space_role),
+        meta: [formatAccountLabel(view.account_serial, view.account_display_email || view.account_name, "-", view.account_space_role), view.seat_name, view.next_due_date, view.cycle_desc],
         value: `¥${view.price_yuan}`,
         valueTone: key === "pending" ? "warning" : key === "renewed" ? "success" : "default",
         searchText: view.subscription.remark,

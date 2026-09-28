@@ -17,31 +17,32 @@ const operationsTaskLimit = 24
 // Kind and object IDs stay structured so the client can localize labels and
 // open the right action without parsing presentation text.
 type OperationTask struct {
-	ID                   string `json:"id"`
-	Kind                 string `json:"kind"`
-	Tone                 string `json:"tone"`
-	Priority             int    `json:"-"`
-	SubscriptionID       int64  `json:"subscription_id"`
-	AfterSalesCaseID     int64  `json:"after_sales_case_id"`
-	RedemptionID         int64  `json:"redemption_id"`
-	RenewalApplicationID int64  `json:"renewal_application_id"`
-	AccountID            int64  `json:"account_id"`
-	AccountSerial        int64  `json:"account_serial"`
-	AccountDisplayEmail  string `json:"account_display_email"`
-	SeatID               int64  `json:"seat_id"`
-	Name                 string `json:"name"`
-	CustomerEmail        string `json:"customer_email"`
-	CustomerWechat       string `json:"customer_wechat"`
-	AccountName          string `json:"account_name"`
-	SeatName             string `json:"seat_name"`
-	DueDate              string `json:"due_date"`
-	DueAtLabel           string `json:"due_at_label"`
-	DaysRemaining        int    `json:"days_remaining"`
-	AmountYuan           string `json:"amount_yuan"`
-	CycleDesc            string `json:"cycle_desc"`
-	OneMonthRental       bool   `json:"one_month_rental"`
-	Route                string `json:"route"`
-	Unread               bool   `json:"unread"`
+	ID                   string           `json:"id"`
+	Kind                 string           `json:"kind"`
+	Tone                 string           `json:"tone"`
+	Priority             int              `json:"-"`
+	SubscriptionID       int64            `json:"subscription_id"`
+	AfterSalesCaseID     int64            `json:"after_sales_case_id"`
+	RedemptionID         int64            `json:"redemption_id"`
+	RenewalApplicationID int64            `json:"renewal_application_id"`
+	AccountID            int64            `json:"account_id"`
+	AccountSerial        int64            `json:"account_serial"`
+	AccountDisplayEmail  string           `json:"account_display_email"`
+	AccountSpaceRole     AccountSpaceRole `json:"account_space_role"`
+	SeatID               int64            `json:"seat_id"`
+	Name                 string           `json:"name"`
+	CustomerEmail        string           `json:"customer_email"`
+	CustomerWechat       string           `json:"customer_wechat"`
+	AccountName          string           `json:"account_name"`
+	SeatName             string           `json:"seat_name"`
+	DueDate              string           `json:"due_date"`
+	DueAtLabel           string           `json:"due_at_label"`
+	DaysRemaining        int              `json:"days_remaining"`
+	AmountYuan           string           `json:"amount_yuan"`
+	CycleDesc            string           `json:"cycle_desc"`
+	OneMonthRental       bool             `json:"one_month_rental"`
+	Route                string           `json:"route"`
+	Unread               bool             `json:"unread"`
 }
 
 type OperationsUnreadSummary struct {
@@ -329,6 +330,7 @@ func buildOperationsCapacity(
 				AccountID:           account.Account.ID,
 				AccountSerial:       account.DisplaySerial,
 				AccountDisplayEmail: account.DisplayEmail,
+				AccountSpaceRole:    account.SpaceRole,
 				SeatID:              seat.Seat.ID,
 				Name:                seat.FrozenSubscriptionName,
 				CustomerEmail:       seat.FrozenCustomerEmail,
@@ -404,6 +406,7 @@ func buildSubscriptionOperationTasks(
 			AccountName:         view.AccountName,
 			AccountSerial:       view.AccountSerial,
 			AccountDisplayEmail: view.AccountDisplayEmail,
+			AccountSpaceRole:    view.AccountSpaceRole,
 			SeatName:            view.SeatName,
 			DueDate:             view.NextDueDate,
 			DaysRemaining:       view.DaysRemaining,
@@ -454,6 +457,7 @@ func buildRenewalOperationTasks(views []RenewalApplicationView, tasks *[]Operati
 			AccountName:          view.AccountEmail,
 			AccountSerial:        view.AccountSerial,
 			AccountDisplayEmail:  view.AccountDisplayEmail,
+			AccountSpaceRole:     view.AccountSpaceRole,
 			SeatName:             view.SeatName,
 			DueDate:              application.DueDate,
 			DueAtLabel:           view.CreatedAtLabel,
@@ -480,6 +484,7 @@ func buildAfterSalesOperationTasks(views []AfterSalesCaseView, tasks *[]Operatio
 			AccountID:           caseItem.AccountID,
 			AccountSerial:       view.AccountSerial,
 			AccountDisplayEmail: view.AccountDisplayEmail,
+			AccountSpaceRole:    view.AccountSpaceRole,
 			Name:                caseItem.CustomerEmail,
 			CustomerEmail:       caseItem.CustomerEmail,
 			CustomerWechat:      caseItem.CustomerWechat,
@@ -535,6 +540,7 @@ func buildAccountRenewalOperationTasks(
 			AccountID:           account.ID,
 			AccountSerial:       view.DisplaySerial,
 			AccountDisplayEmail: view.DisplayEmail,
+			AccountSpaceRole:    view.SpaceRole,
 			Name:                account.Email,
 			AccountName:         account.Name,
 			DueDate:             cycle.FormatDate(renewalAt),

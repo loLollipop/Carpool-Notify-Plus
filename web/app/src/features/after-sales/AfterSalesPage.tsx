@@ -46,7 +46,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { accountSerialSearchTerms, formatAccountLabel } from "@/lib/account-display"
+import { accountSerialSearchTerms, formatAccountLabel, formatAccountName } from "@/lib/account-display"
 import {
   Select,
   SelectContent,
@@ -161,9 +161,9 @@ function AccountSnapshot({ view }: { view: AfterSalesCaseView }) {
       <SourceBadge view={view} />
       <div
         className="truncate font-medium"
-        title={formatAccountLabel(view.account_serial, view.account_display_email || view.case.account_email || view.case.account_name)}
+        title={formatAccountLabel(view.account_serial, view.account_display_email || view.case.account_email || view.case.account_name, "-", view.account_space_role)}
       >
-        {formatAccountLabel(view.account_serial, view.account_display_email || view.case.account_email || view.case.account_name)}
+        {formatAccountLabel(view.account_serial, view.account_display_email || view.case.account_email || view.case.account_name, "-", view.account_space_role)}
       </div>
       <div className="mt-1 truncate text-xs text-muted-foreground" title={view.case.account_space_name}>
         {plusRental ? t("afterSales.plusAccount") : view.case.account_space_name || "-"}
@@ -191,11 +191,15 @@ function ReplacementSnapshot({ view }: { view: AfterSalesCaseView }) {
         title={formatAccountLabel(
           view.replacement_account_serial,
           view.replacement_account_display_email || view.case.replacement_account_email || view.case.replacement_account_name,
+          "-",
+          view.replacement_account_space_role,
         )}
       >
         {formatAccountLabel(
           view.replacement_account_serial,
           view.replacement_account_display_email || view.case.replacement_account_email || view.case.replacement_account_name,
+          "-",
+          view.replacement_account_space_role,
         )}
       </div>
       <div className="mt-0.5 truncate text-muted-foreground">
@@ -326,7 +330,7 @@ function ReassignCaseDialog({
               <SelectContent>
                 {options.map((option) => (
                   <SelectItem key={option.id} value={String(option.id)}>
-                    {option.display_email || option.email || option.name} · {option.space_name || t("afterSales.spaceUnnamed")}
+                    {formatAccountName(option.display_email || option.email || option.name, option.space_role)} · {option.space_name || t("afterSales.spaceUnnamed")}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -515,8 +519,8 @@ export function AfterSalesPage() {
       items: source.map((view) => ({
         id: view.case.id,
         title: view.case.customer_email || view.case.customer_wechat || `#${view.case.id}`,
-        subtitle: view.case.customer_wechat || formatAccountLabel(view.account_serial, view.account_display_email || view.case.account_name),
-        meta: [formatAccountLabel(view.account_serial, view.account_display_email || view.case.account_email), view.case.period_end, view.status_label],
+        subtitle: view.case.customer_wechat || formatAccountLabel(view.account_serial, view.account_display_email || view.case.account_name, "-", view.account_space_role),
+        meta: [formatAccountLabel(view.account_serial, view.account_display_email || view.case.account_email, "-", view.account_space_role), view.case.period_end, view.status_label],
         value: key === "refunded" ? `¥${view.refund_amount_yuan}` : `¥${view.paid_amount_yuan}`,
         valueTone: key === "refunded" ? "danger" : key === "reassigned" ? "success" : "default",
         searchText: `${view.case.replacement_account_name} ${view.case.note}`,

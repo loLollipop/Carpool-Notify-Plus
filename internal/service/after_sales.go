@@ -25,8 +25,10 @@ type AfterSalesCaseView struct {
 	Case                           model.AfterSalesCase `json:"case"`
 	AccountSerial                  int64                `json:"account_serial"`
 	AccountDisplayEmail            string               `json:"account_display_email"`
+	AccountSpaceRole               AccountSpaceRole     `json:"account_space_role"`
 	ReplacementAccountDisplayEmail string               `json:"replacement_account_display_email"`
 	ReplacementAccountSerial       int64                `json:"replacement_account_serial"`
+	ReplacementAccountSpaceRole    AccountSpaceRole     `json:"replacement_account_space_role"`
 	PaidAmountYuan                 string               `json:"paid_amount_yuan"`
 	RefundAmountYuan               string               `json:"refund_amount_yuan"`
 	StatusLabel                    string               `json:"status_label"`
@@ -207,19 +209,23 @@ func buildAfterSalesCaseView(
 	caseItem model.AfterSalesCase,
 	identities accountIdentityIndex,
 ) AfterSalesCaseView {
+	accountIdentity := identities.identity(caseItem.AccountID)
+	replacementIdentity := identities.identity(caseItem.ReplacementAccountID)
 	view := AfterSalesCaseView{
-		Case:                     caseItem,
-		AccountSerial:            identities.identity(caseItem.AccountID).Serial,
-		ReplacementAccountSerial: identities.identity(caseItem.ReplacementAccountID).Serial,
-		PaidAmountYuan:           cycle.FormatCents(caseItem.PaidAmountCents),
-		RefundAmountYuan:         cycle.FormatCents(caseItem.RefundAmountCents),
-		StatusLabel:              afterSalesStatusLabel(caseItem.Status),
+		Case:                        caseItem,
+		AccountSerial:               accountIdentity.Serial,
+		AccountSpaceRole:            accountIdentity.roleForBusinessType(caseItem.BusinessType),
+		ReplacementAccountSerial:    replacementIdentity.Serial,
+		ReplacementAccountSpaceRole: replacementIdentity.roleForBusinessType(caseItem.BusinessType),
+		PaidAmountYuan:              cycle.FormatCents(caseItem.PaidAmountCents),
+		RefundAmountYuan:            cycle.FormatCents(caseItem.RefundAmountCents),
+		StatusLabel:                 afterSalesStatusLabel(caseItem.Status),
 	}
-	view.AccountDisplayEmail = identities.identity(caseItem.AccountID).Email
+	view.AccountDisplayEmail = accountIdentity.Email
 	if view.AccountDisplayEmail == "" {
 		view.AccountDisplayEmail = caseItem.AccountEmail
 	}
-	view.ReplacementAccountDisplayEmail = identities.identity(caseItem.ReplacementAccountID).Email
+	view.ReplacementAccountDisplayEmail = replacementIdentity.Email
 	if view.ReplacementAccountDisplayEmail == "" {
 		view.ReplacementAccountDisplayEmail = caseItem.ReplacementAccountEmail
 	}
