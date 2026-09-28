@@ -76,6 +76,8 @@ type CardsFilter = "all" | "due" | "pending" | "paid" | "archived"
 type BenefitTarget = {
   candidate: CustomerBenefitCandidate
   label: string
+  subscriptionID: number
+  currentPriceCents: number
 } | null
 
 const EMPTY_SUBSCRIPTION_VIEWS: SubscriptionView[] = []
@@ -891,6 +893,8 @@ export function CardsPage() {
                       candidate.customer_email ||
                       candidate.customer_wechat ||
                       view.subscription.name,
+                    subscriptionID: view.subscription.id,
+                    currentPriceCents: view.subscription.price_per_person_cents,
                   })
                 }
                 onRetryBenefits={() => {
@@ -938,9 +942,10 @@ export function CardsPage() {
         onOpenChange={(open) => {
           if (!open) setBenefitTarget(null)
         }}
-        subscriptionIds={benefitTarget ? [benefitTarget.candidate.subscription_id] : []}
+        subscriptionIds={benefitTarget ? [benefitTarget.subscriptionID] : []}
         suggestedType={benefitTarget?.candidate.suggested_benefit_type}
         targetLabel={benefitTarget?.label}
+        currentPriceCents={benefitTarget?.currentPriceCents}
       />
       <DuePaidDialog
         open={duePaidTarget !== null}

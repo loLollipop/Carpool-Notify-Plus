@@ -22,6 +22,9 @@ const (
 	maximumBenefitNameRunes        = 80
 	maximumBenefitNoteRunes        = 500
 	maximumBenefitAmountCents      = int64(10_000_000)
+	maximumBenefitExtensionDays    = 365
+	minimumBenefitOperationKeyLen  = 16
+	maximumBenefitOperationKeyLen  = 128
 	minimumBetaBinomialOutcomes    = 20
 	minimumSurvivalOutcomes        = 100
 	minimumSurvivalChurns          = 10
@@ -125,6 +128,9 @@ type RecordCustomerBenefitsInput struct {
 	SubscriptionIDs    []int64
 	BenefitType        string
 	BenefitName        string
+	OperationKey       string
+	ExtensionDays      int
+	PriceDiscountYuan  string
 	ActualCostYuan     string
 	PerceivedValueYuan string
 	BenefitDate        string
@@ -1065,16 +1071,46 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	if len(subscriptionIDs) > maximumBenefitSelection {
 		return 0, fmt.Errorf("单次最多登记 %d 位客户", maximumBenefitSelection)
 	}
-	benefitType, validBenefitType := canonicalCustomerBenefitType(strings.TrimSpace(input.BenefitType))
+	requestedBenefitType := strings.TrimSpace(input.BenefitType)
+	benefitType, validBenefitType := canonicalCustomerBenefitType(requestedBenefitType)
 	if !validBenefitType {
 		return 0, fmt.Errorf("福利分类无效")
 	}
+	legacyBenefitType := requestedBenefitType != model.CustomerBenefitTypeExtension &&
+		requestedBenefitType != model.CustomerBenefitTypePriceDiscount
 	benefitName := strings.TrimSpace(input.BenefitName)
-	if benefitName == "" {
-		return 0, fmt.Errorf("请填写福利名称")
-	}
 	if strings.HasPrefix(benefitName, "goals.care.defaultBenefitName.") {
 		return 0, fmt.Errorf("页面已更新，请刷新后重试")
+	}
+	var priceDiscountCents int64
+	schedulePriceDiscount := false
+	if benefitType == model.CustomerBenefitTypeExtension {
+		if legacyBenefitType && input.ExtensionDays == 0 && benefitName != "" {
+			// Historical clients only supplied a free-form name. Keep their legacy
+			// record-only behavior while current extension requests require days.
+		} else if input.ExtensionDays < 1 || input.ExtensionDays > maximumBenefitExtensionDays {
+			return 0, fmt.Errorf("延期天数必须是 1-%d 之间的整数", maximumBenefitExtensionDays)
+		} else {
+			benefitName = fmt.Sprintf("赠送延期 %d 天", input.ExtensionDays)
+		}
+	} else {
+		if legacyBenefitType && strings.TrimSpace(input.PriceDiscountYuan) == "" && benefitName != "" {
+			// The legacy price-increase thank-you type was an immutable care note,
+			// not a future-price schedule. Preserve that contract for old clients.
+		} else if parsedDiscountCents, parseErr := cycle.ParseYuanToCents(input.PriceDiscountYuan); parseErr != nil || parsedDiscountCents <= 0 {
+			return 0, fmt.Errorf("每期优惠金额必须大于 0，且最多两位小数")
+		} else {
+			priceDiscountCents = parsedDiscountCents
+			schedulePriceDiscount = true
+		}
+	}
+	operationKey := strings.TrimSpace(input.OperationKey)
+	if operationKey != "" && !validCustomerBenefitOperationKey(operationKey) ||
+		schedulePriceDiscount && operationKey == "" {
+		return 0, fmt.Errorf("操作标识无效，请刷新后重试")
+	}
+	if benefitName == "" && !schedulePriceDiscount {
+		return 0, fmt.Errorf("请填写福利名称")
 	}
 	if len([]rune(benefitName)) > maximumBenefitNameRunes {
 		return 0, fmt.Errorf("福利名称不能超过 %d 个字符", maximumBenefitNameRunes)
@@ -1096,6 +1132,20 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	if err != nil || cycle.StartOfDay(benefitAt).After(cycle.StartOfDay(service.now())) {
 		return 0, fmt.Errorf("发放日期无效，不能晚于今天")
 	}
+	operationBatchID := ""
+	if operationKey != "" {
+		operationBatchID = "benefit-operation-v1:" + operationKey
+		alreadyRecorded, lookupErr := service.Store.HasCustomerBenefitBatchOverlap(
+			operationBatchID,
+			subscriptionIDs,
+		)
+		if lookupErr != nil {
+			return 0, lookupErr
+		}
+		if alreadyRecorded {
+			return 0, fmt.Errorf("该福利操作已登记，请勿重复提交")
+		}
+	}
 
 	pricingCandidates, err := service.buildPricingCandidates(nil, 0)
 	if err != nil {
@@ -1108,6 +1158,9 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	candidatesByID := make(map[int64]CustomerBenefitCandidate, len(care.Candidates))
 	for _, candidate := range care.Candidates {
 		candidatesByID[candidate.SubscriptionID] = candidate
+		for _, subscriptionID := range candidate.SubscriptionIDs {
+			candidatesByID[subscriptionID] = candidate
+		}
 	}
 	pricingCandidateByID := make(map[int64]PricingCandidate, len(pricingCandidates))
 	latestDueByCustomerGroup := make(map[int64]string)
@@ -1125,7 +1178,11 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 
 	createdAt := service.now().UTC()
 	batchID := fmt.Sprintf("care-%d", createdAt.UnixNano())
+	if operationBatchID != "" {
+		batchID = operationBatchID
+	}
 	records := make([]model.CustomerBenefit, 0, len(subscriptionIDs))
+	nextPriceUpdates := make([]model.Subscription, 0, len(subscriptionIDs))
 	for _, subscriptionID := range subscriptionIDs {
 		candidate, exists := candidatesByID[subscriptionID]
 		if !exists || !candidate.Selectable {
@@ -1134,6 +1191,28 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 		subscription, getErr := service.Store.GetSubscription(subscriptionID)
 		if getErr != nil {
 			return 0, fmt.Errorf("所选客户状态已变化，请刷新后重试")
+		}
+		recordBenefitName := benefitName
+		if schedulePriceDiscount {
+			if priceDiscountCents >= subscription.PricePerPersonCents {
+				return 0, fmt.Errorf("每期优惠金额必须小于每个所选订阅的当前价格")
+			}
+			nextPriceCents := subscription.PricePerPersonCents - priceDiscountCents
+			updated := subscription
+			updated.NextPriceCents = &nextPriceCents
+			if configureErr := service.configureNextPrice(subscription, &updated, false); configureErr != nil {
+				return 0, configureErr
+			}
+			recordBenefitName = fmt.Sprintf(
+				"续费每期降价 ¥%s（¥%s → ¥%s）",
+				cycle.FormatCents(priceDiscountCents),
+				cycle.FormatCents(subscription.PricePerPersonCents),
+				cycle.FormatCents(nextPriceCents),
+			)
+			nextPriceUpdates = append(nextPriceUpdates, updated)
+		}
+		if len([]rune(recordBenefitName)) > maximumBenefitNameRunes {
+			return 0, fmt.Errorf("福利名称不能超过 %d 个字符", maximumBenefitNameRunes)
 		}
 		outcomeDueDate := candidate.NextDueDate
 		if pricingCandidate, found := pricingCandidateByID[subscriptionID]; found {
@@ -1147,7 +1226,7 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 			BatchID:                   batchID,
 			SubscriptionID:            subscriptionID,
 			BenefitType:               benefitType,
-			BenefitName:               benefitName,
+			BenefitName:               recordBenefitName,
 			ActualCostCents:           actualCostCents,
 			PerceivedValueCents:       perceivedValueCents,
 			BenefitDate:               benefitDate,
@@ -1163,17 +1242,44 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 			CreatedAt:                 createdAt,
 		})
 	}
-	if err := service.Store.CreateCustomerBenefits(records); err != nil {
+	var persistErr error
+	if schedulePriceDiscount {
+		persistErr = service.Store.CreateCustomerBenefitsAndUpdateSubscriptionNextPrices(
+			records,
+			nextPriceUpdates,
+			service.now(),
+			cycle.FormatDate(service.now()),
+		)
+	} else {
+		persistErr = service.Store.CreateCustomerBenefits(records)
+	}
+	if persistErr != nil {
 		switch {
-		case errors.Is(err, db.ErrCustomerBenefitAlreadyRecorded):
+		case errors.Is(persistErr, db.ErrCustomerBenefitAlreadyRecorded):
 			return 0, fmt.Errorf("所选客户今天已登记过相同福利")
-		case errors.Is(err, sql.ErrNoRows):
+		case errors.Is(persistErr, sql.ErrNoRows), errors.Is(persistErr, db.ErrSubscriptionStateChanged):
 			return 0, fmt.Errorf("所选客户状态已变化，请刷新后重试")
 		default:
-			return 0, err
+			return 0, persistErr
 		}
 	}
 	return len(records), nil
+}
+
+func validCustomerBenefitOperationKey(value string) bool {
+	if len(value) < minimumBenefitOperationKeyLen || len(value) > maximumBenefitOperationKeyLen {
+		return false
+	}
+	for index, character := range value {
+		if character >= 'a' && character <= 'z' ||
+			character >= 'A' && character <= 'Z' ||
+			character >= '0' && character <= '9' ||
+			(index > 0 && (character == '-' || character == '_')) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func parseOptionalNonNegativeYuan(raw string) (int64, error) {

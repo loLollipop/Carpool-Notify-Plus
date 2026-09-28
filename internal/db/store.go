@@ -312,6 +312,9 @@ func (store *Store) migrate() error {
 			ON customer_benefits(benefit_date DESC, id DESC);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_benefits_delivery
 			ON customer_benefits(subscription_id, benefit_date, benefit_type, benefit_name);`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_benefits_operation_subscription
+			ON customer_benefits(batch_id, subscription_id)
+			WHERE batch_id LIKE 'benefit-operation-v1:%';`,
 		`CREATE TABLE IF NOT EXISTS operating_expenses (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			category TEXT NOT NULL,
@@ -2058,6 +2061,17 @@ func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscript
 		return err
 	}
 	defer func() { _ = transaction.Rollback() }()
+	if err := updateSubscriptionNextPricesWithTransaction(transaction, subscriptions, reviewDates...); err != nil {
+		return err
+	}
+	return subscriptionStateWriteError(transaction.Commit())
+}
+
+func updateSubscriptionNextPricesWithTransaction(
+	transaction *sql.Tx,
+	subscriptions []model.Subscription,
+	reviewDates ...string,
+) error {
 	today := cycle.FormatDate(time.Now().In(cycle.Location))
 	if len(reviewDates) > 0 && strings.TrimSpace(reviewDates[0]) != "" {
 		today = strings.TrimSpace(reviewDates[0])
@@ -2124,7 +2138,7 @@ func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscript
 			return ErrSubscriptionStateChanged
 		}
 	}
-	return subscriptionStateWriteError(transaction.Commit())
+	return nil
 }
 
 // CorrectNextPriceEffectiveDueDate performs a compare-and-swap update for a

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"carpool-notify/internal/cycle"
 	"carpool-notify/internal/model"
 )
 
@@ -39,6 +40,32 @@ func (store *Store) ListCustomerBenefits() ([]model.CustomerBenefit, error) {
 	return benefits, rows.Err()
 }
 
+// HasCustomerBenefitBatchOverlap reports whether any requested subscription
+// was already recorded under the same client operation batch.
+func (store *Store) HasCustomerBenefitBatchOverlap(
+	batchID string,
+	subscriptionIDs []int64,
+) (bool, error) {
+	if strings.TrimSpace(batchID) == "" || len(subscriptionIDs) == 0 {
+		return false, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(subscriptionIDs)), ",")
+	args := make([]any, 0, len(subscriptionIDs)+1)
+	args = append(args, strings.TrimSpace(batchID))
+	for _, subscriptionID := range subscriptionIDs {
+		args = append(args, subscriptionID)
+	}
+	var exists bool
+	err := store.database.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM customer_benefits
+			WHERE batch_id = ?
+			  AND subscription_id IN (`+placeholders+`)
+		)`, args...).Scan(&exists)
+	return exists, err
+}
+
 // CreateCustomerBenefits records a whole delivered batch or none of it. The
 // INSERT ... SELECT guard prevents stale clients from attaching care costs to
 // archived, banned, resale, Plus, or currently after-sales-blocked records.
@@ -51,7 +78,124 @@ func (store *Store) CreateCustomerBenefits(benefits []model.CustomerBenefit) err
 		return err
 	}
 	defer func() { _ = transaction.Rollback() }()
+	if err := createCustomerBenefitsWithTransaction(transaction, benefits); err != nil {
+		return err
+	}
+	return transaction.Commit()
+}
 
+// CreateCustomerBenefitsAndUpdateSubscriptionNextPrices records delivered
+// benefits and schedules their future prices as one all-or-nothing operation.
+func (store *Store) CreateCustomerBenefitsAndUpdateSubscriptionNextPrices(
+	benefits []model.CustomerBenefit,
+	subscriptions []model.Subscription,
+	effectiveAt time.Time,
+	reviewDates ...string,
+) error {
+	if len(benefits) == 0 && len(subscriptions) == 0 {
+		return nil
+	}
+	if len(benefits) != len(subscriptions) {
+		return fmt.Errorf("customer benefit and next-price counts do not match")
+	}
+	for index := range benefits {
+		if benefits[index].SubscriptionID != subscriptions[index].ID {
+			return fmt.Errorf("customer benefit and next-price subscriptions do not match")
+		}
+	}
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	if err := createCustomerBenefitsWithTransaction(transaction, benefits); err != nil {
+		return err
+	}
+	scheduledSubscriptions, err := nextPricesAtFirstUnpaidDueWithTransaction(
+		transaction,
+		subscriptions,
+		effectiveAt,
+	)
+	if err != nil {
+		return err
+	}
+	if err := updateSubscriptionNextPricesWithTransaction(
+		transaction,
+		scheduledSubscriptions,
+		reviewDates...,
+	); err != nil {
+		return err
+	}
+	return subscriptionStateWriteError(transaction.Commit())
+}
+
+func nextPricesAtFirstUnpaidDueWithTransaction(
+	transaction *sql.Tx,
+	subscriptions []model.Subscription,
+	effectiveAt time.Time,
+) ([]model.Subscription, error) {
+	scheduled := append([]model.Subscription(nil), subscriptions...)
+	for index := range scheduled {
+		subscription := &scheduled[index]
+		schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+		if err != nil {
+			return nil, err
+		}
+		candidate := schedule.NextDue(effectiveAt.In(cycle.Location))
+		rows, err := transaction.Query(`
+			SELECT due_date
+			FROM bills
+			WHERE subscription_id = ?
+			  AND due_date >= ?
+			ORDER BY due_date`,
+			subscription.ID,
+			cycle.FormatDate(candidate),
+		)
+		if err != nil {
+			return nil, err
+		}
+		paidDueDates := make(map[string]struct{})
+		for rows.Next() {
+			var dueDate string
+			if scanErr := rows.Scan(&dueDate); scanErr != nil {
+				_ = rows.Close()
+				return nil, scanErr
+			}
+			paidDueDates[strings.TrimSpace(dueDate)] = struct{}{}
+		}
+		rowsErr := rows.Err()
+		closeErr := rows.Close()
+		if rowsErr != nil {
+			return nil, rowsErr
+		}
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		for range len(paidDueDates) + 1 {
+			if _, paid := paidDueDates[cycle.FormatDate(candidate)]; !paid {
+				subscription.NextPriceEffectiveDueDate = cycle.FormatDate(candidate)
+				break
+			}
+			next := schedule.NextDue(candidate)
+			if !next.After(candidate) {
+				return nil, fmt.Errorf(
+					"billing schedule did not advance after %s",
+					cycle.FormatDate(candidate),
+				)
+			}
+			candidate = next
+		}
+		if strings.TrimSpace(subscription.NextPriceEffectiveDueDate) == "" {
+			return nil, fmt.Errorf("unable to find an unpaid billing period")
+		}
+	}
+	return scheduled, nil
+}
+
+func createCustomerBenefitsWithTransaction(
+	transaction *sql.Tx,
+	benefits []model.CustomerBenefit,
+) error {
 	for _, benefit := range benefits {
 		createdAt := benefit.CreatedAt
 		if createdAt.IsZero() {
@@ -146,7 +290,7 @@ func (store *Store) CreateCustomerBenefits(benefits []model.CustomerBenefit) err
 			return sql.ErrNoRows
 		}
 	}
-	return transaction.Commit()
+	return nil
 }
 
 func equivalentCustomerBenefitTypes(value string) []string {

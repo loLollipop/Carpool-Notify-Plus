@@ -66,6 +66,7 @@ func TestCustomerBenefitCostFlowsThroughProfitReporting(t *testing.T) {
 		SubscriptionIDs:    ids,
 		BenefitType:        model.CustomerBenefitTypeExtension,
 		BenefitName:        "赠送延期福利",
+		ExtensionDays:      7,
 		ActualCostYuan:     "5.00",
 		PerceivedValueYuan: "20.00",
 		BenefitDate:        "2026-08-10",
@@ -109,13 +110,14 @@ func TestCustomerBenefitCostFlowsThroughProfitReporting(t *testing.T) {
 
 func TestRecordCustomerBenefitsAcceptsNewAndLegacyTypesAndRejectsInvalid(t *testing.T) {
 	tests := []struct {
-		name        string
-		benefitType string
-		wantType    string
-		wantError   bool
+		name               string
+		benefitType        string
+		wantType           string
+		wantScheduledPrice bool
+		wantError          bool
 	}{
 		{name: "extension", benefitType: model.CustomerBenefitTypeExtension, wantType: model.CustomerBenefitTypeExtension},
-		{name: "price discount", benefitType: model.CustomerBenefitTypePriceDiscount, wantType: model.CustomerBenefitTypePriceDiscount},
+		{name: "price discount", benefitType: model.CustomerBenefitTypePriceDiscount, wantType: model.CustomerBenefitTypePriceDiscount, wantScheduledPrice: true},
 		{name: "legacy renewal milestone", benefitType: model.CustomerBenefitTypeRenewalMilestone, wantType: model.CustomerBenefitTypeExtension},
 		{name: "legacy loyalty care", benefitType: model.CustomerBenefitTypeLoyaltyCare, wantType: model.CustomerBenefitTypeExtension},
 		{name: "legacy price increase", benefitType: model.CustomerBenefitTypePriceIncrease, wantType: model.CustomerBenefitTypePriceDiscount},
@@ -128,12 +130,20 @@ func TestRecordCustomerBenefitsAcceptsNewAndLegacyTypesAndRejectsInvalid(t *test
 		t.Run(test.name, func(t *testing.T) {
 			service := openGoalTestService(t)
 			ids := createCustomerCareTestSubscriptions(t, service, "benefit-test@example.com", "", 1)
-			recorded, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+			input := RecordCustomerBenefitsInput{
 				SubscriptionIDs: ids,
 				BenefitType:     test.benefitType,
 				BenefitName:     "已线下发放",
 				BenefitDate:     "2026-08-15",
-			})
+			}
+			switch test.benefitType {
+			case model.CustomerBenefitTypeExtension:
+				input.ExtensionDays = 7
+			case model.CustomerBenefitTypePriceDiscount:
+				input.PriceDiscountYuan = "10.00"
+				input.OperationKey = "test-price-discount-accept"
+			}
+			recorded, err := service.RecordCustomerBenefits(input)
 			if test.wantError {
 				if err == nil {
 					t.Fatalf("RecordCustomerBenefits(%q) succeeded, want error", test.benefitType)
@@ -149,6 +159,17 @@ func TestRecordCustomerBenefitsAcceptsNewAndLegacyTypesAndRejectsInvalid(t *test
 			}
 			if len(benefits) != 1 || benefits[0].BenefitType != test.wantType {
 				t.Fatalf("stored benefits = %#v", benefits)
+			}
+			subscription, getErr := service.Store.GetSubscription(ids[0])
+			if getErr != nil {
+				t.Fatal(getErr)
+			}
+			if test.wantScheduledPrice {
+				if subscription.NextPriceCents == nil || *subscription.NextPriceCents != 9000 {
+					t.Fatalf("scheduled price = %v; want 9000", subscription.NextPriceCents)
+				}
+			} else if subscription.NextPriceCents != nil || subscription.NextPriceEffectiveDueDate != "" {
+				t.Fatalf("legacy record unexpectedly scheduled a price: %#v", subscription)
 			}
 		})
 	}
@@ -176,6 +197,12 @@ func TestRecordCustomerBenefitsCanonicalizesAliasesBeforeDuplicateCheck(t *testi
 		t.Run(test.name, func(t *testing.T) {
 			service := openGoalTestService(t)
 			ids := createCustomerCareTestSubscriptions(t, service, "duplicate-alias@example.com", "", 1)
+			benefitName := "同一份福利"
+			if test.currentType == model.CustomerBenefitTypeExtension {
+				benefitName = "赠送延期 7 天"
+			} else {
+				benefitName = "续费每期降价 ¥10.00（¥100.00 → ¥90.00）"
+			}
 			subscription, err := service.Store.GetSubscription(ids[0])
 			if err != nil {
 				t.Fatal(err)
@@ -184,7 +211,7 @@ func TestRecordCustomerBenefitsCanonicalizesAliasesBeforeDuplicateCheck(t *testi
 				BatchID:                   "legacy-benefit",
 				SubscriptionID:            ids[0],
 				BenefitType:               test.legacyType,
-				BenefitName:               "同一份福利",
+				BenefitName:               benefitName,
 				BenefitDate:               "2026-08-15",
 				CustomerGroupSizeSnapshot: 1,
 				CurrentPriceCentsSnapshot: subscription.PricePerPersonCents,
@@ -195,8 +222,13 @@ func TestRecordCustomerBenefitsCanonicalizesAliasesBeforeDuplicateCheck(t *testi
 			input := RecordCustomerBenefitsInput{
 				SubscriptionIDs: ids,
 				BenefitType:     test.currentType,
-				BenefitName:     "同一份福利",
+				BenefitName:     benefitName,
+				ExtensionDays:   7,
 				BenefitDate:     "2026-08-15",
+			}
+			if test.currentType == model.CustomerBenefitTypePriceDiscount {
+				input.PriceDiscountYuan = "10.00"
+				input.OperationKey = "test-alias-price-discount"
 			}
 			if _, err := service.RecordCustomerBenefits(input); err == nil {
 				t.Fatal("RecordCustomerBenefits() succeeded against historical alias, want duplicate error")
@@ -227,7 +259,7 @@ func TestRecordCustomerBenefitsRollsBackBatchWhenHistoricalAliasExists(t *testin
 		BatchID:                   "legacy-batch",
 		SubscriptionID:            ids[0],
 		BenefitType:               model.CustomerBenefitTypeServiceRecovery,
-		BenefitName:               "同一份福利",
+		BenefitName:               "赠送延期 7 天",
 		BenefitDate:               "2026-08-15",
 		CustomerGroupSizeSnapshot: 1,
 		CurrentPriceCentsSnapshot: subscription.PricePerPersonCents,
@@ -238,7 +270,8 @@ func TestRecordCustomerBenefitsRollsBackBatchWhenHistoricalAliasExists(t *testin
 	if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
 		SubscriptionIDs: []int64{ids[1], ids[0]},
 		BenefitType:     model.CustomerBenefitTypeExtension,
-		BenefitName:     "同一份福利",
+		BenefitName:     "赠送延期 7 天",
+		ExtensionDays:   7,
 		BenefitDate:     "2026-08-15",
 	}); err == nil {
 		t.Fatal("RecordCustomerBenefits() succeeded for batch containing a historical alias")
@@ -262,6 +295,400 @@ func TestRecordCustomerBenefitsRejectsStaleUITranslationKey(t *testing.T) {
 		BenefitDate:     "2026-08-15",
 	}); err == nil || !strings.Contains(err.Error(), "刷新") {
 		t.Fatalf("RecordCustomerBenefits() error = %v; want refresh error", err)
+	}
+}
+
+func TestRecordCustomerBenefitsRequiresValidExtensionDays(t *testing.T) {
+	tests := []struct {
+		name      string
+		days      int
+		wantError bool
+	}{
+		{name: "missing", days: 0, wantError: true},
+		{name: "negative", days: -1, wantError: true},
+		{name: "above maximum", days: maximumBenefitExtensionDays + 1, wantError: true},
+		{name: "valid", days: 7},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := openGoalTestService(t)
+			ids := createCustomerCareTestSubscriptions(t, service, "extension-days@example.com", "", 1)
+			recorded, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+				SubscriptionIDs: ids,
+				BenefitType:     model.CustomerBenefitTypeExtension,
+				BenefitName:     "客户端传入的名称不会覆盖延期天数",
+				ExtensionDays:   test.days,
+				BenefitDate:     "2026-08-15",
+			})
+			if test.wantError {
+				if err == nil || !strings.Contains(err.Error(), "延期天数") {
+					t.Fatalf("RecordCustomerBenefits(days=%d) error = %v; want extension-days error", test.days, err)
+				}
+				return
+			}
+			if err != nil || recorded != 1 {
+				t.Fatalf("RecordCustomerBenefits(days=%d) = %d, %v; want 1, nil", test.days, recorded, err)
+			}
+			benefits, listErr := service.Store.ListCustomerBenefits()
+			if listErr != nil {
+				t.Fatal(listErr)
+			}
+			if len(benefits) != 1 || benefits[0].BenefitName != "赠送延期 7 天" {
+				t.Fatalf("stored benefits = %#v; want canonical extension name", benefits)
+			}
+			subscription, getErr := service.Store.GetSubscription(ids[0])
+			if getErr != nil || subscription.NextPriceCents != nil || subscription.NextPriceEffectiveDueDate != "" {
+				t.Fatalf("extension changed future price: %#v, %v", subscription, getErr)
+			}
+		})
+	}
+}
+
+func TestRecordCustomerBenefitsSchedulesPriceDiscountForNextCycle(t *testing.T) {
+	service := openGoalTestService(t)
+	ids := createCustomerCareTestSubscriptions(t, service, "discount@example.com", "", 1)
+
+	recorded, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+		SubscriptionIDs:   ids,
+		BenefitType:       model.CustomerBenefitTypePriceDiscount,
+		BenefitName:       "客户端名称不应被信任",
+		OperationKey:      "test-discount-next-cycle",
+		PriceDiscountYuan: "10.00",
+		BenefitDate:       "2026-08-15",
+	})
+	if err != nil || recorded != 1 {
+		t.Fatalf("RecordCustomerBenefits() = %d, %v; want 1, nil", recorded, err)
+	}
+
+	benefits, err := service.Store.ListCustomerBenefits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const wantName = "续费每期降价 ¥10.00（¥100.00 → ¥90.00）"
+	if len(benefits) != 1 || benefits[0].BenefitName != wantName {
+		t.Fatalf("benefits = %#v; want generated name %q", benefits, wantName)
+	}
+	subscription, err := service.Store.GetSubscription(ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subscription.PricePerPersonCents != 10000 || subscription.NextPriceCents == nil ||
+		*subscription.NextPriceCents != 9000 || subscription.NextPriceEffectiveDueDate != "2026-08-30" {
+		t.Fatalf("subscription after discount = %#v", subscription)
+	}
+	if err := service.SetDuePaid(ids[0], "2026-08-30", true); err != nil {
+		t.Fatal(err)
+	}
+	benefitPeriodBill, err := service.Store.GetBillByOccurrence(ids[0], "2026-08-30")
+	if err != nil || benefitPeriodBill.AmountCents != 9000 {
+		t.Fatalf("discounted bill = %#v, %v; want amount 9000", benefitPeriodBill, err)
+	}
+	applied, err := service.Store.GetSubscription(ids[0])
+	if err != nil || applied.PricePerPersonCents != 9000 || applied.NextPriceCents != nil ||
+		applied.NextPriceEffectiveDueDate != "" {
+		t.Fatalf("subscription after discounted renewal = %#v, %v", applied, err)
+	}
+}
+
+func TestRecordCustomerBenefitsPriceDiscountSkipsPrepaidCycles(t *testing.T) {
+	service := openGoalTestService(t)
+	subscriptionID := createCustomerCareTestSubscriptions(
+		t,
+		service,
+		"prepaid-discount@example.com",
+		"",
+		1,
+	)[0]
+	for _, dueDate := range []string{"2026-08-30", "2026-09-29"} {
+		if err := service.SetDuePaid(subscriptionID, dueDate, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+		SubscriptionIDs:   []int64{subscriptionID},
+		BenefitType:       model.CustomerBenefitTypePriceDiscount,
+		OperationKey:      "test-prepaid-cycle-discount",
+		PriceDiscountYuan: "10.00",
+		BenefitDate:       "2026-08-15",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	scheduled, err := service.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scheduled.NextPriceCents == nil || *scheduled.NextPriceCents != 9000 ||
+		scheduled.NextPriceEffectiveDueDate != "2026-10-29" {
+		t.Fatalf("scheduled discount = %#v; want first unpaid cycle 2026-10-29", scheduled)
+	}
+	repaired, err := service.NormalizeScheduledNextPriceEffectiveDates()
+	if err != nil || repaired != 0 {
+		t.Fatalf("startup normalization repaired prepaid discount = %d, %v; want 0, nil", repaired, err)
+	}
+	scheduled, err = service.Store.GetSubscription(subscriptionID)
+	if err != nil || scheduled.NextPriceEffectiveDueDate != "2026-10-29" {
+		t.Fatalf("discount after startup normalization = %#v, %v", scheduled, err)
+	}
+	for _, dueDate := range []string{"2026-08-30", "2026-09-29"} {
+		bill, billErr := service.Store.GetBillByOccurrence(subscriptionID, dueDate)
+		if billErr != nil || bill.AmountCents != 10000 {
+			t.Fatalf("historical prepaid bill %s = %#v, %v", dueDate, bill, billErr)
+		}
+	}
+	if err := service.SetDuePaid(subscriptionID, "2026-10-29", true); err != nil {
+		t.Fatal(err)
+	}
+	discountedBill, err := service.Store.GetBillByOccurrence(subscriptionID, "2026-10-29")
+	if err != nil || discountedBill.AmountCents != 9000 {
+		t.Fatalf("first unpaid-cycle bill = %#v, %v; want 9000", discountedBill, err)
+	}
+	changes, err := service.Store.ListSubscriptionPriceChanges()
+	if err != nil || len(changes) != 1 || changes[0].EffectiveDueDate != "2026-10-29" {
+		t.Fatalf("price changes = %#v, %v", changes, err)
+	}
+}
+
+func TestRecordCustomerBenefitsPriceDiscountUsesReopenedUnpaidCycle(t *testing.T) {
+	service := openGoalTestService(t)
+	subscriptionID := createCustomerCareTestSubscriptions(
+		t,
+		service,
+		"reopened-cycle-discount@example.com",
+		"",
+		1,
+	)[0]
+	for _, dueDate := range []string{"2026-08-30", "2026-09-29"} {
+		if err := service.SetDuePaid(subscriptionID, dueDate, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := service.SetDuePaid(subscriptionID, "2026-08-30", false); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+		SubscriptionIDs:   []int64{subscriptionID},
+		BenefitType:       model.CustomerBenefitTypePriceDiscount,
+		OperationKey:      "test-reopened-cycle-discount",
+		PriceDiscountYuan: "10.00",
+		BenefitDate:       "2026-08-15",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	scheduled, err := service.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scheduled.NextPriceCents == nil || *scheduled.NextPriceCents != 9000 ||
+		scheduled.NextPriceEffectiveDueDate != "2026-08-30" {
+		t.Fatalf("scheduled discount = %#v; want reopened first unpaid cycle 2026-08-30", scheduled)
+	}
+}
+
+func TestRecordCustomerBenefitsPriceDiscountOperationKeyIsIdempotentAfterApply(t *testing.T) {
+	service := openGoalTestService(t)
+	subscriptionID := createCustomerCareTestSubscriptions(
+		t,
+		service,
+		"idempotent-discount@example.com",
+		"",
+		1,
+	)[0]
+	input := RecordCustomerBenefitsInput{
+		SubscriptionIDs:   []int64{subscriptionID},
+		BenefitType:       model.CustomerBenefitTypePriceDiscount,
+		OperationKey:      "test-idempotent-discount",
+		PriceDiscountYuan: "10.00",
+		BenefitDate:       "2026-08-15",
+	}
+	if _, err := service.RecordCustomerBenefits(input); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.SetDuePaid(subscriptionID, "2026-08-30", true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RecordCustomerBenefits(input); err == nil || !strings.Contains(err.Error(), "已登记") {
+		t.Fatalf("replayed operation key error = %v; want already-recorded error", err)
+	}
+	subscription, err := service.Store.GetSubscription(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subscription.PricePerPersonCents != 9000 || subscription.NextPriceCents != nil {
+		t.Fatalf("replay scheduled or applied a second discount: %#v", subscription)
+	}
+	benefits, err := service.Store.ListCustomerBenefits()
+	if err != nil || len(benefits) != 1 {
+		t.Fatalf("benefits after replay = %#v, %v", benefits, err)
+	}
+}
+
+func TestRecordCustomerBenefitsRejectsInvalidPriceDiscount(t *testing.T) {
+	tests := []string{"", "0", "-1", "1.001", "100.00", "101.00"}
+	for _, discount := range tests {
+		t.Run(discount, func(t *testing.T) {
+			service := openGoalTestService(t)
+			ids := createCustomerCareTestSubscriptions(t, service, "invalid-discount@example.com", "", 1)
+			if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+				SubscriptionIDs:   ids,
+				BenefitType:       model.CustomerBenefitTypePriceDiscount,
+				OperationKey:      "test-invalid-discount",
+				PriceDiscountYuan: discount,
+				BenefitDate:       "2026-08-15",
+			}); err == nil {
+				t.Fatalf("RecordCustomerBenefits(discount=%q) succeeded", discount)
+			}
+			benefits, listErr := service.Store.ListCustomerBenefits()
+			if listErr != nil || len(benefits) != 0 {
+				t.Fatalf("benefits after invalid discount = %#v, %v", benefits, listErr)
+			}
+			subscription, getErr := service.Store.GetSubscription(ids[0])
+			if getErr != nil || subscription.NextPriceCents != nil {
+				t.Fatalf("subscription after invalid discount = %#v, %v", subscription, getErr)
+			}
+		})
+	}
+}
+
+func TestRecordCustomerBenefitsPriceDiscountRequiresValidOperationKey(t *testing.T) {
+	for _, operationKey := range []string{"", "short", "invalid operation key"} {
+		t.Run(operationKey, func(t *testing.T) {
+			service := openGoalTestService(t)
+			ids := createCustomerCareTestSubscriptions(t, service, "operation-key@example.com", "", 1)
+			if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+				SubscriptionIDs:   ids,
+				BenefitType:       model.CustomerBenefitTypePriceDiscount,
+				OperationKey:      operationKey,
+				PriceDiscountYuan: "10.00",
+				BenefitDate:       "2026-08-15",
+			}); err == nil {
+				t.Fatalf("RecordCustomerBenefits(operation key %q) succeeded", operationKey)
+			}
+		})
+	}
+}
+
+func TestRecordCustomerBenefitsDiscountsOnlyExplicitSubscriptionIDs(t *testing.T) {
+	service := openGoalTestService(t)
+	ids := createCustomerCareTestSubscriptions(t, service, "shared-discount@example.com", "", 2)
+	if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+		SubscriptionIDs:   []int64{ids[1]},
+		BenefitType:       model.CustomerBenefitTypePriceDiscount,
+		OperationKey:      "test-explicit-subscription",
+		PriceDiscountYuan: "10.00",
+		BenefitDate:       "2026-08-15",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.Store.GetSubscription(ids[0])
+	if err != nil || first.NextPriceCents != nil {
+		t.Fatalf("unselected related subscription changed: %#v, %v", first, err)
+	}
+	second, err := service.Store.GetSubscription(ids[1])
+	if err != nil || second.NextPriceCents == nil || *second.NextPriceCents != 9000 {
+		t.Fatalf("selected subscription not discounted: %#v, %v", second, err)
+	}
+	benefits, err := service.Store.ListCustomerBenefits()
+	if err != nil || len(benefits) != 1 || benefits[0].SubscriptionID != ids[1] {
+		t.Fatalf("benefits expanded beyond explicit target: %#v, %v", benefits, err)
+	}
+}
+
+func TestRecordCustomerBenefitsPriceDiscountBatchSharesOperationKey(t *testing.T) {
+	service := openGoalTestService(t)
+	ids := createCustomerCareTestSubscriptions(t, service, "batch-discount@example.com", "", 2)
+	if recorded, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+		SubscriptionIDs:   ids,
+		BenefitType:       model.CustomerBenefitTypePriceDiscount,
+		OperationKey:      "test-batch-discount-operation",
+		PriceDiscountYuan: "10.00",
+		BenefitDate:       "2026-08-15",
+	}); err != nil || recorded != 2 {
+		t.Fatalf("RecordCustomerBenefits() = %d, %v; want 2, nil", recorded, err)
+	}
+	benefits, err := service.Store.ListCustomerBenefits()
+	if err != nil || len(benefits) != 2 || benefits[0].BatchID != benefits[1].BatchID {
+		t.Fatalf("batch benefits = %#v, %v", benefits, err)
+	}
+}
+
+func TestRecordCustomerBenefitsRollsBackDiscountBatchWhenOneHasScheduledPrice(t *testing.T) {
+	service := openGoalTestService(t)
+	firstID := createCustomerCareTestSubscriptions(t, service, "discount-first@example.com", "", 1)[0]
+	secondID := createCustomerCareTestSubscriptions(t, service, "discount-second@example.com", "", 1)[0]
+	second, err := service.Store.GetSubscription(secondID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	alreadyScheduledPrice := int64(9500)
+	second.NextPriceCents = &alreadyScheduledPrice
+	if err := service.configureNextPrice(second, &second, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Store.UpdateSubscriptionNextPrices([]model.Subscription{second}, "2026-08-15"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+		SubscriptionIDs:   []int64{firstID, secondID},
+		BenefitType:       model.CustomerBenefitTypePriceDiscount,
+		OperationKey:      "test-scheduled-price-rollback",
+		PriceDiscountYuan: "10.00",
+		BenefitDate:       "2026-08-15",
+	}); err == nil {
+		t.Fatal("RecordCustomerBenefits() succeeded with an existing next-price schedule")
+	}
+	benefits, err := service.Store.ListCustomerBenefits()
+	if err != nil || len(benefits) != 0 {
+		t.Fatalf("partial benefits committed: %#v, %v", benefits, err)
+	}
+	first, err := service.Store.GetSubscription(firstID)
+	if err != nil || first.NextPriceCents != nil {
+		t.Fatalf("first subscription was partially scheduled: %#v, %v", first, err)
+	}
+	second, err = service.Store.GetSubscription(secondID)
+	if err != nil || second.NextPriceCents == nil || *second.NextPriceCents != alreadyScheduledPrice {
+		t.Fatalf("existing second schedule changed: %#v, %v", second, err)
+	}
+}
+
+func TestRecordCustomerBenefitsRollsBackDiscountWhenPricingExemptionIsActive(t *testing.T) {
+	service := openGoalTestService(t)
+	subscriptionID := createCustomerCareTestSubscriptions(
+		t,
+		service,
+		"discount-exemption@example.com",
+		"",
+		1,
+	)[0]
+	if err := service.Store.CreatePricingExemptions([]model.PricingExemption{{
+		SubscriptionID:     subscriptionID,
+		ReasonCode:         "manual",
+		ReviewAfter:        "2026-09-30",
+		ReviewCycles:       1,
+		PriceCentsSnapshot: 10000,
+	}}, "2026-08-15"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+		SubscriptionIDs:   []int64{subscriptionID},
+		BenefitType:       model.CustomerBenefitTypePriceDiscount,
+		OperationKey:      "test-pricing-exemption-rollback",
+		PriceDiscountYuan: "10.00",
+		BenefitDate:       "2026-08-15",
+	}); err == nil {
+		t.Fatal("RecordCustomerBenefits() succeeded during an active pricing exemption")
+	}
+	benefits, err := service.Store.ListCustomerBenefits()
+	if err != nil || len(benefits) != 0 {
+		t.Fatalf("benefit committed despite pricing exemption: %#v, %v", benefits, err)
+	}
+	subscription, err := service.Store.GetSubscription(subscriptionID)
+	if err != nil || subscription.NextPriceCents != nil || subscription.NextPriceEffectiveDueDate != "" {
+		t.Fatalf("price scheduled despite pricing exemption: %#v, %v", subscription, err)
 	}
 }
 
@@ -442,6 +869,7 @@ func TestCustomerCareMergesMultiSeatIdentityAndStartsCooldown(t *testing.T) {
 		SubscriptionIDs:    []int64{candidate.SubscriptionID},
 		BenefitType:        model.CustomerBenefitTypeRenewalMilestone,
 		BenefitName:        "首次续费礼",
+		ExtensionDays:      7,
 		ActualCostYuan:     "2.00",
 		PerceivedValueYuan: "10.00",
 		BenefitDate:        "2026-08-15",

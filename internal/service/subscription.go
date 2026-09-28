@@ -1143,17 +1143,25 @@ func (service *SubscriptionService) NormalizeScheduledNextPriceEffectiveDates() 
 		if subscription.NextPriceCents == nil {
 			continue
 		}
-		intendedDueDate, dueErr := nextPriceEffectiveDueDate(subscription, service.now())
+		immediateDueDate, dueErr := nextPriceEffectiveDueDate(subscription, service.now())
 		if dueErr != nil {
 			return repaired, fmt.Errorf("订阅 %d 无法校正下期价格生效日: %w", subscription.ID, dueErr)
 		}
 		storedDueDate := strings.TrimSpace(subscription.NextPriceEffectiveDueDate)
-		if intendedDueDate == "" || storedDueDate == intendedDueDate {
+		if immediateDueDate == "" {
 			continue
 		}
-		// Only pull a missing or incorrectly postponed date forward. An earlier
-		// date may represent an overdue unpaid period and must not be skipped.
-		if storedDueDate != "" && storedDueDate < intendedDueDate {
+		// Preserve an earlier date because it may represent an overdue unpaid
+		// period. For current/future dates, skip every already-paid period so a
+		// legitimate prepaid window is not mistaken for legacy postponement.
+		if storedDueDate != "" && storedDueDate < immediateDueDate {
+			continue
+		}
+		intendedDueDate, unpaidErr := service.firstFutureUnpaidDueDate(subscription)
+		if unpaidErr != nil {
+			return repaired, fmt.Errorf("订阅 %d 无法校正下期价格生效日: %w", subscription.ID, unpaidErr)
+		}
+		if intendedDueDate == "" || storedDueDate == intendedDueDate {
 			continue
 		}
 		updated, updateErr := service.Store.CorrectNextPriceEffectiveDueDate(
@@ -1169,6 +1177,28 @@ func (service *SubscriptionService) NormalizeScheduledNextPriceEffectiveDates() 
 		}
 	}
 	return repaired, nil
+}
+
+func (service *SubscriptionService) firstFutureUnpaidDueDate(
+	subscription model.Subscription,
+) (string, error) {
+	schedule, err := cycle.ParseBillingSchedule(subscription.CronExpr, subscription.BoardedAt)
+	if err != nil {
+		return "", err
+	}
+	paidDueDates, err := service.Store.ListPaidDueDatesForSubscription(subscription.ID)
+	if err != nil {
+		return "", err
+	}
+	paidDueSet := make(map[string]struct{}, len(paidDueDates))
+	for _, dueDate := range paidDueDates {
+		paidDueSet[strings.TrimSpace(dueDate)] = struct{}{}
+	}
+	firstUnpaid, err := firstUnpaidDue(schedule, schedule.NextDue(service.now()), paidDueSet)
+	if err != nil {
+		return "", err
+	}
+	return cycle.FormatDate(firstUnpaid), nil
 }
 
 func currentPeriodBillDueDate(subscription model.Subscription, now time.Time) (string, error) {

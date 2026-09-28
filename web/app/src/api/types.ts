@@ -1261,6 +1261,9 @@ export interface RecordCustomerBenefitsInput {
   subscription_ids: number[]
   benefit_type: CustomerBenefitType
   benefit_name: string
+  operation_key: string
+  extension_days: number
+  price_discount_yuan: string
   actual_cost_yuan: string
   perceived_value_yuan: string
   benefit_date: string

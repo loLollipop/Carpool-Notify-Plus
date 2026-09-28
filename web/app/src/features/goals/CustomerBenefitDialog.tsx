@@ -26,13 +26,33 @@ import { Textarea } from "@/components/ui/textarea"
 
 type SupportedBenefitType = Extract<CustomerBenefitType, "extension" | "price_discount">
 
+const maximumExtensionDays = 365
+
 type CustomerBenefitDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   subscriptionIds: number[]
   suggestedType?: CustomerBenefitType
   targetLabel?: string
+  currentPriceCents?: number
   onSuccess?: () => void
+}
+
+function formatCents(cents: number) {
+  return (cents / 100).toFixed(2)
+}
+
+function parsePositiveYuanToCents(value: string) {
+  if (!/^(?:\d+|\d*\.\d{1,2})$/.test(value)) return null
+  const cents = Math.round(Number(value) * 100)
+  return Number.isSafeInteger(cents) && cents > 0 ? cents : null
+}
+
+function createBenefitOperationKey() {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID()
+  }
+  return `fallback-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
 function shanghaiToday() {
@@ -58,15 +78,18 @@ function CustomerBenefitForm({
   subscriptionIds,
   suggestedType,
   targetLabel,
+  currentPriceCents,
   onSuccess,
 }: Omit<CustomerBenefitDialogProps, "open">) {
   const { t } = useTranslation()
   const fieldID = React.useId()
+  const [operationKey] = React.useState(createBenefitOperationKey)
   const initialBenefitType = supportedBenefitType(suggestedType)
   const [benefitType, setBenefitType] = React.useState<SupportedBenefitType>(initialBenefitType)
-  const [benefitName, setBenefitName] = React.useState(() =>
-    t(`goals.care.defaultBenefitName.${initialBenefitType}`),
-  )
+  const [extensionDays, setExtensionDays] = React.useState("")
+  const [extensionDaysTouched, setExtensionDaysTouched] = React.useState(false)
+  const [priceDiscount, setPriceDiscount] = React.useState("")
+  const [priceDiscountTouched, setPriceDiscountTouched] = React.useState(false)
   const [actualCost, setActualCost] = React.useState("")
   const [perceivedValue, setPerceivedValue] = React.useState("")
   const [benefitDate, setBenefitDate] = React.useState(shanghaiToday)
@@ -83,9 +106,23 @@ function CustomerBenefitForm({
     },
   )
 
-  const summary = targetLabel && subscriptionIds.length === 1
-    ? t("goals.care.dialog.singleSummary", { name: targetLabel })
-    : t("goals.care.dialog.summary", { count: subscriptionIds.length })
+  const summaryKey = targetLabel && subscriptionIds.length === 1
+    ? `goals.care.dialog.singleSummary.${benefitType}`
+    : `goals.care.dialog.summary.${benefitType}`
+  const summary = t(summaryKey, { name: targetLabel, count: subscriptionIds.length })
+  const parsedExtensionDays = Number(extensionDays)
+  const hasValidExtensionDays = /^\d+$/.test(extensionDays)
+    && Number.isInteger(parsedExtensionDays)
+    && parsedExtensionDays >= 1
+    && parsedExtensionDays <= maximumExtensionDays
+  const extensionBenefitName = hasValidExtensionDays
+    ? t("goals.care.dialog.extensionBenefitName", { days: parsedExtensionDays })
+    : ""
+  const priceDiscountCents = parsePositiveYuanToCents(priceDiscount)
+  const discountExceedsKnownPrice = priceDiscountCents !== null
+    && currentPriceCents !== undefined
+    && priceDiscountCents >= currentPriceCents
+  const hasValidPriceDiscount = priceDiscountCents !== null && !discountExceedsKnownPrice
 
   return (
     <DialogContent aria-describedby={undefined} className="sm:max-w-xl">
@@ -101,10 +138,21 @@ function CustomerBenefitForm({
           className="grid gap-4"
           onSubmit={(event) => {
             event.preventDefault()
+            if (benefitType === "extension" && !hasValidExtensionDays) {
+              setExtensionDaysTouched(true)
+              return
+            }
+            if (benefitType === "price_discount" && !hasValidPriceDiscount) {
+              setPriceDiscountTouched(true)
+              return
+            }
             mutation.mutate({
               subscription_ids: subscriptionIds,
               benefit_type: benefitType,
-              benefit_name: benefitName,
+              benefit_name: benefitType === "extension" ? extensionBenefitName : "",
+              operation_key: operationKey,
+              extension_days: benefitType === "extension" ? parsedExtensionDays : 0,
+              price_discount_yuan: benefitType === "price_discount" ? priceDiscount : "",
               actual_cost_yuan: actualCost,
               perceived_value_yuan: perceivedValue,
               benefit_date: benefitDate,
@@ -123,7 +171,8 @@ function CustomerBenefitForm({
                 onValueChange={(value) => {
                   const nextType = value as SupportedBenefitType
                   setBenefitType(nextType)
-                  setBenefitName(t(`goals.care.defaultBenefitName.${nextType}`))
+                  setExtensionDaysTouched(false)
+                  setPriceDiscountTouched(false)
                 }}
               >
                 <SelectTrigger id={`${fieldID}-type`}>
@@ -150,16 +199,90 @@ function CustomerBenefitForm({
               />
             </div>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor={`${fieldID}-name`}>{t("goals.care.dialog.name")}</Label>
-            <Input
-              id={`${fieldID}-name`}
-              value={benefitName}
-              onChange={(event) => setBenefitName(event.target.value)}
-              placeholder={t(`goals.care.dialog.namePlaceholder.${benefitType}`)}
-              required
-            />
-          </div>
+          {benefitType === "extension" ? (
+            <div className="grid gap-2">
+              <Label htmlFor={`${fieldID}-extension-days`}>
+                {t("goals.care.dialog.extensionDays")}
+              </Label>
+              <div className="flex">
+                <Input
+                  id={`${fieldID}-extension-days`}
+                  className="rounded-r-none border-r-0 tabular-nums focus-visible:z-10"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={maximumExtensionDays}
+                  step={1}
+                  value={extensionDays}
+                  onChange={(event) => setExtensionDays(event.target.value)}
+                  onBlur={() => setExtensionDaysTouched(true)}
+                  aria-invalid={extensionDaysTouched && !hasValidExtensionDays}
+                  aria-describedby={`${fieldID}-extension-days-help`}
+                  placeholder="7"
+                  required
+                  autoFocus
+                />
+                <span className="inline-flex h-9 shrink-0 items-center rounded-r-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground">
+                  {t("goals.care.dialog.daysUnit")}
+                </span>
+              </div>
+              <p
+                id={`${fieldID}-extension-days-help`}
+                className={extensionDaysTouched && !hasValidExtensionDays
+                  ? "text-xs text-destructive"
+                  : "text-xs text-muted-foreground"}
+              >
+                {extensionDaysTouched && !hasValidExtensionDays
+                  ? t("goals.care.dialog.extensionDaysError", { max: maximumExtensionDays })
+                  : hasValidExtensionDays
+                    ? t("goals.care.dialog.extensionDaysPreview", { days: parsedExtensionDays })
+                    : t("goals.care.dialog.extensionDaysHint", { max: maximumExtensionDays })}
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-2">
+              <Label htmlFor={`${fieldID}-price-discount`}>
+                {t("goals.care.dialog.priceDiscount")}
+              </Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
+                <Input
+                  id={`${fieldID}-price-discount`}
+                  className="pl-7 tabular-nums"
+                  inputMode="decimal"
+                  value={priceDiscount}
+                  onChange={(event) => setPriceDiscount(event.target.value)}
+                  onBlur={() => setPriceDiscountTouched(true)}
+                  aria-invalid={priceDiscountTouched && !hasValidPriceDiscount}
+                  aria-describedby={`${fieldID}-price-discount-help`}
+                  placeholder="10.00"
+                  required
+                  autoFocus
+                />
+              </div>
+              <p
+                id={`${fieldID}-price-discount-help`}
+                className={priceDiscountTouched && !hasValidPriceDiscount
+                  ? "text-xs text-destructive"
+                  : "text-xs text-muted-foreground"}
+              >
+                {priceDiscountTouched && discountExceedsKnownPrice
+                  ? t("goals.care.dialog.priceDiscountTooLarge")
+                  : priceDiscountTouched && priceDiscountCents === null
+                    ? t("goals.care.dialog.priceDiscountError")
+                    : hasValidPriceDiscount && currentPriceCents !== undefined
+                      ? t("goals.care.dialog.priceDiscountKnownPreview", {
+                          current: formatCents(currentPriceCents),
+                          next: formatCents(currentPriceCents - priceDiscountCents),
+                        })
+                      : hasValidPriceDiscount
+                        ? t("goals.care.dialog.priceDiscountPreview", {
+                            discount: formatCents(priceDiscountCents),
+                          })
+                        : t("goals.care.dialog.priceDiscountHint")}
+              </p>
+            </div>
+          )}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2">
               <Label htmlFor={`${fieldID}-cost`}>{t("goals.care.dialog.actualCost")}</Label>
@@ -175,7 +298,9 @@ function CustomerBenefitForm({
                 />
               </div>
               <p className="text-[11px] text-muted-foreground">
-                {t("goals.care.dialog.actualCostHint")}
+                {t(benefitType === "price_discount"
+                  ? "goals.care.dialog.actualCostDiscountHint"
+                  : "goals.care.dialog.actualCostHint")}
               </p>
             </div>
             <div className="grid gap-2">
@@ -212,7 +337,10 @@ function CustomerBenefitForm({
             </Button>
             <Button
               type="submit"
-              disabled={mutation.isPending || subscriptionIds.length === 0 || !benefitName.trim()}
+              disabled={mutation.isPending
+                || subscriptionIds.length === 0
+                || (benefitType === "extension" && !hasValidExtensionDays)
+                || (benefitType === "price_discount" && !hasValidPriceDiscount)}
             >
               <Gift />
               {mutation.isPending ? t("common.saving") : t("goals.care.dialog.confirm")}
@@ -229,6 +357,7 @@ export function CustomerBenefitDialog({
   subscriptionIds,
   suggestedType,
   targetLabel,
+  currentPriceCents,
   onSuccess,
 }: CustomerBenefitDialogProps) {
   return (
@@ -239,6 +368,7 @@ export function CustomerBenefitDialog({
           subscriptionIds={subscriptionIds}
           suggestedType={suggestedType}
           targetLabel={targetLabel}
+          currentPriceCents={currentPriceCents}
           onSuccess={onSuccess}
         />
       ) : null}

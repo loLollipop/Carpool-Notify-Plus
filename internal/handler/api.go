@@ -271,6 +271,9 @@ type recordCustomerBenefitsRequest struct {
 	SubscriptionIDs    []int64 `json:"subscription_ids"`
 	BenefitType        string  `json:"benefit_type"`
 	BenefitName        string  `json:"benefit_name"`
+	OperationKey       string  `json:"operation_key"`
+	ExtensionDays      int     `json:"extension_days"`
+	PriceDiscountYuan  string  `json:"price_discount_yuan"`
 	ActualCostYuan     string  `json:"actual_cost_yuan"`
 	PerceivedValueYuan string  `json:"perceived_value_yuan"`
 	BenefitDate        string  `json:"benefit_date"`
@@ -288,6 +291,9 @@ func (server *Server) postGoalCustomerBenefits(context *gin.Context) {
 		SubscriptionIDs:    request.SubscriptionIDs,
 		BenefitType:        request.BenefitType,
 		BenefitName:        request.BenefitName,
+		OperationKey:       request.OperationKey,
+		ExtensionDays:      request.ExtensionDays,
+		PriceDiscountYuan:  request.PriceDiscountYuan,
 		ActualCostYuan:     request.ActualCostYuan,
 		PerceivedValueYuan: request.PerceivedValueYuan,
 		BenefitDate:        request.BenefitDate,
@@ -297,8 +303,14 @@ func (server *Server) postGoalCustomerBenefits(context *gin.Context) {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
 	}
+	message := fmt.Sprintf("已登记 %d 位客户的福利发放记录", recorded)
+	if strings.TrimSpace(request.PriceDiscountYuan) != "" &&
+		(request.BenefitType == model.CustomerBenefitTypePriceDiscount ||
+			request.BenefitType == model.CustomerBenefitTypePriceIncrease) {
+		message = fmt.Sprintf("已登记 %d 位客户的降价福利，并安排下期优惠价", recorded)
+	}
 	respondOK(context, gin.H{
-		"message":        fmt.Sprintf("已登记 %d 位客户的福利发放记录", recorded),
+		"message":        message,
 		"recorded_count": recorded,
 	})
 }
