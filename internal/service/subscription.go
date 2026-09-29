@@ -1456,6 +1456,9 @@ func publicSubscriptionMutationError(err error) error {
 	if errors.Is(err, db.ErrSubscriptionStateChanged) {
 		return db.ErrSubscriptionStateChanged
 	}
+	if errors.Is(err, db.ErrCustomerBenefitAlreadyRecorded) {
+		return fmt.Errorf("该客户近期已发放福利，不能重复安排降价")
+	}
 	if errors.Is(err, db.ErrSeatReferenceMissing) {
 		return fmt.Errorf("所选车位已不存在，请刷新后选择其他车位")
 	}

@@ -301,6 +301,10 @@ func (store *Store) migrate() error {
 			customer_group_size_snapshot INTEGER NOT NULL DEFAULT 1 CHECK(customer_group_size_snapshot >= 1),
 			current_price_cents_snapshot INTEGER NOT NULL DEFAULT 0 CHECK(current_price_cents_snapshot >= 0),
 			renewal_count_snapshot INTEGER NOT NULL DEFAULT 0 CHECK(renewal_count_snapshot >= 0),
+			price_before_cents INTEGER NOT NULL DEFAULT 0 CHECK(price_before_cents >= 0),
+			price_after_cents INTEGER NOT NULL DEFAULT 0 CHECK(price_after_cents >= 0),
+			price_effective_due_date TEXT NOT NULL DEFAULT '',
+			price_adjustment_key TEXT NOT NULL DEFAULT '',
 			recommendation_code TEXT NOT NULL DEFAULT '',
 			note TEXT NOT NULL DEFAULT '',
 			created_at TEXT NOT NULL,
@@ -322,10 +326,6 @@ func (store *Store) migrate() error {
 			ON subscription_due_extensions(subscription_id, base_due_date, id);`,
 		`CREATE INDEX IF NOT EXISTS idx_customer_benefits_date
 			ON customer_benefits(benefit_date DESC, id DESC);`,
-		`DROP INDEX IF EXISTS idx_customer_benefits_delivery;`,
-		`CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_benefits_delivery
-			ON customer_benefits(subscription_id, benefit_date, benefit_type, benefit_name)
-			WHERE NOT (benefit_type = 'extension' AND batch_id LIKE 'benefit-operation-v1:%');`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_benefits_operation_subscription
 			ON customer_benefits(batch_id, subscription_id)
 			WHERE batch_id LIKE 'benefit-operation-v1:%';`,
@@ -460,6 +460,9 @@ func (store *Store) migrate() error {
 	if err := store.ensureAfterSalesBusinessTypeColumn(); err != nil {
 		return err
 	}
+	if err := store.ensureCustomerBenefitPriceAdjustmentColumns(); err != nil {
+		return err
+	}
 	if err := store.ensurePerformanceIndexes(); err != nil {
 		return err
 	}
@@ -482,6 +485,9 @@ func (store *Store) migrate() error {
 		return err
 	}
 	if err := store.backfillSubscriptionPriceChanges(); err != nil {
+		return err
+	}
+	if err := store.backfillPriceDiscountBenefits(); err != nil {
 		return err
 	}
 	if err := store.normalizeBusinessGoalProfitBaselines(); err != nil {
@@ -1473,6 +1479,8 @@ func (store *Store) tableHasColumn(tableName string, columnName string) (bool, e
 		pragma = `PRAGMA table_info(after_sales_cases)`
 	case "renewal_applications":
 		pragma = `PRAGMA table_info(renewal_applications)`
+	case "customer_benefits":
+		pragma = `PRAGMA table_info(customer_benefits)`
 	default:
 		return false, fmt.Errorf("unknown table for column check: %s", tableName)
 	}
@@ -2102,6 +2110,8 @@ func updateSubscriptionNextPricesWithTransaction(
 	if len(reviewDates) > 0 && strings.TrimSpace(reviewDates[0]) != "" {
 		today = strings.TrimSpace(reviewDates[0])
 	}
+	operationAt := time.Now()
+	priceBenefitBatchID := fmt.Sprintf("price-adjustment-operation-v1:%d", operationAt.UnixNano())
 	for _, subscription := range subscriptions {
 		if subscription.NextPriceCents == nil || strings.TrimSpace(subscription.NextPriceEffectiveDueDate) == "" {
 			return fmt.Errorf("subscription %d has incomplete next price", subscription.ID)
@@ -2163,6 +2173,31 @@ func updateSubscriptionNextPricesWithTransaction(
 		if affected != 1 {
 			return ErrSubscriptionStateChanged
 		}
+		if *subscription.NextPriceCents < subscription.PricePerPersonCents {
+			if err := recordScheduledPriceDiscountWithTransaction(
+				transaction,
+				subscription.ID,
+				subscription.PricePerPersonCents,
+				*subscription.NextPriceCents,
+				strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
+				operationAt,
+			); err != nil {
+				return err
+			}
+			if err := syncPriceDiscountBenefitWithTransaction(
+				transaction,
+				subscription.ID,
+				subscription.PricePerPersonCents,
+				*subscription.NextPriceCents,
+				strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
+				today,
+				operationAt,
+				true,
+				priceBenefitBatchID,
+			); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -2180,7 +2215,30 @@ func (store *Store) CorrectNextPriceEffectiveDueDate(
 	if subscriptionID <= 0 || correctedDueDate == "" {
 		return false, fmt.Errorf("invalid scheduled price correction")
 	}
-	result, err := store.database.Exec(`
+	transaction, err := store.database.Begin()
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	var before, after int64
+	if err := transaction.QueryRow(`
+		SELECT price_per_person_cents, next_price_cents
+		FROM subscriptions
+		WHERE id = ?
+		  AND deleted_at IS NULL
+		  AND archived_at IS NULL
+		  AND next_price_cents IS NOT NULL
+		  AND TRIM(COALESCE(next_price_effective_due_date, '')) = ?`,
+		subscriptionID,
+		previousDueDate,
+	).Scan(&before, &after); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	eventAt := time.Now()
+	result, err := transaction.Exec(`
 		UPDATE subscriptions
 		SET next_price_effective_due_date = ?, updated_at = ?
 		WHERE id = ?
@@ -2189,7 +2247,7 @@ func (store *Store) CorrectNextPriceEffectiveDueDate(
 		  AND next_price_cents IS NOT NULL
 		  AND TRIM(COALESCE(next_price_effective_due_date, '')) = ?`,
 		correctedDueDate,
-		formatTime(time.Now().UTC()),
+		formatTime(eventAt.UTC()),
 		subscriptionID,
 		previousDueDate,
 	)
@@ -2200,7 +2258,41 @@ func (store *Store) CorrectNextPriceEffectiveDueDate(
 	if err != nil {
 		return false, err
 	}
-	return affected == 1, nil
+	if affected != 1 {
+		return false, nil
+	}
+	if after < before {
+		linked, err := movePriceDiscountBenefitEffectiveDateWithTransaction(
+			transaction,
+			subscriptionID,
+			before,
+			after,
+			previousDueDate,
+			correctedDueDate,
+		)
+		if err != nil {
+			return false, err
+		}
+		if !linked {
+			if err := syncPriceDiscountBenefitWithTransaction(
+				transaction,
+				subscriptionID,
+				before,
+				after,
+				correctedDueDate,
+				cycle.FormatDate(eventAt.In(cycle.Location)),
+				eventAt,
+				false,
+				"",
+			); err != nil {
+				return false, err
+			}
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // UpdateSubscriptionAndMoveInitialBill atomically updates a subscription's
@@ -2337,6 +2429,32 @@ func updateSubscriptionWithExecutor(
 	if err != nil {
 		return err
 	}
+	var storedCurrentPrice int64
+	var storedCustomerEmail string
+	var storedCustomerWechat string
+	var storedNextPrice sql.NullInt64
+	var storedNextPriceDueDate string
+	if err := executor.QueryRow(`
+		SELECT price_per_person_cents, COALESCE(customer_email, ''), COALESCE(customer_wechat, ''),
+		       next_price_cents, COALESCE(next_price_effective_due_date, '')
+		FROM subscriptions
+		WHERE id = ?`, subscription.ID).Scan(
+		&storedCurrentPrice,
+		&storedCustomerEmail,
+		&storedCustomerWechat,
+		&storedNextPrice,
+		&storedNextPriceDueDate,
+	); err != nil {
+		return err
+	}
+	nextPriceScheduleChanged := strings.TrimSpace(storedNextPriceDueDate) != strings.TrimSpace(subscription.NextPriceEffectiveDueDate) ||
+		storedNextPrice.Valid != (subscription.NextPriceCents != nil) ||
+		storedNextPrice.Valid && storedCurrentPrice != subscription.PricePerPersonCents ||
+		normalizeBenefitIdentity(storedCustomerEmail) != normalizeBenefitIdentity(subscription.CustomerEmail) ||
+		normalizeBenefitIdentity(storedCustomerWechat) != normalizeBenefitIdentity(subscription.CustomerWechat)
+	if storedNextPrice.Valid && subscription.NextPriceCents != nil && storedNextPrice.Int64 != *subscription.NextPriceCents {
+		nextPriceScheduleChanged = true
+	}
 	offsetsJSON, err := json.Marshal(subscription.NotifyOffsets)
 	if err != nil {
 		return err
@@ -2432,6 +2550,57 @@ func updateSubscriptionWithExecutor(
 			return ErrSubscriptionHasPendingAfterSales
 		}
 		return ErrSubscriptionStateChanged
+	}
+	revisedPriceDiscountBenefit := false
+	if nextPriceScheduleChanged && storedNextPrice.Valid && storedNextPrice.Int64 < storedCurrentPrice {
+		if revisedPriceDiscountBenefit, err = revisePendingPriceDiscountBenefitWithTransaction(
+			executor,
+			subscription.ID,
+			storedCurrentPrice,
+			storedNextPrice.Int64,
+			storedNextPriceDueDate,
+			subscription.PricePerPersonCents,
+			subscription.NextPriceCents,
+			subscription.NextPriceEffectiveDueDate,
+			subscription.CustomerEmail,
+			subscription.CustomerWechat,
+		); err != nil {
+			return err
+		}
+	}
+	if nextPriceScheduleChanged && businessType == model.SubscriptionBusinessTeam && !subscription.IsResale &&
+		subscription.NextPriceCents != nil &&
+		*subscription.NextPriceCents < subscription.PricePerPersonCents &&
+		strings.TrimSpace(subscription.NextPriceEffectiveDueDate) != "" {
+		eventAt, parseErr := parseTime(now)
+		if parseErr != nil {
+			eventAt = time.Now()
+		}
+		if err := recordScheduledPriceDiscountWithTransaction(
+			executor,
+			subscription.ID,
+			subscription.PricePerPersonCents,
+			*subscription.NextPriceCents,
+			strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
+			eventAt,
+		); err != nil {
+			return err
+		}
+		if !revisedPriceDiscountBenefit {
+			if err := syncPriceDiscountBenefitWithTransaction(
+				executor,
+				subscription.ID,
+				subscription.PricePerPersonCents,
+				*subscription.NextPriceCents,
+				strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
+				cycle.FormatDate(eventAt.In(cycle.Location)),
+				eventAt,
+				true,
+				fmt.Sprintf("price-adjustment-operation-v1:%d", eventAt.UnixNano()),
+			); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }

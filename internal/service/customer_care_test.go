@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 )
 
@@ -372,7 +374,9 @@ func TestRecordCustomerBenefitsSchedulesPriceDiscountForNextCycle(t *testing.T) 
 		t.Fatal(err)
 	}
 	const wantName = "续费每期降价 ¥10.00（¥100.00 → ¥90.00）"
-	if len(benefits) != 1 || benefits[0].BenefitName != wantName {
+	if len(benefits) != 1 || benefits[0].BenefitName != wantName ||
+		benefits[0].PriceBeforeCents != 10000 || benefits[0].PriceAfterCents != 9000 ||
+		benefits[0].PriceEffectiveDueDate != "2026-08-30" || benefits[0].PriceAdjustmentKey == "" {
 		t.Fatalf("benefits = %#v; want generated name %q", benefits, wantName)
 	}
 	subscription, err := service.Store.GetSubscription(ids[0])
@@ -636,6 +640,10 @@ func TestRecordCustomerBenefitsRollsBackDiscountBatchWhenOneHasScheduledPrice(t 
 	if err := service.Store.UpdateSubscriptionNextPrices([]model.Subscription{second}, "2026-08-15"); err != nil {
 		t.Fatal(err)
 	}
+	benefitsBefore, err := service.Store.ListCustomerBenefits()
+	if err != nil || len(benefitsBefore) != 1 || benefitsBefore[0].SubscriptionID != secondID {
+		t.Fatalf("automatically synchronized benefit = %#v, %v", benefitsBefore, err)
+	}
 
 	if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
 		SubscriptionIDs:   []int64{firstID, secondID},
@@ -647,8 +655,8 @@ func TestRecordCustomerBenefitsRollsBackDiscountBatchWhenOneHasScheduledPrice(t 
 		t.Fatal("RecordCustomerBenefits() succeeded with an existing next-price schedule")
 	}
 	benefits, err := service.Store.ListCustomerBenefits()
-	if err != nil || len(benefits) != 0 {
-		t.Fatalf("partial benefits committed: %#v, %v", benefits, err)
+	if err != nil || !reflect.DeepEqual(benefits, benefitsBefore) {
+		t.Fatalf("failed batch changed benefits: %#v, %v", benefits, err)
 	}
 	first, err := service.Store.GetSubscription(firstID)
 	if err != nil || first.NextPriceCents != nil {
@@ -897,9 +905,41 @@ func TestCustomerCareMergesMultiSeatIdentityAndStartsCooldown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(care.Candidates) != 1 || care.Candidates[0].Status != "cooldown" ||
+	if len(care.Candidates) != 1 || care.Candidates[0].Status != "cooldown" || care.Candidates[0].Selectable ||
 		care.Candidates[0].NextEligibleDate != "2026-11-13" {
 		t.Fatalf("care cooldown = %#v", care.Candidates)
+	}
+}
+
+func TestRecordCustomerBenefitsRejectsNewOperationKeyDuringCustomerCooldown(t *testing.T) {
+	service := openGoalTestService(t)
+	ids := createCustomerCareTestSubscriptions(t, service, "cooldown@example.com", "cooldown-wechat", 2)
+	service.Clock = func() time.Time {
+		return time.Date(2026, time.August, 20, 12, 0, 0, 0, cycle.Location)
+	}
+	if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+		SubscriptionIDs:          []int64{ids[0]},
+		BenefitType:              model.CustomerBenefitTypeExtension,
+		OperationKey:             "cooldown-first-operation",
+		ExtensionDays:            7,
+		BenefitDate:              "2026-08-20",
+		ExtensionReviewSnapshots: extensionReviewSnapshots(t, service, []int64{ids[0]}),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+		SubscriptionIDs:          []int64{ids[1]},
+		BenefitType:              model.CustomerBenefitTypeExtension,
+		OperationKey:             "cooldown-second-operation",
+		ExtensionDays:            7,
+		BenefitDate:              "2026-08-20",
+		ExtensionReviewSnapshots: extensionReviewSnapshots(t, service, []int64{ids[1]}),
+	}); !errors.Is(err, db.ErrCustomerBenefitAlreadyRecorded) {
+		t.Fatalf("second operation error = %v; want cooldown conflict", err)
+	}
+	benefits, err := service.Store.ListCustomerBenefits()
+	if err != nil || len(benefits) != 1 || benefits[0].SubscriptionID != ids[0] {
+		t.Fatalf("benefits after cooldown conflict = %#v, %v", benefits, err)
 	}
 }
 

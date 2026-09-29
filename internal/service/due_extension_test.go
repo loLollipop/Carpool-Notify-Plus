@@ -73,7 +73,7 @@ func TestExtensionEffectiveDueAcrossBillingConsumers(t *testing.T) {
 			price := int64(9000)
 			subscription.NextPriceCents = &price
 			subscription.NextPriceEffectiveDueDate = "2026-07-01"
-			if err := service.Store.UpdateSubscriptionNextPrices([]model.Subscription{subscription}); err != nil {
+			if err := service.Store.UpdateSubscriptionNextPrices([]model.Subscription{subscription}, "2026-03-01"); err != nil {
 				t.Fatal(err)
 			}
 			input := extensionInput(t, service, ids, now, 9, "test-effective-extension-0001")
@@ -94,6 +94,10 @@ func TestExtensionEffectiveDueAcrossBillingConsumers(t *testing.T) {
 			after, _ := service.Store.ListBills()
 			if !reflect.DeepEqual(before, after) {
 				t.Fatal("extension changed historical bills")
+			}
+			benefits, err := service.Store.ListCustomerBenefits()
+			if err != nil || len(benefits) != 2 || benefits[1].PriceEffectiveDueDate != "2026-07-10" {
+				t.Fatalf("shifted discount benefit = %#v, %v", benefits, err)
 			}
 			if _, err := service.RecordCustomerBenefits(input); err == nil {
 				t.Fatal("operation replay accepted")
@@ -195,8 +199,11 @@ func TestCumulativeExtensionReactivatesNotificationOnlyWhenPlannerRequestsIt(t *
 	if err != nil || logEntry.Status != model.NotificationStatusCanceled {
 		t.Fatalf("notification after first extension = %#v, %v", logEntry, err)
 	}
+	service.Clock = func() time.Time {
+		return time.Date(2026, time.September, 19, 12, 0, 0, 0, cycle.Location)
+	}
 	if _, err := service.RecordCustomerBenefits(extensionInput(
-		t, service, ids, "2026-06-20", 21, "test-notification-revalidate-later",
+		t, service, ids, "2026-09-19", 21, "test-notification-revalidate-later",
 	)); err != nil {
 		t.Fatal(err)
 	}
@@ -226,7 +233,14 @@ func TestExtensionCumulativePrepaymentAndRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 	for index := range 2 {
-		if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids[:1], "2026-06-20", 9, fmt.Sprintf("test-cumulative-operation-%d", index))); err != nil {
+		benefitDate := "2026-06-20"
+		if index == 1 {
+			benefitDate = "2026-09-19"
+			service.Clock = func() time.Time {
+				return time.Date(2026, time.September, 19, 12, 0, 0, 0, cycle.Location)
+			}
+		}
+		if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids[:1], benefitDate, 9, fmt.Sprintf("test-cumulative-operation-%d", index))); err != nil {
 			t.Fatal(err)
 		}
 	}

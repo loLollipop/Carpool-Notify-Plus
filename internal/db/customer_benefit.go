@@ -16,7 +16,9 @@ const customerBenefitSelectColumns = `
 	next_due_date_snapshot, customer_email_snapshot,
 	customer_wechat_snapshot, customer_tier_snapshot,
 	customer_group_size_snapshot, current_price_cents_snapshot,
-	renewal_count_snapshot, recommendation_code, note, created_at,
+	renewal_count_snapshot, price_before_cents, price_after_cents,
+	price_effective_due_date, price_adjustment_key,
+	recommendation_code, note, created_at,
 	COALESCE((SELECT extension_days FROM subscription_due_extensions WHERE customer_benefit_id = customer_benefits.id), 0),
 	(SELECT created_at FROM subscription_due_extensions WHERE customer_benefit_id = customer_benefits.id)`
 
@@ -110,15 +112,30 @@ func (store *Store) CreateCustomerBenefitsAndUpdateSubscriptionNextPrices(
 		return err
 	}
 	defer func() { _ = transaction.Rollback() }()
-	if err := createCustomerBenefitsWithTransaction(transaction, benefits); err != nil {
-		return err
-	}
 	scheduledSubscriptions, err := nextPricesAtFirstUnpaidDueWithTransaction(
 		transaction,
 		subscriptions,
 		effectiveAt,
 	)
 	if err != nil {
+		return err
+	}
+	for index := range benefits {
+		before := scheduledSubscriptions[index].PricePerPersonCents
+		after := *scheduledSubscriptions[index].NextPriceCents
+		effectiveDueDate := strings.TrimSpace(scheduledSubscriptions[index].NextPriceEffectiveDueDate)
+		benefits[index].PriceBeforeCents = before
+		benefits[index].PriceAfterCents = after
+		benefits[index].PriceEffectiveDueDate = effectiveDueDate
+		benefits[index].PriceAdjustmentKey = priceAdjustmentKey(
+			benefits[index].SubscriptionID,
+			effectiveDueDate,
+			before,
+			after,
+		)
+		benefits[index].NextDueDateSnapshot = effectiveDueDate
+	}
+	if err := createCustomerBenefitsWithTransaction(transaction, benefits); err != nil {
 		return err
 	}
 	if err := updateSubscriptionNextPricesWithTransaction(
@@ -204,6 +221,20 @@ func createCustomerBenefitsWithTransaction(
 		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
 		}
+		recentCustomerBenefit, queryErr := hasRecentCustomerBenefitWithTransaction(
+			transaction,
+			benefit.SubscriptionID,
+			benefit.CustomerEmailSnapshot,
+			benefit.CustomerWechatSnapshot,
+			cycle.FormatDate(createdAt.In(cycle.Location)),
+			benefit.BatchID,
+		)
+		if queryErr != nil {
+			return queryErr
+		}
+		if recentCustomerBenefit {
+			return ErrCustomerBenefitAlreadyRecorded
+		}
 		equivalentTypes := equivalentCustomerBenefitTypes(benefit.BenefitType)
 		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(equivalentTypes)), ",")
 		duplicateArgs := make([]any, 0, 3+len(equivalentTypes))
@@ -240,9 +271,11 @@ func createCustomerBenefitsWithTransaction(
 				next_due_date_snapshot, customer_email_snapshot,
 				customer_wechat_snapshot, customer_tier_snapshot,
 				customer_group_size_snapshot, current_price_cents_snapshot,
-				renewal_count_snapshot, recommendation_code, note, created_at
+				renewal_count_snapshot, price_before_cents, price_after_cents,
+				price_effective_due_date, price_adjustment_key,
+				recommendation_code, note, created_at
 			)
-			SELECT ?, subscription.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+			SELECT ?, subscription.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 			FROM subscriptions AS subscription
 			JOIN seats AS seat ON seat.id = subscription.seat_id
 			JOIN accounts AS account ON account.id = seat.account_id
@@ -272,6 +305,10 @@ func createCustomerBenefitsWithTransaction(
 			benefit.CustomerGroupSizeSnapshot,
 			benefit.CurrentPriceCentsSnapshot,
 			benefit.RenewalCountSnapshot,
+			benefit.PriceBeforeCents,
+			benefit.PriceAfterCents,
+			strings.TrimSpace(benefit.PriceEffectiveDueDate),
+			strings.TrimSpace(benefit.PriceAdjustmentKey),
 			benefit.RecommendationCode,
 			strings.TrimSpace(benefit.Note),
 			formatTime(createdAt.UTC()),
@@ -347,6 +384,10 @@ func scanCustomerBenefit(scanner scannable) (model.CustomerBenefit, error) {
 		&benefit.CustomerGroupSizeSnapshot,
 		&benefit.CurrentPriceCentsSnapshot,
 		&benefit.RenewalCountSnapshot,
+		&benefit.PriceBeforeCents,
+		&benefit.PriceAfterCents,
+		&benefit.PriceEffectiveDueDate,
+		&benefit.PriceAdjustmentKey,
 		&benefit.RecommendationCode,
 		&benefit.Note,
 		&createdAt,

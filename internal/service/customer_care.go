@@ -390,6 +390,13 @@ func buildCustomerBenefitCandidate(
 		candidate.ReasonCode = "service_in_progress"
 		return candidate
 	}
+	if candidate.NextEligibleDate != "" && candidate.NextEligibleDate > cycle.FormatDate(today) {
+		candidate.Selectable = false
+		candidate.Status = "cooldown"
+		candidate.ReasonCode = "benefit_cooldown"
+		candidate.RecommendedDate = candidate.NextEligibleDate
+		return candidate
+	}
 	if recoveringAfterSales && !hasAnyBenefitTypeAfter(
 		benefits,
 		latestRecoveryStart(group.Members),
@@ -410,12 +417,6 @@ func buildCustomerBenefitCandidate(
 		candidate.ReasonCode = "first_cycle_observe"
 		candidate.SuggestedBenefitType = model.CustomerBenefitTypeExtension
 		candidate.RecommendedDate = candidate.NextDueDate
-		return candidate
-	}
-	if candidate.NextEligibleDate != "" && candidate.NextEligibleDate > cycle.FormatDate(today) {
-		candidate.Status = "cooldown"
-		candidate.ReasonCode = "benefit_cooldown"
-		candidate.RecommendedDate = candidate.NextEligibleDate
 		return candidate
 	}
 	if increaseAccepted && !hasAnyBenefitTypeAfter(
@@ -1224,6 +1225,9 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	for _, subscriptionID := range subscriptionIDs {
 		candidate, exists := candidatesByID[subscriptionID]
 		if !exists || !candidate.Selectable {
+			if exists && candidate.Status == "cooldown" {
+				return 0, fmt.Errorf("所选客户仍在福利冷静期: %w", db.ErrCustomerBenefitAlreadyRecorded)
+			}
 			return 0, fmt.Errorf("所选客户状态已变化，请刷新后重试")
 		}
 		subscription, getErr := service.Store.GetSubscription(subscriptionID)
@@ -1231,11 +1235,15 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 			return 0, fmt.Errorf("所选客户状态已变化，请刷新后重试")
 		}
 		recordBenefitName := benefitName
+		priceBeforeCents := int64(0)
+		priceAfterCents := int64(0)
 		if schedulePriceDiscount {
 			if priceDiscountCents >= subscription.PricePerPersonCents {
 				return 0, fmt.Errorf("每期优惠金额必须小于每个所选订阅的当前价格")
 			}
 			nextPriceCents := subscription.PricePerPersonCents - priceDiscountCents
+			priceBeforeCents = subscription.PricePerPersonCents
+			priceAfterCents = nextPriceCents
 			updated := subscription
 			updated.NextPriceCents = &nextPriceCents
 			if configureErr := service.configureNextPrice(subscription, &updated, false); configureErr != nil {
@@ -1276,6 +1284,8 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 			CustomerGroupSizeSnapshot: candidate.SeatCount,
 			CurrentPriceCentsSnapshot: subscription.PricePerPersonCents,
 			RenewalCountSnapshot:      candidate.RenewalCount,
+			PriceBeforeCents:          priceBeforeCents,
+			PriceAfterCents:           priceAfterCents,
 			RecommendationCode:        candidate.ReasonCode,
 			Note:                      note,
 			CreatedAt:                 createdAt,
@@ -1297,7 +1307,7 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	if persistErr != nil {
 		switch {
 		case errors.Is(persistErr, db.ErrCustomerBenefitAlreadyRecorded):
-			return 0, fmt.Errorf("所选客户今天已登记过相同福利")
+			return 0, fmt.Errorf("所选客户近期已登记过福利: %w", db.ErrCustomerBenefitAlreadyRecorded)
 		case errors.Is(persistErr, sql.ErrNoRows), errors.Is(persistErr, db.ErrSubscriptionStateChanged):
 			return 0, fmt.Errorf("所选客户状态已变化，请刷新后重试: %w", db.ErrSubscriptionStateChanged)
 		default:

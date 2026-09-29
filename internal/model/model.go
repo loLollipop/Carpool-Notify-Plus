@@ -346,6 +346,10 @@ type CustomerBenefit struct {
 	CustomerGroupSizeSnapshot int        `json:"customer_group_size_snapshot"`
 	CurrentPriceCentsSnapshot int64      `json:"current_price_cents_snapshot"`
 	RenewalCountSnapshot      int        `json:"renewal_count_snapshot"`
+	PriceBeforeCents          int64      `json:"price_before_cents"`
+	PriceAfterCents           int64      `json:"price_after_cents"`
+	PriceEffectiveDueDate     string     `json:"price_effective_due_date"`
+	PriceAdjustmentKey        string     `json:"price_adjustment_key"`
 	RecommendationCode        string     `json:"recommendation_code"`
 	Note                      string     `json:"note"`
 	ExtensionDays             int        `json:"extension_days"`

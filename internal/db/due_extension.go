@@ -247,7 +247,8 @@ func applyDueExtension(
 	if err != nil {
 		return event, err
 	}
-	nextPriceDate := subscription.NextPriceEffectiveDueDate
+	previousNextPriceDate := subscription.NextPriceEffectiveDueDate
+	nextPriceDate := previousNextPriceDate
 	if subscription.NextPriceCents != nil && nextPriceDate != "" {
 		priceBase, err := schedule.BaseDueDate(nextPriceDate)
 		if err != nil {
@@ -277,6 +278,35 @@ func applyDueExtension(
 	if _, err := transaction.Exec(`UPDATE subscriptions SET next_price_effective_due_date = ?, updated_at = ? WHERE id = ?`,
 		nextPriceDate, nextWriteTime(subscription.UpdatedAt), subscription.ID); err != nil {
 		return event, err
+	}
+	if subscription.NextPriceCents != nil && *subscription.NextPriceCents < subscription.PricePerPersonCents &&
+		strings.TrimSpace(previousNextPriceDate) != strings.TrimSpace(nextPriceDate) {
+		linked, err := movePriceDiscountBenefitEffectiveDateWithTransaction(
+			transaction,
+			subscription.ID,
+			subscription.PricePerPersonCents,
+			*subscription.NextPriceCents,
+			previousNextPriceDate,
+			nextPriceDate,
+		)
+		if err != nil {
+			return event, err
+		}
+		if !linked {
+			if err := syncPriceDiscountBenefitWithTransaction(
+				transaction,
+				subscription.ID,
+				subscription.PricePerPersonCents,
+				*subscription.NextPriceCents,
+				nextPriceDate,
+				cycle.FormatDate(now.In(cycle.Location)),
+				now,
+				false,
+				"",
+			); err != nil {
+				return event, err
+			}
+		}
 	}
 	// Logs already delivered remain historical evidence. Pending/retry work for
 	// dates that disappeared is canceled atomically. A later base boundary can

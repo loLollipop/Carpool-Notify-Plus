@@ -2828,6 +2828,9 @@ func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInp
 		return 0, fmt.Errorf("没有可调价的 Team 用户")
 	}
 	if err := service.Store.UpdateSubscriptionNextPrices(updates, cycle.FormatDate(service.now())); err != nil {
+		if errors.Is(err, db.ErrCustomerBenefitAlreadyRecorded) {
+			return 0, fmt.Errorf("所选客户近期已发放福利，不能重复安排降价")
+		}
 		if errors.Is(err, db.ErrSubscriptionStateChanged) || err == sql.ErrNoRows {
 			return 0, fmt.Errorf("所选用户状态已变化，请刷新后重试")
 		}
@@ -2915,6 +2918,9 @@ func (service *SubscriptionService) ScheduleManualNextPrices(input ManualNextPri
 	}
 
 	if err := service.Store.UpdateSubscriptionNextPrices(updates, cycle.FormatDate(service.now())); err != nil {
+		if errors.Is(err, db.ErrCustomerBenefitAlreadyRecorded) {
+			return 0, fmt.Errorf("所选客户近期已发放福利，不能重复安排降价")
+		}
 		if errors.Is(err, db.ErrSubscriptionStateChanged) || err == sql.ErrNoRows {
 			return 0, fmt.Errorf("所选用户状态已变化，请刷新后重试")
 		}
