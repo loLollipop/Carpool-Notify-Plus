@@ -644,7 +644,8 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 }
 
 // accountDisplaySerial resolves an isolated account. Grouped display surfaces
-// use accountDisplaySerials so database ID gaps do not become visible gaps.
+// use accountDisplaySerials to collapse secondary spaces without collapsing
+// database ID gaps.
 // Only a numeric suffix wrapped in parentheses is treated as an override.
 func accountDisplaySerial(account model.Account) int64 {
 	serial, ok := accountRemarkSerial(account.Remark)
@@ -654,71 +655,46 @@ func accountDisplaySerial(account model.Account) int64 {
 	return serial
 }
 
-// accountDisplaySerials numbers logical owner accounts by the import order of
-// their first space. Later spaces inherit that number, while an explicit remark
-// suffix remains authoritative for the row that contains it.
+// accountDisplaySerials walks physical import order and removes only previously
+// encountered secondary spaces from fallback serials. A later space inherits
+// its first space's serial, while an explicit remark suffix remains authoritative
+// for the row that contains it.
 func accountDisplaySerials(accounts []model.Account) map[int64]int64 {
-	type displayIdentity struct {
-		groupKey       string
-		explicitSerial int64
-	}
-	type accountGroup struct {
-		key   string
-		first model.Account
-	}
+	ordered := append([]model.Account(nil), accounts...)
+	sort.Slice(ordered, func(left, right int) bool {
+		return ordered[left].ID < ordered[right].ID
+	})
 
-	identities := make(map[int64]displayIdentity, len(accounts))
-	firstByGroup := make(map[string]model.Account, len(accounts))
-	for _, account := range accounts {
-		serial, hasExplicitSerial := accountRemarkSerial(account.Remark)
+	serials := make(map[int64]int64, len(accounts))
+	groupSerials := make(map[string]int64, len(accounts))
+	var secondarySpaceCount int64
+	for _, account := range ordered {
 		groupEmail := accountGroupingEmail(account)
 		groupKey := strings.ToLower(strings.TrimSpace(groupEmail))
 		if groupKey == "" {
 			// Accounts without a usable owner email are independent logical
-			// accounts, but they still participate in the continuous fallback
-			// sequence.
+			// accounts, but still participate in physical import order.
 			groupKey = fmt.Sprintf("account-id:%d", account.ID)
 		}
-		identity := displayIdentity{groupKey: groupKey}
+
+		groupSerial, seen := groupSerials[groupKey]
+		explicitSerial, hasExplicitSerial := accountRemarkSerial(account.Remark)
+		if seen {
+			secondarySpaceCount++
+			if hasExplicitSerial {
+				serials[account.ID] = explicitSerial
+			} else {
+				serials[account.ID] = groupSerial
+			}
+			continue
+		}
+
+		groupSerial = account.ID - secondarySpaceCount
 		if hasExplicitSerial {
-			identity.explicitSerial = serial
+			groupSerial = explicitSerial
 		}
-		identities[account.ID] = identity
-		first, exists := firstByGroup[groupKey]
-		if !exists || account.ID < first.ID {
-			firstByGroup[groupKey] = account
-		}
-	}
-
-	groups := make([]accountGroup, 0, len(firstByGroup))
-	for key, first := range firstByGroup {
-		groups = append(groups, accountGroup{key: key, first: first})
-	}
-	sort.Slice(groups, func(left, right int) bool {
-		return groups[left].first.ID < groups[right].first.ID
-	})
-	groupSerials := make(map[string]int64, len(groups))
-	for index, group := range groups {
-		serial := int64(index + 1)
-		if explicitSerial, ok := accountRemarkSerial(group.first.Remark); ok {
-			serial = explicitSerial
-		}
-		groupSerials[group.key] = serial
-	}
-
-	serials := make(map[int64]int64, len(accounts))
-	for _, account := range accounts {
-		identity := identities[account.ID]
-		if identity.explicitSerial > 0 {
-			serials[account.ID] = identity.explicitSerial
-			continue
-		}
-		if serial, exists := groupSerials[identity.groupKey]; exists {
-			serials[account.ID] = serial
-			continue
-		}
-		// Defensive fallback for callers with an incomplete identity snapshot.
-		serials[account.ID] = accountDisplaySerial(account)
+		groupSerials[groupKey] = groupSerial
+		serials[account.ID] = groupSerial
 	}
 	return serials
 }

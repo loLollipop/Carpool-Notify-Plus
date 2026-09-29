@@ -72,7 +72,7 @@ func TestAccountDisplaySerialsGroupsByEffectiveEmail(t *testing.T) {
 				{ID: 57, Email: "cranium@example.com", Remark: "48"},
 				{ID: 48, Email: "cranium@example.com"},
 			},
-			want: map[int64]int64{48: 1, 57: 1},
+			want: map[int64]int64{48: 48, 57: 48},
 		},
 		{
 			name: "email grouping trims whitespace and ignores case",
@@ -80,7 +80,7 @@ func TestAccountDisplaySerialsGroupsByEffectiveEmail(t *testing.T) {
 				{ID: 22, Email: " OWNER@Example.com "},
 				{ID: 17, Email: "owner@example.COM"},
 			},
-			want: map[int64]int64{17: 1, 22: 1},
+			want: map[int64]int64{17: 17, 22: 17},
 		},
 		{
 			name: "explicit serial on current row wins over group serial",
@@ -88,7 +88,7 @@ func TestAccountDisplaySerialsGroupsByEffectiveEmail(t *testing.T) {
 				{ID: 4, Email: "owner@example.com"},
 				{ID: 9, Email: "owner@example.com", Remark: "manual source (88)"},
 			},
-			want: map[int64]int64{4: 1, 9: 88},
+			want: map[int64]int64{4: 4, 9: 88},
 		},
 		{
 			name: "later space inherits earliest explicit serial",
@@ -104,7 +104,7 @@ func TestAccountDisplaySerialsGroupsByEffectiveEmail(t *testing.T) {
 				{ID: 31, Name: "fallback@example.com"},
 				{ID: 35, Email: "fallback@example.com"},
 			},
-			want: map[int64]int64{31: 1, 35: 1},
+			want: map[int64]int64{31: 31, 35: 31},
 		},
 		{
 			name: "empty emails are not grouped",
@@ -112,7 +112,7 @@ func TestAccountDisplaySerialsGroupsByEffectiveEmail(t *testing.T) {
 				{ID: 41, Name: "first owner"},
 				{ID: 42, Name: "second owner"},
 			},
-			want: map[int64]int64{41: 1, 42: 2},
+			want: map[int64]int64{41: 41, 42: 42},
 		},
 	}
 
@@ -128,12 +128,22 @@ func TestAccountDisplaySerialsGroupsByEffectiveEmail(t *testing.T) {
 	}
 }
 
-func TestAccountDisplaySerialsUseContinuousLogicalAccountOrder(t *testing.T) {
-	accounts := make([]model.Account, 0, 59)
+func TestAccountDisplaySerialsMatchProductionImportOrder(t *testing.T) {
+	accounts := make([]model.Account, 0, 72)
 	for id := int64(1); id <= 56; id++ {
+		if id == 30 || id == 31 {
+			// Deleted database rows remain visible as gaps in fallback serials.
+			continue
+		}
 		accounts = append(accounts, model.Account{
 			ID:    id,
 			Email: fmt.Sprintf("owner-%d@example.com", id),
+		})
+	}
+	for id := int64(57); id <= 71; id++ {
+		accounts = append(accounts, model.Account{
+			ID:    id,
+			Email: fmt.Sprintf("owner-%d@example.com", id-56),
 		})
 	}
 	accounts = append(accounts,
@@ -141,10 +151,30 @@ func TestAccountDisplaySerialsUseContinuousLogicalAccountOrder(t *testing.T) {
 		model.Account{ID: 73, Email: "owner-57@example.com"},
 		model.Account{ID: 74, Email: "owner-58@example.com"},
 	)
+	for left, right := 0, len(accounts)-1; left < right; left, right = left+1, right-1 {
+		accounts[left], accounts[right] = accounts[right], accounts[left]
+	}
 
 	serials := accountDisplaySerials(accounts)
 	if serials[72] != 29 || serials[73] != 57 || serials[74] != 58 {
 		t.Fatalf("logical serials = 72:%d 73:%d 74:%d; want 29, 57, 58", serials[72], serials[73], serials[74])
+	}
+}
+
+func TestAccountDisplaySerialsOnlyFoldPriorSecondarySpaces(t *testing.T) {
+	accounts := []model.Account{
+		{ID: 8, Email: "third@example.com"},
+		{ID: 7, Email: "first@example.com"},
+		{ID: 5, Email: "second@example.com"},
+		{ID: 2, Email: "first@example.com"},
+	}
+
+	serials := accountDisplaySerials(accounts)
+	want := map[int64]int64{2: 2, 5: 5, 7: 2, 8: 7}
+	for accountID, wantSerial := range want {
+		if serials[accountID] != wantSerial {
+			t.Fatalf("serials[%d] = %d, want %d", accountID, serials[accountID], wantSerial)
+		}
 	}
 }
 
@@ -169,8 +199,8 @@ func TestAccountRemarkEmailOverridesDisplayAndGroupingIdentity(t *testing.T) {
 	if serials[15] != 47 {
 		t.Fatalf("remark identity group serial = %d, want 47", serials[15])
 	}
-	if serials[16] != 2 {
-		t.Fatalf("original login email should remain an independent logical account: got %d, want 2", serials[16])
+	if serials[16] != 15 {
+		t.Fatalf("original login email should remain an independent logical account: got %d, want 15", serials[16])
 	}
 	if serials[17] != 51 {
 		t.Fatalf("explicit serial remains valid for ambiguous email remark: got %d, want 51", serials[17])
