@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/mail"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -642,10 +643,9 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 	return options, nil
 }
 
-// accountDisplaySerial lets operators map imported owner accounts back to an
-// external numbered list. Only a numeric suffix wrapped in parentheses is
-// treated as an override; all other remarks fall back to the immutable import
-// order stored in the account ID.
+// accountDisplaySerial resolves an isolated account. Grouped display surfaces
+// use accountDisplaySerials so database ID gaps do not become visible gaps.
+// Only a numeric suffix wrapped in parentheses is treated as an override.
 func accountDisplaySerial(account model.Account) int64 {
 	serial, ok := accountRemarkSerial(account.Remark)
 	if !ok {
@@ -654,10 +654,17 @@ func accountDisplaySerial(account model.Account) int64 {
 	return serial
 }
 
+// accountDisplaySerials numbers logical owner accounts by the import order of
+// their first space. Later spaces inherit that number, while an explicit remark
+// suffix remains authoritative for the row that contains it.
 func accountDisplaySerials(accounts []model.Account) map[int64]int64 {
 	type displayIdentity struct {
 		groupKey       string
 		explicitSerial int64
+	}
+	type accountGroup struct {
+		key   string
+		first model.Account
 	}
 
 	identities := make(map[int64]displayIdentity, len(accounts))
@@ -666,18 +673,37 @@ func accountDisplaySerials(accounts []model.Account) map[int64]int64 {
 		serial, hasExplicitSerial := accountRemarkSerial(account.Remark)
 		groupEmail := accountGroupingEmail(account)
 		groupKey := strings.ToLower(strings.TrimSpace(groupEmail))
+		if groupKey == "" {
+			// Accounts without a usable owner email are independent logical
+			// accounts, but they still participate in the continuous fallback
+			// sequence.
+			groupKey = fmt.Sprintf("account-id:%d", account.ID)
+		}
 		identity := displayIdentity{groupKey: groupKey}
 		if hasExplicitSerial {
 			identity.explicitSerial = serial
 		}
 		identities[account.ID] = identity
-		if groupKey == "" {
-			continue
-		}
 		first, exists := firstByGroup[groupKey]
 		if !exists || account.ID < first.ID {
 			firstByGroup[groupKey] = account
 		}
+	}
+
+	groups := make([]accountGroup, 0, len(firstByGroup))
+	for key, first := range firstByGroup {
+		groups = append(groups, accountGroup{key: key, first: first})
+	}
+	sort.Slice(groups, func(left, right int) bool {
+		return groups[left].first.ID < groups[right].first.ID
+	})
+	groupSerials := make(map[string]int64, len(groups))
+	for index, group := range groups {
+		serial := int64(index + 1)
+		if explicitSerial, ok := accountRemarkSerial(group.first.Remark); ok {
+			serial = explicitSerial
+		}
+		groupSerials[group.key] = serial
 	}
 
 	serials := make(map[int64]int64, len(accounts))
@@ -687,11 +713,12 @@ func accountDisplaySerials(accounts []model.Account) map[int64]int64 {
 			serials[account.ID] = identity.explicitSerial
 			continue
 		}
-		if first, exists := firstByGroup[identity.groupKey]; identity.groupKey != "" && exists {
-			serials[account.ID] = accountDisplaySerial(first)
+		if serial, exists := groupSerials[identity.groupKey]; exists {
+			serials[account.ID] = serial
 			continue
 		}
-		serials[account.ID] = account.ID
+		// Defensive fallback for callers with an incomplete identity snapshot.
+		serials[account.ID] = accountDisplaySerial(account)
 	}
 	return serials
 }
