@@ -160,7 +160,12 @@ func nextPricesAtFirstUnpaidDueWithTransaction(
 		if err != nil {
 			return nil, err
 		}
-		candidate := schedule.NextDue(effectiveAt.In(cycle.Location))
+		// A benefit granted on a renewal date applies to that date while it is
+		// still unpaid. Starting just before today's boundary keeps NextDue's
+		// strict semantics while avoiding a one-cycle delay.
+		candidate := schedule.NextDue(
+			cycle.StartOfDay(effectiveAt.In(cycle.Location)).Add(-time.Nanosecond),
+		)
 		rows, err := transaction.Query(`
 			SELECT due_date
 			FROM bills
@@ -195,7 +200,11 @@ func nextPricesAtFirstUnpaidDueWithTransaction(
 				subscription.NextPriceEffectiveDueDate = cycle.FormatDate(candidate)
 				break
 			}
-			next := schedule.NextDue(candidate)
+			// Bills are unique per calendar date, so skip all cron occurrences on
+			// a paid day before looking for the next unpaid period.
+			next := schedule.NextDue(
+				cycle.StartOfDay(candidate).AddDate(0, 0, 1).Add(-time.Nanosecond),
+			)
 			if !next.After(candidate) {
 				return nil, fmt.Errorf(
 					"billing schedule did not advance after %s",

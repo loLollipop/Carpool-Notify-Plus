@@ -719,8 +719,8 @@ func TestPricingCandidatesAndBulkNextPriceAreMarketAwareAndAtomic(t *testing.T) 
 		if subscription.PricePerPersonCents != []int64{9000, 9200}[index] || subscription.NextPriceCents == nil || *subscription.NextPriceCents != 9700 {
 			t.Fatalf("scheduled subscription = %#v", subscription)
 		}
-		if subscription.NextPriceEffectiveDueDate != "2026-09-14" {
-			t.Fatalf("effective due date = %q, want 2026-09-14", subscription.NextPriceEffectiveDueDate)
+		if subscription.NextPriceEffectiveDueDate != "2026-08-15" {
+			t.Fatalf("effective due date = %q, want unpaid due-today period 2026-08-15", subscription.NextPriceEffectiveDueDate)
 		}
 	}
 
@@ -1170,7 +1170,7 @@ func TestAppliedManualPriceDecreaseAlsoStartsCooldownAndExpires(t *testing.T) {
 	}
 	if len(candidates) != 1 || candidates[0].BlockedCode != "cooldown" ||
 		candidates[0].Eligible || candidates[0].Recommended ||
-		candidates[0].LastPriceIncreaseDate != "" || candidates[0].NextReviewDate != "2027-03-13" {
+		candidates[0].LastPriceIncreaseDate != "" || candidates[0].NextReviewDate != "2027-02-11" {
 		t.Fatalf("decrease cooldown candidate = %#v", candidates)
 	}
 

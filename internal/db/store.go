@@ -2209,10 +2209,11 @@ func (store *Store) CorrectNextPriceEffectiveDueDate(
 	subscriptionID int64,
 	previousDueDate string,
 	correctedDueDate string,
+	expectedUpdatedAt time.Time,
 ) (bool, error) {
 	previousDueDate = strings.TrimSpace(previousDueDate)
 	correctedDueDate = strings.TrimSpace(correctedDueDate)
-	if subscriptionID <= 0 || correctedDueDate == "" {
+	if subscriptionID <= 0 || correctedDueDate == "" || expectedUpdatedAt.IsZero() {
 		return false, fmt.Errorf("invalid scheduled price correction")
 	}
 	transaction, err := store.database.Begin()
@@ -2221,8 +2222,9 @@ func (store *Store) CorrectNextPriceEffectiveDueDate(
 	}
 	defer func() { _ = transaction.Rollback() }()
 	var before, after int64
+	var storedUpdatedAt string
 	if err := transaction.QueryRow(`
-		SELECT price_per_person_cents, next_price_cents
+		SELECT price_per_person_cents, next_price_cents, updated_at
 		FROM subscriptions
 		WHERE id = ?
 		  AND deleted_at IS NULL
@@ -2231,11 +2233,14 @@ func (store *Store) CorrectNextPriceEffectiveDueDate(
 		  AND TRIM(COALESCE(next_price_effective_due_date, '')) = ?`,
 		subscriptionID,
 		previousDueDate,
-	).Scan(&before, &after); err != nil {
+	).Scan(&before, &after, &storedUpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return false, nil
 		}
 		return false, err
+	}
+	if !versionTimeMatches(storedUpdatedAt, expectedUpdatedAt) {
+		return false, nil
 	}
 	eventAt := time.Now()
 	result, err := transaction.Exec(`
@@ -2245,11 +2250,19 @@ func (store *Store) CorrectNextPriceEffectiveDueDate(
 		  AND deleted_at IS NULL
 		  AND archived_at IS NULL
 		  AND next_price_cents IS NOT NULL
-		  AND TRIM(COALESCE(next_price_effective_due_date, '')) = ?`,
+		  AND TRIM(COALESCE(next_price_effective_due_date, '')) = ?
+		  AND updated_at = ?
+		  AND NOT EXISTS (
+			SELECT 1 FROM bills
+			WHERE subscription_id = ? AND due_date = ?
+		  )`,
 		correctedDueDate,
-		formatTime(eventAt.UTC()),
+		nextWriteTime(expectedUpdatedAt),
 		subscriptionID,
 		previousDueDate,
+		storedUpdatedAt,
+		subscriptionID,
+		correctedDueDate,
 	)
 	if err != nil {
 		return false, err

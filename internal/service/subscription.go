@@ -560,7 +560,11 @@ func firstUnpaidDue(
 		if _, paid := paidDueDates[cycle.FormatDate(candidate)]; !paid {
 			return candidate, nil
 		}
-		next := schedule.NextDue(candidate)
+		// Bills are unique per calendar date, so one paid bill covers every cron
+		// occurrence on that date. Advance to the first occurrence on a later day.
+		next := schedule.NextDue(
+			cycle.StartOfDay(candidate).AddDate(0, 0, 1).Add(-time.Nanosecond),
+		)
 		if !next.After(candidate) {
 			return time.Time{}, fmt.Errorf("billing schedule did not advance after %s", cycle.FormatDate(candidate))
 		}
@@ -1136,11 +1140,22 @@ func (service *SubscriptionService) configureNextPrice(
 			if err != nil {
 				return err
 			}
-			subscription.NextPriceEffectiveDueDate = cycle.FormatDate(schedule.NextDue(firstDue))
+			// The initial bill covers its whole calendar date, including schedules
+			// with more than one cron occurrence that day.
+			firstRenewalDue := schedule.NextDue(
+				cycle.StartOfDay(firstDue).AddDate(0, 0, 1).Add(-time.Nanosecond),
+			)
+			firstDueTodayOrLater := schedule.NextDue(
+				cycle.StartOfDay(service.now().In(cycle.Location)).Add(-time.Nanosecond),
+			)
+			if firstRenewalDue.Before(firstDueTodayOrLater) {
+				firstRenewalDue = firstDueTodayOrLater
+			}
+			subscription.NextPriceEffectiveDueDate = cycle.FormatDate(firstRenewalDue)
 			return nil
 		}
 	}
-	effectiveDueDate, err := nextPriceEffectiveDueDate(*subscription, service.now())
+	effectiveDueDate, err := service.nextPriceEffectiveDueDate(*subscription, service.now())
 	if err != nil {
 		return err
 	}
@@ -1151,14 +1166,35 @@ func (service *SubscriptionService) configureNextPrice(
 	return nil
 }
 
-func nextPriceEffectiveDueDate(subscription model.Subscription, now time.Time) (string, error) {
+func (service *SubscriptionService) nextPriceEffectiveDueDate(
+	subscription model.Subscription,
+	now time.Time,
+) (string, error) {
 	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return "", err
 	}
-	// A price change must never rewrite an overdue or already-started period.
-	// NextDue is strictly after now, which is the next billing boundary.
-	return cycle.FormatDate(schedule.NextDue(now)), nil
+	paidDueDates, err := service.Store.ListPaidDueDatesForSubscription(subscription.ID)
+	if err != nil {
+		return "", err
+	}
+	paidDueSet := make(map[string]struct{}, len(paidDueDates))
+	for _, dueDate := range paidDueDates {
+		paidDueSet[strings.TrimSpace(dueDate)] = struct{}{}
+	}
+	// NextDue is strict, so start immediately before today's date boundary.
+	// That includes a renewal due today without making a newly scheduled price
+	// retroactive to an older unpaid gap.
+	firstDueTodayOrLater := schedule.NextDue(
+		cycle.StartOfDay(now.In(cycle.Location)).Add(-time.Nanosecond),
+	)
+	due, err := firstUnpaidDue(schedule, firstDueTodayOrLater, paidDueSet)
+	if err != nil {
+		return "", err
+	}
+	// The renewal due today is still the next renewal while it remains unpaid;
+	// every prepaid period is skipped without changing historical bills.
+	return cycle.FormatDate(due), nil
 }
 
 // NormalizeScheduledNextPriceEffectiveDates repairs records created by older
@@ -1176,7 +1212,7 @@ func (service *SubscriptionService) NormalizeScheduledNextPriceEffectiveDates() 
 		if subscription.NextPriceCents == nil {
 			continue
 		}
-		immediateDueDate, dueErr := nextPriceEffectiveDueDate(subscription, service.now())
+		immediateDueDate, dueErr := service.nextPriceEffectiveDueDate(subscription, service.now())
 		if dueErr != nil {
 			return repaired, fmt.Errorf("订阅 %d 无法校正下期价格生效日: %w", subscription.ID, dueErr)
 		}
@@ -1190,10 +1226,7 @@ func (service *SubscriptionService) NormalizeScheduledNextPriceEffectiveDates() 
 		if storedDueDate != "" && storedDueDate < immediateDueDate {
 			continue
 		}
-		intendedDueDate, unpaidErr := service.firstFutureUnpaidDueDate(subscription)
-		if unpaidErr != nil {
-			return repaired, fmt.Errorf("订阅 %d 无法校正下期价格生效日: %w", subscription.ID, unpaidErr)
-		}
+		intendedDueDate := immediateDueDate
 		if intendedDueDate == "" || storedDueDate == intendedDueDate {
 			continue
 		}
@@ -1201,6 +1234,7 @@ func (service *SubscriptionService) NormalizeScheduledNextPriceEffectiveDates() 
 			subscription.ID,
 			storedDueDate,
 			intendedDueDate,
+			subscription.UpdatedAt,
 		)
 		if updateErr != nil {
 			return repaired, updateErr
@@ -1210,28 +1244,6 @@ func (service *SubscriptionService) NormalizeScheduledNextPriceEffectiveDates() 
 		}
 	}
 	return repaired, nil
-}
-
-func (service *SubscriptionService) firstFutureUnpaidDueDate(
-	subscription model.Subscription,
-) (string, error) {
-	schedule, err := subscription.BillingSchedule()
-	if err != nil {
-		return "", err
-	}
-	paidDueDates, err := service.Store.ListPaidDueDatesForSubscription(subscription.ID)
-	if err != nil {
-		return "", err
-	}
-	paidDueSet := make(map[string]struct{}, len(paidDueDates))
-	for _, dueDate := range paidDueDates {
-		paidDueSet[strings.TrimSpace(dueDate)] = struct{}{}
-	}
-	firstUnpaid, err := firstUnpaidDue(schedule, schedule.NextDue(service.now()), paidDueSet)
-	if err != nil {
-		return "", err
-	}
-	return cycle.FormatDate(firstUnpaid), nil
 }
 
 func currentPeriodBillDueDate(subscription model.Subscription, now time.Time) (string, error) {

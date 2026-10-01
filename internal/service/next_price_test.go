@@ -178,6 +178,267 @@ func TestScheduledNextPriceProtectsCurrentPeriodAndAppliesOnRenewal(t *testing.T
 	}
 }
 
+func TestScheduledNextPriceAppliesToDueTodayWhenUnpaid(t *testing.T) {
+	subscriptionService := openTestService(t)
+	clock := time.Date(2026, time.September, 1, 9, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return clock }
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "到期当天调价账号", "车位1")
+	input := service.CreateInput{
+		Name:             "到期当天调价用户",
+		PriceYuan:        "105.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "due-today@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-09-01",
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clock = time.Date(2026, time.October, 1, 19, 0, 0, 0, cycle.Location)
+	input.NextPriceYuan = "100.00"
+	if err := subscriptionService.Update(
+		subscriptionID,
+		withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input),
+	); err != nil {
+		t.Fatal(err)
+	}
+	scheduled, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scheduled.NextPriceEffectiveDueDate != "2026-10-01" {
+		t.Fatalf("effective due date = %q, want due-today unpaid period 2026-10-01", scheduled.NextPriceEffectiveDueDate)
+	}
+
+	periods, err := subscriptionService.ListDuePeriodOptions(subscriptionID, "2026-10-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var dueToday *service.DuePeriodOption
+	for index := range periods {
+		if periods[index].StartDate == "2026-10-01" {
+			dueToday = &periods[index]
+			break
+		}
+	}
+	if dueToday == nil || dueToday.PriceYuan != "100.00" || !dueToday.PriceChangeApplies {
+		t.Fatalf("due-today period did not use scheduled price: %#v", periods)
+	}
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-10-01", true); err != nil {
+		t.Fatal(err)
+	}
+	bill, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-10-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bill.AmountCents != 10000 {
+		t.Fatalf("due-today bill amount = %d, want 10000", bill.AmountCents)
+	}
+}
+
+func TestScheduledNextPriceSkipsDueTodayWhenAlreadyPaid(t *testing.T) {
+	subscriptionService := openTestService(t)
+	clock := time.Date(2026, time.September, 1, 9, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return clock }
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "当天已交费调价账号", "车位1")
+	input := service.CreateInput{
+		Name:             "当天已交费调价用户",
+		PriceYuan:        "105.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "paid-due-today@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-09-01",
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clock = time.Date(2026, time.October, 1, 19, 0, 0, 0, cycle.Location)
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-10-01", true); err != nil {
+		t.Fatal(err)
+	}
+	input.NextPriceYuan = "100.00"
+	if err := subscriptionService.Update(
+		subscriptionID,
+		withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input),
+	); err != nil {
+		t.Fatal(err)
+	}
+	scheduled, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scheduled.NextPriceEffectiveDueDate != "2026-10-31" {
+		t.Fatalf("effective due date = %q, want next unpaid period 2026-10-31", scheduled.NextPriceEffectiveDueDate)
+	}
+	bill, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-10-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bill.AmountCents != 10500 {
+		t.Fatalf("paid due-today bill changed to %d, want historical 10500", bill.AmountCents)
+	}
+}
+
+func TestScheduledNextPriceWithScheduleChangeDoesNotApplyRetroactively(t *testing.T) {
+	subscriptionService := openTestService(t)
+	clock := time.Date(2026, time.July, 1, 9, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return clock }
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "同时改账期调价账号", "车位1")
+	input := service.CreateInput{
+		Name:             "同时改账期调价用户",
+		PriceYuan:        "105.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "schedule-change-price@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-07-01",
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clock = time.Date(2026, time.October, 1, 19, 0, 0, 0, cycle.Location)
+	input.BoardedAt = "2026-07-02"
+	input.NextPriceYuan = "100.00"
+	if err := subscriptionService.Update(
+		subscriptionID,
+		withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input),
+	); err != nil {
+		t.Fatal(err)
+	}
+	scheduled, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scheduled.NextPriceEffectiveDueDate != "2026-10-30" {
+		t.Fatalf("effective due date = %q, want first renewal on or after today 2026-10-30", scheduled.NextPriceEffectiveDueDate)
+	}
+	initialBill, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-07-02")
+	if err != nil || initialBill.AmountCents != 10500 {
+		t.Fatalf("moved historical initial bill = %#v, %v; want original amount 10500", initialBill, err)
+	}
+}
+
+func TestScheduledNextPriceSkipsAllOccurrencesOnPaidDay(t *testing.T) {
+	subscriptionService := openTestService(t)
+	clock := time.Date(2026, time.September, 1, 8, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return clock }
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "同日多次账期账号", "车位1")
+	input := service.CreateInput{
+		Name:             "同日多次账期用户",
+		PriceYuan:        "105.00",
+		CronExpr:         "0 9,18 * * *",
+		NotifyOffsetsRaw: "0",
+		CustomerEmail:    "same-day-occurrences@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-09-01",
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clock = time.Date(2026, time.September, 1, 19, 0, 0, 0, cycle.Location)
+	input.NextPriceYuan = "100.00"
+	if err := subscriptionService.Update(
+		subscriptionID,
+		withCurrentSubscriptionVersion(t, subscriptionService, subscriptionID, input),
+	); err != nil {
+		t.Fatal(err)
+	}
+	scheduled, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scheduled.NextPriceEffectiveDueDate != "2026-09-02" {
+		t.Fatalf("effective due date = %q, want next unpaid calendar day 2026-09-02", scheduled.NextPriceEffectiveDueDate)
+	}
+}
+
+func TestNormalizeScheduledNextPriceRepairsDueTodayAndRejectsStaleCorrection(t *testing.T) {
+	subscriptionService := openTestService(t)
+	clock := time.Date(2026, time.September, 1, 9, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return clock }
+	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "启动校正到期日账号", "车位1")
+	input := service.CreateInput{
+		Name:             "启动校正到期日用户",
+		PriceYuan:        "105.00",
+		CronExpr:         "interval:30d",
+		NotifyOffsetsRaw: "3",
+		CustomerEmail:    "normalize-due-today@example.com",
+		SeatID:           seatIDs[0],
+		BoardedAt:        "2026-09-01",
+	}
+	subscriptionID, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	clock = time.Date(2026, time.October, 1, 19, 0, 0, 0, cycle.Location)
+	subscription, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextPrice := int64(10000)
+	subscription.NextPriceCents = &nextPrice
+	subscription.NextPriceEffectiveDueDate = "2026-10-31"
+	if err := subscriptionService.Store.UpdateSubscription(subscription); err != nil {
+		t.Fatal(err)
+	}
+
+	repaired, err := subscriptionService.NormalizeScheduledNextPriceEffectiveDates()
+	if err != nil || repaired != 1 {
+		t.Fatalf("NormalizeScheduledNextPriceEffectiveDates() = %d, %v; want 1, nil", repaired, err)
+	}
+	corrected, err := subscriptionService.Get(subscriptionID)
+	if err != nil || corrected.NextPriceEffectiveDueDate != "2026-10-01" {
+		t.Fatalf("corrected due-today schedule = %#v, %v", corrected, err)
+	}
+
+	// Simulate the payment winning a race after a normalizer read. Both the
+	// optimistic version and paid-period guard must reject the stale correction.
+	corrected.NextPriceEffectiveDueDate = "2026-10-31"
+	if err := subscriptionService.Store.UpdateSubscription(corrected); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-10-01", true); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := subscriptionService.Store.CorrectNextPriceEffectiveDueDate(
+		subscriptionID,
+		"2026-10-31",
+		"2026-10-01",
+		stale.UpdatedAt,
+	)
+	if err != nil || updated {
+		t.Fatalf("stale correction = %v, %v; want false, nil", updated, err)
+	}
+	fresh, err := subscriptionService.Get(subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err = subscriptionService.Store.CorrectNextPriceEffectiveDueDate(
+		subscriptionID,
+		"2026-10-31",
+		"2026-10-01",
+		fresh.UpdatedAt,
+	)
+	if err != nil || updated {
+		t.Fatalf("paid-period correction = %v, %v; want false, nil", updated, err)
+	}
+}
+
 func TestManualReminderTargetsScheduledPricePeriod(t *testing.T) {
 	subscriptionService := openTestService(t)
 	subscriptionService.Clock = func() time.Time {

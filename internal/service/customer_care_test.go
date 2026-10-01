@@ -401,6 +401,41 @@ func TestRecordCustomerBenefitsSchedulesPriceDiscountForNextCycle(t *testing.T) 
 	}
 }
 
+func TestRecordCustomerBenefitsPriceDiscountAppliesWhenDueTodayAndUnpaid(t *testing.T) {
+	service := openGoalTestService(t)
+	service.Clock = func() time.Time {
+		return time.Date(2026, time.August, 30, 19, 0, 0, 0, cycle.Location)
+	}
+	ids := createCustomerCareTestSubscriptions(t, service, "discount-due-today@example.com", "", 1)
+
+	recorded, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+		SubscriptionIDs:   ids,
+		BenefitType:       model.CustomerBenefitTypePriceDiscount,
+		OperationKey:      "test-discount-due-today",
+		PriceDiscountYuan: "10.00",
+		BenefitDate:       "2026-08-30",
+	})
+	if err != nil || recorded != 1 {
+		t.Fatalf("RecordCustomerBenefits() = %d, %v; want 1, nil", recorded, err)
+	}
+
+	subscription, err := service.Store.GetSubscription(ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if subscription.NextPriceCents == nil || *subscription.NextPriceCents != 9000 ||
+		subscription.NextPriceEffectiveDueDate != "2026-08-30" {
+		t.Fatalf("subscription after due-today discount = %#v", subscription)
+	}
+	if err := service.SetDuePaid(ids[0], "2026-08-30", true); err != nil {
+		t.Fatal(err)
+	}
+	bill, err := service.Store.GetBillByOccurrence(ids[0], "2026-08-30")
+	if err != nil || bill.AmountCents != 9000 {
+		t.Fatalf("due-today discounted bill = %#v, %v; want amount 9000", bill, err)
+	}
+}
+
 func TestRecordCustomerBenefitsPriceDiscountSkipsPrepaidCycles(t *testing.T) {
 	service := openGoalTestService(t)
 	subscriptionID := createCustomerCareTestSubscriptions(
