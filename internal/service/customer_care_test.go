@@ -1,7 +1,6 @@
 package service
 
 import (
-	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -9,7 +8,6 @@ import (
 	"time"
 
 	"carpool-notify/internal/cycle"
-	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 )
 
@@ -879,7 +877,7 @@ func TestCustomerBenefitRecommendationDeduplicatesLegacyAndCurrentTypes(t *testi
 	}
 }
 
-func TestCustomerCareMergesMultiSeatIdentityAndStartsCooldown(t *testing.T) {
+func TestCustomerCareMergesMultiSeatIdentityAndKeepsCooldownAdvisory(t *testing.T) {
 	service := openGoalTestService(t)
 	ids := createCustomerCareTestSubscriptions(t, service, "multi@example.com", "same-wechat", 2)
 	for _, subscriptionID := range ids {
@@ -940,13 +938,14 @@ func TestCustomerCareMergesMultiSeatIdentityAndStartsCooldown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(care.Candidates) != 1 || care.Candidates[0].Status != "cooldown" || care.Candidates[0].Selectable ||
+	if len(care.Candidates) != 1 || care.Candidates[0].Status != "cooldown" || !care.Candidates[0].Selectable ||
+		care.Candidates[0].Recommended ||
 		care.Candidates[0].NextEligibleDate != "2026-11-13" {
 		t.Fatalf("care cooldown = %#v", care.Candidates)
 	}
 }
 
-func TestRecordCustomerBenefitsRejectsNewOperationKeyDuringCustomerCooldown(t *testing.T) {
+func TestRecordCustomerBenefitsAllowsNewOperationKeyDuringCustomerCooldown(t *testing.T) {
 	service := openGoalTestService(t)
 	ids := createCustomerCareTestSubscriptions(t, service, "cooldown@example.com", "cooldown-wechat", 2)
 	service.Clock = func() time.Time {
@@ -969,12 +968,16 @@ func TestRecordCustomerBenefitsRejectsNewOperationKeyDuringCustomerCooldown(t *t
 		ExtensionDays:            7,
 		BenefitDate:              "2026-08-20",
 		ExtensionReviewSnapshots: extensionReviewSnapshots(t, service, []int64{ids[1]}),
-	}); !errors.Is(err, db.ErrCustomerBenefitAlreadyRecorded) {
-		t.Fatalf("second operation error = %v; want cooldown conflict", err)
+	}); err != nil {
+		t.Fatalf("second distinct operation was blocked: %v", err)
 	}
 	benefits, err := service.Store.ListCustomerBenefits()
-	if err != nil || len(benefits) != 1 || benefits[0].SubscriptionID != ids[0] {
-		t.Fatalf("benefits after cooldown conflict = %#v, %v", benefits, err)
+	if err != nil || len(benefits) != 2 {
+		t.Fatalf("benefits after separate deliveries = %#v, %v", benefits, err)
+	}
+	events, err := service.Store.ListSubscriptionDueExtensions()
+	if err != nil || len(events) != 2 {
+		t.Fatalf("extension events after separate deliveries = %#v, %v", events, err)
 	}
 }
 

@@ -2829,7 +2829,7 @@ func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInp
 	}
 	if err := service.Store.UpdateSubscriptionNextPrices(updates, cycle.FormatDate(service.now())); err != nil {
 		if errors.Is(err, db.ErrCustomerBenefitAlreadyRecorded) {
-			return 0, fmt.Errorf("所选客户近期已发放福利，不能重复安排降价")
+			return 0, fmt.Errorf("这份降价福利已登记，请勿重复提交")
 		}
 		if errors.Is(err, db.ErrSubscriptionStateChanged) || err == sql.ErrNoRows {
 			return 0, fmt.Errorf("所选用户状态已变化，请刷新后重试")
@@ -2919,7 +2919,7 @@ func (service *SubscriptionService) ScheduleManualNextPrices(input ManualNextPri
 
 	if err := service.Store.UpdateSubscriptionNextPrices(updates, cycle.FormatDate(service.now())); err != nil {
 		if errors.Is(err, db.ErrCustomerBenefitAlreadyRecorded) {
-			return 0, fmt.Errorf("所选客户近期已发放福利，不能重复安排降价")
+			return 0, fmt.Errorf("这份降价福利已登记，请勿重复提交")
 		}
 		if errors.Is(err, db.ErrSubscriptionStateChanged) || err == sql.ErrNoRows {
 			return 0, fmt.Errorf("所选用户状态已变化，请刷新后重试")

@@ -350,84 +350,6 @@ func normalizeBenefitIdentity(value string) string {
 	}
 }
 
-func hasRecentCustomerBenefitWithTransaction(
-	transaction *sql.Tx,
-	subscriptionID int64,
-	customerEmail string,
-	customerWechat string,
-	referenceDate string,
-	excludedBatchID string,
-) (bool, error) {
-	emailIdentity := normalizeBenefitIdentity(customerEmail)
-	wechatIdentity := normalizeBenefitIdentity(customerWechat)
-	var exists bool
-	err := transaction.QueryRow(`
-		WITH RECURSIVE connected(kind, value) AS (
-			SELECT 'subscription', CAST(? AS TEXT)
-			UNION
-			SELECT 'email', ? WHERE ? <> ''
-			UNION
-			SELECT 'wechat', ? WHERE ? <> ''
-			UNION
-			SELECT 'email', LOWER(TRIM(COALESCE(subscription.customer_email, '')))
-			FROM subscriptions AS subscription
-			JOIN connected AS identity
-			  ON identity.kind = 'subscription'
-			 AND subscription.id = CAST(identity.value AS INTEGER)
-			WHERE LOWER(TRIM(COALESCE(subscription.customer_email, ''))) NOT IN
-			      ('', '-', '--', '无', '暂无', '未知', '未填写', 'none', 'null', 'n/a')
-			UNION
-			SELECT 'wechat', LOWER(TRIM(COALESCE(subscription.customer_wechat, '')))
-			FROM subscriptions AS subscription
-			JOIN connected AS identity
-			  ON identity.kind = 'subscription'
-			 AND subscription.id = CAST(identity.value AS INTEGER)
-			WHERE LOWER(TRIM(COALESCE(subscription.customer_wechat, ''))) NOT IN
-			      ('', '-', '--', '无', '暂无', '未知', '未填写', 'none', 'null', 'n/a')
-			UNION
-			SELECT 'subscription', CAST(subscription.id AS TEXT)
-			FROM subscriptions AS subscription
-			JOIN connected AS identity
-			  ON (identity.kind = 'email'
-			      AND LOWER(TRIM(COALESCE(subscription.customer_email, ''))) = identity.value)
-			  OR (identity.kind = 'wechat'
-			      AND LOWER(TRIM(COALESCE(subscription.customer_wechat, ''))) = identity.value)
-			WHERE subscription.deleted_at IS NULL
-			  AND subscription.archived_at IS NULL
-			  AND COALESCE(NULLIF(LOWER(TRIM(subscription.business_type)), ''), 'team') = 'team'
-			  AND COALESCE(subscription.is_resale, 0) = 0
-		), connected_subscriptions AS (
-			SELECT CAST(value AS INTEGER) AS subscription_id
-			FROM connected
-			WHERE kind = 'subscription'
-		), connected_emails AS (
-			SELECT value FROM connected WHERE kind = 'email' AND value <> ''
-		), connected_wechats AS (
-			SELECT value FROM connected WHERE kind = 'wechat' AND value <> ''
-		)
-		SELECT EXISTS (
-			SELECT 1
-			FROM customer_benefits AS benefit
-			WHERE date(benefit.benefit_date) > date(?, '-90 days')
-			  AND (? = '' OR benefit.batch_id <> ?)
-			  AND (
-				benefit.subscription_id IN (SELECT subscription_id FROM connected_subscriptions)
-				OR LOWER(TRIM(benefit.customer_email_snapshot)) IN (SELECT value FROM connected_emails)
-				OR LOWER(TRIM(benefit.customer_wechat_snapshot)) IN (SELECT value FROM connected_wechats)
-			  )
-		)`,
-		subscriptionID,
-		emailIdentity,
-		emailIdentity,
-		wechatIdentity,
-		wechatIdentity,
-		strings.TrimSpace(referenceDate),
-		strings.TrimSpace(excludedBatchID),
-		strings.TrimSpace(excludedBatchID),
-	).Scan(&exists)
-	return exists, err
-}
-
 func syncPriceDiscountBenefitWithTransaction(
 	transaction *sql.Tx,
 	subscriptionID int64,
@@ -436,7 +358,6 @@ func syncPriceDiscountBenefitWithTransaction(
 	effectiveDueDate string,
 	benefitDate string,
 	occurredAt time.Time,
-	enforceCooldown bool,
 	operationBatchID string,
 ) error {
 	effectiveDueDate = strings.TrimSpace(effectiveDueDate)
@@ -480,22 +401,6 @@ func syncPriceDiscountBenefitWithTransaction(
 		occurredAt = time.Now()
 	}
 	benefitDate = normalizedBenefitDate(benefitDate, occurredAt)
-	if enforceCooldown {
-		recent, err := hasRecentCustomerBenefitWithTransaction(
-			transaction,
-			subscriptionID,
-			customerEmail,
-			customerWechat,
-			benefitDate,
-			operationBatchID,
-		)
-		if err != nil {
-			return err
-		}
-		if recent {
-			return ErrCustomerBenefitAlreadyRecorded
-		}
-	}
 
 	name := priceDiscountBenefitName(before, after)
 	result, err := transaction.Exec(`
@@ -730,7 +635,6 @@ func (store *Store) backfillPriceDiscountBenefits() error {
 			candidate.effectiveDueDate,
 			cycle.FormatDate(candidate.occurredAt.In(cycle.Location)),
 			candidate.occurredAt,
-			false,
 			"",
 		); err != nil {
 			return fmt.Errorf("backfill price discount benefit: %w", err)
@@ -805,7 +709,6 @@ func (store *Store) SyncHistoricalPriceDiscountBenefit(
 		effectiveDueDate,
 		cycle.FormatDate(createdAt.In(cycle.Location)),
 		createdAt,
-		false,
 		"",
 	); err != nil {
 		return false, err

@@ -301,7 +301,6 @@ func applyDueExtension(
 				nextPriceDate,
 				cycle.FormatDate(now.In(cycle.Location)),
 				now,
-				false,
 				"",
 			); err != nil {
 				return event, err

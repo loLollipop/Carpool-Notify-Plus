@@ -2192,7 +2192,6 @@ func updateSubscriptionNextPricesWithTransaction(
 				strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
 				today,
 				operationAt,
-				true,
 				priceBenefitBatchID,
 			); err != nil {
 				return err
@@ -2295,7 +2294,6 @@ func (store *Store) CorrectNextPriceEffectiveDueDate(
 				correctedDueDate,
 				cycle.FormatDate(eventAt.In(cycle.Location)),
 				eventAt,
-				false,
 				"",
 			); err != nil {
 				return false, err
@@ -2608,7 +2606,6 @@ func updateSubscriptionWithExecutor(
 				strings.TrimSpace(subscription.NextPriceEffectiveDueDate),
 				cycle.FormatDate(eventAt.In(cycle.Location)),
 				eventAt,
-				true,
 				fmt.Sprintf("price-adjustment-operation-v1:%d", eventAt.UnixNano()),
 			); err != nil {
 				return err

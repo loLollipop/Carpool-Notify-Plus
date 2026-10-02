@@ -391,7 +391,8 @@ func buildCustomerBenefitCandidate(
 		return candidate
 	}
 	if candidate.NextEligibleDate != "" && candidate.NextEligibleDate > cycle.FormatDate(today) {
-		candidate.Selectable = false
+		// The cooldown controls recommendations, not an operator's decision to
+		// give another benefit. Distinct deliveries are guarded by operation keys.
 		candidate.Status = "cooldown"
 		candidate.ReasonCode = "benefit_cooldown"
 		candidate.RecommendedDate = candidate.NextEligibleDate
@@ -1225,9 +1226,6 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	for _, subscriptionID := range subscriptionIDs {
 		candidate, exists := candidatesByID[subscriptionID]
 		if !exists || !candidate.Selectable {
-			if exists && candidate.Status == "cooldown" {
-				return 0, fmt.Errorf("所选客户仍在福利冷静期: %w", db.ErrCustomerBenefitAlreadyRecorded)
-			}
 			return 0, fmt.Errorf("所选客户状态已变化，请刷新后重试")
 		}
 		subscription, getErr := service.Store.GetSubscription(subscriptionID)
@@ -1307,7 +1305,7 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	if persistErr != nil {
 		switch {
 		case errors.Is(persistErr, db.ErrCustomerBenefitAlreadyRecorded):
-			return 0, fmt.Errorf("所选客户近期已登记过福利: %w", db.ErrCustomerBenefitAlreadyRecorded)
+			return 0, fmt.Errorf("这份福利已登记，请勿重复提交: %w", db.ErrCustomerBenefitAlreadyRecorded)
 		case errors.Is(persistErr, sql.ErrNoRows), errors.Is(persistErr, db.ErrSubscriptionStateChanged):
 			return 0, fmt.Errorf("所选客户状态已变化，请刷新后重试: %w", db.ErrSubscriptionStateChanged)
 		default:

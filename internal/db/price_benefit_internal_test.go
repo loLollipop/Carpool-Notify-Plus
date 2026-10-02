@@ -1,7 +1,6 @@
 package db
 
 import (
-	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -330,7 +329,7 @@ func TestPendingDiscountCorrectionIgnoresSiblingBenefitCooldown(t *testing.T) {
 	}
 }
 
-func TestNextPriceDiscountRejectsRecentCustomerBenefit(t *testing.T) {
+func TestNextPriceDiscountAllowsRecentCustomerBenefit(t *testing.T) {
 	store, accountID := newPriceBenefitTestStore(t)
 	subscription := createPriceBenefitTestSubscription(t, store, accountID, "cooldown", "cooldown@example.com", 10000)
 	today := cycle.FormatDate(time.Now().In(cycle.Location))
@@ -349,20 +348,20 @@ func TestNextPriceDiscountRejectsRecentCustomerBenefit(t *testing.T) {
 	nextPrice := int64(9000)
 	subscription.NextPriceCents = &nextPrice
 	subscription.NextPriceEffectiveDueDate = "2026-10-01"
-	if err := store.UpdateSubscriptionNextPrices([]model.Subscription{subscription}, today); !errors.Is(err, ErrCustomerBenefitAlreadyRecorded) {
-		t.Fatalf("discount during cooldown error = %v", err)
+	if err := store.UpdateSubscriptionNextPrices([]model.Subscription{subscription}, today); err != nil {
+		t.Fatalf("discount after recent extension error = %v", err)
 	}
 	stored, err := store.GetSubscription(subscription.ID)
-	if err != nil || stored.NextPriceCents != nil {
-		t.Fatalf("cooldown rollback subscription = %#v, %v", stored, err)
+	if err != nil || stored.NextPriceCents == nil || *stored.NextPriceCents != 9000 {
+		t.Fatalf("discount after recent extension = %#v, %v", stored, err)
 	}
 	benefits, err := store.ListCustomerBenefits()
-	if err != nil || len(benefits) != 1 {
-		t.Fatalf("cooldown benefits = %#v, %v", benefits, err)
+	if err != nil || len(benefits) != 2 {
+		t.Fatalf("separate extension and discount benefits = %#v, %v", benefits, err)
 	}
 }
 
-func TestNextPriceDiscountRejectsTransitiveCustomerBenefit(t *testing.T) {
+func TestNextPriceDiscountAllowsTransitiveCustomerBenefit(t *testing.T) {
 	store, accountID := newPriceBenefitTestStore(t)
 	first := createPriceBenefitTestSubscription(t, store, accountID, "bridge-a", "shared@example.com", 10000)
 	bridge := createPriceBenefitTestSubscription(t, store, accountID, "bridge-b", "shared@example.com", 10000)
@@ -391,8 +390,12 @@ func TestNextPriceDiscountRejectsTransitiveCustomerBenefit(t *testing.T) {
 	nextPrice := int64(9000)
 	target.NextPriceCents = &nextPrice
 	target.NextPriceEffectiveDueDate = "2026-10-01"
-	if err := store.UpdateSubscriptionNextPrices([]model.Subscription{target}, today); !errors.Is(err, ErrCustomerBenefitAlreadyRecorded) {
-		t.Fatalf("transitive cooldown error = %v", err)
+	if err := store.UpdateSubscriptionNextPrices([]model.Subscription{target}, today); err != nil {
+		t.Fatalf("discount blocked by another connected seat's benefit: %v", err)
+	}
+	benefits, err := store.ListCustomerBenefits()
+	if err != nil || len(benefits) != 2 {
+		t.Fatalf("benefits across connected seats = %#v, %v", benefits, err)
 	}
 }
 
@@ -616,19 +619,25 @@ func TestNewDiscountDoesNotClaimLegacyBenefitFromDifferentEffectiveDueDate(t *te
 	nextPrice := int64(9000)
 	subscription.NextPriceCents = &nextPrice
 	subscription.NextPriceEffectiveDueDate = "2026-10-31"
-	if err := store.UpdateSubscriptionNextPrices([]model.Subscription{subscription}, today); !errors.Is(err, ErrCustomerBenefitAlreadyRecorded) {
-		t.Fatalf("new discount during legacy cooldown error = %v", err)
+	if err := store.UpdateSubscriptionNextPrices([]model.Subscription{subscription}, today); err != nil {
+		t.Fatalf("new discount with distinct effective date error = %v", err)
 	}
 	benefits, err := store.ListCustomerBenefits()
-	if err != nil || len(benefits) != 1 {
+	if err != nil || len(benefits) != 2 {
 		t.Fatalf("legacy benefits = %#v, %v", benefits, err)
 	}
-	if benefits[0].PriceAdjustmentKey != "" || benefits[0].PriceEffectiveDueDate != "" ||
-		benefits[0].NextDueDateSnapshot != "2026-10-01" {
-		t.Fatalf("legacy benefit was mutated = %#v", benefits[0])
+	for _, benefit := range benefits {
+		if benefit.BatchID == "benefit-operation-v1:old-discount" {
+			if benefit.PriceAdjustmentKey != "" || benefit.PriceEffectiveDueDate != "" ||
+				benefit.NextDueDateSnapshot != "2026-10-01" {
+				t.Fatalf("legacy benefit was mutated = %#v", benefit)
+			}
+		} else if benefit.PriceAdjustmentKey == "" || benefit.PriceEffectiveDueDate != "2026-10-31" {
+			t.Fatalf("new discount is not independently linked = %#v", benefit)
+		}
 	}
 	stored, err := store.GetSubscription(subscription.ID)
-	if err != nil || stored.NextPriceCents != nil {
-		t.Fatalf("rejected discount was not rolled back = %#v, %v", stored, err)
+	if err != nil || stored.NextPriceCents == nil || *stored.NextPriceCents != 9000 {
+		t.Fatalf("new discount was not scheduled = %#v, %v", stored, err)
 	}
 }

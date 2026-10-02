@@ -230,20 +230,6 @@ func createCustomerBenefitsWithTransaction(
 		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
 		}
-		recentCustomerBenefit, queryErr := hasRecentCustomerBenefitWithTransaction(
-			transaction,
-			benefit.SubscriptionID,
-			benefit.CustomerEmailSnapshot,
-			benefit.CustomerWechatSnapshot,
-			cycle.FormatDate(createdAt.In(cycle.Location)),
-			benefit.BatchID,
-		)
-		if queryErr != nil {
-			return queryErr
-		}
-		if recentCustomerBenefit {
-			return ErrCustomerBenefitAlreadyRecorded
-		}
 		equivalentTypes := equivalentCustomerBenefitTypes(benefit.BenefitType)
 		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(equivalentTypes)), ",")
 		duplicateArgs := make([]any, 0, 3+len(equivalentTypes))

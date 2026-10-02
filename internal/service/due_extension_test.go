@@ -63,6 +63,112 @@ func extensionInput(t testing.TB, service *SubscriptionService, ids []int64, now
 		ExtensionReviewSnapshots: extensionReviewSnapshots(t, service, ids)}
 }
 
+func TestDistinctDiscountAndExtensionBenefitsCanBeGivenOnDueDay(t *testing.T) {
+	for _, discountFirst := range []bool{true, false} {
+		t.Run(fmt.Sprintf("discount_first_%t", discountFirst), func(t *testing.T) {
+			service, ids := extensionTestService(t, "2026-07-01", 1)
+			billsBefore, err := service.Store.ListBills()
+			if err != nil {
+				t.Fatal(err)
+			}
+			discount := RecordCustomerBenefitsInput{
+				SubscriptionIDs: ids, BenefitType: model.CustomerBenefitTypePriceDiscount,
+				PriceDiscountYuan: "10.00", OperationKey: "test-combined-discount-operation",
+				BenefitDate: "2026-07-01",
+			}
+			giveDiscount := func() {
+				t.Helper()
+				if n, err := service.RecordCustomerBenefits(discount); err != nil || n != 1 {
+					t.Fatalf("discount delivery = %d, %v", n, err)
+				}
+			}
+			giveExtension := func() {
+				t.Helper()
+				if n, err := service.RecordCustomerBenefits(extensionInput(t, service, ids,
+					"2026-07-01", 7, "test-combined-extension-operation")); err != nil || n != 1 {
+					t.Fatalf("extension delivery = %d, %v", n, err)
+				}
+			}
+			if discountFirst {
+				giveDiscount()
+				giveExtension()
+			} else {
+				giveExtension()
+				giveDiscount()
+			}
+			views, err := service.ListView()
+			if err != nil || len(views) != 1 || views[0].NextDueDate != "2026-07-08" ||
+				views[0].Subscription.NextPriceCents == nil || *views[0].Subscription.NextPriceCents != 9000 ||
+				views[0].NextPriceEffectiveDueDate != "2026-07-08" {
+				t.Fatalf("combined benefit state = %#v, %v", views, err)
+			}
+			benefits, err := service.Store.ListCustomerBenefits()
+			if err != nil || len(benefits) != 2 || benefits[0].BatchID == benefits[1].BatchID {
+				t.Fatalf("combined benefit records = %#v, %v", benefits, err)
+			}
+			for _, benefit := range benefits {
+				if benefit.BenefitType == model.CustomerBenefitTypePriceDiscount &&
+					(benefit.PriceEffectiveDueDate != "2026-07-08" || benefit.PriceAfterCents != 9000) {
+					t.Fatalf("discount fact did not follow extension = %#v", benefit)
+				}
+			}
+			if _, err := service.RecordCustomerBenefits(discount); err == nil {
+				t.Fatal("discount operation replay accepted")
+			}
+			duplicateDiscount := discount
+			duplicateDiscount.OperationKey = "test-combined-duplicate-discount"
+			if _, err := service.RecordCustomerBenefits(duplicateDiscount); !errors.Is(err, db.ErrCustomerBenefitAlreadyRecorded) {
+				t.Fatalf("same discount fact with a new operation key error = %v", err)
+			}
+			if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids,
+				"2026-07-01", 7, "test-combined-extension-operation")); err == nil {
+				t.Fatal("extension operation replay accepted")
+			}
+			benefits, err = service.Store.ListCustomerBenefits()
+			if err != nil || len(benefits) != 2 {
+				t.Fatalf("replays duplicated benefits = %#v, %v", benefits, err)
+			}
+			events, err := service.Store.ListSubscriptionDueExtensions()
+			if err != nil || len(events) != 1 || events[0].ExtensionDays != 7 {
+				t.Fatalf("replays duplicated extension = %#v, %v", events, err)
+			}
+			billsAfter, err := service.Store.ListBills()
+			if err != nil || !reflect.DeepEqual(billsBefore, billsAfter) {
+				t.Fatalf("combined benefits changed historical bills: %#v, %v", billsAfter, err)
+			}
+			if err := service.SetDuePaid(ids[0], "2026-07-08", true); err != nil {
+				t.Fatal(err)
+			}
+			bill, err := service.Store.GetBillByOccurrence(ids[0], "2026-07-08")
+			if err != nil || bill.AmountCents != 9000 {
+				t.Fatalf("renewal at extended boundary = %#v, %v; want discounted amount 9000", bill, err)
+			}
+		})
+	}
+}
+
+func TestDistinctExtensionBenefitsAccumulateOnSameDay(t *testing.T) {
+	service, ids := extensionTestService(t, "2026-07-01", 1)
+	for _, operation := range []string{"test-same-day-extension-first", "test-same-day-extension-second"} {
+		if n, err := service.RecordCustomerBenefits(extensionInput(t, service, ids,
+			"2026-07-01", 7, operation)); err != nil || n != 1 {
+			t.Fatalf("distinct extension delivery = %d, %v", n, err)
+		}
+	}
+	views, err := service.ListView()
+	if err != nil || len(views) != 1 || views[0].NextDueDate != "2026-07-15" {
+		t.Fatalf("accumulated extension state = %#v, %v", views, err)
+	}
+	benefits, err := service.Store.ListCustomerBenefits()
+	if err != nil || len(benefits) != 2 {
+		t.Fatalf("separate same-day extension records = %#v, %v", benefits, err)
+	}
+	events, err := service.Store.ListSubscriptionDueExtensions()
+	if err != nil || len(events) != 2 {
+		t.Fatalf("separate same-day extension events = %#v, %v", events, err)
+	}
+}
+
 func TestExtensionEffectiveDueAcrossBillingConsumers(t *testing.T) {
 	for _, now := range []string{"2026-06-29", "2026-07-01", "2026-07-05", "2026-08-15"} {
 		t.Run(now, func(t *testing.T) {
