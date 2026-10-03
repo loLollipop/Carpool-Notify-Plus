@@ -37,15 +37,17 @@ func (store *Store) CreateRenewalApplication(application model.RenewalApplicatio
 	if err != nil {
 		return 0, err
 	}
-	if len(subscription.DueExtensions) > 0 {
-		schedule, err := subscription.BillingSchedule()
-		if err != nil {
-			return 0, err
-		}
-		valid, err := schedule.IsDueDate(application.DueDate)
-		if err != nil || !valid {
-			return 0, ErrRenewalFinancialStateChanged
-		}
+	schedule, err := subscription.BillingSchedule()
+	if err != nil {
+		return 0, err
+	}
+	valid, err := schedule.IsDueDate(application.DueDate)
+	if err != nil || !valid {
+		return 0, ErrRenewalFinancialStateChanged
+	}
+	currentDueDate, anchored, err := currentFirstUnpaidDueDate(transaction, subscription.ID, schedule, time.Now())
+	if err != nil || (anchored && strings.TrimSpace(application.DueDate) != currentDueDate) {
+		return 0, ErrRenewalFinancialStateChanged
 	}
 	periodCount := application.PeriodCount
 	if periodCount <= 0 {

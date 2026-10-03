@@ -198,6 +198,9 @@ func (service *SubscriptionService) ListBillsPage() (BillsPage, error) {
 		return BillsPage{}, err
 	}
 	for _, benefit := range benefits {
+		if !benefit.IsEffectiveForReporting() {
+			continue
+		}
 		accountCostCents += benefit.ActualCostCents
 	}
 	expenses, err := service.Store.ListOperatingExpenses()

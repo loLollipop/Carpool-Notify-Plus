@@ -566,6 +566,9 @@ func (service *SubscriptionService) buildProfitTrend(monthCount int) ([]ProfitMo
 		return nil, err
 	}
 	for _, benefit := range benefits {
+		if !benefit.IsEffectiveForReporting() {
+			continue
+		}
 		if index, exists := monthIndex[monthFromDate(benefit.BenefitDate)]; exists {
 			months[index].CostCents += benefit.ActualCostCents
 		}

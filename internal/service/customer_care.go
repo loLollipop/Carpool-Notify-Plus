@@ -64,6 +64,7 @@ type CustomerBenefitView struct {
 	RenewedSeatCount    int    `json:"renewed_seat_count"`
 	ExpectedSeatCount   int    `json:"expected_seat_count"`
 	RetainedSeatPercent int    `json:"retained_seat_percent"`
+	ExtensionRevisable  bool   `json:"extension_revisable"`
 }
 
 type CustomerCareSummary struct {
@@ -159,6 +160,12 @@ func (service *SubscriptionService) buildCustomerCare(
 	if err != nil {
 		return CustomerCareCenter{}, err
 	}
+	effectiveBenefits := make([]model.CustomerBenefit, 0, len(benefits))
+	for _, benefit := range benefits {
+		if benefit.IsEffectiveForReporting() {
+			effectiveBenefits = append(effectiveBenefits, benefit)
+		}
+	}
 	bills, err := service.Store.ListBills()
 	if err != nil {
 		return CustomerCareCenter{}, err
@@ -176,8 +183,15 @@ func (service *SubscriptionService) buildCustomerCare(
 		return CustomerCareCenter{}, err
 	}
 	activeSubscriptionsByID := make(map[int64]model.Subscription, len(activeSubscriptions))
+	revisableExtensionBenefitIDs := make(map[int64]struct{}, len(activeSubscriptions))
 	for _, subscription := range activeSubscriptions {
 		activeSubscriptionsByID[subscription.ID] = subscription
+		if subscription.BusinessType == model.SubscriptionBusinessTeam && !subscription.IsResale &&
+			subscription.CancellationRequestedAt == nil && subscription.CancellationCaseID == 0 &&
+			len(subscription.DueExtensions) > 0 {
+			lastExtension := subscription.DueExtensions[len(subscription.DueExtensions)-1]
+			revisableExtensionBenefitIDs[lastExtension.CustomerBenefitID] = struct{}{}
+		}
 	}
 
 	refundedBillIDs := fullyRefundedBillIDs(afterSalesCases, bills)
@@ -188,11 +202,16 @@ func (service *SubscriptionService) buildCustomerCare(
 		activeSubscriptions,
 		archivedSubscriptions,
 		service.now(),
+		revisableExtensionBenefitIDs,
+	)
+	effectiveViews := buildCustomerBenefitViews(
+		effectiveBenefits, bills, refundedBillIDs, activeSubscriptions, archivedSubscriptions, service.now(),
+		revisableExtensionBenefitIDs,
 	)
 	groups := groupCustomerCareCandidates(candidates)
 	careCandidates := make([]CustomerBenefitCandidate, 0, len(groups))
 	for _, group := range groups {
-		groupBenefits := benefitsForCustomerGroup(group, benefits)
+		groupBenefits := benefitsForCustomerGroup(group, effectiveBenefits)
 		sort.SliceStable(groupBenefits, func(left int, right int) bool {
 			if groupBenefits[left].BenefitDate != groupBenefits[right].BenefitDate {
 				return groupBenefits[left].BenefitDate > groupBenefits[right].BenefitDate
@@ -223,12 +242,12 @@ func (service *SubscriptionService) buildCustomerCare(
 			archivedSubscriptions,
 			bills,
 			afterSalesCases,
-			views,
+			effectiveViews,
 			service.now(),
 		),
 	}
 	center.Summary.CustomerCount = len(careCandidates)
-	center.Summary.BenefitCount = len(benefits)
+	center.Summary.BenefitCount = len(effectiveBenefits)
 	for _, candidate := range careCandidates {
 		if candidate.Recommended {
 			center.Summary.RecommendedCount++
@@ -236,11 +255,11 @@ func (service *SubscriptionService) buildCustomerCare(
 			center.Summary.UpcomingCount++
 		}
 	}
-	for _, benefit := range benefits {
+	for _, benefit := range effectiveBenefits {
 		center.Summary.TotalActualCostCents += benefit.ActualCostCents
 		center.Summary.TotalPerceivedValueCents += benefit.PerceivedValueCents
 	}
-	for _, view := range views {
+	for _, view := range effectiveViews {
 		if view.Outcome == "pending" {
 			continue
 		}
@@ -601,6 +620,7 @@ func buildCustomerBenefitViews(
 	activeSubscriptions []model.Subscription,
 	archivedSubscriptions []model.Subscription,
 	now time.Time,
+	revisableExtensionBenefitIDs map[int64]struct{},
 ) []CustomerBenefitView {
 	allSubscriptions := append(
 		append(make([]model.Subscription, 0, len(activeSubscriptions)+len(archivedSubscriptions)), activeSubscriptions...),
@@ -616,12 +636,14 @@ func buildCustomerBenefitViews(
 	views := make([]CustomerBenefitView, 0, len(benefits))
 	for _, benefit := range benefits {
 		outcome := customerBenefitOutcome(benefit, allSubscriptions, billsBySubscription, now)
+		_, extensionRevisable := revisableExtensionBenefitIDs[benefit.ID]
 		views = append(views, CustomerBenefitView{
 			CustomerBenefit:     benefit,
 			Outcome:             outcome.Status,
 			RenewedSeatCount:    outcome.RenewedSeatCount,
 			ExpectedSeatCount:   outcome.ExpectedSeatCount,
 			RetainedSeatPercent: outcome.RetainedSeatPercent,
+			ExtensionRevisable:  extensionRevisable,
 		})
 	}
 	return views
@@ -1379,7 +1401,11 @@ func (service *SubscriptionService) validateExtensionReviewSnapshots(
 		if err != nil {
 			return nil, err
 		}
-		dueDate, err := schedule.FirstUnpaid(service.now(), paidDatesBySubscriptionID[subscriptionID])
+		dueDate, err := schedule.FirstUnpaid(
+			service.now(),
+			paidDatesBySubscriptionID[subscriptionID],
+			subscription.DueExtensionUnpaidBaseDate,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -1395,6 +1421,40 @@ func (service *SubscriptionService) validateExtensionReviewSnapshots(
 // record. It requires a known target/date and never guesses days from a name.
 func (service *SubscriptionService) ApplyCustomerBenefitExtension(benefitID, subscriptionID int64, days int, expectedDueDate string) (model.SubscriptionDueExtension, bool, error) {
 	return service.Store.ApplyCustomerBenefitExtension(benefitID, subscriptionID, days, expectedDueDate, service.now())
+}
+
+type ReviseCustomerBenefitExtensionInput struct {
+	BenefitID     int64
+	ExtensionDays int
+	Reason        string
+	OperationKey  string
+}
+
+func (service *SubscriptionService) ReviseCustomerBenefitExtension(input ReviseCustomerBenefitExtensionInput) (db.ReviseDueExtensionResult, error) {
+	service.dueNotificationMu.Lock()
+	defer service.dueNotificationMu.Unlock()
+
+	if input.BenefitID <= 0 {
+		return db.ReviseDueExtensionResult{}, fmt.Errorf("延期福利 ID 无效")
+	}
+	if input.ExtensionDays < 0 || input.ExtensionDays > maximumBenefitExtensionDays {
+		return db.ReviseDueExtensionResult{}, fmt.Errorf("延期天数必须是 1-%d 之间的整数", maximumBenefitExtensionDays)
+	}
+	reason := strings.TrimSpace(input.Reason)
+	if reason == "" {
+		return db.ReviseDueExtensionResult{}, fmt.Errorf("请填写修改或撤回原因")
+	}
+	if len([]rune(reason)) > maximumBenefitNoteRunes {
+		return db.ReviseDueExtensionResult{}, fmt.Errorf("原因不能超过 %d 个字符", maximumBenefitNoteRunes)
+	}
+	operationKey := strings.TrimSpace(input.OperationKey)
+	if !validCustomerBenefitOperationKey(operationKey) {
+		return db.ReviseDueExtensionResult{}, fmt.Errorf("操作标识无效，请刷新后重试")
+	}
+	return service.Store.ReviseCustomerBenefitExtension(db.ReviseDueExtensionInput{
+		BenefitID: input.BenefitID, ExtensionDays: input.ExtensionDays,
+		Reason: reason, OperationKey: operationKey,
+	}, service.now())
 }
 
 func validCustomerBenefitOperationKey(value string) bool {

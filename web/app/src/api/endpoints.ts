@@ -37,6 +37,8 @@ import type {
   RedemptionStatus,
   RedemptionSubmitInput,
   RecordCustomerBenefitsInput,
+  RevokeCustomerBenefitExtensionInput,
+  UpdateCustomerBenefitExtensionInput,
   SandboxStatus,
   Settings,
   SettingsInput,
@@ -289,6 +291,26 @@ export function exemptGoalBulkPricing(input: BulkPricingExemptionInput) {
 
 export function recordGoalCustomerBenefits(input: RecordCustomerBenefitsInput) {
   return api<MessageResult & { recorded_count: number }>("/api/goals/customer-benefits", {
+    method: "POST",
+    body: input,
+  })
+}
+
+export function updateGoalCustomerBenefitExtension(
+  id: number,
+  input: UpdateCustomerBenefitExtensionInput,
+) {
+  return api<MessageResult & { replacement_benefit_id: number }>(
+    `/api/goals/customer-benefits/${id}/extension`,
+    { method: "PUT", body: input },
+  )
+}
+
+export function revokeGoalCustomerBenefitExtension(
+  id: number,
+  input: RevokeCustomerBenefitExtensionInput,
+) {
+  return api<MessageResult>(`/api/goals/customer-benefits/${id}/extension/revoke`, {
     method: "POST",
     body: input,
   })

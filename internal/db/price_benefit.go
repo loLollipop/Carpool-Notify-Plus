@@ -51,7 +51,10 @@ func (store *Store) ensureCustomerBenefitPriceAdjustmentColumns() error {
 		CREATE UNIQUE INDEX idx_customer_benefits_delivery
 		ON customer_benefits(subscription_id, benefit_date, benefit_type, benefit_name)
 		WHERE TRIM(price_adjustment_key) = ''
-		  AND NOT (benefit_type = 'extension' AND batch_id LIKE 'benefit-operation-v1:%')`); err != nil {
+		  AND NOT (benefit_type = 'extension' AND (
+			batch_id LIKE 'benefit-operation-v1:%'
+			OR batch_id LIKE 'extension-revision-v1:%'
+		  ))`); err != nil {
 		return fmt.Errorf("create customer benefit delivery index: %w", err)
 	}
 	if _, err := store.database.Exec(`

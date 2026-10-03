@@ -84,6 +84,10 @@ func (store *Store) DeleteMistakenTeamSubscription(subscriptionID int64) error {
 		"subscription_price_changes",
 		"bills",
 	}
+	if _, err := transaction.Exec(`DELETE FROM subscription_due_extension_revisions
+		WHERE extension_id IN (SELECT id FROM subscription_due_extensions WHERE subscription_id = ?)`, subscriptionID); err != nil {
+		return err
+	}
 	for _, table := range childTables {
 		if _, err := transaction.Exec(
 			"DELETE FROM "+table+" WHERE subscription_id = ?",

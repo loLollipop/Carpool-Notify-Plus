@@ -1157,6 +1157,13 @@ export interface CustomerBenefitView {
   renewal_count_snapshot: number
   recommendation_code: string
   note: string
+  extension_days: number
+  extension_applied_at?: string
+  extension_status?: "active" | "revoked" | "superseded"
+  extension_revision_reason?: string
+  extension_revised_at?: string
+  replacement_benefit_id?: number
+  extension_revisable: boolean
   created_at: string
   outcome: "pending" | "renewed" | "partially_renewed" | "not_renewed"
   renewed_seat_count: number
@@ -1276,6 +1283,17 @@ export interface RecordCustomerBenefitsInput {
   benefit_date: string
   note: string
   extension_review_snapshots?: ExtensionReviewSnapshot[]
+}
+
+export interface UpdateCustomerBenefitExtensionInput {
+  extension_days: number
+  reason: string
+  operation_key: string
+}
+
+export interface RevokeCustomerBenefitExtensionInput {
+  reason: string
+  operation_key: string
 }
 
 export interface RedemptionRejectInput {

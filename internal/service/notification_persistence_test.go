@@ -44,10 +44,15 @@ func TestScheduledNotificationStateFailuresReachCaller(t *testing.T) {
 				if outcome != "unconfigured" {
 					service.Notify = notify.Registry{SMTP: sender, IYUU: sender}
 				}
-				// Invalid schedule skips automatic planning; seeded logs exercise sending.
+				// Keep the seeded due date on the current schedule. Send-time validation
+				// must run even when no due extension is active.
+				boardedAt := "2026-08-19"
+				if channel == model.ChannelIYUU {
+					boardedAt = "2026-08-16"
+				}
 				id, err := store.CreateSubscription(model.Subscription{
-					Name: "customer", PricePerPersonCents: 3500, CronExpr: "invalid",
-					BoardedAt: "2026-08-01", CustomerEmail: "customer@example.com",
+					Name: "customer", PricePerPersonCents: 3500, CronExpr: "interval:30d",
+					BoardedAt: boardedAt, CustomerEmail: "customer@example.com",
 				})
 				if err != nil {
 					t.Fatal(err)

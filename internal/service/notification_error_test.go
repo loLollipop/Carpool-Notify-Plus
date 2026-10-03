@@ -164,6 +164,12 @@ func TestLatestErrorRequiresSuccessfulRecoveryOutcome(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertLastError("smtp failure")
+	pending, err = subscriptionService.Store.UpsertPendingNotification(
+		subscriptionID, "2026-10-18", 3, model.ChannelSMTP, model.NotificationKindScheduled,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := subscriptionService.Store.MarkNotificationSuccess(pending.ID, 1); err != nil {
 		t.Fatal(err)
 	}

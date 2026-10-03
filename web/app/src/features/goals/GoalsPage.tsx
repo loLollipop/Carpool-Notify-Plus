@@ -33,6 +33,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Target,
+  Trash2,
   TrendingUp,
   Users,
   WalletCards,
@@ -105,6 +106,7 @@ import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { maskAmount } from "@/lib/amount-privacy"
 import { cn } from "@/lib/utils"
 import { CustomerBenefitDialog } from "./CustomerBenefitDialog"
+import { ExtensionRevisionDialog } from "./ExtensionRevisionDialog"
 
 function yuan(cents: number) {
   return `\u00a5${(cents / 100).toLocaleString("zh-CN", {
@@ -3359,8 +3361,13 @@ function CustomerBenefitHistoryDialog({
   amountsHidden: boolean
 }) {
   const { t } = useTranslation()
+  const [revision, setRevision] = React.useState<{
+    benefit: CustomerBenefitView
+    mode: "edit" | "revoke"
+  } | null>(null)
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         aria-describedby={undefined}
@@ -3413,6 +3420,19 @@ function CustomerBenefitHistoryDialog({
                       <span className="text-[11px] tabular-nums text-muted-foreground">
                         {benefit.benefit_date}
                       </span>
+                      {benefit.benefit_type === "extension" && benefit.extension_days > 0 ? (
+                        <Badge variant="secondary" className="font-normal">
+                          {t("goals.care.extensionRevision.daysValue", { days: benefit.extension_days })}
+                        </Badge>
+                      ) : null}
+                      {benefit.extension_status ? (
+                        <Badge
+                          variant={benefit.extension_status === "active" ? "success" : "outline"}
+                          className="font-normal"
+                        >
+                          {t(`goals.care.extensionRevision.status.${benefit.extension_status}`)}
+                        </Badge>
+                      ) : null}
                     </div>
                   </div>
 
@@ -3450,8 +3470,55 @@ function CustomerBenefitHistoryDialog({
                         })}
                       </p>
                     </div>
+                    {benefit.benefit_type === "extension" && benefit.extension_revisable ? (
+                      <div className="flex max-w-full flex-wrap justify-end gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          aria-label={t("goals.care.extensionRevision.edit")}
+                          onClick={() => setRevision({ benefit, mode: "edit" })}
+                        >
+                          <Pencil className="size-3.5" />
+                          {t("goals.care.extensionRevision.edit")}
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          aria-label={t("goals.care.extensionRevision.revoke")}
+                          onClick={() => setRevision({ benefit, mode: "revoke" })}
+                        >
+                          <Trash2 className="size-3.5" />
+                          {t("goals.care.extensionRevision.revoke")}
+                        </Button>
+                      </div>
+                    ) : null}
                   </div>
 
+                  {benefit.extension_revision_reason ? (
+                    <div className="rounded-md border border-dashed px-3 py-2 text-xs leading-5 text-muted-foreground sm:col-span-3">
+                      <p>
+                        {t("goals.care.extensionRevision.revisionReason", {
+                          reason: benefit.extension_revision_reason,
+                        })}
+                      </p>
+                      {benefit.extension_revised_at ? (
+                        <p className="mt-0.5 tabular-nums">
+                          {t("goals.care.extensionRevision.revisedAt", {
+                            time: new Date(benefit.extension_revised_at).toLocaleString(),
+                          })}
+                        </p>
+                      ) : null}
+                      {benefit.replacement_benefit_id ? (
+                        <p>
+                          {t("goals.care.extensionRevision.replacement", {
+                            id: benefit.replacement_benefit_id,
+                          })}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                   {benefit.note ? (
                     <p className="rounded-md bg-muted/45 px-3 py-2 text-xs leading-5 whitespace-pre-wrap text-muted-foreground sm:col-span-3">
                       {benefit.note}
@@ -3475,6 +3542,15 @@ function CustomerBenefitHistoryDialog({
         )}
       </DialogContent>
     </Dialog>
+    <ExtensionRevisionDialog
+      key={`${revision?.benefit.id ?? "closed"}-${revision?.mode ?? "edit"}`}
+      benefit={revision?.benefit ?? null}
+      mode={revision?.mode ?? "edit"}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) setRevision(null)
+      }}
+    />
+    </>
   )
 }
 

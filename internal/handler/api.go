@@ -324,6 +324,59 @@ func (server *Server) postGoalCustomerBenefits(context *gin.Context) {
 	})
 }
 
+type reviseCustomerBenefitExtensionRequest struct {
+	ExtensionDays int    `json:"extension_days"`
+	Reason        string `json:"reason"`
+	OperationKey  string `json:"operation_key"`
+}
+
+func (server *Server) putGoalCustomerBenefitExtension(context *gin.Context) {
+	server.reviseGoalCustomerBenefitExtension(context, false)
+}
+
+func (server *Server) postRevokeGoalCustomerBenefitExtension(context *gin.Context) {
+	server.reviseGoalCustomerBenefitExtension(context, true)
+}
+
+func (server *Server) reviseGoalCustomerBenefitExtension(context *gin.Context, revoke bool) {
+	benefitID, ok := parseIDParam(context, "id", "延期福利 ID 无效")
+	if !ok {
+		return
+	}
+	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 8<<10)
+	var request reviseCustomerBenefitExtensionRequest
+	if err := context.ShouldBindJSON(&request); err != nil {
+		respondError(context, http.StatusBadRequest, "无效的延期福利调整内容")
+		return
+	}
+	if revoke {
+		request.ExtensionDays = 0
+	} else if request.ExtensionDays < 1 || request.ExtensionDays > 365 {
+		respondError(context, http.StatusBadRequest, "延期天数必须是 1-365 之间的整数")
+		return
+	}
+	result, err := server.Service.ReviseCustomerBenefitExtension(service.ReviseCustomerBenefitExtensionInput{
+		BenefitID: benefitID, ExtensionDays: request.ExtensionDays,
+		Reason: request.Reason, OperationKey: request.OperationKey,
+	})
+	if err != nil {
+		if errors.Is(err, db.ErrSubscriptionStateChanged) || errors.Is(err, db.ErrExtensionRevisionOperationConflict) {
+			respondError(context, http.StatusConflict, err.Error())
+			return
+		}
+		respondError(context, http.StatusBadRequest, err.Error())
+		return
+	}
+	message := fmt.Sprintf("已将延期福利修改为 %d 天", request.ExtensionDays)
+	if revoke {
+		message = "已撤回延期福利"
+	}
+	if result.Replayed {
+		message += "（重复请求已安全处理）"
+	}
+	respondOK(context, gin.H{"message": message, "replacement_benefit_id": result.ReplacementBenefitID})
+}
+
 func (server *Server) getSubscriptions(context *gin.Context) {
 	views, err := server.Service.ListView()
 	if err != nil {

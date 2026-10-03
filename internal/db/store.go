@@ -23,34 +23,35 @@ type Store struct {
 }
 
 var (
-	ErrRedemptionCodeNotFound            = errors.New("redemption code not found")
-	ErrRedemptionCodeUsed                = errors.New("redemption code used")
-	ErrRedemptionCodeDisabled            = errors.New("redemption code disabled")
-	ErrRedemptionCodeNotUnused           = errors.New("redemption code not unused")
-	ErrRedemptionAlreadyProcessed        = errors.New("redemption application already processed")
-	ErrRenewalAlreadyPending             = errors.New("renewal application already pending")
-	ErrRenewalAlreadyProcessed           = errors.New("renewal application already processed")
-	ErrRenewalFinancialStateChanged      = errors.New("renewal financial state changed")
-	ErrActiveSeatOccupied                = errors.New("active seat already occupied")
-	ErrBillHasAfterSalesCase             = errors.New("bill is referenced by an after-sales case")
-	ErrBillOccurrenceConflict            = errors.New("bill occurrence already exists")
-	ErrInitialBillNotMovable             = errors.New("initial bill cannot be moved")
-	ErrSubscriptionStateChanged          = errors.New("订阅数据已变化，请刷新重试")
-	ErrAccountOpeningDateLocked          = errors.New("account opening date is locked by renewal history")
-	ErrAccountRenewalStateChanged        = errors.New("账号续费状态已变化，请刷新后重试")
-	ErrSubscriptionFinancialStateChanged = errors.New("subscription financial state changed")
-	ErrSubscriptionHasPendingAfterSales  = errors.New("subscription has a pending after-sales case")
-	ErrAfterSalesProcessed               = errors.New("after-sales case already processed")
-	ErrAfterSalesRefundExceedsPayment    = errors.New("after-sales refund exceeds remaining payment")
-	ErrCancellationPending               = errors.New("subscription cancellation already pending")
-	ErrCancellationCaseConflict          = errors.New("subscription already has an after-sales case for this date")
-	ErrCancellationNotReassignable       = errors.New("cancellation case cannot be reassigned")
-	ErrCustomerBenefitAlreadyRecorded    = errors.New("customer benefit already recorded")
-	ErrAfterSalesOriginalSeatBusy        = errors.New("original after-sales seat is occupied")
-	ErrReplacementAccountBanned          = errors.New("replacement account is banned")
-	ErrReplacementSeatUnavailable        = errors.New("replacement seat unavailable")
-	ErrReplacementSeatOccupied           = errors.New("replacement seat is occupied")
-	ErrReplacementSeatUnchanged          = errors.New("replacement seat is unchanged")
+	ErrRedemptionCodeNotFound             = errors.New("redemption code not found")
+	ErrRedemptionCodeUsed                 = errors.New("redemption code used")
+	ErrRedemptionCodeDisabled             = errors.New("redemption code disabled")
+	ErrRedemptionCodeNotUnused            = errors.New("redemption code not unused")
+	ErrRedemptionAlreadyProcessed         = errors.New("redemption application already processed")
+	ErrRenewalAlreadyPending              = errors.New("renewal application already pending")
+	ErrRenewalAlreadyProcessed            = errors.New("renewal application already processed")
+	ErrRenewalFinancialStateChanged       = errors.New("renewal financial state changed")
+	ErrActiveSeatOccupied                 = errors.New("active seat already occupied")
+	ErrBillHasAfterSalesCase              = errors.New("bill is referenced by an after-sales case")
+	ErrBillOccurrenceConflict             = errors.New("bill occurrence already exists")
+	ErrInitialBillNotMovable              = errors.New("initial bill cannot be moved")
+	ErrSubscriptionStateChanged           = errors.New("订阅数据已变化，请刷新重试")
+	ErrAccountOpeningDateLocked           = errors.New("account opening date is locked by renewal history")
+	ErrAccountRenewalStateChanged         = errors.New("账号续费状态已变化，请刷新后重试")
+	ErrSubscriptionFinancialStateChanged  = errors.New("subscription financial state changed")
+	ErrSubscriptionHasPendingAfterSales   = errors.New("subscription has a pending after-sales case")
+	ErrAfterSalesProcessed                = errors.New("after-sales case already processed")
+	ErrAfterSalesRefundExceedsPayment     = errors.New("after-sales refund exceeds remaining payment")
+	ErrCancellationPending                = errors.New("subscription cancellation already pending")
+	ErrCancellationCaseConflict           = errors.New("subscription already has an after-sales case for this date")
+	ErrCancellationNotReassignable        = errors.New("cancellation case cannot be reassigned")
+	ErrCustomerBenefitAlreadyRecorded     = errors.New("customer benefit already recorded")
+	ErrExtensionRevisionOperationConflict = errors.New("延期修订操作标识已用于不同请求")
+	ErrAfterSalesOriginalSeatBusy         = errors.New("original after-sales seat is occupied")
+	ErrReplacementAccountBanned           = errors.New("replacement account is banned")
+	ErrReplacementSeatUnavailable         = errors.New("replacement seat unavailable")
+	ErrReplacementSeatOccupied            = errors.New("replacement seat is occupied")
+	ErrReplacementSeatUnchanged           = errors.New("replacement seat is unchanged")
 )
 
 // Open creates the database file if needed, opens a connection, and migrates.
@@ -324,6 +325,20 @@ func (store *Store) migrate() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_subscription_due_extensions_subscription
 			ON subscription_due_extensions(subscription_id, base_due_date, id);`,
+		`CREATE TABLE IF NOT EXISTS subscription_due_extension_revisions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			extension_id INTEGER NOT NULL REFERENCES subscription_due_extensions(id),
+			action TEXT NOT NULL CHECK(action IN ('revoked', 'superseded')),
+			replacement_extension_id INTEGER REFERENCES subscription_due_extensions(id),
+			previous_days INTEGER NOT NULL CHECK(previous_days BETWEEN 1 AND 365),
+			replacement_days INTEGER NOT NULL DEFAULT 0 CHECK(replacement_days BETWEEN 0 AND 365),
+			reason TEXT NOT NULL,
+			operation_key TEXT NOT NULL UNIQUE,
+			created_at TEXT NOT NULL,
+			UNIQUE(extension_id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_due_extension_revisions_extension
+			ON subscription_due_extension_revisions(extension_id, id);`,
 		`CREATE INDEX IF NOT EXISTS idx_customer_benefits_date
 			ON customer_benefits(benefit_date DESC, id DESC);`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_customer_benefits_operation_subscription
@@ -3290,6 +3305,7 @@ func (store *Store) ResetBusinessData() error {
 		"notification_log",
 		"bills",
 		"paid_due_occurrences",
+		"subscription_due_extension_revisions",
 		"subscription_due_extensions",
 		"customer_benefits",
 		"pricing_exemptions",
@@ -4573,8 +4589,8 @@ func (store *Store) MarkNotificationSuccess(logID int64, attemptCount int) error
 	_, err := store.database.Exec(`
                 UPDATE notification_log
                 SET status = ?, attempt_count = ?, next_retry_at = NULL, last_error = '', updated_at = ?
-                WHERE id = ?`,
-		model.NotificationStatusSuccess, attemptCount, now, logID,
+                WHERE id = ? AND status = ?`,
+		model.NotificationStatusSuccess, attemptCount, now, logID, model.NotificationStatusPending,
 	)
 	return err
 }
@@ -4609,8 +4625,8 @@ func (store *Store) MarkNotificationFailure(logID int64, attemptCount int, lastE
 	_, err := store.database.Exec(`
                 UPDATE notification_log
                 SET status = ?, attempt_count = ?, next_retry_at = ?, last_error = ?, updated_at = ?
-                WHERE id = ?`,
-		status, attemptCount, nextRetryValue, lastError, now, logID,
+				WHERE id = ? AND status = ?`,
+		status, attemptCount, nextRetryValue, lastError, now, logID, model.NotificationStatusPending,
 	)
 	return err
 }

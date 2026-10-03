@@ -63,6 +63,441 @@ func extensionInput(t testing.TB, service *SubscriptionService, ids []int64, now
 		ExtensionReviewSnapshots: extensionReviewSnapshots(t, service, ids)}
 }
 
+func activeExtensionBenefit(t testing.TB, service *SubscriptionService) model.CustomerBenefit {
+	t.Helper()
+	benefits, err := service.Store.ListCustomerBenefits()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, benefit := range benefits {
+		if benefit.BenefitType == model.CustomerBenefitTypeExtension && benefit.ExtensionStatus == "active" {
+			return benefit
+		}
+	}
+	t.Fatal("active extension benefit not found")
+	return model.CustomerBenefit{}
+}
+
+type extensionRecordingSender struct {
+	calls int
+}
+
+func (sender *extensionRecordingSender) Send(_ context.Context, _ string, _ string) error {
+	sender.calls++
+	return nil
+}
+
+func TestRevokeCustomerBenefitExtensionPreservesAuditAndRemovesSchedule(t *testing.T) {
+	service, ids := extensionTestService(t, "2026-06-20", 1)
+	if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids, "2026-06-20", 7, "test-revoke-source-operation")); err != nil {
+		t.Fatal(err)
+	}
+	benefit := activeExtensionBenefit(t, service)
+	result, err := service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
+		BenefitID: benefit.ID, Reason: "客户不再需要延期", OperationKey: "test-revoke-extension-operation",
+	})
+	if err != nil || result.ReplacementBenefitID != 0 {
+		t.Fatalf("revoke = %#v, %v", result, err)
+	}
+	subscription, err := service.Store.GetSubscription(ids[0])
+	if err != nil || len(subscription.DueExtensions) != 0 {
+		t.Fatalf("active extensions = %#v, %v", subscription.DueExtensions, err)
+	}
+	benefits, _ := service.Store.ListCustomerBenefits()
+	if len(benefits) != 1 || benefits[0].ExtensionStatus != "revoked" || benefits[0].ExtensionRevisionReason != "客户不再需要延期" {
+		t.Fatalf("benefits = %#v", benefits)
+	}
+	revisions, _ := service.Store.ListSubscriptionDueExtensionRevisions()
+	if len(revisions) != 1 || revisions[0].Action != model.DueExtensionRevisionRevoked {
+		t.Fatalf("revisions = %#v", revisions)
+	}
+	replayed, created, err := service.Store.ApplyCustomerBenefitExtension(
+		benefit.ID, ids[0], 7, "2026-07-01", service.now(),
+	)
+	if err != nil || created || replayed.CustomerBenefitID != benefit.ID {
+		t.Fatalf("replay revised extension = %#v, created=%t, err=%v", replayed, created, err)
+	}
+}
+
+func TestRevokeLastExtensionKeepsOverdueUnpaidBoundaryWithoutBills(t *testing.T) {
+	service, ids := extensionTestService(t, "2026-06-20", 1)
+	if err := service.Store.SetDuePaid(ids[0], "2026-06-01", false, 0); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RecordCustomerBenefits(extensionInput(
+		t, service, ids, "2026-06-20", 7, "test-revoke-no-bills-source-operation",
+	)); err != nil {
+		t.Fatal(err)
+	}
+	benefit := activeExtensionBenefit(t, service)
+	service.Clock = func() time.Time {
+		return time.Date(2026, time.July, 5, 12, 0, 0, 0, cycle.Location)
+	}
+	if _, err := service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
+		BenefitID: benefit.ID, Reason: "撤回尚未到期的延期", OperationKey: "test-revoke-no-bills-revision-operation",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	views, err := service.ListView()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].NextDueDate != "2026-07-01" || views[0].DaysRemaining >= 0 {
+		t.Fatalf("view after revoke = %#v, want overdue unpaid 2026-07-01", views)
+	}
+}
+
+func TestStaleQueuedNotificationCanceledByRevokeIsNotSentOrReopened(t *testing.T) {
+	for _, test := range []struct {
+		channel string
+		offset  int
+	}{
+		{channel: model.ChannelIYUU, offset: 0},
+		{channel: model.ChannelSMTP, offset: 3},
+	} {
+		t.Run(test.channel, func(t *testing.T) {
+			service, ids := extensionTestService(t, "2026-06-20", 1)
+			if _, err := service.RecordCustomerBenefits(extensionInput(
+				t, service, ids, "2026-06-20", 7, "test-stale-notification-source-"+test.channel,
+			)); err != nil {
+				t.Fatal(err)
+			}
+			benefit := activeExtensionBenefit(t, service)
+			stale, err := service.Store.UpsertPendingNotification(
+				ids[0], "2026-07-08", test.offset, test.channel, model.NotificationKindScheduled,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
+				BenefitID: benefit.ID, Reason: "撤回后取消旧提醒", OperationKey: "test-stale-notification-revision-" + test.channel,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			recorder := &extensionRecordingSender{}
+			service.Notify.IYUU = recorder
+			service.Notify.SMTP = recorder
+			if err := service.attemptScheduledSend(context.Background(), test.channel, []model.NotificationLog{stale}); err != nil {
+				t.Fatal(err)
+			}
+			if recorder.calls != 0 {
+				t.Fatalf("canceled stale notification sent %d times", recorder.calls)
+			}
+			// A completion racing after cancellation must not overwrite the terminal
+			// canceled state even if the caller still holds the stale pending row.
+			if err := service.Store.MarkNotificationSuccess(stale.ID, 1); err != nil {
+				t.Fatal(err)
+			}
+			current, err := service.Store.GetNotificationLogByID(stale.ID)
+			if err != nil || current.Status != model.NotificationStatusCanceled {
+				t.Fatalf("notification after stale attempt = %#v, %v", current, err)
+			}
+		})
+	}
+}
+
+func TestRenewalApplicationCapturedBeforeLastExtensionRevokeIsRejected(t *testing.T) {
+	service, ids := extensionTestService(t, "2026-06-20", 1)
+	if _, err := service.RecordCustomerBenefits(extensionInput(
+		t, service, ids, "2026-06-20", 7, "test-stale-renewal-source-operation",
+	)); err != nil {
+		t.Fatal(err)
+	}
+	benefit := activeExtensionBenefit(t, service)
+	if _, err := service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
+		BenefitID: benefit.ID, Reason: "撤回后拒绝旧续费申请", OperationKey: "test-stale-renewal-revision-operation",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := service.Store.CreateRenewalApplication(model.RenewalApplication{
+		TrackingToken: "test-stale-renewal-after-revoke", SubscriptionID: ids[0],
+		CustomerEmail: "extension@example.com", DueDate: "2026-07-08",
+		PeriodCount: 1, PeriodEndDate: "2026-08-07", AmountCents: 10000,
+	})
+	if !errors.Is(err, db.ErrRenewalFinancialStateChanged) {
+		t.Fatalf("stale renewal error = %v, want ErrRenewalFinancialStateChanged", err)
+	}
+}
+
+func TestRevokeThirtyDayExtensionRejectsCollidingOldBoundary(t *testing.T) {
+	service, ids := extensionTestService(t, "2026-06-20", 1)
+	if _, err := service.RecordCustomerBenefits(extensionInput(
+		t, service, ids, "2026-06-20", 30, "test-colliding-boundary-source-operation",
+	)); err != nil {
+		t.Fatal(err)
+	}
+	benefit := activeExtensionBenefit(t, service)
+
+	logs := make([]model.NotificationLog, 0, 2)
+	for _, test := range []struct {
+		channel string
+		offset  int
+	}{
+		{channel: model.ChannelSMTP, offset: 3},
+		{channel: model.ChannelIYUU, offset: 0},
+	} {
+		logEntry, err := service.Store.UpsertPendingNotification(
+			ids[0], "2026-07-31", test.offset, test.channel, model.NotificationKindScheduled,
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		logs = append(logs, logEntry)
+	}
+
+	if _, err := service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
+		BenefitID: benefit.ID, Reason: "撤回与下一基础账期重合的延期", OperationKey: "test-colliding-boundary-revision-operation",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	recorder := &extensionRecordingSender{}
+	service.Notify.SMTP = recorder
+	service.Notify.IYUU = recorder
+	for _, logEntry := range logs {
+		current, err := service.Store.GetNotificationLogByID(logEntry.ID)
+		if err != nil || current.Status != model.NotificationStatusCanceled {
+			t.Fatalf("stale %s notification = %#v, %v; want canceled", logEntry.Channel, current, err)
+		}
+		// Simulate stale planner work racing after the revision transaction. The
+		// send-time guard must independently reject the colliding base date.
+		requeued, err := service.Store.UpsertPendingNotification(
+			logEntry.SubscriptionID, logEntry.DueDate, logEntry.OffsetDays, logEntry.Channel, logEntry.Kind,
+		)
+		if err != nil || requeued.Status != model.NotificationStatusPending {
+			t.Fatalf("requeued stale %s notification = %#v, %v; want pending", logEntry.Channel, requeued, err)
+		}
+		if err := service.attemptScheduledSend(context.Background(), logEntry.Channel, []model.NotificationLog{requeued}); err != nil {
+			t.Fatal(err)
+		}
+		current, err = service.Store.GetNotificationLogByID(logEntry.ID)
+		if err != nil || current.Status != model.NotificationStatusCanceled {
+			t.Fatalf("send-time stale %s notification = %#v, %v; want canceled", logEntry.Channel, current, err)
+		}
+	}
+	if recorder.calls != 0 {
+		t.Fatalf("stale colliding notifications sent %d times", recorder.calls)
+	}
+
+	if _, err := service.Store.CreateRenewalApplication(model.RenewalApplication{
+		TrackingToken: "test-colliding-boundary-stale-renewal", SubscriptionID: ids[0],
+		CustomerEmail: "extension@example.com", DueDate: "2026-07-31",
+		PeriodCount: 1, PeriodEndDate: "2026-08-30", AmountCents: 10000,
+	}); !errors.Is(err, db.ErrRenewalFinancialStateChanged) {
+		t.Fatalf("stale colliding renewal error = %v, want ErrRenewalFinancialStateChanged", err)
+	}
+	if _, err := service.Store.CreateRenewalApplication(model.RenewalApplication{
+		TrackingToken: "test-colliding-boundary-current-renewal", SubscriptionID: ids[0],
+		CustomerEmail: "extension@example.com", DueDate: "2026-07-01",
+		PeriodCount: 1, PeriodEndDate: "2026-07-31", AmountCents: 10000,
+	}); err != nil {
+		t.Fatalf("current first-unpaid renewal rejected: %v", err)
+	}
+}
+
+func TestEditCustomerBenefitExtensionCreatesReplacementAndIsIdempotent(t *testing.T) {
+	service, ids := extensionTestService(t, "2026-06-20", 1)
+	if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids, "2026-06-20", 7, "test-edit-source-operation")); err != nil {
+		t.Fatal(err)
+	}
+	benefit := activeExtensionBenefit(t, service)
+	input := ReviseCustomerBenefitExtensionInput{
+		BenefitID: benefit.ID, ExtensionDays: 9, Reason: "补足两天", OperationKey: "test-edit-extension-operation",
+	}
+	first, err := service.ReviseCustomerBenefitExtension(input)
+	if err != nil || first.ReplacementBenefitID == 0 {
+		t.Fatalf("edit = %#v, %v", first, err)
+	}
+	replay, err := service.ReviseCustomerBenefitExtension(input)
+	if err != nil || !replay.Replayed || replay.ReplacementBenefitID != first.ReplacementBenefitID {
+		t.Fatalf("replay = %#v, %v", replay, err)
+	}
+	conflict := input
+	conflict.ExtensionDays = 10
+	if _, err := service.ReviseCustomerBenefitExtension(conflict); !errors.Is(err, db.ErrExtensionRevisionOperationConflict) {
+		t.Fatalf("conflict error = %v", err)
+	}
+	subscription, err := service.Store.GetSubscription(ids[0])
+	if err != nil || len(subscription.DueExtensions) != 1 || subscription.DueExtensions[0].ExtensionDays != 9 {
+		t.Fatalf("active extensions = %#v, %v", subscription.DueExtensions, err)
+	}
+	benefits, _ := service.Store.ListCustomerBenefits()
+	if len(benefits) != 2 || benefits[1].ExtensionStatus != "superseded" || benefits[0].ExtensionStatus != "active" {
+		t.Fatalf("benefits = %#v", benefits)
+	}
+	secondEdit, err := service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
+		BenefitID: benefits[0].ID, ExtensionDays: 9, Reason: "更正说明但保留天数", OperationKey: "test-edit-extension-same-day-operation",
+	})
+	if err != nil || secondEdit.ReplacementBenefitID == 0 {
+		t.Fatalf("same-day edit = %#v, %v", secondEdit, err)
+	}
+	care, err := service.buildCustomerCare(nil)
+	if err != nil || care.Summary.BenefitCount != 1 || care.Summary.TotalActualCostCents != 200 {
+		t.Fatalf("care summary = %#v, %v", care.Summary, err)
+	}
+}
+
+func TestEditedExtensionDoesNotBlockAnotherSameDayGift(t *testing.T) {
+	service, ids := extensionTestService(t, "2026-06-20", 1)
+	if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids, "2026-06-20", 7, "test-edit-before-another-gift-source")); err != nil {
+		t.Fatal(err)
+	}
+	benefit := activeExtensionBenefit(t, service)
+	if _, err := service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
+		BenefitID: benefit.ID, ExtensionDays: 9, Reason: "先修正天数", OperationKey: "test-edit-before-another-gift-revision",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids, "2026-06-20", 9, "test-edit-before-another-gift-new")); err != nil {
+		t.Fatalf("same-day independent gift after edit: %v", err)
+	}
+	subscription, err := service.Store.GetSubscription(ids[0])
+	if err != nil || len(subscription.DueExtensions) != 2 {
+		t.Fatalf("active extensions = %#v, %v", subscription.DueExtensions, err)
+	}
+}
+
+func TestReviseCustomerBenefitExtensionSafetyBlocks(t *testing.T) {
+	t.Run("non-last extension", func(t *testing.T) {
+		service, ids := extensionTestService(t, "2026-06-20", 1)
+		if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids, "2026-06-20", 7, "test-non-last-first-operation")); err != nil {
+			t.Fatal(err)
+		}
+		first := activeExtensionBenefit(t, service)
+		service.Clock = func() time.Time { return time.Date(2026, time.September, 19, 12, 0, 0, 0, cycle.Location) }
+		if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids, "2026-09-19", 3, "test-non-last-second-operation")); err != nil {
+			t.Fatal(err)
+		}
+		care, err := service.buildCustomerCare(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		revisableCount := 0
+		for _, history := range care.History {
+			if history.ExtensionRevisable {
+				revisableCount++
+				if history.ID == first.ID {
+					t.Fatal("non-last extension was exposed as revisable")
+				}
+			}
+		}
+		if revisableCount != 1 {
+			t.Fatalf("revisable history count = %d, want 1", revisableCount)
+		}
+		_, err = service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
+			BenefitID: first.ID, Reason: "尝试修改旧延期", OperationKey: "test-non-last-revision-operation",
+		})
+		if err == nil || !strings.Contains(err.Error(), "最后一个") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("bill exists", func(t *testing.T) {
+		service, ids := extensionTestService(t, "2026-06-20", 1)
+		if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids, "2026-06-20", 7, "test-bill-block-source-operation")); err != nil {
+			t.Fatal(err)
+		}
+		benefit := activeExtensionBenefit(t, service)
+		if err := service.Store.SetDuePaid(ids[0], "2026-07-08", true, 10000); err != nil {
+			t.Fatal(err)
+		}
+		_, err := service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
+			BenefitID: benefit.ID, Reason: "账单后撤回", OperationKey: "test-bill-block-revision-operation",
+		})
+		if err == nil || !strings.Contains(err.Error(), "已有账单") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("pending renewal", func(t *testing.T) {
+		service, ids := extensionTestService(t, "2026-06-20", 1)
+		if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids, "2026-06-20", 7, "test-renewal-block-source-operation")); err != nil {
+			t.Fatal(err)
+		}
+		benefit := activeExtensionBenefit(t, service)
+		if _, err := service.Store.CreateRenewalApplication(model.RenewalApplication{
+			TrackingToken: "test-extension-pending-renewal", SubscriptionID: ids[0], CustomerEmail: "extension@example.com",
+			DueDate: "2026-07-08", PeriodCount: 1, PeriodEndDate: "2026-08-07", AmountCents: 10000,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		_, err := service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
+			BenefitID: benefit.ID, Reason: "续费审核中撤回", OperationKey: "test-renewal-block-revision-operation",
+		})
+		if err == nil || !strings.Contains(err.Error(), "待审核续费") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("successful notification", func(t *testing.T) {
+		service, ids := extensionTestService(t, "2026-06-20", 1)
+		if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids, "2026-06-20", 7, "test-notify-block-source-operation")); err != nil {
+			t.Fatal(err)
+		}
+		benefit := activeExtensionBenefit(t, service)
+		logEntry, err := service.Store.UpsertPendingNotification(ids[0], "2026-07-08", 3, model.ChannelSMTP, model.NotificationKindScheduled)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := service.Store.MarkNotificationSuccess(logEntry.ID, 1); err != nil {
+			t.Fatal(err)
+		}
+		_, err = service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
+			BenefitID: benefit.ID, Reason: "通知后撤回", OperationKey: "test-notify-block-revision-operation",
+		})
+		if err == nil || !strings.Contains(err.Error(), "成功通知") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+
+	t.Run("non-billing notifications do not block", func(t *testing.T) {
+		service, ids := extensionTestService(t, "2026-06-20", 1)
+		if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids, "2026-06-20", 7, "test-non-billing-notify-source-operation")); err != nil {
+			t.Fatal(err)
+		}
+		benefit := activeExtensionBenefit(t, service)
+		if err := service.Store.InsertTestNotificationLog(ids[0], model.ChannelSMTP, model.NotificationStatusSuccess, ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.Store.RecordManualCustomerEmailSuccess(ids[0]); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
+			BenefitID: benefit.ID, Reason: "测试与人工邮件不绑定账期", OperationKey: "test-non-billing-notify-revision-operation",
+		}); err != nil {
+			t.Fatalf("non-billing notifications blocked revision: %v", err)
+		}
+	})
+
+	t.Run("applied price change", func(t *testing.T) {
+		service, ids := extensionTestService(t, "2026-06-20", 1)
+		if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids, "2026-06-20", 7, "test-price-block-source-operation")); err != nil {
+			t.Fatal(err)
+		}
+		benefit := activeExtensionBenefit(t, service)
+		if _, err := service.RecordCustomerBenefits(RecordCustomerBenefitsInput{
+			SubscriptionIDs: ids, BenefitType: model.CustomerBenefitTypePriceDiscount,
+			PriceDiscountYuan: "10.00", OperationKey: "test-price-block-discount-operation", BenefitDate: "2026-06-20",
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.Store.SetDuePaid(ids[0], "2026-07-08", true, 9000); err != nil {
+			t.Fatal(err)
+		}
+		if err := service.Store.SetDuePaid(ids[0], "2026-07-08", false, 0); err != nil {
+			t.Fatal(err)
+		}
+		_, err := service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
+			BenefitID: benefit.ID, Reason: "调价落地后撤回", OperationKey: "test-price-block-revision-operation",
+		})
+		if err == nil || !strings.Contains(err.Error(), "落地调价") {
+			t.Fatalf("error = %v", err)
+		}
+	})
+}
+
 func TestDistinctDiscountAndExtensionBenefitsCanBeGivenOnDueDay(t *testing.T) {
 	for _, discountFirst := range []bool{true, false} {
 		t.Run(fmt.Sprintf("discount_first_%t", discountFirst), func(t *testing.T) {

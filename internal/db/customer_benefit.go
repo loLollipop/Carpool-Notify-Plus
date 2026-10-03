@@ -20,7 +20,22 @@ const customerBenefitSelectColumns = `
 	price_effective_due_date, price_adjustment_key,
 	recommendation_code, note, created_at,
 	COALESCE((SELECT extension_days FROM subscription_due_extensions WHERE customer_benefit_id = customer_benefits.id), 0),
-	(SELECT created_at FROM subscription_due_extensions WHERE customer_benefit_id = customer_benefits.id)`
+	(SELECT created_at FROM subscription_due_extensions WHERE customer_benefit_id = customer_benefits.id),
+	COALESCE((SELECT revision.action FROM subscription_due_extensions AS extension
+		JOIN subscription_due_extension_revisions AS revision ON revision.extension_id = extension.id
+		WHERE extension.customer_benefit_id = customer_benefits.id),
+		CASE WHEN EXISTS(SELECT 1 FROM subscription_due_extensions WHERE customer_benefit_id = customer_benefits.id)
+			THEN 'active' ELSE '' END),
+	COALESCE((SELECT revision.reason FROM subscription_due_extensions AS extension
+		JOIN subscription_due_extension_revisions AS revision ON revision.extension_id = extension.id
+		WHERE extension.customer_benefit_id = customer_benefits.id), ''),
+	(SELECT revision.created_at FROM subscription_due_extensions AS extension
+		JOIN subscription_due_extension_revisions AS revision ON revision.extension_id = extension.id
+		WHERE extension.customer_benefit_id = customer_benefits.id),
+	COALESCE((SELECT replacement.customer_benefit_id FROM subscription_due_extensions AS extension
+		JOIN subscription_due_extension_revisions AS revision ON revision.extension_id = extension.id
+		LEFT JOIN subscription_due_extensions AS replacement ON replacement.id = revision.replacement_extension_id
+		WHERE extension.customer_benefit_id = customer_benefits.id), 0)`
 
 // ListCustomerBenefits returns immutable delivery history, newest first.
 func (store *Store) ListCustomerBenefits() ([]model.CustomerBenefit, error) {
@@ -252,7 +267,10 @@ func createCustomerBenefitsWithTransaction(
 				  AND benefit_date = ?
 				  AND benefit_name = ?
 				  AND benefit_type IN (`+placeholders+`)
-				  AND (? = 0 OR batch_id NOT LIKE 'benefit-operation-v1:%')
+				  AND (? = 0 OR (
+					batch_id NOT LIKE 'benefit-operation-v1:%'
+					AND batch_id NOT LIKE 'extension-revision-v1:%'
+				  ))
 			)`, duplicateArgs...).Scan(&alreadyRecorded); queryErr != nil {
 			return queryErr
 		}
@@ -363,6 +381,7 @@ func scanCustomerBenefit(scanner scannable) (model.CustomerBenefit, error) {
 	var benefit model.CustomerBenefit
 	var createdAt string
 	var extensionAppliedAt sql.NullString
+	var extensionRevisedAt sql.NullString
 	if err := scanner.Scan(
 		&benefit.ID,
 		&benefit.BatchID,
@@ -388,6 +407,10 @@ func scanCustomerBenefit(scanner scannable) (model.CustomerBenefit, error) {
 		&createdAt,
 		&benefit.ExtensionDays,
 		&extensionAppliedAt,
+		&benefit.ExtensionStatus,
+		&benefit.ExtensionRevisionReason,
+		&extensionRevisedAt,
+		&benefit.ReplacementBenefitID,
 	); err != nil {
 		return model.CustomerBenefit{}, err
 	}
@@ -402,6 +425,13 @@ func scanCustomerBenefit(scanner scannable) (model.CustomerBenefit, error) {
 			return model.CustomerBenefit{}, err
 		}
 		benefit.ExtensionAppliedAt = &appliedAt
+	}
+	if extensionRevisedAt.Valid {
+		revisedAt, err := parseTime(extensionRevisedAt.String)
+		if err != nil {
+			return model.CustomerBenefit{}, err
+		}
+		benefit.ExtensionRevisedAt = &revisedAt
 	}
 	return benefit, nil
 }

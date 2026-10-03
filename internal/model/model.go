@@ -354,7 +354,17 @@ type CustomerBenefit struct {
 	Note                      string     `json:"note"`
 	ExtensionDays             int        `json:"extension_days"`
 	ExtensionAppliedAt        *time.Time `json:"extension_applied_at,omitempty"`
+	ExtensionStatus           string     `json:"extension_status,omitempty"`
+	ExtensionRevisionReason   string     `json:"extension_revision_reason,omitempty"`
+	ExtensionRevisedAt        *time.Time `json:"extension_revised_at,omitempty"`
+	ReplacementBenefitID      int64      `json:"replacement_benefit_id,omitempty"`
 	CreatedAt                 time.Time  `json:"created_at"`
+}
+
+// IsEffectiveForReporting reports whether this immutable benefit row still
+// contributes to customer-care and operating-cost statistics.
+func (benefit CustomerBenefit) IsEffectiveForReporting() bool {
+	return benefit.ExtensionStatus != "revoked" && benefit.ExtensionStatus != "superseded"
 }
 
 const OperatingExpenseCategoryXianyuPromotion = "xianyu_promotion"
@@ -437,8 +447,13 @@ type Subscription struct {
 	CancellationCaseID      int64                      `json:"cancellation_case_id"`
 	DeletedAt               *time.Time                 `json:"deleted_at"`
 	DueExtensions           []SubscriptionDueExtension `json:"due_extensions,omitempty"`
-	CreatedAt               time.Time                  `json:"created_at"`
-	UpdatedAt               time.Time                  `json:"updated_at"`
+	// DueExtensionUnpaidBaseDate is the earliest logical boundary ever touched
+	// by an extension. It is internal ledger context: revised events no longer
+	// shift the schedule, but their boundary must still prevent a no-bill
+	// subscription from skipping an overdue unpaid period.
+	DueExtensionUnpaidBaseDate string    `json:"-"`
+	CreatedAt                  time.Time `json:"created_at"`
+	UpdatedAt                  time.Time `json:"updated_at"`
 }
 
 // SubscriptionDueExtension is the immutable, auditable application of one
@@ -452,6 +467,25 @@ type SubscriptionDueExtension struct {
 	PreviousEffectiveDueDate string    `json:"previous_effective_due_date"`
 	EffectiveDueDate         string    `json:"effective_due_date"`
 	CreatedAt                time.Time `json:"created_at"`
+}
+
+const (
+	DueExtensionRevisionRevoked    = "revoked"
+	DueExtensionRevisionSuperseded = "superseded"
+)
+
+// SubscriptionDueExtensionRevision preserves every operator correction to an
+// immutable due-extension event.
+type SubscriptionDueExtensionRevision struct {
+	ID                     int64     `json:"id"`
+	ExtensionID            int64     `json:"extension_id"`
+	Action                 string    `json:"action"`
+	ReplacementExtensionID int64     `json:"replacement_extension_id,omitempty"`
+	PreviousDays           int       `json:"previous_days"`
+	ReplacementDays        int       `json:"replacement_days,omitempty"`
+	Reason                 string    `json:"reason"`
+	OperationKey           string    `json:"operation_key"`
+	CreatedAt              time.Time `json:"created_at"`
 }
 
 // BillingSchedule is the effective schedule used by every billing consumer.
@@ -626,20 +660,21 @@ type TemplateData struct {
 
 // ExportPayload is the JSON export shape (no secrets).
 type ExportPayload struct {
-	ExportedAt                         string                     `json:"exported_at"`
-	NotifyTemplate                     string                     `json:"notify_template"`
-	CustomerEmailTemplate              string                     `json:"customer_email_template"`
-	PriceIncreaseCustomerEmailTemplate string                     `json:"price_increase_customer_email_template"`
-	PriceDecreaseCustomerEmailTemplate string                     `json:"price_decrease_customer_email_template"`
-	EnabledChannels                    []string                   `json:"enabled_channels"`
-	RedeemPageSettings                 RedeemPageSettings         `json:"redeem_page_settings"`
-	SeatFreezeDays                     int                        `json:"seat_freeze_days"`
-	RenewalApplicationAlertEmail       string                     `json:"renewal_application_alert_email"`
-	Accounts                           []ExportAccount            `json:"accounts"`
-	Subscriptions                      []ExportSubscription       `json:"subscriptions"`
-	CustomerBenefits                   []CustomerBenefit          `json:"customer_benefits"`
-	SubscriptionDueExtensions          []SubscriptionDueExtension `json:"subscription_due_extensions"`
-	OperatingExpenses                  []OperatingExpense         `json:"operating_expenses"`
+	ExportedAt                         string                             `json:"exported_at"`
+	NotifyTemplate                     string                             `json:"notify_template"`
+	CustomerEmailTemplate              string                             `json:"customer_email_template"`
+	PriceIncreaseCustomerEmailTemplate string                             `json:"price_increase_customer_email_template"`
+	PriceDecreaseCustomerEmailTemplate string                             `json:"price_decrease_customer_email_template"`
+	EnabledChannels                    []string                           `json:"enabled_channels"`
+	RedeemPageSettings                 RedeemPageSettings                 `json:"redeem_page_settings"`
+	SeatFreezeDays                     int                                `json:"seat_freeze_days"`
+	RenewalApplicationAlertEmail       string                             `json:"renewal_application_alert_email"`
+	Accounts                           []ExportAccount                    `json:"accounts"`
+	Subscriptions                      []ExportSubscription               `json:"subscriptions"`
+	CustomerBenefits                   []CustomerBenefit                  `json:"customer_benefits"`
+	SubscriptionDueExtensions          []SubscriptionDueExtension         `json:"subscription_due_extensions"`
+	SubscriptionDueExtensionRevisions  []SubscriptionDueExtensionRevision `json:"subscription_due_extension_revisions"`
+	OperatingExpenses                  []OperatingExpense                 `json:"operating_expenses"`
 }
 
 // ExportAccount is one account with seats in an export file.

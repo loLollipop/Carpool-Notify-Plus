@@ -126,7 +126,9 @@ func (schedule BillingSchedule) lastEffectiveDue(now time.Time) (time.Time, bool
 // FirstUnpaid uses the same ledger boundary for cards, renewal and extensions.
 // Legacy rows without bills start at the next boundary; a delivered extension
 // pins that unpaid boundary so it stays visible even after becoming overdue.
-func (schedule BillingSchedule) FirstUnpaid(now time.Time, paidDates []string) (time.Time, error) {
+// Historical base dates preserve that pin after the corresponding extension
+// is revoked or superseded and therefore no longer shifts the active schedule.
+func (schedule BillingSchedule) FirstUnpaid(now time.Time, paidDates []string, historicalBaseDates ...string) (time.Time, error) {
 	next := schedule.NextDue(now)
 	start := next
 	paid := make(map[string]struct{}, len(paidDates))
@@ -148,12 +150,23 @@ func (schedule BillingSchedule) FirstUnpaid(now time.Time, paidDates []string) (
 		}
 		start = schedule.NextDue(StartOfDay(start).Add(-time.Nanosecond))
 	}
+	anchorDates := append([]string(nil), historicalBaseDates...)
 	if len(schedule.extensions) > 0 {
-		first, _ := time.ParseInLocation("2006-01-02", schedule.extensions[0].BaseDueDate, Location)
-		first = schedule.baseSchedule().NextDue(first.Add(-time.Nanosecond))
-		first = schedule.EffectiveDue(first)
-		if first.Before(start) {
-			start = first
+		anchorDates = append(anchorDates, schedule.extensions[0].BaseDueDate)
+	}
+	base := schedule.baseSchedule()
+	for _, anchorDate := range anchorDates {
+		if anchorDate == "" {
+			continue
+		}
+		anchor, err := time.ParseInLocation("2006-01-02", anchorDate, Location)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("invalid unpaid billing anchor %q: %w", anchorDate, err)
+		}
+		anchor = base.NextDue(anchor.Add(-time.Nanosecond))
+		anchor = schedule.EffectiveDue(anchor)
+		if anchor.Before(start) {
+			start = anchor
 		}
 	}
 	for range len(paidDates) + 1 {

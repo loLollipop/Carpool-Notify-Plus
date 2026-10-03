@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -37,6 +38,36 @@ func createBenefitExtensionTarget(t *testing.T, server *Server) service.Subscrip
 		t.Fatalf("review views = %#v, %v", views, err)
 	}
 	return views[0]
+}
+
+func TestCustomerBenefitExtensionRevisionHTTPStatus(t *testing.T) {
+	server, router := subscriptionEditTestServer(t)
+	router.POST("/goals/customer-benefits", server.postGoalCustomerBenefits)
+	router.PUT("/goals/customer-benefits/:id/extension", server.putGoalCustomerBenefitExtension)
+	view := createBenefitExtensionTarget(t, server)
+	response := subscriptionEditRequest(t, router, http.MethodPost, "/goals/customer-benefits",
+		benefitExtensionPayload(view, "handler-extension-revision-source"))
+	if response.Code != http.StatusOK {
+		t.Fatalf("create response: %d %s", response.Code, response.Body.String())
+	}
+	benefits, err := server.Service.Store.ListCustomerBenefits()
+	if err != nil || len(benefits) != 1 {
+		t.Fatalf("benefits = %#v, %v", benefits, err)
+	}
+	path := fmt.Sprintf("/goals/customer-benefits/%d/extension", benefits[0].ID)
+	operationKey := "handler-extension-revision-operation"
+	response = subscriptionEditRequest(t, router, http.MethodPut, path, map[string]any{
+		"extension_days": 11, "reason": "补足服务时间", "operation_key": operationKey,
+	})
+	if response.Code != http.StatusOK {
+		t.Fatalf("edit response: %d %s", response.Code, response.Body.String())
+	}
+	response = subscriptionEditRequest(t, router, http.MethodPut, path, map[string]any{
+		"extension_days": 12, "reason": "补足服务时间", "operation_key": operationKey,
+	})
+	if response.Code != http.StatusConflict {
+		t.Fatalf("conflict response: %d %s", response.Code, response.Body.String())
+	}
 }
 
 func benefitExtensionPayload(view service.SubscriptionView, operationKey string) map[string]any {

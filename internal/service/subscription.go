@@ -51,6 +51,10 @@ type SubscriptionService struct {
 
 	runtimeConfigMu sync.RWMutex
 	marketRefreshMu sync.Mutex
+	// dueNotificationMu makes extension revision and external due-notification
+	// delivery one ordered operation within the service. Database CAS guards the
+	// terminal state as a second line of defense for stale workers.
+	dueNotificationMu sync.Mutex
 }
 
 // NewNotifyRegistry builds senders from runtime configuration.
@@ -391,7 +395,7 @@ func (service *SubscriptionService) buildViewWithPaidDueDates(
 		// Team rows use the effective schedule directly. Keeping the legacy
 		// pre-pass here would make a non-midnight cron revisit the paid date at
 		// 00:00 and then at its trigger time, exhausting the bounded search.
-		displayDue, err = schedule.FirstUnpaid(now, paidDueDates)
+		displayDue, err = schedule.FirstUnpaid(now, paidDueDates, subscription.DueExtensionUnpaidBaseDate)
 		if err != nil {
 			return SubscriptionView{}, err
 		}
@@ -643,6 +647,9 @@ func (service *SubscriptionService) ComputeDashboard() (Dashboard, error) {
 		return Dashboard{}, err
 	}
 	for _, benefit := range benefits {
+		if !benefit.IsEffectiveForReporting() {
+			continue
+		}
 		totalCostCents += benefit.ActualCostCents
 	}
 	operatingExpenses, err := service.Store.ListOperatingExpenses()
@@ -3003,6 +3010,10 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 	if err != nil {
 		return model.ExportPayload{}, err
 	}
+	payload.SubscriptionDueExtensionRevisions, err = service.Store.ListSubscriptionDueExtensionRevisions()
+	if err != nil {
+		return model.ExportPayload{}, err
+	}
 	for _, subscription := range subscriptions {
 		profitCents := countedProfitCents(subscription)
 		accountName := displayAccountName(subscription)
@@ -3133,6 +3144,9 @@ func (service *SubscriptionService) sendToEnabledChannels(ctx context.Context, t
 // ProcessDueNotifications plans and sends due scheduled notifications.
 // Positive offsets email customers via SMTP; due-day unpaid items notify the operator via IYUU.
 func (service *SubscriptionService) ProcessDueNotifications(ctx context.Context) error {
+	service.dueNotificationMu.Lock()
+	defer service.dueNotificationMu.Unlock()
+
 	if _, err := service.Store.RestoreExpiredCancellationRequests(service.now()); err != nil {
 		return err
 	}
@@ -3388,9 +3402,12 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 
 	var failures []error
 	for _, logEntry := range logEntries {
-		if logEntry.Status == model.NotificationStatusSuccess ||
-			logEntry.Status == model.NotificationStatusFailed ||
-			logEntry.Status == model.NotificationStatusCanceled {
+		current, err := service.Store.GetNotificationLogByID(logEntry.ID)
+		if err != nil {
+			return errors.Join(append(failures, err)...)
+		}
+		logEntry = current
+		if logEntry.Status != model.NotificationStatusPending {
 			continue
 		}
 		if logEntry.AttemptCount >= maxAttempts {
@@ -3423,25 +3440,11 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 			)))
 			continue
 		}
-		if len(subscription.DueExtensions) > 0 {
-			schedule, scheduleErr := subscription.BillingSchedule()
-			if scheduleErr != nil {
-				return scheduleErr
-			}
-			valid, checkErr := schedule.IsDueDate(logEntry.DueDate)
-			if checkErr != nil {
-				return checkErr
-			}
-			if !valid {
-				failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationCanceled(logEntry.ID)))
-				continue
-			}
+		valid, checkErr := service.notificationMatchesCurrentBoundary(subscription, logEntry)
+		if checkErr != nil {
+			return checkErr
 		}
-		if logEntry.Kind == model.NotificationKindPriceIncreaseNotice &&
-			!priceChangeAppliesForDueDate(subscription, logEntry.DueDate) {
-			// A failed or interrupted advance notice can outlive the pricing plan
-			// that created it. Close it instead of falling back to the ordinary
-			// renewal template and sending an unexpected email 30 days early.
+		if !valid {
 			failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationCanceled(logEntry.ID)))
 			continue
 		}
@@ -3474,6 +3477,13 @@ func (service *SubscriptionService) attemptCustomerEmailSends(ctx context.Contex
 			continue
 		}
 		subject := customerEmailSubjectForNotification(subscription, dueAt, logEntry.Kind)
+		current, err = service.Store.GetNotificationLogByID(logEntry.ID)
+		if err != nil {
+			return errors.Join(append(failures, err)...)
+		}
+		if current.Status != model.NotificationStatusPending {
+			continue
+		}
 		if err := sendCustomerSMTP(ctx, sender, customerEmail, subject, message); err != nil {
 			logEntry.AttemptCount = logEntry.AttemptCount + 1
 			failures = append(failures, err, service.failWithRetry(logEntry, err.Error()))
@@ -3518,14 +3528,6 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 	_, registry := service.runtimeConfigSnapshot()
 	sender, ok := registry.Get(channel)
 	var failures []error
-	if !ok {
-		failures = append(failures, errors.New("channel not configured"))
-		for _, logEntry := range logEntries {
-			logEntry.AttemptCount = logEntry.AttemptCount + 1
-			failures = append(failures, service.failWithRetry(logEntry, "channel not configured"))
-		}
-		return errors.Join(failures...)
-	}
 
 	type digestItem struct {
 		logEntry     model.NotificationLog
@@ -3534,9 +3536,12 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 	}
 	items := make([]digestItem, 0, len(logEntries))
 	for _, logEntry := range logEntries {
-		if logEntry.Status == model.NotificationStatusSuccess ||
-			logEntry.Status == model.NotificationStatusFailed ||
-			logEntry.Status == model.NotificationStatusCanceled {
+		current, err := service.Store.GetNotificationLogByID(logEntry.ID)
+		if err != nil {
+			return errors.Join(append(failures, err)...)
+		}
+		logEntry = current
+		if logEntry.Status != model.NotificationStatusPending {
 			continue
 		}
 		if logEntry.AttemptCount >= maxAttempts {
@@ -3559,19 +3564,18 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 			}
 			return errors.Join(append(failures, err)...)
 		}
-		if len(subscription.DueExtensions) > 0 {
-			schedule, scheduleErr := subscription.BillingSchedule()
-			if scheduleErr != nil {
-				return scheduleErr
-			}
-			valid, checkErr := schedule.IsDueDate(logEntry.DueDate)
-			if checkErr != nil {
-				return checkErr
-			}
-			if !valid {
-				failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationCanceled(logEntry.ID)))
-				continue
-			}
+		valid, checkErr := service.notificationMatchesCurrentBoundary(subscription, logEntry)
+		if checkErr != nil {
+			return checkErr
+		}
+		if !valid {
+			failures = append(failures, notificationStateError(logEntry.ID, service.Store.MarkNotificationCanceled(logEntry.ID)))
+			continue
+		}
+		if !ok {
+			logEntry.AttemptCount++
+			failures = append(failures, errors.New("channel not configured"), service.failWithRetry(logEntry, "channel not configured"))
+			continue
 		}
 		dueAt, err := parseTemplateDueDate(logEntry.DueDate)
 		if err != nil {
@@ -3591,6 +3595,21 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 			message:      message,
 		})
 	}
+	if len(items) == 0 {
+		return errors.Join(failures...)
+	}
+	ready := items[:0]
+	for _, item := range items {
+		current, err := service.Store.GetNotificationLogByID(item.logEntry.ID)
+		if err != nil {
+			return errors.Join(append(failures, err)...)
+		}
+		if current.Status == model.NotificationStatusPending {
+			item.logEntry = current
+			ready = append(ready, item)
+		}
+	}
+	items = ready
 	if len(items) == 0 {
 		return errors.Join(failures...)
 	}
@@ -3621,6 +3640,24 @@ func (service *SubscriptionService) attemptDigestSend(ctx context.Context, chann
 		failures = append(failures, notificationStateError(item.logEntry.ID, service.Store.MarkNotificationSuccess(item.logEntry.ID, item.logEntry.AttemptCount+1)))
 	}
 	return errors.Join(failures...)
+}
+
+func (service *SubscriptionService) notificationMatchesCurrentBoundary(
+	subscription model.Subscription,
+	logEntry model.NotificationLog,
+) (bool, error) {
+	schedule, err := subscription.BillingSchedule()
+	if err != nil {
+		return false, err
+	}
+	valid, err := schedule.IsDueDate(logEntry.DueDate)
+	if err != nil || !valid {
+		return valid, err
+	}
+	if logEntry.Kind == model.NotificationKindPriceIncreaseNotice {
+		return priceChangeAppliesForDueDate(subscription, logEntry.DueDate), nil
+	}
+	return service.Store.IsCurrentFirstUnpaidDueDate(subscription, logEntry.DueDate, service.now())
 }
 
 // buildDigestBody joins rendered Team renewal and Plus renewal-rental messages.
