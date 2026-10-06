@@ -33,7 +33,7 @@ import {
   YAxis,
 } from "recharts"
 
-import { useAccounts, useOperationsOverview } from "@/api/queries"
+import { useAccounts, useOperationsOverview, useSubscriptions } from "@/api/queries"
 import type { AccountView, OperationTask, OperationsOverview } from "@/api/types"
 import { AmountPrivacyToggle } from "@/components/amount-privacy-toggle"
 import { PageHeader } from "@/components/page-header"
@@ -46,6 +46,7 @@ import {
   type StatDetailState,
 } from "@/components/stat-detail-dialog"
 import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDialog"
+import { OperationSubscriptionDialog } from "@/features/dashboard/OperationSubscriptionDialog"
 import { PlusRentalDialog } from "@/features/plus-rentals/PlusRentalDialog"
 import { SubscriptionDialog } from "@/features/subscriptions/SubscriptionDialog"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
@@ -323,10 +324,12 @@ function OperationsQueue({
   overview,
   amountsHidden,
   onCollect,
+  onViewTeam,
 }: {
   overview: OperationsOverview
   amountsHidden: boolean
   onCollect: (task: OperationTask) => void
+  onViewTeam: (task: OperationTask) => void
 }) {
   const { t } = useTranslation()
   const allTasks = overview.tasks ?? []
@@ -381,6 +384,7 @@ function OperationsQueue({
                 task.kind === "plus_due" ||
                 task.kind === "plus_overdue") &&
               !task.one_month_rental
+            const teamSubscription = task.kind === "team_due" || task.kind === "team_overdue"
             return (
               <div
                 key={task.id}
@@ -428,11 +432,11 @@ function OperationsQueue({
                   <Button
                     size="sm"
                     className="h-7 shrink-0 px-2.5 text-[11px]"
-                    onClick={() => onCollect(task)}
+                    onClick={() => (teamSubscription ? onViewTeam(task) : onCollect(task))}
                   >
-                    {task.kind.startsWith("plus_")
-                      ? t("dash.workbench.recordRenewal")
-                      : t("dash.workbench.recordPaid")}
+                    {teamSubscription
+                      ? t("dash.workbench.viewInfo")
+                      : t("dash.workbench.recordRenewal")}
                   </Button>
                 ) : (
                   <Button asChild variant="outline" size="sm" className="h-7 shrink-0 px-2.5 text-[11px]">
@@ -754,8 +758,13 @@ export function DashboardPage() {
   const [plusDialogOpen, setPlusDialogOpen] = React.useState(false)
   const [teamDialogOpen, setTeamDialogOpen] = React.useState(false)
   const [duePaidTarget, setDuePaidTarget] = React.useState<DuePaidTarget | null>(null)
+  const [teamInfoTask, setTeamInfoTask] = React.useState<OperationTask | null>(null)
   const [capacitySegment, setCapacitySegment] = React.useState<CapacitySegment | null>(null)
   const accountsQuery = useAccounts(capacitySegment !== null)
+  const subscriptionsQuery = useSubscriptions({
+    enabled: teamInfoTask !== null,
+    staleTime: 0,
+  })
 
   const overview = overviewQuery.data
   const openCollect = (task: OperationTask) => {
@@ -767,6 +776,26 @@ export function DashboardPage() {
       dueDate: task.due_date,
       kind: task.kind.startsWith("plus_") ? "plus" : "team",
     })
+  }
+
+  const selectedTeamSubscription = React.useMemo(
+    () => {
+      const views = [
+        ...(subscriptionsQuery.data?.subscriptions ?? []),
+        ...(subscriptionsQuery.data?.archived ?? []),
+      ]
+      return (
+        views.find((view) => view.subscription.id === teamInfoTask?.subscription_id) ?? null
+      )
+    },
+    [subscriptionsQuery.data, teamInfoTask?.subscription_id],
+  )
+
+  const recordSelectedTeamPayment = () => {
+    if (!teamInfoTask) return
+    const task = teamInfoTask
+    setTeamInfoTask(null)
+    openCollect(task)
   }
 
   const capacityDetail = React.useMemo<StatDetailState | null>(() => {
@@ -912,6 +941,7 @@ export function DashboardPage() {
               overview={overview}
               amountsHidden={amountsHidden}
               onCollect={openCollect}
+              onViewTeam={setTeamInfoTask}
             />
           </section>
 
@@ -924,6 +954,24 @@ export function DashboardPage() {
 
       <PlusRentalDialog open={plusDialogOpen} onOpenChange={setPlusDialogOpen} prefill={null} />
       <SubscriptionDialog open={teamDialogOpen} onOpenChange={setTeamDialogOpen} prefill={null} />
+      <OperationSubscriptionDialog
+        open={teamInfoTask !== null}
+        onOpenChange={(open) => {
+          if (!open) setTeamInfoTask(null)
+        }}
+        task={teamInfoTask}
+        subscription={selectedTeamSubscription}
+        loading={
+          subscriptionsQuery.isPending ||
+          (subscriptionsQuery.isFetching && selectedTeamSubscription === null)
+        }
+        loadFailed={
+          subscriptionsQuery.isError ||
+          (!subscriptionsQuery.isFetching && selectedTeamSubscription === null)
+        }
+        amountsHidden={amountsHidden}
+        onRecordPayment={recordSelectedTeamPayment}
+      />
       <DuePaidDialog
         open={duePaidTarget !== null}
         onOpenChange={(open) => {

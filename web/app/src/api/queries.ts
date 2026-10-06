@@ -178,8 +178,16 @@ export function useGoals() {
   return useQuery({ queryKey: queryKeys.goals, queryFn: fetchGoals })
 }
 
-export function useSubscriptions() {
-  return useQuery({ queryKey: queryKeys.subscriptions, queryFn: fetchSubscriptions })
+export function useSubscriptions({
+  enabled = true,
+  staleTime,
+}: { enabled?: boolean; staleTime?: number } = {}) {
+  return useQuery({
+    queryKey: queryKeys.subscriptions,
+    queryFn: fetchSubscriptions,
+    enabled,
+    ...(staleTime === undefined ? {} : { staleTime }),
+  })
 }
 
 export function useRedemptions(status?: "pending" | "invited" | "rejected" | "all") {
