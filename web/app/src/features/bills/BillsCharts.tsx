@@ -21,17 +21,11 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { AMOUNT_MASK, VALUE_MASK, maskAmount, maskValue } from "@/lib/amount-privacy"
 import { formatAccountLabel } from "@/lib/account-display"
+import { formatCents } from "@/lib/currency"
 import { cn } from "@/lib/utils"
 
 const AMOUNT_ITEMS_PER_PAGE = 4
 const DONUT_DETAILS_PER_PAGE = 5
-
-function formatCents(cents: number) {
-  return `¥${(cents / 100).toLocaleString("zh-CN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`
-}
 
 function formatAxisCents(cents: number) {
   const yuan = cents / 100

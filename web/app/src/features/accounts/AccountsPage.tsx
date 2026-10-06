@@ -42,6 +42,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { cn, compareISODateStrings } from "@/lib/utils"
+import { formatCentsPlain, formatCentsOptional } from "@/lib/currency"
 import { SubscriptionDialog } from "@/features/subscriptions/SubscriptionDialog"
 import {
   prefillFromSeat,
@@ -79,14 +80,6 @@ function freezeTargetFromSeat(
     frozenUntil: seat.frozen_until,
     frozenUntilLabel: seat.frozen_until_label,
   }
-}
-
-function formatCents(cents: number) {
-  return (cents / 100).toFixed(2)
-}
-
-function formatOptionalCents(cents: number) {
-  return cents > 0 ? formatCents(cents) : ""
 }
 
 function AccountSerial({ number, className }: { number: number; className?: string }) {
@@ -387,7 +380,7 @@ function AccountMobileCard({
           <div>
             <div className="text-muted-foreground">{t("accounts.totalCostShort")}</div>
             <div className="mt-1 font-semibold text-gold tabular-nums">
-              ¥{formatCents(view.account.total_cost_cents)}
+              ¥{formatCentsPlain(view.account.total_cost_cents)}
             </div>
           </div>
           <div className="col-span-2 border-t border-foreground/[0.06] pt-2.5">
@@ -404,7 +397,7 @@ function AccountMobileCard({
               ) : null}
             </div>
             <div className="mt-1 text-muted-foreground">
-              {t("accounts.costShort")} ¥{formatCents(view.account.cost_cents)}
+              {t("accounts.costShort")} ¥{formatCentsPlain(view.account.cost_cents)}
             </div>
           </div>
           {view.account.remark ? (
@@ -571,7 +564,7 @@ export function AccountsPage() {
       email: view.account.email,
       spaceName: view.account.space_name,
       openedAt: view.account.opened_at,
-      costYuan: formatOptionalCents(view.account.cost_cents),
+      costYuan: formatCentsOptional(view.account.cost_cents),
       zeroRenewalNextMonth: view.account.zero_renewal_next_month,
       seatCount: view.seat_total,
     })
@@ -635,7 +628,7 @@ export function AccountsPage() {
       id: view.account.id,
       name: formatAccountName(view.display_email || view.account.email || view.account.name, view.space_role),
       renewalDate: view.next_renewal_date,
-      amountYuan: formatCents(view.account.zero_renewal_next_month ? 0 : view.account.cost_cents),
+      amountYuan: formatCentsPlain(view.account.zero_renewal_next_month ? 0 : view.account.cost_cents),
     })
   }
   const renewalDates = React.useMemo(() => {
@@ -750,7 +743,7 @@ export function AccountsPage() {
         view.account.space_name,
         view.account.opened_at,
         nextRenewalDate,
-        formatCents(view.account.cost_cents),
+        formatCentsPlain(view.account.cost_cents),
         ...seatFields,
       ].some((field) => field?.toLowerCase().includes(query))
     })
@@ -1043,11 +1036,11 @@ export function AccountsPage() {
                         <div className="text-xs text-muted-foreground">
                           {t("accounts.totalCostShort")}{" "}
                           <span className="font-mono font-semibold text-gold tabular-nums">
-                            ¥{formatCents(view.account.total_cost_cents)}
+                            ¥{formatCentsPlain(view.account.total_cost_cents)}
                           </span>
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {t("accounts.costShort")} ¥{formatCents(view.account.cost_cents)}
+                          {t("accounts.costShort")} ¥{formatCentsPlain(view.account.cost_cents)}
                         </div>
                         {view.account.zero_renewal_next_month ? (
                           <Badge variant="outline" className="font-normal">

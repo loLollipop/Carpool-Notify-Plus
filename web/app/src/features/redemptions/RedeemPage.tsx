@@ -214,36 +214,6 @@ function RedeemThemeToggle() {
   )
 }
 
-function RedeemAmbientField() {
-  return (
-    <div className="redeem-ambient-field" aria-hidden="true">
-      <span className="redeem-ambient-scan" />
-
-      <div className="redeem-circuit-bank is-left">
-        <span className="redeem-circuit-track is-a" />
-        <span className="redeem-circuit-track is-b" />
-        <span className="redeem-circuit-track is-c" />
-        <span className="redeem-circuit-track is-d" />
-        <span className="redeem-circuit-track is-e" />
-        <span className="redeem-ambient-crosshair is-a" />
-        <span className="redeem-ambient-crosshair is-b" />
-      </div>
-
-      <div className="redeem-circuit-bank is-right">
-        <span className="redeem-circuit-track is-a" />
-        <span className="redeem-circuit-track is-b" />
-        <span className="redeem-circuit-track is-c" />
-        <span className="redeem-circuit-track is-d" />
-        <span className="redeem-circuit-track is-e" />
-        <span className="redeem-ambient-crosshair is-a" />
-        <span className="redeem-ambient-crosshair is-b" />
-      </div>
-
-      <span className="redeem-ambient-horizon" />
-    </div>
-  )
-}
-
 function RedeemAnnouncementButton({
   mode,
   onClick,
@@ -327,14 +297,9 @@ function SupportWechatPanel({ settings }: { settings: RedeemPageSettings }) {
   return (
     <aside className="redeem-support-panel hidden overflow-hidden lg:flex lg:flex-col">
       <div className="redeem-support-terminal-bar">
-        <div className="flex items-center gap-2">
-          <span className="redeem-window-dot bg-[#ff6b63]" />
-          <span className="redeem-window-dot bg-[#e9bd4e]" />
-          <span className="redeem-window-dot bg-[var(--redeem-accent)]" />
-          <span className="ml-1 font-mono text-[10px] font-medium tracking-[0.08em] text-[var(--redeem-muted)]">
-            support.channel
-          </span>
-        </div>
+        <span className="font-mono text-[10px] font-medium tracking-[0.08em] text-[var(--redeem-muted)]">
+          support.channel
+        </span>
         <span className="redeem-online-label">ONLINE</span>
       </div>
 
@@ -464,12 +429,7 @@ function PaymentPanel({
   return (
     <aside className="redeem-support-panel redeem-payment-panel hidden overflow-hidden lg:flex lg:flex-col">
       <div className="redeem-support-terminal-bar">
-        <div className="flex items-center gap-2">
-          <span className="redeem-window-dot bg-[#ff6b63]" />
-          <span className="redeem-window-dot bg-[#e9bd4e]" />
-          <span className="redeem-window-dot bg-[var(--redeem-accent)]" />
-          <span className="ml-1 font-mono text-[10px] font-medium tracking-[0.08em] text-[var(--redeem-muted)]">payment.channel</span>
-        </div>
+        <span className="font-mono text-[10px] font-medium tracking-[0.08em] text-[var(--redeem-muted)]">payment.channel</span>
         <span className="redeem-online-label">PAY</span>
       </div>
       <div className="redeem-support-body flex flex-1 flex-col p-5 xl:p-6">
@@ -1663,7 +1623,6 @@ export function RedeemPage() {
         onRestart={resetApplication}
       />
 
-      <RedeemAmbientField />
       <RedeemReferenceFloats settings={redeemSettings} />
 
       <header className="redeem-topbar">
@@ -1701,45 +1660,7 @@ export function RedeemPage() {
               : "is-single",
           )}
         >
-          <div className="redeem-workspace-decor" aria-hidden="true">
-            <div className="redeem-telemetry-bar">
-              <span className="redeem-telemetry-label">
-                <i />
-                {mode === "renewal" ? "RENEWAL WORKSPACE" : "REDEMPTION WORKSPACE"}
-              </span>
-              <span className="redeem-telemetry-track" />
-              <span className="redeem-telemetry-label">CPN / ACCESS</span>
-            </div>
-            <span className="redeem-frame-corner is-top-left" />
-            <span className="redeem-frame-corner is-top-right" />
-            <span className="redeem-frame-corner is-bottom-left" />
-            <span className="redeem-frame-corner is-bottom-right" />
-            <div className="redeem-side-rail is-left">
-                <span>{mode === "renewal" ? "BILL CHANNEL" : "INPUT CHANNEL"}</span>
-            </div>
-            <div className="redeem-side-rail is-right">
-                <span>{mode === "renewal" ? "PAYMENT CHANNEL" : "SUPPORT CHANNEL"}</span>
-            </div>
-            <span className="redeem-frame-node is-left" />
-            <span className="redeem-frame-node is-right" />
-          </div>
-
           <Card className="redeem-terminal overflow-hidden p-0">
-            <div className="redeem-terminal-bar">
-              <div className="flex items-center gap-2">
-                <span className="redeem-window-dot bg-[#ff6b63]" />
-                <span className="redeem-window-dot bg-[#e9bd4e]" />
-                <span className="redeem-window-dot bg-[var(--redeem-accent)]" />
-                <span className="ml-2 font-mono text-[10px] font-medium tracking-[0.08em] text-[var(--redeem-muted)] sm:text-[11px]">
-                  {mode === "renewal" ? "ACCOUNT / RENEW" : "TEAM / REDEEM"}
-                </span>
-              </div>
-              <span className="redeem-channel-status">
-                <span className="redeem-status-dot" />
-                <span>通道在线</span>
-              </span>
-            </div>
-
             <div className="redeem-portal-shell px-5 pt-6 sm:px-8 sm:pt-8 lg:px-9 lg:pt-6">
               <div className="redeem-portal-heading">
                 <span className="redeem-portal-mark" aria-hidden="true">

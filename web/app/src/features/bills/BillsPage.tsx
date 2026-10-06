@@ -55,6 +55,7 @@ import {
 } from "@/components/ui/table"
 import { cn } from "@/lib/utils"
 import { AMOUNT_MASK, VALUE_MASK, maskAmount, maskValue } from "@/lib/amount-privacy"
+import { formatCents } from "@/lib/currency"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { accountSerialSearchTerms, formatAccountLabel } from "@/lib/account-display"
 import { BillEditDialog } from "./BillEditDialog"
@@ -76,13 +77,6 @@ function billIdentity(bill: BillView) {
       ? [bill.customer_email, bill.customer_wechat].filter(Boolean).join(" · ") || bill.subscription_name
       : bill.customer_email || bill.subscription_name,
   }
-}
-
-function formatCents(cents: number) {
-  return `¥${(cents / 100).toLocaleString("zh-CN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`
 }
 
 

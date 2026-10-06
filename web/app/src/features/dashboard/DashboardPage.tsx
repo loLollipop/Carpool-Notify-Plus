@@ -52,11 +52,8 @@ import { SubscriptionDialog } from "@/features/subscriptions/SubscriptionDialog"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { formatAccountLabel } from "@/lib/account-display"
 import { maskAmount } from "@/lib/amount-privacy"
+import { formatCents } from "@/lib/currency"
 import { cn } from "@/lib/utils"
-
-function formatCents(cents: number) {
-  return `¥${(cents / 100).toFixed(2)}`
-}
 
 function formatAxisCents(cents: number) {
   const value = cents / 100
