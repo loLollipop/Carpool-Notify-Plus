@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query"
 
 import { setUnauthorizedHandler } from "@/api/client"
 import { getSession, logout as apiLogout } from "@/api/endpoints"
+import { clearCSRFToken } from "@/lib/csrf"
 import { AuthContext, type AuthStatus } from "./auth-state"
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -38,6 +39,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await apiLogout()
     } finally {
+      clearCSRFToken()
       queryClient.clear()
       setStatus("unauthenticated")
     }

@@ -41,14 +41,49 @@ type fixedWindowLimiter struct {
 	window   time.Duration
 	maxKeys  int
 	byClient map[string]fixedWindowState
+	stopChan chan struct{}
 }
 
 func newFixedWindowLimiter(limit int, window time.Duration) *fixedWindowLimiter {
-	return &fixedWindowLimiter{
+	limiter := &fixedWindowLimiter{
 		limit:    limit,
 		window:   window,
 		maxKeys:  maxPublicRateStates,
 		byClient: make(map[string]fixedWindowState),
+		stopChan: make(chan struct{}),
+	}
+	// Start automatic cleanup goroutine
+	go limiter.autoCleanup()
+	return limiter
+}
+
+// autoCleanup periodically removes expired entries to prevent memory leaks
+func (limiter *fixedWindowLimiter) autoCleanup() {
+	// Clean up every 5 minutes or window duration, whichever is smaller
+	cleanupInterval := 5 * time.Minute
+	if limiter.window < cleanupInterval {
+		cleanupInterval = limiter.window
+	}
+
+	ticker := time.NewTicker(cleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			limiter.mu.Lock()
+			limiter.prune(time.Now().UTC())
+			limiter.mu.Unlock()
+		case <-limiter.stopChan:
+			return
+		}
+	}
+}
+
+// Stop gracefully stops the cleanup goroutine
+func (limiter *fixedWindowLimiter) Stop() {
+	if limiter != nil && limiter.stopChan != nil {
+		close(limiter.stopChan)
 	}
 }
 

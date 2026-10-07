@@ -1,4 +1,5 @@
 import { isSandboxModeActive } from "@/lib/sandbox-mode"
+import { getCSRFHeaders } from "@/lib/csrf"
 
 class ApiError extends Error {
   status: number
@@ -28,11 +29,29 @@ interface RequestOptions {
 
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = "GET", body, silent401 = false } = options
+
+  // Fetch CSRF token for state-changing requests
+  const headers: Record<string, string> = {}
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json"
+  }
+
+  // Add CSRF token for POST, PUT, DELETE requests
+  if (method !== "GET") {
+    try {
+      const csrfHeaders = await getCSRFHeaders()
+      Object.assign(headers, csrfHeaders)
+    } catch (error) {
+      console.error("Failed to get CSRF token:", error)
+      // Continue without CSRF token for public endpoints
+    }
+  }
+
   const response = await fetch(scopeBusinessPath(path), {
     method,
     cache: "no-store",
     credentials: "same-origin",
-    headers: body !== undefined ? { "Content-Type": "application/json" } : undefined,
+    headers: Object.keys(headers).length > 0 ? headers : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
 

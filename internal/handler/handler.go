@@ -42,6 +42,7 @@ type Server struct {
 	loginFailures       map[string]loginFailureState
 	publicSubmitLimiter *fixedWindowLimiter
 	publicStatusLimiter *fixedWindowLimiter
+	csrfManager         *csrfManager
 }
 
 // NewServer constructs a Server and hashes the login password.
@@ -58,6 +59,7 @@ func NewServer(subscriptionService *service.SubscriptionService, configuration c
 		DistDir:             distDir,
 		publicSubmitLimiter: newFixedWindowLimiter(publicSubmitLimit, publicSubmitWindow),
 		publicStatusLimiter: newFixedWindowLimiter(publicStatusLimit, publicStatusWindow),
+		csrfManager:         newCSRFManager(),
 	}, nil
 }
 
@@ -67,6 +69,7 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 	api := router.Group("/api")
 	api.POST("/login", server.postLogin)
 	api.GET("/session", server.getSession)
+	api.GET("/csrf-token", server.getCSRFToken)
 	api.GET("/redeem-settings", server.getRedeemSettings)
 	api.POST("/redeem", server.limitPublicRequests(server.publicSubmitLimiter), server.postRedeemApplication)
 	api.GET("/redeem/:token", server.limitPublicRequests(server.publicStatusLimiter), server.getRedeemStatus)
@@ -93,7 +96,7 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 	}
 
 	authorized := api.Group("")
-	authorized.Use(server.requireAPIAuth())
+	authorized.Use(server.requireAPIAuth(), server.CSRFProtection())
 	{
 		authorized.POST("/logout", server.postLogout)
 		authorized.GET("/profile", server.getAdminProfile)
