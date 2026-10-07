@@ -218,6 +218,7 @@ func (store *Store) CreateCustomerBenefitsAndExtendDueDates(
 	benefits []model.CustomerBenefit,
 	expectations []DueExtensionExpectation,
 	now time.Time,
+	emails ...BusinessEmailBatch,
 ) error {
 	if len(benefits) == 0 {
 		return nil
@@ -245,6 +246,9 @@ func (store *Store) CreateCustomerBenefitsAndExtendDueDates(
 		if _, err := applyDueExtension(transaction, benefit, benefit.ExtensionDays, now, &expectations[index]); err != nil {
 			return err
 		}
+	}
+	if err := queueBusinessEmailBatches(transaction, emails...); err != nil {
+		return err
 	}
 	return subscriptionStateWriteError(transaction.Commit())
 }
@@ -526,11 +530,18 @@ type ReviseDueExtensionInput struct {
 	ExtensionDays int
 	Reason        string
 	OperationKey  string
+	Emails        func(ReviseDueExtensionResult) BusinessEmailBatch
 }
 
 type ReviseDueExtensionResult struct {
 	ReplacementBenefitID int64
 	Replayed             bool
+	// Committed facts for the notification; replays intentionally leave these empty.
+	SubscriptionID   int64
+	CustomerEmail    string
+	PreviousDays     int
+	PreviousDueDate  string
+	EffectiveDueDate string
 }
 
 // ReviseCustomerBenefitExtension atomically revokes or replaces the latest
@@ -762,8 +773,20 @@ func (store *Store) ReviseCustomerBenefitExtension(input ReviseDueExtensionInput
 	if err := cancelInvalidDueNotifications(transaction, subscription.ID, target.PreviousEffectiveDueDate, nextPriceDate, candidateSchedule, now); err != nil {
 		return ReviseDueExtensionResult{}, err
 	}
+	baseAt, _ := time.ParseInLocation("2006-01-02", target.BaseDueDate, cycle.Location)
+	result = ReviseDueExtensionResult{
+		ReplacementBenefitID: replacementBenefitID,
+		SubscriptionID:       subscription.ID, CustomerEmail: subscription.CustomerEmail,
+		PreviousDays: target.ExtensionDays, PreviousDueDate: target.EffectiveDueDate,
+		EffectiveDueDate: cycle.FormatDate(candidateSchedule.EffectiveDue(baseAt)),
+	}
+	if input.Emails != nil {
+		if err := queueBusinessEmailBatches(transaction, input.Emails(result)); err != nil {
+			return ReviseDueExtensionResult{}, err
+		}
+	}
 	if err := transaction.Commit(); err != nil {
 		return ReviseDueExtensionResult{}, subscriptionStateWriteError(err)
 	}
-	return ReviseDueExtensionResult{ReplacementBenefitID: replacementBenefitID}, nil
+	return result, nil
 }

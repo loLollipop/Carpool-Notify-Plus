@@ -1106,6 +1106,8 @@ func betaPosteriorApproximation(successes int, failures int) (int, int, int) {
 func (service *SubscriptionService) RecordCustomerBenefits(
 	input RecordCustomerBenefitsInput,
 ) (int, error) {
+	service.dueNotificationMu.Lock()
+	defer service.dueNotificationMu.Unlock()
 	requestedBenefitType := strings.TrimSpace(input.BenefitType)
 	for _, subscriptionID := range input.SubscriptionIDs {
 		if subscriptionID <= 0 {
@@ -1244,6 +1246,7 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 		batchID = operationBatchID
 	}
 	records := make([]model.CustomerBenefit, 0, len(subscriptionIDs))
+	notificationSubscriptions := make([]model.Subscription, 0, len(subscriptionIDs))
 	nextPriceUpdates := make([]model.Subscription, 0, len(subscriptionIDs))
 	for _, subscriptionID := range subscriptionIDs {
 		candidate, exists := candidatesByID[subscriptionID]
@@ -1254,6 +1257,7 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 		if getErr != nil {
 			return 0, fmt.Errorf("所选客户状态已变化，请刷新后重试")
 		}
+		notificationSubscriptions = append(notificationSubscriptions, subscription)
 		recordBenefitName := benefitName
 		priceBeforeCents := int64(0)
 		priceAfterCents := int64(0)
@@ -1311,18 +1315,33 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 			CreatedAt:                 createdAt,
 		})
 	}
+	emails := service.benefitEmailBatch(func() []benefitEmail {
+		if !applyExtension && !schedulePriceDiscount {
+			return nil
+		}
+		messages := make([]benefitEmail, 0, len(records))
+		for index, record := range records {
+			previousDueDate := ""
+			if applyExtension {
+				previousDueDate = extensionExpectations[index].PreviousEffectiveDueDate
+			}
+			messages = append(messages, customerBenefitEmail(record, notificationSubscriptions[index], previousDueDate))
+		}
+		return messages
+	})
 	var persistErr error
 	if schedulePriceDiscount {
-		persistErr = service.Store.CreateCustomerBenefitsAndUpdateSubscriptionNextPrices(
+		persistErr = service.Store.CreateCustomerBenefitsAndUpdateSubscriptionNextPricesWithEmails(
 			records,
 			nextPriceUpdates,
 			service.now(),
+			emails,
 			cycle.FormatDate(service.now()),
 		)
 	} else if applyExtension {
-		persistErr = service.Store.CreateCustomerBenefitsAndExtendDueDates(records, extensionExpectations, service.now())
+		persistErr = service.Store.CreateCustomerBenefitsAndExtendDueDates(records, extensionExpectations, service.now(), emails)
 	} else {
-		persistErr = service.Store.CreateCustomerBenefits(records)
+		persistErr = service.Store.CreateCustomerBenefits(records, emails)
 	}
 	if persistErr != nil {
 		switch {
@@ -1451,10 +1470,14 @@ func (service *SubscriptionService) ReviseCustomerBenefitExtension(input ReviseC
 	if !validCustomerBenefitOperationKey(operationKey) {
 		return db.ReviseDueExtensionResult{}, fmt.Errorf("操作标识无效，请刷新后重试")
 	}
-	return service.Store.ReviseCustomerBenefitExtension(db.ReviseDueExtensionInput{
+	result, err := service.Store.ReviseCustomerBenefitExtension(db.ReviseDueExtensionInput{
 		BenefitID: input.BenefitID, ExtensionDays: input.ExtensionDays,
 		Reason: reason, OperationKey: operationKey,
+		Emails: func(result db.ReviseDueExtensionResult) db.BusinessEmailBatch {
+			return service.extensionRevisionEmailBatch(input, result)
+		},
 	}, service.now())
+	return result, err
 }
 
 func validCustomerBenefitOperationKey(value string) bool {

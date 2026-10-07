@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 	"strings"
 	"time"
@@ -132,14 +133,18 @@ func (service *SubscriptionService) SubmitRedemptionApplication(input Redemption
 		if err != nil {
 			return RedemptionSubmitResult{}, err
 		}
-		_, err = service.Store.CreateRedemptionApplicationUsingCode(model.RedemptionApplication{
+		application := model.RedemptionApplication{
 			TrackingToken:   token,
 			CustomerEmail:   customerEmail,
 			CustomerContact: customerContact,
 			RedeemCode:      redeemCode,
 			RequestNote:     requestNote,
-		})
+		}
+		_, err = service.Store.CreateRedemptionApplicationUsingCode(application)
 		if err == nil {
+			if alertErr := service.sendRedemptionApplicationAlert(application); alertErr != nil {
+				log.Printf("send redemption application alert: %v", alertErr)
+			}
 			return RedemptionSubmitResult{
 				TrackingToken: token,
 				Status:        model.RedemptionStatusPending,

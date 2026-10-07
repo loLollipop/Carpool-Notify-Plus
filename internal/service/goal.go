@@ -2763,6 +2763,8 @@ func maximumGradualPriceCents(currentPriceCents int64) int64 {
 // for selected established customers. Retention safeguards are rechecked here
 // so stale UI state cannot bypass the protection period or gradual-increase cap.
 func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInput) (int, error) {
+	service.dueNotificationMu.Lock()
+	defer service.dueNotificationMu.Unlock()
 	if len(input.SubscriptionIDs) == 0 {
 		return 0, fmt.Errorf("请至少选择一位 Team 用户")
 	}
@@ -2784,6 +2786,7 @@ func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInp
 
 	seen := make(map[int64]struct{}, len(input.SubscriptionIDs))
 	updates := make([]model.Subscription, 0, len(input.SubscriptionIDs))
+	messages := make([]benefitEmail, 0, len(input.SubscriptionIDs))
 	for _, subscriptionID := range input.SubscriptionIDs {
 		if subscriptionID <= 0 {
 			return 0, fmt.Errorf("包含无效的订阅 ID")
@@ -2826,11 +2829,14 @@ func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInp
 			return 0, fmt.Errorf("%s：%w", previous.Name, err)
 		}
 		updates = append(updates, updated)
+		if message, needed := scheduledPriceBenefitEmail(previous, updated, cycle.FormatDate(service.now())); needed {
+			messages = append(messages, message)
+		}
 	}
 	if len(updates) == 0 {
 		return 0, fmt.Errorf("没有可调价的 Team 用户")
 	}
-	if err := service.Store.UpdateSubscriptionNextPrices(updates, cycle.FormatDate(service.now())); err != nil {
+	if err := service.Store.UpdateSubscriptionNextPricesWithEmails(updates, service.benefitEmailBatch(func() []benefitEmail { return messages }), cycle.FormatDate(service.now())); err != nil {
 		if errors.Is(err, db.ErrCustomerBenefitAlreadyRecorded) {
 			return 0, fmt.Errorf("这份降价福利已登记，请勿重复提交")
 		}
@@ -2848,6 +2854,8 @@ func (service *SubscriptionService) ScheduleBulkNextPrice(input BulkNextPriceInp
 // operational safeguards and atomic writes. A confirmed "next price" always
 // starts at the immediately following unpaid billing period.
 func (service *SubscriptionService) ScheduleManualNextPrices(input ManualNextPricesInput) (int, error) {
+	service.dueNotificationMu.Lock()
+	defer service.dueNotificationMu.Unlock()
 	if len(input.Items) == 0 {
 		return 0, fmt.Errorf("请至少填写一个人工调价价格")
 	}
@@ -2866,6 +2874,7 @@ func (service *SubscriptionService) ScheduleManualNextPrices(input ManualNextPri
 
 	seen := make(map[int64]struct{}, len(input.Items))
 	updates := make([]model.Subscription, 0, len(input.Items))
+	messages := make([]benefitEmail, 0, len(input.Items))
 	for _, item := range input.Items {
 		if item.SubscriptionID <= 0 {
 			return 0, fmt.Errorf("包含无效的订阅 ID")
@@ -2918,9 +2927,12 @@ func (service *SubscriptionService) ScheduleManualNextPrices(input ManualNextPri
 			return 0, fmt.Errorf("%s：%w", previous.Name, err)
 		}
 		updates = append(updates, updated)
+		if message, needed := scheduledPriceBenefitEmail(previous, updated, cycle.FormatDate(service.now())); needed {
+			messages = append(messages, message)
+		}
 	}
 
-	if err := service.Store.UpdateSubscriptionNextPrices(updates, cycle.FormatDate(service.now())); err != nil {
+	if err := service.Store.UpdateSubscriptionNextPricesWithEmails(updates, service.benefitEmailBatch(func() []benefitEmail { return messages }), cycle.FormatDate(service.now())); err != nil {
 		if errors.Is(err, db.ErrCustomerBenefitAlreadyRecorded) {
 			return 0, fmt.Errorf("这份降价福利已登记，请勿重复提交")
 		}

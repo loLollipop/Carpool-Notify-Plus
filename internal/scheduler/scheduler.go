@@ -57,6 +57,9 @@ func (runner *Runner) refreshMarket() {
 }
 
 func (runner *Runner) tick(ctx context.Context) {
+	if err := runner.Service.ProcessBusinessEmails(ctx); err != nil {
+		log.Printf("scheduler benefit emails: %v", err)
+	}
 	if err := runner.Service.ProcessAccountCostRenewals(); err != nil {
 		log.Printf("scheduler account costs: %v", err)
 	}

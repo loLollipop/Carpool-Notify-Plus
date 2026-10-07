@@ -342,6 +342,9 @@ function CustomerBenefitForm({
               rows={3}
             />
           </div>
+          <p className="text-xs text-muted-foreground">
+            {t("goals.care.dialog.emailNotice")}
+          </p>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               {t("common.cancel")}

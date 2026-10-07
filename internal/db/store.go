@@ -478,6 +478,9 @@ func (store *Store) migrate() error {
 	if err := store.ensureCustomerBenefitPriceAdjustmentColumns(); err != nil {
 		return err
 	}
+	if err := store.ensureBusinessEmailOutbox(); err != nil {
+		return err
+	}
 	if err := store.ensurePerformanceIndexes(); err != nil {
 		return err
 	}
@@ -2052,7 +2055,7 @@ func isActiveSeatOccupancyError(err error) bool {
 }
 
 // UpdateSubscription updates an existing active (non-deleted, non-archived) subscription.
-func (store *Store) UpdateSubscription(subscription model.Subscription) error {
+func (store *Store) UpdateSubscription(subscription model.Subscription, emails ...BusinessEmailBatch) error {
 	transaction, err := store.database.Begin()
 	if err != nil {
 		return err
@@ -2060,6 +2063,9 @@ func (store *Store) UpdateSubscription(subscription model.Subscription) error {
 	defer func() { _ = transaction.Rollback() }()
 	now := nextWriteTime(subscription.UpdatedAt)
 	if err := updateSubscriptionWithExecutor(transaction, subscription, now, 0); err != nil {
+		return err
+	}
+	if err := queueBusinessEmailBatches(transaction, emails...); err != nil {
 		return err
 	}
 	return subscriptionStateWriteError(transaction.Commit())
@@ -2073,6 +2079,7 @@ func (store *Store) UpdateSubscriptionAndSyncBill(
 	dueDate string,
 	amountCents int64,
 	costCents int64,
+	emails ...BusinessEmailBatch,
 ) error {
 	transaction, err := store.database.Begin()
 	if err != nil {
@@ -2095,6 +2102,9 @@ func (store *Store) UpdateSubscriptionAndSyncBill(
 	); err != nil {
 		return err
 	}
+	if err := queueBusinessEmailBatches(transaction, emails...); err != nil {
+		return err
+	}
 	return subscriptionStateWriteError(transaction.Commit())
 }
 
@@ -2102,6 +2112,10 @@ func (store *Store) UpdateSubscriptionAndSyncBill(
 // Guarding eligibility again inside the transaction prevents a concurrent
 // archive or after-sales case from producing a partial bulk update.
 func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscription, reviewDates ...string) error {
+	return store.UpdateSubscriptionNextPricesWithEmails(subscriptions, BusinessEmailBatch{}, reviewDates...)
+}
+
+func (store *Store) UpdateSubscriptionNextPricesWithEmails(subscriptions []model.Subscription, emails BusinessEmailBatch, reviewDates ...string) error {
 	if len(subscriptions) == 0 {
 		return nil
 	}
@@ -2111,6 +2125,9 @@ func (store *Store) UpdateSubscriptionNextPrices(subscriptions []model.Subscript
 	}
 	defer func() { _ = transaction.Rollback() }()
 	if err := updateSubscriptionNextPricesWithTransaction(transaction, subscriptions, reviewDates...); err != nil {
+		return err
+	}
+	if err := queueBusinessEmailBatches(transaction, emails); err != nil {
 		return err
 	}
 	return subscriptionStateWriteError(transaction.Commit())
@@ -2329,6 +2346,7 @@ func (store *Store) UpdateSubscriptionAndMoveInitialBill(
 	newDueDate string,
 	amountCents int64,
 	costCents int64,
+	emails ...BusinessEmailBatch,
 ) error {
 	transaction, err := store.database.Begin()
 	if err != nil {
@@ -2392,6 +2410,9 @@ func (store *Store) UpdateSubscriptionAndMoveInitialBill(
 		costCents,
 		eventNow,
 	); err != nil {
+		return err
+	}
+	if err := queueBusinessEmailBatches(transaction, emails...); err != nil {
 		return err
 	}
 	return subscriptionStateWriteError(transaction.Commit())
@@ -3297,6 +3318,7 @@ func (store *Store) ResetBusinessData() error {
 	defer func() { _ = transaction.Rollback() }()
 
 	tables := []string{
+		"business_email_outbox",
 		"operation_acknowledgements",
 		"redemption_codes",
 		"redemption_applications",

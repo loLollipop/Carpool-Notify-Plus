@@ -75,6 +75,7 @@ func (store *Store) DeleteMistakenTeamSubscription(subscriptionID int64) error {
 	}
 
 	childTables := []string{
+		"business_email_outbox",
 		"renewal_applications",
 		"notification_log",
 		"paid_due_occurrences",

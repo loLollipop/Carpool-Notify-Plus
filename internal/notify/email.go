@@ -32,6 +32,15 @@ var customerEmailSummaryLabels = map[string]struct{}{
 	"Effective date":  {},
 	"Note":            {},
 	"Renewal link":    {},
+	"福利内容":            {},
+	"赠送天数":            {},
+	"原到期日期":           {},
+	"调整后到期日期":         {},
+	"原延期天数":           {},
+	"调整后延期天数":         {},
+	"每期优惠":            {},
+	"发放日期":            {},
+	"订阅编号":            {},
 }
 
 func parseCustomerEmailSummaryLine(line string) (customerEmailSummaryItem, bool) {
@@ -59,6 +68,16 @@ func parseCustomerEmailSummaryLine(line string) (customerEmailSummaryItem, bool)
 // a compact, email-client-safe HTML layout. The plain text remains the source
 // of truth and is also sent as the multipart fallback.
 func BuildCustomerEmailHTML(plainText string) string {
+	return buildCustomerEmailHTML(plainText, "", "ChatGPT Team 续费提醒")
+}
+
+// BuildCustomerBenefitEmailHTML shares the email layout without presenting a
+// complimentary benefit as a payment reminder.
+func BuildCustomerBenefitEmailHTML(plainText, title string) string {
+	return buildCustomerEmailHTML(plainText, "福利信息", title)
+}
+
+func buildCustomerEmailHTML(plainText, summaryTitle, preview string) string {
 	normalized := strings.ReplaceAll(plainText, "\r\n", "\n")
 	normalized = strings.ReplaceAll(normalized, "\r", "\n")
 	summary := make([]customerEmailSummaryItem, 0, 8)
@@ -93,11 +112,15 @@ func BuildCustomerEmailHTML(plainText string) string {
 		accentSoft = "#fff8e7"
 		accentBorder = "#f0dfb5"
 	}
+	if summaryTitle != "" {
+		cardTitle = summaryTitle
+		accent, accentSoft, accentBorder = "#0f766e", "#edf8f5", "#cfe7e0"
+	}
 
 	var builder strings.Builder
 	builder.WriteString(`<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>`)
 	builder.WriteString(`<body style="margin:0;padding:0;background:#f3f7f6;color:#172321;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;">`)
-	builder.WriteString(`<div style="display:none;max-height:0;overflow:hidden;opacity:0;">ChatGPT Team 续费提醒</div>`)
+	builder.WriteString(`<div style="display:none;max-height:0;overflow:hidden;opacity:0;">` + html.EscapeString(preview) + `</div>`)
 	builder.WriteString(`<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f3f7f6;"><tr><td align="center" style="padding:20px 12px;">`)
 	builder.WriteString(`<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:580px;background:#ffffff;border:1px solid #dfe9e6;border-radius:18px;box-shadow:0 8px 28px rgba(24,63,55,.08);overflow:hidden;">`)
 	builder.WriteString(`<tr><td style="padding:20px 22px 8px;"><div style="font-size:11px;font-weight:800;letter-spacing:1.4px;color:`)

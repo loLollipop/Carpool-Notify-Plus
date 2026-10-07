@@ -1,7 +1,6 @@
 package service
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -227,22 +226,6 @@ func (service *SubscriptionService) sendRenewalApplicationAlert(
 	option RenewalPeriodOption,
 	customerEmail string,
 ) error {
-	recipient, err := service.GetRenewalApplicationAlertEmail()
-	if err != nil || recipient == "" {
-		return err
-	}
-	_, registry := service.runtimeConfigSnapshot()
-	sender, ok := registry.Get(model.ChannelSMTP)
-	if !ok {
-		return fmt.Errorf("自助续费提醒邮箱已设置，但 SMTP 发送器未配置")
-	}
-	addressed, ok := sender.(smtpAddressedSender)
-	if !ok {
-		return fmt.Errorf("SMTP 发送器不支持指定自助续费提醒收件人")
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
 	title := "[Carpool Notify Plus] 新的自助续费申请"
 	body := strings.Join([]string{
 		"有一条新的自助续费申请等待处理。",
@@ -257,7 +240,7 @@ func (service *SubscriptionService) sendRenewalApplicationAlert(
 		"",
 		"请前往管理后台的“兑换申请 → 续费审核”尽快核对款项。",
 	}, "\n")
-	return addressed.SendTo(ctx, []string{recipient}, title, body)
+	return service.sendApplicationAlert(title, body)
 }
 
 func (service *SubscriptionService) GetRenewalStatus(token string) (RenewalStatusView, error) {

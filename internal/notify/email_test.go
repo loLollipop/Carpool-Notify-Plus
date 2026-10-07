@@ -5,6 +5,18 @@ import (
 	"testing"
 )
 
+func TestBenefitEmailHTMLUsesBenefitHeadingAndEscapesContent(t *testing.T) {
+	body := BuildCustomerBenefitEmailHTML("您好，福利已送达。\n赠送天数：7 天\n调整后到期日期：2026-10-08\n<script>private</script>", "福利 <title>")
+	for _, expected := range []string{"福利信息", "赠送天数", "2026-10-08", "&lt;script&gt;", "福利 &lt;title&gt;"} {
+		if !strings.Contains(body, expected) {
+			t.Errorf("missing %q: %s", expected, body)
+		}
+	}
+	if strings.Contains(body, "续费提醒") || strings.Contains(body, "<script>") {
+		t.Fatalf("incorrect email: %s", body)
+	}
+}
+
 func TestBuildCustomerEmailHTMLPlacesSummaryBeforeContentAndEscapesInput(t *testing.T) {
 	plainText := `您好，您的 ChatGPT Team 拼车服务还有 7 天到期。
 

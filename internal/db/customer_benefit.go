@@ -88,7 +88,7 @@ func (store *Store) HasCustomerBenefitBatchOverlap(
 // CreateCustomerBenefits records a whole delivered batch or none of it. The
 // INSERT ... SELECT guard prevents stale clients from attaching care costs to
 // archived, banned, resale, Plus, or currently after-sales-blocked records.
-func (store *Store) CreateCustomerBenefits(benefits []model.CustomerBenefit) error {
+func (store *Store) CreateCustomerBenefits(benefits []model.CustomerBenefit, emails ...BusinessEmailBatch) error {
 	if len(benefits) == 0 {
 		return nil
 	}
@@ -98,6 +98,9 @@ func (store *Store) CreateCustomerBenefits(benefits []model.CustomerBenefit) err
 	}
 	defer func() { _ = transaction.Rollback() }()
 	if err := createCustomerBenefitsWithTransaction(transaction, benefits); err != nil {
+		return err
+	}
+	if err := queueBusinessEmailBatches(transaction, emails...); err != nil {
 		return err
 	}
 	return transaction.Commit()
@@ -110,6 +113,13 @@ func (store *Store) CreateCustomerBenefitsAndUpdateSubscriptionNextPrices(
 	subscriptions []model.Subscription,
 	effectiveAt time.Time,
 	reviewDates ...string,
+) error {
+	return store.CreateCustomerBenefitsAndUpdateSubscriptionNextPricesWithEmails(benefits, subscriptions, effectiveAt, BusinessEmailBatch{}, reviewDates...)
+}
+
+func (store *Store) CreateCustomerBenefitsAndUpdateSubscriptionNextPricesWithEmails(
+	benefits []model.CustomerBenefit, subscriptions []model.Subscription,
+	effectiveAt time.Time, emails BusinessEmailBatch, reviewDates ...string,
 ) error {
 	if len(benefits) == 0 && len(subscriptions) == 0 {
 		return nil
@@ -158,6 +168,9 @@ func (store *Store) CreateCustomerBenefitsAndUpdateSubscriptionNextPrices(
 		scheduledSubscriptions,
 		reviewDates...,
 	); err != nil {
+		return err
+	}
+	if err := queueBusinessEmailBatches(transaction, emails); err != nil {
 		return err
 	}
 	return subscriptionStateWriteError(transaction.Commit())

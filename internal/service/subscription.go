@@ -1008,6 +1008,8 @@ func initialBillDueDate(subscription model.Subscription) (string, error) {
 
 // Update validates and updates a subscription.
 func (service *SubscriptionService) Update(subscriptionID int64, input CreateInput) error {
+	service.dueNotificationMu.Lock()
+	defer service.dueNotificationMu.Unlock()
 	expectedUpdatedAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(input.ExpectedUpdatedAt))
 	if err != nil || expectedUpdatedAt.IsZero() {
 		return db.ErrSubscriptionStateChanged
@@ -1053,6 +1055,7 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 	financialsChanged := previousBillAmount != newBillAmount ||
 		previousBillCost != newBillCost ||
 		previous.IsResale != subscription.IsResale
+	emails := service.priceBenefitEmailBatch(previous, subscription)
 	var updateErr error
 	if scheduleChanged {
 		billCount, err := service.Store.CountBillsForSubscription(subscriptionID)
@@ -1061,7 +1064,7 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 		}
 		switch billCount {
 		case 0:
-			updateErr = service.Store.UpdateSubscription(subscription)
+			updateErr = service.Store.UpdateSubscription(subscription, emails)
 		case 1:
 			oldDueDate, err := initialBillDueDate(previous)
 			if err != nil {
@@ -1077,6 +1080,7 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 				newDueDate,
 				newBillAmount,
 				newBillCost,
+				emails,
 			)
 		default:
 			return fmt.Errorf("该订阅已有多期账单，为保护历史收入，不能直接修改开始日期或计费周期")
@@ -1091,9 +1095,10 @@ func (service *SubscriptionService) Update(subscriptionID int64, input CreateInp
 			currentDueDate,
 			newBillAmount,
 			newBillCost,
+			emails,
 		)
 	} else {
-		updateErr = service.Store.UpdateSubscription(subscription)
+		updateErr = service.Store.UpdateSubscription(subscription, emails)
 	}
 	if updateErr != nil {
 		return publicSubscriptionMutationError(updateErr)
@@ -1275,6 +1280,8 @@ func (service *SubscriptionService) SoftDelete(subscriptionID int64) error {
 // DeleteMistakenTeamRegistration reverses an incorrectly entered active Team
 // customer without creating a cancellation, seat freeze, or after-sales case.
 func (service *SubscriptionService) DeleteMistakenTeamRegistration(subscriptionID int64) error {
+	service.dueNotificationMu.Lock()
+	defer service.dueNotificationMu.Unlock()
 	err := service.Store.DeleteMistakenTeamSubscription(subscriptionID)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
@@ -2197,13 +2204,13 @@ func normalizeRenewalApplicationAlertEmail(raw string) (string, error) {
 	}
 	address, err := mail.ParseAddress(raw)
 	if err != nil || !strings.EqualFold(strings.TrimSpace(address.Address), raw) || len(raw) > 254 {
-		return "", fmt.Errorf("自助续费提醒邮箱格式无效")
+		return "", fmt.Errorf("申请提醒邮箱格式无效")
 	}
 	return strings.TrimSpace(address.Address), nil
 }
 
 // GetRenewalApplicationAlertEmail returns the optional private recipient used
-// for new self-service renewal alerts. It is never included in public settings.
+// for new renewal and redemption alerts. It is never included in public settings.
 func (service *SubscriptionService) GetRenewalApplicationAlertEmail() (string, error) {
 	raw, err := service.Store.GetSetting(model.SettingRenewalApplicationAlertEmail)
 	if err != nil {
