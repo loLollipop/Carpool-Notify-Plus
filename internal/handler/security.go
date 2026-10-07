@@ -37,6 +37,7 @@ type fixedWindowState struct {
 
 type fixedWindowLimiter struct {
 	mu       sync.Mutex
+	stopOnce sync.Once
 	limit    int
 	window   time.Duration
 	maxKeys  int
@@ -59,6 +60,9 @@ func newFixedWindowLimiter(limit int, window time.Duration) *fixedWindowLimiter 
 
 // autoCleanup periodically removes expired entries to prevent memory leaks
 func (limiter *fixedWindowLimiter) autoCleanup() {
+	if limiter.window <= 0 {
+		return
+	}
 	// Clean up every 5 minutes or window duration, whichever is smaller
 	cleanupInterval := 5 * time.Minute
 	if limiter.window < cleanupInterval {
@@ -82,9 +86,10 @@ func (limiter *fixedWindowLimiter) autoCleanup() {
 
 // Stop gracefully stops the cleanup goroutine
 func (limiter *fixedWindowLimiter) Stop() {
-	if limiter != nil && limiter.stopChan != nil {
-		close(limiter.stopChan)
+	if limiter == nil || limiter.stopChan == nil {
+		return
 	}
+	limiter.stopOnce.Do(func() { close(limiter.stopChan) })
 }
 
 func (limiter *fixedWindowLimiter) allow(clientKey string, now time.Time) (bool, time.Duration) {

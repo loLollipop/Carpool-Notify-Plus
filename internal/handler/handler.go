@@ -59,8 +59,21 @@ func NewServer(subscriptionService *service.SubscriptionService, configuration c
 		DistDir:             distDir,
 		publicSubmitLimiter: newFixedWindowLimiter(publicSubmitLimit, publicSubmitWindow),
 		publicStatusLimiter: newFixedWindowLimiter(publicStatusLimit, publicStatusWindow),
-		csrfManager:         newCSRFManager(),
+		csrfManager:         newCSRFManager(configuration.SessionSecret),
 	}, nil
+}
+
+// Close releases background limiter resources owned by the server.
+func (server *Server) Close() {
+	if server == nil {
+		return
+	}
+	if server.publicSubmitLimiter != nil {
+		server.publicSubmitLimiter.Stop()
+	}
+	if server.publicStatusLimiter != nil {
+		server.publicStatusLimiter.Stop()
+	}
 }
 
 // RegisterRoutes wires the JSON API, the export download, and the SPA fallback.
@@ -236,8 +249,14 @@ func (server *Server) postLogin(context *gin.Context) {
 	}
 	server.clearLoginFailures(clientIP)
 	session := sessions.Default(context)
+	binding, err := server.csrfManager.generateBinding()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, "会话初始化失败")
+		return
+	}
 	session.Set(sessionAuthKey, true)
 	session.Set(sessionAuthVersionKey, server.AuthVersion)
+	session.Set(csrfBindingKey, binding)
 	if err := session.Save(); err != nil {
 		respondError(context, http.StatusInternalServerError, "会话保存失败")
 		return
@@ -256,7 +275,8 @@ func (server *Server) sessionAuthenticated(session sessions.Session) bool {
 		return false
 	}
 	version, ok := session.Get(sessionAuthVersionKey).(string)
-	return ok && hmac.Equal([]byte(version), []byte(server.AuthVersion))
+	binding, bindingOK := session.Get(csrfBindingKey).(string)
+	return ok && bindingOK && binding != "" && hmac.Equal([]byte(version), []byte(server.AuthVersion))
 }
 
 func (server *Server) postLogout(context *gin.Context) {

@@ -84,9 +84,7 @@ formatCentsOptional(cents: number): string
 ## Files Modified
 
 ```
-web/
-├── OPTIMIZATION_REPORT.md              (new, 125 lines)
-└── app/src/
+web/app/src/
     ├── index.css                       (-631 lines)
     ├── lib/currency.ts                 (new, 43 lines)
     └── features/

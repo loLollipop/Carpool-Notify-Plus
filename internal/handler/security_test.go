@@ -126,6 +126,7 @@ func TestLoginRateLimitBlocksRepeatedFailures(t *testing.T) {
 
 func TestPublicRateLimiterSeparatesClientsAndResets(t *testing.T) {
 	limiter := newFixedWindowLimiter(2, time.Minute)
+	t.Cleanup(limiter.Stop)
 	now := time.Date(2026, time.September, 6, 12, 0, 0, 0, time.UTC)
 	if allowed, _ := limiter.allow("198.51.100.1", now); !allowed {
 		t.Fatal("first request was blocked")
@@ -148,6 +149,7 @@ func TestPublicRateLimitMiddlewareReturnsRetryAfter(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	server := &Server{}
 	limiter := newFixedWindowLimiter(1, time.Minute)
+	t.Cleanup(limiter.Stop)
 	router := gin.New()
 	router.GET("/api/redeem/:token", server.limitPublicRequests(limiter), func(context *gin.Context) {
 		context.Status(http.StatusNoContent)
@@ -168,4 +170,13 @@ func TestPublicRateLimitMiddlewareReturnsRetryAfter(t *testing.T) {
 	if second.Code != http.StatusTooManyRequests || second.Header().Get("Retry-After") == "" {
 		t.Fatalf("limited response status=%d retry-after=%q", second.Code, second.Header().Get("Retry-After"))
 	}
+}
+
+func TestPublicRateLimiterStopIsIdempotentForDisabledWindow(t *testing.T) {
+	limiter := newFixedWindowLimiter(1, 0)
+	if allowed, _ := limiter.allow("198.51.100.1", time.Now().UTC()); !allowed {
+		t.Fatal("disabled limiter blocked a request")
+	}
+	limiter.Stop()
+	limiter.Stop()
 }

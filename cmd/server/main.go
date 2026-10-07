@@ -73,6 +73,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("handler: %v", err)
 	}
+	defer httpServer.Close()
 	httpServer.SandboxService = sandboxService
 
 	gin.SetMode(gin.ReleaseMode)

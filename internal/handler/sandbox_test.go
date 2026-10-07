@@ -63,6 +63,7 @@ func TestSandboxRedeemSettingsUseSandboxStore(t *testing.T) {
 	}
 
 	server := &Server{Service: liveService, SandboxService: sandboxService}
+	t.Cleanup(server.Close)
 	router := gin.New()
 	server.RegisterRoutes(router)
 	recorder := httptest.NewRecorder()

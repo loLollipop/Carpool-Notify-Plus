@@ -56,6 +56,7 @@ func authTestRouter(t *testing.T, configuration config.Config) *gin.Engine {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(server.Close)
 	router := gin.New()
 	store := cookie.NewStore([]byte(configuration.SessionSecret))
 	router.Use(sessions.Sessions("auth_test_session", store))

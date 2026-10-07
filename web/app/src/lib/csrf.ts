@@ -4,35 +4,56 @@
  */
 
 let cachedToken: string | null = null
+let tokenRequest: Promise<string> | null = null
+
+export class CSRFTokenError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = "CSRFTokenError"
+    this.status = status
+  }
+}
 
 /**
  * Fetch CSRF token from the server
  */
-export async function fetchCSRFToken(): Promise<string> {
-  if (cachedToken) {
+export async function fetchCSRFToken(forceRefresh = false): Promise<string> {
+  if (!forceRefresh && cachedToken) {
     return cachedToken
   }
 
-  try {
-    const response = await fetch("/api/csrf-token", {
-      credentials: "include",
-    })
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch CSRF token: ${response.status}`)
-    }
-
-    const data = await response.json()
-    const token = data.csrf_token
-    if (typeof token !== "string" || token === "") {
-      throw new Error("Invalid CSRF token received")
-    }
-    cachedToken = token
-    return token
-  } catch (error) {
-    console.error("CSRF token fetch failed:", error)
-    throw error
+  if (tokenRequest) {
+    return tokenRequest
   }
+
+  tokenRequest = (async () => {
+    try {
+      const response = await fetch("/api/csrf-token", {
+        credentials: "include",
+      })
+
+      if (!response.ok) {
+        throw new CSRFTokenError(`Failed to fetch CSRF token: ${response.status}`, response.status)
+      }
+
+      const data = await response.json()
+      const token = data.csrf_token
+      if (typeof token !== "string" || token === "") {
+        throw new Error("Invalid CSRF token received")
+      }
+      cachedToken = token
+      return token
+    } catch (error) {
+      console.error("CSRF token fetch failed:", error)
+      throw error
+    } finally {
+      tokenRequest = null
+    }
+  })()
+
+  return tokenRequest
 }
 
 /**
@@ -46,8 +67,8 @@ export function clearCSRFToken(): void {
  * Get CSRF token for request headers
  * Fetches a new token if not cached
  */
-export async function getCSRFHeaders(): Promise<Record<string, string>> {
-  const token = await fetchCSRFToken()
+export async function getCSRFHeaders(forceRefresh = false): Promise<Record<string, string>> {
+  const token = await fetchCSRFToken(forceRefresh)
   return {
     "X-CSRF-Token": token,
   }
