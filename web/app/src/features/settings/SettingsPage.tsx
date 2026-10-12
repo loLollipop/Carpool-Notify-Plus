@@ -6,7 +6,6 @@ import {
   BellRing,
   CircleCheckBig,
   Copy,
-  CreditCard,
   Database,
   Download,
   ExternalLink,
@@ -73,6 +72,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
+import { RedeemPromotionBanner } from "@/features/redemptions/RedeemPromotionBanner"
+import { DEFAULT_REDEEM_PROMOTION, promotionIsVisible, safePromotionURL } from "@/features/redemptions/redeem-promotion"
 import { enterSandboxMode, exitSandboxMode } from "@/lib/sandbox-mode"
 import { useSandboxMode } from "@/hooks/use-sandbox-mode"
 
@@ -202,29 +203,20 @@ const MAX_QR_UPLOAD_BYTES = 1024 * 1024
 const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
 const DEFAULT_REDEEM_PAGE_SETTINGS: RedeemPageSettings = {
+  ...DEFAULT_REDEEM_PROMOTION,
   announcement_title: "首次兑换前请确认",
   announcement_intro:
     "提交兑换前，请先了解工作空间数据与后续续费方式。",
   announcement_items: [
     "工作空间与个人空间的记录相互独立，请及时备份工作空间中的重要对话、文件和资料。",
     "长期使用建议添加管理员微信，方便接收续费提醒、售后协助和异常通知。",
-    "兑换成功后，可在本页切换到“自助续费”，也可联系客服协助续费；到期仍未续费的席位将自动移出空间。",
+    "兑换成功后，请联系管理员协助续费；到期仍未续费的席位将自动移出空间。",
   ],
   support_title: "客服微信",
   support_description: "续费提醒与售后协助",
   support_contact_label: "微信号",
   support_wechat_id: "",
   support_qr_data_url: "",
-  renewal_announcement_title: "自助续费付款说明",
-  renewal_announcement_intro: "付款前请核对页面账单，并按显示金额完成续费。",
-  renewal_announcement_items: [
-    "扫码付款时请务必备注订阅邮箱；忘记备注时请联系客服处理。",
-    "付款金额必须与页面显示的应付总额完全一致，否则无法核对续费；付错金额请联系客服。",
-    "付款后点击“提交续费审核”，管理员确认到账后会更新订阅状态。",
-  ],
-  payment_title: "续费收款码",
-  payment_description: "请按左侧账单金额付款，并备注订阅邮箱",
-  payment_qr_data_url: "",
   codex_plus_weekly_quota_usd: 150,
   codex_team_weekly_quota_usd: 200,
   web_primary_benefit_label: "GPT-5.6 sol 极高",
@@ -611,18 +603,34 @@ function normalizeRedeemPageSettings(settings?: RedeemPageSettings | null): Rede
   const merged = { ...DEFAULT_REDEEM_PAGE_SETTINGS, ...(settings ?? {}) }
   const items = (merged.announcement_items ?? [])
     .map((item) => item.trim())
-    .filter((item) => item !== "")
-  const renewalItems = (merged.renewal_announcement_items ?? [])
-    .map((item) => item.trim())
+    .map((item) => item === "兑换成功后，可在本页切换到“自助续费”，也可联系客服协助续费；到期仍未续费的席位将自动移出空间。"
+      ? DEFAULT_REDEEM_PAGE_SETTINGS.announcement_items[2] : item)
     .filter((item) => item !== "")
   return {
-    ...merged,
+    // Pick the public editor fields so legacy renewal/payment keys from an
+    // older server aren't silently sent back by this form.
+    announcement_title: merged.announcement_title,
+    announcement_intro: merged.announcement_intro,
     announcement_items:
       items.length > 0 ? items : DEFAULT_REDEEM_PAGE_SETTINGS.announcement_items,
-    renewal_announcement_items:
-      renewalItems.length > 0
-        ? renewalItems
-        : DEFAULT_REDEEM_PAGE_SETTINGS.renewal_announcement_items,
+    support_title: merged.support_title,
+    support_description: merged.support_description,
+    support_contact_label: merged.support_contact_label,
+    support_wechat_id: merged.support_wechat_id,
+    support_qr_data_url: merged.support_qr_data_url,
+    promotion_enabled: merged.promotion_enabled,
+    promotion_badge: merged.promotion_badge.trim(),
+    promotion_text: merged.promotion_text.trim(),
+    promotion_url: merged.promotion_url.trim(),
+    promotion_cta_label: merged.promotion_cta_label.trim(),
+    codex_plus_weekly_quota_usd: merged.codex_plus_weekly_quota_usd,
+    codex_team_weekly_quota_usd: merged.codex_team_weekly_quota_usd,
+    web_primary_benefit_label: merged.web_primary_benefit_label,
+    web_plus_primary_benefit: merged.web_plus_primary_benefit,
+    web_team_primary_benefit: merged.web_team_primary_benefit,
+    web_secondary_benefit_label: merged.web_secondary_benefit_label,
+    web_plus_secondary_benefit: merged.web_plus_secondary_benefit,
+    web_team_secondary_benefit: merged.web_team_secondary_benefit,
   }
 }
 
@@ -635,9 +643,7 @@ function RedeemPageSettingsEditor({
 }) {
   const { t } = useTranslation()
   const supportFileInputRef = React.useRef<HTMLInputElement | null>(null)
-  const paymentFileInputRef = React.useRef<HTMLInputElement | null>(null)
   const announcementItemsText = value.announcement_items.join("\n")
-  const renewalAnnouncementItemsText = value.renewal_announcement_items.join("\n")
 
   const update = (patch: Partial<RedeemPageSettings>) => {
     onChange({ ...value, ...patch })
@@ -645,7 +651,6 @@ function RedeemPageSettingsEditor({
 
   const handleUpload = (
     event: React.ChangeEvent<HTMLInputElement>,
-    target: "support_qr_data_url" | "payment_qr_data_url",
   ) => {
     const file = event.target.files?.[0]
     event.target.value = ""
@@ -666,8 +671,8 @@ function RedeemPageSettingsEditor({
         toast.error("二维码读取失败，请换一张图片")
         return
       }
-      update({ [target]: dataURL })
-      toast.success(`${target === "support_qr_data_url" ? "客服二维码" : "续费收款码"}已载入，保存设置后生效`)
+      update({ support_qr_data_url: dataURL })
+      toast.success("客服二维码已载入，保存设置后生效")
     }
     reader.onerror = () => toast.error("二维码读取失败，请重试")
     reader.readAsDataURL(file)
@@ -789,7 +794,7 @@ function RedeemPageSettingsEditor({
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
                 className="hidden"
-                onChange={(event) => handleUpload(event, "support_qr_data_url")}
+                onChange={handleUpload}
               />
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => supportFileInputRef.current?.click()}>
@@ -818,127 +823,66 @@ function RedeemPageSettingsEditor({
         </Card>
       </div>
 
-      <div className="order-3 grid items-stretch gap-4 lg:grid-cols-2">
-        <Card className="content-start gap-5 p-5 sm:p-6">
-          <div className="flex items-center gap-3 border-b pb-4">
+      <Card className="order-3 gap-5 p-5 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-4 border-b pb-4">
+          <div className="flex items-center gap-3">
             <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
               <Megaphone className="size-4" />
             </span>
-            <h3 className="text-sm font-semibold">自助续费公告</h3>
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="renewal-announcement-title">公告标题</Label>
-            <Input
-              id="renewal-announcement-title"
-              value={value.renewal_announcement_title}
-              onChange={(event) => update({ renewal_announcement_title: event.target.value })}
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="renewal-announcement-intro">公告说明</Label>
-            <Textarea
-              id="renewal-announcement-intro"
-              rows={3}
-              value={value.renewal_announcement_intro}
-              onChange={(event) => update({ renewal_announcement_intro: event.target.value })}
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="renewal-announcement-items">付款说明</Label>
-            <Textarea
-              id="renewal-announcement-items"
-              rows={5}
-              value={renewalAnnouncementItemsText}
-              placeholder="一行一条说明"
-              onChange={(event) => update({
-                renewal_announcement_items: event.target.value
-                  .split("\n")
-                  .map((item) => item.trim())
-                  .filter(Boolean),
-              })}
-            />
-            <p className="text-xs text-muted-foreground">每行一条，最多 6 条</p>
-          </div>
-        </Card>
-
-        <Card className="content-start gap-5 p-5 sm:p-6">
-          <div className="flex items-center gap-3 border-b pb-4">
-            <span className="grid size-9 shrink-0 place-items-center rounded-md bg-brand/10 text-brand">
-              <CreditCard className="size-4" />
-            </span>
-            <h3 className="text-sm font-semibold">续费收款信息</h3>
-          </div>
-          <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_12rem]">
-            <div className="grid content-start gap-4">
-              <div className="grid gap-1.5">
-                <Label htmlFor="renewal-payment-title">收款码标题</Label>
-                <Input
-                  id="renewal-payment-title"
-                  value={value.payment_title}
-                  onChange={(event) => update({ payment_title: event.target.value })}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="renewal-payment-description">付款提示</Label>
-                <Textarea
-                  id="renewal-payment-description"
-                  rows={3}
-                  value={value.payment_description}
-                  onChange={(event) => update({ payment_description: event.target.value })}
-                />
-              </div>
-              <p className="text-xs leading-5 text-muted-foreground">
-                客户查询到有效账单后，右侧客服卡片会自动切换为此收款码。
-              </p>
+            <div>
+              <h3 className="text-sm font-semibold">顶部推广横栏</h3>
+              <p className="mt-1 text-xs text-muted-foreground">展示在兑换页顶部，不影响兑换申请。</p>
             </div>
-            <div className="grid content-start gap-2">
-              <Label>续费收款码</Label>
-              {value.payment_qr_data_url ? (
-                <div className="grid aspect-square w-full max-w-48 place-items-center overflow-hidden rounded-lg border bg-white p-2">
-                  <img
-                    src={value.payment_qr_data_url}
-                    alt="续费收款码预览"
-                    className="size-full rounded-md object-contain"
-                  />
-                </div>
-              ) : (
-                <div className="grid aspect-square w-full max-w-48 place-items-center rounded-lg border border-dashed bg-muted/35 px-4 text-center text-sm text-muted-foreground">
-                  未上传收款码
-                </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="redeem-promotion-enabled"
+              checked={value.promotion_enabled}
+              onCheckedChange={(checked) => update({ promotion_enabled: checked === true })}
+            />
+            <Label htmlFor="redeem-promotion-enabled">显示推广横栏</Label>
+          </div>
+        </div>
+        <div className="grid items-start gap-6 xl:grid-cols-2">
+          <div className="grid gap-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label htmlFor="redeem-promotion-badge">推广标签</Label>
+                <Input id="redeem-promotion-badge" maxLength={8} value={value.promotion_badge}
+                  placeholder="推广" onChange={(event) => update({ promotion_badge: event.target.value })} />
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="redeem-promotion-cta">按钮文字</Label>
+                <Input id="redeem-promotion-cta" maxLength={12} value={value.promotion_cta_label}
+                  placeholder="前往体验" onChange={(event) => update({ promotion_cta_label: event.target.value })} />
+              </div>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="redeem-promotion-text">广告文案</Label>
+              <Input id="redeem-promotion-text" maxLength={120} value={value.promotion_text}
+                onChange={(event) => update({ promotion_text: event.target.value })} />
+              <p className="text-xs text-muted-foreground">最多 120 字，仅支持普通文本。</p>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="redeem-promotion-url">跳转链接</Label>
+              <Input id="redeem-promotion-url" type="url" maxLength={2048} value={value.promotion_url}
+                placeholder="https://example.com/" onChange={(event) => update({ promotion_url: event.target.value })} />
+              <p className="text-xs leading-5 text-muted-foreground">仅支持 HTTP / HTTPS 链接，点击横栏将在新标签页打开。</p>
+            </div>
+          </div>
+          <div className="grid gap-3">
+            <Label>即时预览</Label>
+            <div className="redeem-console redeem-promotion-preview">
+              {promotionIsVisible(value) ? <RedeemPromotionBanner settings={value} /> : (
+                <p className="text-center text-xs leading-6 text-muted-foreground">
+                  {value.promotion_enabled ? "填写广告文案和有效链接后显示预览" : "推广横栏已关闭，兑换页不会显示"}
+                </p>
               )}
-              <input
-                ref={paymentFileInputRef}
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                className="hidden"
-                onChange={(event) => handleUpload(event, "payment_qr_data_url")}
-              />
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={() => paymentFileInputRef.current?.click()}>
-                  <ImageUp data-slot="icon" />
-                  上传图片
-                </Button>
-                {value.payment_qr_data_url ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="text-destructive hover:text-destructive"
-                    aria-label="移除收款码"
-                    title="移除收款码"
-                    onClick={() => update({ payment_qr_data_url: "" })}
-                  >
-                    <Trash2 />
-                  </Button>
-                ) : null}
-              </div>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                图片会公开展示在自助续费页，请只上传正式收款码。
-              </p>
             </div>
+            <p className="text-xs leading-5 text-muted-foreground">预览随编辑即时更新，保存设置后公开展示。</p>
           </div>
-        </Card>
-      </div>
+        </div>
+      </Card>
 
       <Card className="order-1 gap-5 p-5 sm:p-6">
         <div className="flex items-start gap-3 border-b pb-4">
@@ -1906,13 +1850,29 @@ function SettingsForm({ settings }: { settings: Settings }) {
       return
     }
 
+    const normalizedRedeemPage = normalizeRedeemPageSettings(redeemPage)
+    if (normalizedRedeemPage.promotion_enabled &&
+      (!normalizedRedeemPage.promotion_text || !normalizedRedeemPage.promotion_url)) {
+      toast.error("启用推广横栏时，请填写广告文案和跳转链接")
+      return
+    }
+    if (normalizedRedeemPage.promotion_url && !safePromotionURL(normalizedRedeemPage.promotion_url)) {
+      toast.error("推广链接必须是有效的 HTTP / HTTPS 地址，不能包含账号密码或空白")
+      return
+    }
+    if ([normalizedRedeemPage.promotion_badge, normalizedRedeemPage.promotion_text,
+      normalizedRedeemPage.promotion_cta_label].some((text) => /[<>]/u.test(text))) {
+      toast.error("推广内容仅支持普通文本，请勿填写 HTML 标签")
+      return
+    }
+
     saveMutation.mutate({
       notify_template: notifyTemplate,
       customer_email_template: customerTemplate,
       price_increase_customer_email_template: priceIncreaseCustomerTemplate,
       price_decrease_customer_email_template: priceDecreaseCustomerTemplate,
       channels: Array.from(enabledChannels),
-      redeem_page: normalizeRedeemPageSettings(redeemPage),
+      redeem_page: normalizedRedeemPage,
       seat_freeze_days: parsedSeatFreezeDays,
       renewal_application_alert_email: normalizedRenewalAlertEmail,
       notification_config: {

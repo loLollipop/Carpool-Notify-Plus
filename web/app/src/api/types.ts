@@ -759,12 +759,11 @@ export interface RedeemPageSettings {
   support_contact_label: string
   support_wechat_id: string
   support_qr_data_url: string
-  renewal_announcement_title: string
-  renewal_announcement_intro: string
-  renewal_announcement_items: string[]
-  payment_title: string
-  payment_description: string
-  payment_qr_data_url: string
+  promotion_enabled: boolean
+  promotion_badge: string
+  promotion_text: string
+  promotion_url: string
+  promotion_cta_label: string
   codex_plus_weekly_quota_usd: number
   codex_team_weekly_quota_usd: number
   web_primary_benefit_label: string

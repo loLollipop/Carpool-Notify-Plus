@@ -1585,7 +1585,7 @@ export default {
       sectionCaptions: {
         templates: "到期、续费与调价邮件",
         delivery: "SMTP · IYUU · Gotify",
-        redemption: "公告 · 二维码 · 权益",
+        redemption: "公告 · 客服 · 权益 · 推广",
         operations: "席位冷却与释放",
         tools: "测试 · 导出 · 沙盒",
       },

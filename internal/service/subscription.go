@@ -8,13 +8,16 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/mail"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"text/template"
 	"time"
+	"unicode"
 
 	"carpool-notify/internal/config"
 	"carpool-notify/internal/cycle"
@@ -38,6 +41,10 @@ const (
 	maxRedeemBenefitLabelLength        = 80
 	maxRedeemBenefitValueLength        = 80
 	maxRedeemWeeklyQuotaUSD            = 100000
+	maxRedeemPromotionBadgeLength      = 8
+	maxRedeemPromotionTextLength       = 120
+	maxRedeemPromotionURLLength        = 2048
+	maxRedeemPromotionCTALabelLength   = 12
 )
 
 // SubscriptionService handles subscription CRUD and presentation helpers.
@@ -2302,7 +2309,16 @@ func (service *SubscriptionService) GetRedeemPageSettings() (model.RedeemPageSet
 		return model.DefaultRedeemPageSettings, nil
 	}
 
-	var settings model.RedeemPageSettings
+	// Backfill only the new promotion fields before decoding so an explicitly
+	// stored false remains false without changing older settings' default rules.
+	defaults := model.DefaultRedeemPageSettings
+	settings := model.RedeemPageSettings{
+		PromotionEnabled:  defaults.PromotionEnabled,
+		PromotionBadge:    defaults.PromotionBadge,
+		PromotionText:     defaults.PromotionText,
+		PromotionURL:      defaults.PromotionURL,
+		PromotionCTALabel: defaults.PromotionCTALabel,
+	}
 	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
 		return model.RedeemPageSettings{}, fmt.Errorf("decode redeem page settings: %w", err)
 	}
@@ -2324,6 +2340,12 @@ func (service *SubscriptionService) SaveRedeemPageSettings(input model.RedeemPag
 
 func redeemPageSettingsWithDefaults(input model.RedeemPageSettings) model.RedeemPageSettings {
 	defaults := model.DefaultRedeemPageSettings
+	if strings.TrimSpace(input.PromotionBadge) == "" {
+		input.PromotionBadge = defaults.PromotionBadge
+	}
+	if strings.TrimSpace(input.PromotionCTALabel) == "" {
+		input.PromotionCTALabel = defaults.PromotionCTALabel
+	}
 	if strings.TrimSpace(input.AnnouncementTitle) == "" {
 		input.AnnouncementTitle = defaults.AnnouncementTitle
 	}
@@ -2393,7 +2415,8 @@ func upgradeLegacyRedeemAnnouncementItems(items []string) []string {
 	for _, item := range items {
 		switch strings.TrimSpace(item) {
 		case "到期后若未及时续费，账号可能会被移出 Team；未备份的工作空间内容可能无法找回。",
-			"到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。":
+			"到期后如果没有及时续费，席位可能会被移出空间；移出前未备份的工作空间内容可能无法找回。",
+			"兑换成功后，可在本页切换到“自助续费”，也可联系客服协助续费；到期仍未续费的席位将自动移出空间。":
 			upgraded = append(upgraded, model.DefaultRedeemRenewalGuidance)
 		default:
 			upgraded = append(upgraded, item)
@@ -2418,6 +2441,9 @@ func normalizeRedeemPageSettings(input model.RedeemPageSettings) (model.RedeemPa
 	input = redeemPageSettingsWithDefaults(input)
 
 	var err error
+	if input, err = normalizeRedeemPromotion(input); err != nil {
+		return model.RedeemPageSettings{}, err
+	}
 	if input.AnnouncementTitle, err = trimRequiredLimited("兑换页公告标题", input.AnnouncementTitle, maxRedeemAnnouncementTitleLength); err != nil {
 		return model.RedeemPageSettings{}, err
 	}
@@ -2520,6 +2546,97 @@ func normalizeRedeemPageSettings(input model.RedeemPageSettings) (model.RedeemPa
 		}
 	}
 	return input, nil
+}
+
+func normalizeRedeemPromotion(input model.RedeemPageSettings) (model.RedeemPageSettings, error) {
+	fields := []struct {
+		label string
+		value *string
+		limit int
+	}{
+		{"推广标记", &input.PromotionBadge, maxRedeemPromotionBadgeLength},
+		{"推广文案", &input.PromotionText, maxRedeemPromotionTextLength},
+		{"推广按钮文字", &input.PromotionCTALabel, maxRedeemPromotionCTALabelLength},
+	}
+	for _, field := range fields {
+		value, err := trimLimited(field.label, *field.value, field.limit)
+		if err != nil {
+			return model.RedeemPageSettings{}, err
+		}
+		if strings.ContainsAny(value, "<>") {
+			return model.RedeemPageSettings{}, fmt.Errorf("%s仅支持纯文本，不能包含 HTML 标签或尖括号", field.label)
+		}
+		*field.value = value
+	}
+	input.PromotionURL = strings.TrimSpace(input.PromotionURL)
+	if input.PromotionEnabled {
+		if input.PromotionText == "" {
+			return model.RedeemPageSettings{}, fmt.Errorf("启用推广时请填写推广文案")
+		}
+		if input.PromotionURL == "" {
+			return model.RedeemPageSettings{}, fmt.Errorf("启用推广时请填写推广链接")
+		}
+	}
+	if input.PromotionURL != "" {
+		if err := validateRedeemPromotionURL(input.PromotionURL); err != nil {
+			return model.RedeemPageSettings{}, err
+		}
+	}
+	return input, nil
+}
+
+func validateRedeemPromotionURL(value string) error {
+	if len(value) > maxRedeemPromotionURLLength {
+		return fmt.Errorf("推广链接最多 %d 字节", maxRedeemPromotionURLLength)
+	}
+	invalid := func() error {
+		return fmt.Errorf("推广链接须为完整的 HTTP 或 HTTPS 地址，不能包含账号密码、反斜杠、空白、控制字符或无效的主机及端口")
+	}
+	if strings.ContainsAny(value, "\\<>") || strings.ContainsFunc(value, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r)
+	}) {
+		return invalid()
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.Opaque != "" || parsed.User != nil || parsed.Host == "" {
+		return invalid()
+	}
+	// Parse validates path escapes but leaves RawQuery untouched. Keep API
+	// saves consistent with the browser's promotion URL validation.
+	if _, err := url.QueryUnescape(parsed.RawQuery); err != nil {
+		return invalid()
+	}
+	host := parsed.Hostname()
+	if host == "" || strings.HasSuffix(parsed.Host, ":") {
+		return invalid()
+	}
+	if port := parsed.Port(); port != "" {
+		number, err := strconv.Atoi(port)
+		if err != nil || number < 1 || number > 65535 {
+			return invalid()
+		}
+	}
+	if strings.HasPrefix(parsed.Host, "[") || strings.Contains(host, ":") {
+		if !strings.HasPrefix(parsed.Host, "[") || net.ParseIP(host) == nil {
+			return invalid()
+		}
+	} else {
+		if strings.ContainsAny(host, "[]") || len(host) > 253 {
+			return invalid()
+		}
+		for _, label := range strings.Split(strings.TrimSuffix(host, "."), ".") {
+			if label == "" || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+				return invalid()
+			}
+			for _, r := range label {
+				if !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '-' {
+					return invalid()
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func trimNonEmptyStrings(values []string) []string {

@@ -172,6 +172,11 @@ const DefaultPriceIncreaseAdvanceNoticeCustomerEmailTemplate = DefaultPriceIncre
 
 // RedeemPageSettings is public, non-secret copy shown on the customer redemption page.
 type RedeemPageSettings struct {
+	PromotionEnabled         bool     `json:"promotion_enabled"`
+	PromotionBadge           string   `json:"promotion_badge"`
+	PromotionText            string   `json:"promotion_text"`
+	PromotionURL             string   `json:"promotion_url"`
+	PromotionCTALabel        string   `json:"promotion_cta_label"`
 	AnnouncementTitle        string   `json:"announcement_title"`
 	AnnouncementIntro        string   `json:"announcement_intro"`
 	AnnouncementItems        []string `json:"announcement_items"`
@@ -196,11 +201,16 @@ type RedeemPageSettings struct {
 	WebTeamSecondaryBenefit  string   `json:"web_team_secondary_benefit"`
 }
 
-const DefaultRedeemRenewalGuidance = "兑换成功后，可在本页切换到“自助续费”，也可联系客服协助续费；到期仍未续费的席位将自动移出空间。"
+const DefaultRedeemRenewalGuidance = "兑换成功后，请联系管理员协助续费；到期仍未续费的席位将自动移出空间。"
 const DefaultRenewalPaymentAmountGuidance = "付款金额必须与页面显示的应付总额完全一致，否则无法核对续费；付错金额请联系客服。"
 
-// DefaultRedeemPageSettings keeps open-source installs free of operator-specific data.
+// DefaultRedeemPageSettings provides the initial public redemption-page content.
 var DefaultRedeemPageSettings = RedeemPageSettings{
+	PromotionEnabled:  true,
+	PromotionBadge:    "推广",
+	PromotionText:     "个人自营纯血中转 · 欢迎对接～",
+	PromotionURL:      "https://ikun.fuckoai.bond/",
+	PromotionCTALabel: "前往体验",
 	AnnouncementTitle: "首次兑换前请确认",
 	AnnouncementIntro: "提交兑换前，请先了解工作空间数据与后续续费方式。",
 	AnnouncementItems: []string{
