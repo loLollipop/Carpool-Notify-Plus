@@ -93,9 +93,7 @@ func TestRedeemPageSettingsUpgradesLegacyRenewalGuidance(t *testing.T) {
 		t.Fatalf("custom announcement title was overwritten: %q", settings.AnnouncementTitle)
 	}
 	if len(settings.AnnouncementItems) != 3 ||
-		!strings.Contains(settings.AnnouncementItems[2], "自助续费") ||
-		!strings.Contains(settings.AnnouncementItems[2], "联系客服") ||
-		!strings.Contains(settings.AnnouncementItems[2], "自动移出空间") {
+		settings.AnnouncementItems[2] != model.DefaultRedeemRenewalGuidance {
 		t.Fatalf("legacy renewal guidance was not upgraded: %#v", settings.AnnouncementItems)
 	}
 	if len(settings.RenewalAnnouncementItems) != 1 ||

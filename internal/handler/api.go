@@ -1549,7 +1549,7 @@ func (server *Server) putSettings(context *gin.Context) {
 		PriceDecreaseCustomerEmailTemplate string                          `json:"price_decrease_customer_email_template"`
 		Channels                           []string                        `json:"channels"`
 		NotificationConfig                 *config.NotificationConfigInput `json:"notification_config"`
-		RedeemPage                         *model.RedeemPageSettings       `json:"redeem_page"`
+		RedeemPage                         *json.RawMessage                `json:"redeem_page"`
 		SeatFreezeDays                     *int                            `json:"seat_freeze_days"`
 		RenewalApplicationAlertEmail       *string                         `json:"renewal_application_alert_email"`
 	}
@@ -1564,12 +1564,21 @@ func (server *Server) putSettings(context *gin.Context) {
 	}
 	server.settingsPageMu.Lock()
 	defer server.settingsPageMu.Unlock()
+	var redeemPage *model.RedeemPageSettings
+	if request.RedeemPage != nil {
+		input, err := server.decodeRedeemPageSettingsUpdate(*request.RedeemPage)
+		if err != nil {
+			respondError(context, http.StatusBadRequest, err.Error())
+			return
+		}
+		redeemPage = &input
+	}
 	if err := server.Service.ValidateSettingsPage(
 		request.NotifyTemplate,
 		request.CustomerEmailTemplate,
 		request.PriceIncreaseCustomerEmailTemplate,
 		request.PriceDecreaseCustomerEmailTemplate,
-		request.RedeemPage,
+		redeemPage,
 		request.SeatFreezeDays,
 		request.RenewalApplicationAlertEmail,
 	); err != nil {
@@ -1603,7 +1612,7 @@ func (server *Server) putSettings(context *gin.Context) {
 		request.PriceIncreaseCustomerEmailTemplate,
 		request.PriceDecreaseCustomerEmailTemplate,
 		request.Channels,
-		request.RedeemPage,
+		redeemPage,
 		request.SeatFreezeDays,
 		request.RenewalApplicationAlertEmail,
 	); err != nil {
@@ -1624,6 +1633,43 @@ func (server *Server) putSettings(context *gin.Context) {
 		server.applyConfig(*updatedConfig)
 	}
 	respondOK(context, gin.H{"message": "设置已保存"})
+}
+
+// The current editor no longer exposes self-service renewal settings. Preserve
+// omitted legacy fields for historical workflows; explicit legacy API updates
+// (including clearing the payment QR) still work as before.
+func (server *Server) decodeRedeemPageSettingsUpdate(raw json.RawMessage) (model.RedeemPageSettings, error) {
+	var input model.RedeemPageSettings
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &input); err != nil {
+		return input, fmt.Errorf("无效的兑换页设置")
+	}
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
+		return input, fmt.Errorf("无效的兑换页设置")
+	}
+	current, err := server.Service.GetRedeemPageSettings()
+	if err != nil {
+		return input, err
+	}
+	if _, present := fields["renewal_announcement_title"]; !present {
+		input.RenewalAnnouncementTitle = current.RenewalAnnouncementTitle
+	}
+	if _, present := fields["renewal_announcement_intro"]; !present {
+		input.RenewalAnnouncementIntro = current.RenewalAnnouncementIntro
+	}
+	if _, present := fields["renewal_announcement_items"]; !present {
+		input.RenewalAnnouncementItems = current.RenewalAnnouncementItems
+	}
+	if _, present := fields["payment_title"]; !present {
+		input.PaymentTitle = current.PaymentTitle
+	}
+	if _, present := fields["payment_description"]; !present {
+		input.PaymentDescription = current.PaymentDescription
+	}
+	if _, present := fields["payment_qr_data_url"]; !present {
+		input.PaymentQRCodeDataURL = current.PaymentQRCodeDataURL
+	}
+	return input, nil
 }
 
 func (server *Server) postSettingsTestNotify(context *gin.Context) {

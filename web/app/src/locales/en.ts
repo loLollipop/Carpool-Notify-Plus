@@ -1587,7 +1587,7 @@ export default {
       sectionCaptions: {
         templates: "Due, renewal & pricing email",
         delivery: "SMTP · IYUU · Gotify",
-        redemption: "Notices · QR · benefits",
+        redemption: "Notices · support · benefits · promotion",
         operations: "Seat cooling & release",
         tools: "Tests · export · sandbox",
       },
