@@ -13,7 +13,7 @@ const invalid = [
   'https://example.com:-1/', 'https://./', 'https://..example.com/', 'https://example..com/',
   'https://-example.com/', 'https://example-.com/', 'https://example_com/', 'https://[example.com]/',
   'https://[::1', 'https://::1/', 'https://example.com/%zz', 'https://%65xample.com/', 'https://[not-an-ip]/',
-  'https://example.com/' + '文'.repeat(677),
+  'https://example.com/?x=%zz', 'https://example.com/' + '文'.repeat(677),
 ]
 const valid = [
   'https://ikun.fuckoai.bond/', 'http://example.com/', 'https://example.com:65535/path',

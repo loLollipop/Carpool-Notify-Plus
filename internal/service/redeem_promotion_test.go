@@ -160,7 +160,7 @@ func TestRedeemPromotionURLValidation(t *testing.T) {
 		"https://example.com:/", "https://example.com:0/", "https://example.com:65536/", "https://example.com:-1/",
 		"https://./", "https://..example.com/", "https://example..com/", "https://-example.com/",
 		"https://example-.com/", "https://example_com/", "https://[example.com]/", "https://[::1", "https://::1/",
-		"https://example.com/%zz", "https://%65xample.com/", "https://[not-an-ip]/",
+		"https://example.com/%zz", "https://example.com/?x=%zz", "https://%65xample.com/", "https://[not-an-ip]/",
 	} {
 		t.Run(value, func(t *testing.T) {
 			for _, enabled := range []bool{true, false} {

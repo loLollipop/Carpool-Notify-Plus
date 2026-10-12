@@ -2602,6 +2602,11 @@ func validateRedeemPromotionURL(value string) error {
 		parsed.Opaque != "" || parsed.User != nil || parsed.Host == "" {
 		return invalid()
 	}
+	// Parse validates path escapes but leaves RawQuery untouched. Keep API
+	// saves consistent with the browser's promotion URL validation.
+	if _, err := url.QueryUnescape(parsed.RawQuery); err != nil {
+		return invalid()
+	}
 	host := parsed.Hostname()
 	if host == "" || strings.HasSuffix(parsed.Host, ":") {
 		return invalid()
