@@ -86,9 +86,6 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 	api.GET("/redeem-settings", server.getRedeemSettings)
 	api.POST("/redeem", server.limitPublicRequests(server.publicSubmitLimiter), server.postRedeemApplication)
 	api.GET("/redeem/:token", server.limitPublicRequests(server.publicStatusLimiter), server.getRedeemStatus)
-	api.POST("/renewal/lookup", server.limitPublicRequests(server.publicStatusLimiter), server.postRenewalLookup)
-	api.POST("/renewal", server.limitPublicRequests(server.publicSubmitLimiter), server.postRenewalApplication)
-	api.GET("/renewal/:token", server.limitPublicRequests(server.publicStatusLimiter), server.getRenewalStatus)
 
 	var sandboxServer *Server
 	if server.SandboxService != nil {
@@ -103,9 +100,6 @@ func (server *Server) RegisterRoutes(router *gin.Engine) {
 		sandboxPublic.GET("/redeem-settings", sandboxServer.getRedeemSettings)
 		sandboxPublic.POST("/redeem", server.limitPublicRequests(server.publicSubmitLimiter), sandboxServer.postRedeemApplication)
 		sandboxPublic.GET("/redeem/:token", server.limitPublicRequests(server.publicStatusLimiter), sandboxServer.getRedeemStatus)
-		sandboxPublic.POST("/renewal/lookup", server.limitPublicRequests(server.publicStatusLimiter), sandboxServer.postRenewalLookup)
-		sandboxPublic.POST("/renewal", server.limitPublicRequests(server.publicSubmitLimiter), sandboxServer.postRenewalApplication)
-		sandboxPublic.GET("/renewal/:token", server.limitPublicRequests(server.publicStatusLimiter), sandboxServer.getRenewalStatus)
 	}
 
 	authorized := api.Group("")

@@ -1155,7 +1155,7 @@ function RenewalReviewManager() {
           className="flex-1"
           icon={<CreditCard className="size-5" />}
           title={renewals.length === 0 ? "暂无续费审核" : "当前筛选没有匹配申请"}
-          description="客户付款后提交的续费申请会自动出现在这里。"
+          description="历史续费申请保留在这里，可继续审核。"
         />
       ) : (
         <div className="grid min-h-0 flex-1 content-start gap-4 overflow-y-auto pr-1 md:grid-cols-2">

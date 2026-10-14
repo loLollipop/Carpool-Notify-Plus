@@ -736,65 +736,6 @@ func (server *Server) getRedeemStatus(context *gin.Context) {
 	respondOK(context, gin.H{"redemption": view})
 }
 
-type renewalLookupRequest struct {
-	CustomerEmail string `json:"customer_email"`
-}
-
-func (server *Server) postRenewalLookup(context *gin.Context) {
-	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
-	var request renewalLookupRequest
-	if err := context.ShouldBindJSON(&request); err != nil {
-		respondError(context, http.StatusBadRequest, "无效的查询内容")
-		return
-	}
-	view, err := server.Service.LookupRenewalSubscriptions(service.RenewalLookupInput{
-		CustomerEmail: request.CustomerEmail,
-	})
-	if err != nil {
-		respondError(context, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondOK(context, gin.H{"renewal": view})
-}
-
-type renewalSubmitRequest struct {
-	CustomerEmail  string `json:"customer_email"`
-	SubscriptionID int64  `json:"subscription_id"`
-	PeriodCount    int    `json:"period_count"`
-}
-
-func (server *Server) postRenewalApplication(context *gin.Context) {
-	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
-	var request renewalSubmitRequest
-	if err := context.ShouldBindJSON(&request); err != nil || request.SubscriptionID <= 0 {
-		respondError(context, http.StatusBadRequest, "无效的续费申请")
-		return
-	}
-	result, err := server.Service.SubmitRenewalApplication(service.RenewalSubmitInput{
-		CustomerEmail:  request.CustomerEmail,
-		SubscriptionID: request.SubscriptionID,
-		PeriodCount:    request.PeriodCount,
-	})
-	if err != nil {
-		respondError(context, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondOK(context, gin.H{
-		"tracking_token": result.TrackingToken,
-		"status":         result.Status,
-		"message":        "续费审核已提交，管理员确认到账后会更新订阅状态",
-	})
-}
-
-func (server *Server) getRenewalStatus(context *gin.Context) {
-	view, err := server.Service.GetRenewalStatus(context.Param("token"))
-	if err != nil {
-		respondError(context, http.StatusNotFound, err.Error())
-		return
-	}
-	respondOK(context, gin.H{"renewal": view})
-}
-
 type renewalDecisionRequest struct {
 	OperatorNote string `json:"operator_note"`
 }

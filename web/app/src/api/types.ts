@@ -212,53 +212,6 @@ interface AmountBar {
   amount_cents: number
 }
 
-export interface RenewalSubscriptionView {
-  subscription_id: number
-  business_type: SubscriptionBusinessType
-  service_label: string
-  account_serial: number
-  account_display_email?: string
-  account_space_role: AccountSpaceRole
-  seat_name: string
-  due_date: string
-  period_end_date: string
-  days_remaining: number
-  status_label: string
-  amount_yuan: string
-  cycle_desc: string
-  period_count: number
-  period_options: RenewalPeriodOption[]
-  renewable: boolean
-  pending_review: boolean
-  unavailable_reason: string
-}
-
-export interface RenewalPeriodOption {
-  period_count: number
-  amount_yuan: string
-  period_end_date: string
-}
-
-export interface RenewalLookupView {
-  customer_email: string
-  subscriptions: RenewalSubscriptionView[]
-}
-
-export interface RenewalStatus {
-  status: RenewalStatusValue
-  customer_email: string
-  business_type: SubscriptionBusinessType
-  service_label: string
-  due_date: string
-  period_count: number
-  period_end_date: string
-  amount_yuan: string
-  cycle_desc: string
-  created_at_label: string
-  processed_at_label: string
-  operator_note: string
-}
-
 export interface RenewalApplicationView {
   application: {
     id: number
@@ -852,12 +805,6 @@ export interface RedemptionInviteInput {
   remark: string
   trade_url: string
   operator_note: string
-}
-
-export interface RenewalSubmitInput {
-  customer_email: string
-  subscription_id: number
-  period_count: number
 }
 
 export interface RenewalDecisionInput {
