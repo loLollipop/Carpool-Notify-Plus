@@ -101,8 +101,6 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
 const PUBLIC_MUTATION_PATHS = new Set([
   "/api/login",
   "/api/redeem",
-  "/api/renewal/lookup",
-  "/api/renewal",
 ])
 
 function isPublicMutation(path: string) {

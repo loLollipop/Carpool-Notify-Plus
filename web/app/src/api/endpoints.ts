@@ -25,9 +25,6 @@ import type {
   ReminderPreview,
   RenewalApplicationView,
   RenewalDecisionInput,
-  RenewalLookupView,
-  RenewalStatus,
-  RenewalSubmitInput,
   RedemptionApplicationView,
   RedemptionCodeGenerateInput,
   RedemptionCodeView,
@@ -232,26 +229,6 @@ function publicSandboxPath(path: string, accessToken: string) {
 
 export function createBusinessGoal(input: BusinessGoalInput) {
   return api<MessageResult & { goal_id: number }>("/api/goals", { method: "POST", body: input })
-}
-
-export function lookupRenewalSubscriptions(customerEmail: string, sandboxAccessToken = "") {
-  return api<{ renewal: RenewalLookupView }>(
-    publicSandboxPath("/api/renewal/lookup", sandboxAccessToken),
-    { method: "POST", body: { customer_email: customerEmail } },
-  ).then((result) => result.renewal)
-}
-
-export function submitRenewalApplication(input: RenewalSubmitInput, sandboxAccessToken = "") {
-  return api<MessageResult & { tracking_token: string; status: "pending" }>(
-    publicSandboxPath("/api/renewal", sandboxAccessToken),
-    { method: "POST", body: input },
-  )
-}
-
-export function fetchRenewalStatus(token: string, sandboxAccessToken = "") {
-  return api<{ renewal: RenewalStatus }>(
-    publicSandboxPath(`/api/renewal/${encodeURIComponent(token)}`, sandboxAccessToken),
-  ).then((result) => result.renewal)
 }
 
 export function updateBusinessGoal(id: number, input: BusinessGoalInput) {
