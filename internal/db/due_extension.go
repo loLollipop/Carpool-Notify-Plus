@@ -325,14 +325,6 @@ func applyDueExtension(
 			return event, ErrSubscriptionStateChanged
 		}
 	}
-	var pending bool
-	if err := transaction.QueryRow(`SELECT EXISTS(SELECT 1 FROM renewal_applications WHERE subscription_id = ? AND status = ?)`,
-		subscription.ID, model.RenewalStatusPending).Scan(&pending); err != nil {
-		return event, err
-	}
-	if pending {
-		return event, fmt.Errorf("订阅 %d 有待审核续费，请先处理后再延期", subscription.ID)
-	}
 	subscription.DueExtensions, err = readDueExtensions(transaction, []int64{subscription.ID})
 	if err != nil {
 		return event, err
@@ -635,14 +627,6 @@ func (store *Store) ReviseCustomerBenefitExtension(input ReviseDueExtensionInput
 	}
 	if err != nil {
 		return ReviseDueExtensionResult{}, err
-	}
-	var pendingRenewal bool
-	if err := transaction.QueryRow(`SELECT EXISTS(SELECT 1 FROM renewal_applications WHERE subscription_id = ? AND status = ?)`,
-		subscription.ID, model.RenewalStatusPending).Scan(&pendingRenewal); err != nil {
-		return ReviseDueExtensionResult{}, err
-	}
-	if pendingRenewal {
-		return ReviseDueExtensionResult{}, fmt.Errorf("该订阅有待审核续费，请先处理后再调整延期")
 	}
 	var hasBill, hasSuccessNotification, hasAppliedPrice bool
 	if err := transaction.QueryRow(`SELECT EXISTS(SELECT 1 FROM bills WHERE subscription_id = ? AND due_date >= ?)`,

@@ -1,5 +1,5 @@
-import { isSandboxModeActive } from "@/lib/sandbox-mode"
-import { clearCSRFToken, CSRFTokenError, getCSRFHeaders } from "@/lib/csrf"
+import { isSandboxModeActive } from "../lib/sandbox-mode.ts"
+import { clearCSRFToken, CSRFTokenError, getCSRFHeaders } from "../lib/csrf.ts"
 
 class ApiError extends Error {
   status: number
@@ -119,10 +119,9 @@ function isCSRFError(payload: Record<string, unknown> | null) {
 const SANDBOX_BUSINESS_PREFIXES = [
   "/api/calendar",
   "/api/dashboard",
-  "/api/operations/overview",
+  "/api/operations",
   "/api/goals",
   "/api/redemptions",
-  "/api/renewal-applications",
   "/api/redemption-codes",
   "/api/subscriptions",
   "/api/accounts",

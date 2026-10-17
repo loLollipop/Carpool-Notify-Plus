@@ -405,20 +405,6 @@ func (server *Server) getRedemptions(context *gin.Context) {
 	respondOK(context, gin.H{"redemptions": views, "pending_count": pendingCount})
 }
 
-func (server *Server) getRenewalApplications(context *gin.Context) {
-	views, err := server.Service.ListRenewalApplicationsView(context.Query("status"))
-	if err != nil {
-		respondError(context, http.StatusInternalServerError, err.Error())
-		return
-	}
-	pendingCount, err := server.Service.Store.CountRenewalApplicationsByStatus(model.RenewalStatusPending)
-	if err != nil {
-		respondError(context, http.StatusInternalServerError, err.Error())
-		return
-	}
-	respondOK(context, gin.H{"renewals": views, "pending_count": pendingCount})
-}
-
 func (server *Server) getRedemptionCodes(context *gin.Context) {
 	views, err := server.Service.ListRedemptionCodesView()
 	if err != nil {
@@ -734,50 +720,6 @@ func (server *Server) getRedeemStatus(context *gin.Context) {
 		return
 	}
 	respondOK(context, gin.H{"redemption": view})
-}
-
-type renewalDecisionRequest struct {
-	OperatorNote string `json:"operator_note"`
-}
-
-func (server *Server) postApproveRenewalApplication(context *gin.Context) {
-	applicationID, ok := parseIDParam(context, "id", "无效的续费申请 ID")
-	if !ok {
-		return
-	}
-	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
-	var request renewalDecisionRequest
-	if err := context.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
-		respondError(context, http.StatusBadRequest, "无效的审核内容")
-		return
-	}
-	if err := server.Service.ApproveRenewalApplication(applicationID, service.RenewalDecisionInput{
-		OperatorNote: request.OperatorNote,
-	}); err != nil {
-		respondError(context, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondOK(context, gin.H{"message": "已确认到账并完成续费记账"})
-}
-
-func (server *Server) postRejectRenewalApplication(context *gin.Context) {
-	applicationID, ok := parseIDParam(context, "id", "无效的续费申请 ID")
-	if !ok {
-		return
-	}
-	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
-	var request renewalDecisionRequest
-	if err := context.ShouldBindJSON(&request); err != nil && !errors.Is(err, io.EOF) {
-		respondError(context, http.StatusBadRequest, "无效的驳回内容")
-		return
-	}
-	if err := server.Service.RejectRenewalApplication(applicationID, service.RenewalDecisionInput{
-		OperatorNote: request.OperatorNote,
-	}); err != nil {
-		respondError(context, http.StatusBadRequest, err.Error())
-		return
-	}
-	respondOK(context, gin.H{"message": "续费申请已驳回"})
 }
 
 // ---- Subscription mutations ---------------------------------------------------

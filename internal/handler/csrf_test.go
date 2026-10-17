@@ -98,8 +98,9 @@ func TestCSRFTokenExpiresAndIsBoundToSession(t *testing.T) {
 }
 
 type csrfTestClient struct {
-	router http.Handler
-	cookie *http.Cookie
+	router     http.Handler
+	cookie     *http.Cookie
+	remoteAddr string
 }
 
 func (client *csrfTestClient) do(t *testing.T, method, path, body, token string) *httptest.ResponseRecorder {
@@ -109,6 +110,9 @@ func (client *csrfTestClient) do(t *testing.T, method, path, body, token string)
 func (client *csrfTestClient) doWithCookie(t *testing.T, method, path, body, token string, sessionCookie *http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	if client.remoteAddr != "" {
+		request.RemoteAddr = client.remoteAddr
+	}
 	if sessionCookie != nil {
 		request.AddCookie(sessionCookie)
 	}

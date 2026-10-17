@@ -78,12 +78,11 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
-	if err := router.SetTrustedProxies([]string{"127.0.0.1", "::1"}); err != nil {
+	if err := configureTrustedProxies(router, configuration.TrustedProxies); err != nil {
 		log.Fatalf("trusted proxies: %v", err)
 	}
 	router.Use(
 		handler.SecurityHeaders(),
-		handler.LimitRequestBody(4<<20),
 		handler.RequestLogger(),
 		gin.Recovery(),
 	)
@@ -126,6 +125,11 @@ func main() {
 	shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = server.Shutdown(shutdownContext)
+}
+
+func configureTrustedProxies(router *gin.Engine, trustedProxies []string) error {
+	router.RemoteIPHeaders = []string{"X-Forwarded-For"}
+	return router.SetTrustedProxies(trustedProxies)
 }
 
 func sandboxDatabasePath(databasePath string) string {

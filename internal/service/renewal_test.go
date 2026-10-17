@@ -574,7 +574,7 @@ func TestSelfServiceRenewalSupportsMultipleSubscriptionsAndRejectsForeignSubscri
 	}
 }
 
-func TestPendingRenewalAppearsInOperationsOverview(t *testing.T) {
+func TestHistoricalPendingRenewalDoesNotAppearInOperationsOverview(t *testing.T) {
 	subscriptionService := openTestService(t)
 	subscriptionService.Clock = func() time.Time {
 		return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
@@ -605,21 +605,17 @@ func TestPendingRenewalAppearsInOperationsOverview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if overview.Work.PendingRenewalCount != 1 {
-		t.Fatalf("pending renewal count = %d, want 1", overview.Work.PendingRenewalCount)
-	}
-	var found bool
-	for _, task := range overview.Tasks {
-		if task.Kind == "renewal_review" {
-			found = task.SubscriptionID == subscriptionID &&
-				task.RenewalApplicationID > 0 &&
-				task.Route == "/redemptions?section=renewals&renewal="+strings.TrimPrefix(task.ID, "renewal:")
-			break
+	for _, tasks := range [][]service.OperationTask{overview.Tasks, overview.Notifications} {
+		for _, task := range tasks {
+			if task.Kind == "renewal_review" || strings.Contains(task.Route, "section=renewals") {
+				t.Fatalf("historical renewal still produces work: %#v", task)
+			}
 		}
 	}
-	if !found {
-		t.Fatalf("renewal task missing or malformed: %#v", overview.Tasks)
+	if overview.Work.UrgentCount != 0 || overview.Unread.RedemptionCount != 0 {
+		t.Fatalf("historical renewal still affects counts: %#v %#v", overview.Work, overview.Unread)
 	}
+
 }
 
 func TestSelfServiceRenewalRejectsOneMonthPlusRental(t *testing.T) {
