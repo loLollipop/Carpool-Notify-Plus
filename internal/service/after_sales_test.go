@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -1110,7 +1111,13 @@ func TestPendingAfterSalesCaseRemainsVisibleAfter24Hours(t *testing.T) {
 }
 
 func TestUndoAccountBanRefundRollsBackWhenOriginalSeatIsOccupied(t *testing.T) {
-	subscriptionService := openTestService(t)
+	databasePath := filepath.Join(t.TempDir(), "refund-undo-conflict.db")
+	store, err := db.Open(databasePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	subscriptionService := &service.SubscriptionService{Store: store}
 	subscriptionService.Clock = func() time.Time {
 		return time.Date(2026, time.August, 10, 12, 0, 0, 0, cycle.Location)
 	}
@@ -1129,13 +1136,19 @@ func TestUndoAccountBanRefundRollsBackWhenOriginalSeatIsOccupied(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	archived, err := subscriptionService.Store.GetSubscriptionIncludingArchived(subscriptionID)
+	database, err := sql.Open("sqlite", databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	archived.ID = 0
-	archived.Name = "replacement occupant"
-	if _, err := subscriptionService.Store.CreateSubscription(archived); err != nil {
+	t.Cleanup(func() { _ = database.Close() })
+	// Inject a legacy invalid occupant directly: normal assignment now rejects
+	// banned accounts, but refund undo must still roll back on historical conflicts.
+	if _, err := database.Exec(`INSERT INTO subscriptions (
+		name, price_per_person_cents, cron_expr, notify_offsets, channels,
+		seat_id, boarded_at, created_at, updated_at
+	) SELECT 'replacement occupant', price_per_person_cents, cron_expr, notify_offsets, channels,
+		seat_id, boarded_at, created_at, updated_at
+	FROM subscriptions WHERE id = ?`, subscriptionID); err != nil {
 		t.Fatal(err)
 	}
 

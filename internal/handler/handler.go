@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"carpool-notify/internal/config"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/service"
 
 	"github.com/gin-contrib/sessions"
@@ -38,8 +39,8 @@ type Server struct {
 
 	configMu            sync.RWMutex
 	settingsPageMu      sync.Mutex
-	loginMu             sync.Mutex
-	loginFailures       map[string]loginFailureState
+	securityMu          sync.Mutex
+	requestGuard        *requestGuard
 	publicSubmitLimiter *fixedWindowLimiter
 	publicStatusLimiter *fixedWindowLimiter
 	csrfManager         *csrfManager
@@ -51,12 +52,21 @@ func NewServer(subscriptionService *service.SubscriptionService, configuration c
 	if err != nil {
 		return nil, fmt.Errorf("hash password: %w", err)
 	}
+	var store *db.Store
+	if subscriptionService != nil {
+		store = subscriptionService.Store
+	}
+	guard, err := newRequestGuard(store, time.Now().UTC())
+	if err != nil {
+		return nil, fmt.Errorf("load IP blocks: %w", err)
+	}
 	return &Server{
 		Service:             subscriptionService,
 		Config:              configuration,
 		PasswordHash:        passwordHash,
 		AuthVersion:         authenticationVersion(configuration.SessionSecret, configuration.Password),
 		DistDir:             distDir,
+		requestGuard:        guard,
 		publicSubmitLimiter: newFixedWindowLimiter(publicSubmitLimit, publicSubmitWindow),
 		publicStatusLimiter: newFixedWindowLimiter(publicStatusLimit, publicStatusWindow),
 		csrfManager:         newCSRFManager(configuration.SessionSecret),
@@ -79,6 +89,7 @@ func (server *Server) Close() {
 // RegisterRoutes wires the JSON API, the export download, and the SPA fallback.
 func (server *Server) RegisterRoutes(router *gin.Engine) {
 	server.ensurePublicLimiters()
+	router.Use(server.protectRequests(), LimitRequestBody(4<<20))
 	api := router.Group("/api")
 	api.POST("/login", server.postLogin)
 	api.GET("/session", server.getSession)
@@ -156,9 +167,6 @@ func (server *Server) registerBusinessRoutes(routes *gin.RouterGroup) {
 	routes.GET("/redemptions", server.getRedemptions)
 	routes.POST("/redemptions/:id/invite", server.postInviteRedemption)
 	routes.POST("/redemptions/:id/reject", server.postRejectRedemption)
-	routes.GET("/renewal-applications", server.getRenewalApplications)
-	routes.POST("/renewal-applications/:id/approve", server.postApproveRenewalApplication)
-	routes.POST("/renewal-applications/:id/reject", server.postRejectRenewalApplication)
 	routes.GET("/redemption-codes", server.getRedemptionCodes)
 	routes.POST("/redemption-codes", server.postGenerateRedemptionCodes)
 	routes.POST("/redemption-codes/:id/disable", server.postDisableRedemptionCode)
@@ -222,10 +230,14 @@ func (server *Server) getSession(context *gin.Context) {
 }
 
 func (server *Server) postLogin(context *gin.Context) {
-	clientIP := context.ClientIP()
-	now := time.Now().UTC()
-	if retryAfter := server.loginRetryAfter(clientIP, now); retryAfter > 0 {
-		respondLoginRateLimited(context, retryAfter)
+	guard, err := server.securityGuard()
+	if err != nil {
+		respondError(context, http.StatusServiceUnavailable, "安全防护暂不可用，请稍后再试")
+		return
+	}
+	clientKey := abuseClientKey(context.ClientIP())
+	if retry := guard.beginLogin(clientKey, time.Now().UTC()); retry > 0 {
+		respondIPBlocked(context, retry)
 		return
 	}
 	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4096)
@@ -233,25 +245,47 @@ func (server *Server) postLogin(context *gin.Context) {
 		Password string `json:"password"`
 	}
 	if err := context.ShouldBindJSON(&body); err != nil {
+		if retry := guard.recordFailure(clientKey, "login", time.Now().UTC()); retry > 0 {
+			respondIPBlocked(context, retry)
+			return
+		}
 		respondError(context, http.StatusBadRequest, "无效的请求")
 		return
 	}
+	// Bound expensive bcrypt work globally, including requests from different IPs.
+	select {
+	case guard.loginSlots <- struct{}{}:
+		defer func() { <-guard.loginSlots }()
+	default:
+		setRetryAfter(context, time.Second)
+		respondError(context, http.StatusServiceUnavailable, "登录请求繁忙，请稍后再试")
+		return
+	}
 	if err := bcrypt.CompareHashAndPassword(server.PasswordHash, []byte(body.Password)); err != nil {
-		server.recordLoginFailure(clientIP, now)
+		if retry := guard.recordFailure(clientKey, "login", time.Now().UTC()); retry > 0 {
+			respondIPBlocked(context, retry)
+			return
+		}
 		respondError(context, http.StatusUnauthorized, "密码错误")
 		return
 	}
-	server.clearLoginFailures(clientIP)
 	session := sessions.Default(context)
 	binding, err := server.csrfManager.generateBinding()
 	if err != nil {
 		respondError(context, http.StatusInternalServerError, "会话初始化失败")
 		return
 	}
-	session.Set(sessionAuthKey, true)
-	session.Set(sessionAuthVersionKey, server.AuthVersion)
-	session.Set(csrfBindingKey, binding)
-	if err := session.Save(); err != nil {
+	retry, err := guard.completeLogin(clientKey, time.Now().UTC(), func() error {
+		session.Set(sessionAuthKey, true)
+		session.Set(sessionAuthVersionKey, server.AuthVersion)
+		session.Set(csrfBindingKey, binding)
+		return session.Save()
+	})
+	if retry > 0 {
+		respondIPBlocked(context, retry)
+		return
+	}
+	if err != nil {
 		respondError(context, http.StatusInternalServerError, "会话保存失败")
 		return
 	}

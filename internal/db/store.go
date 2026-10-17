@@ -405,6 +405,13 @@ func (store *Store) migrate() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_redemption_codes_status
 			ON redemption_codes(status, created_at);`,
+		`CREATE TABLE IF NOT EXISTS security_ip_blocks (
+			client_key TEXT PRIMARY KEY,
+			blocked_until INTEGER NOT NULL,
+			reason TEXT NOT NULL
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_security_ip_blocks_expiry
+			ON security_ip_blocks(blocked_until);`,
 	}
 	for _, statement := range statements {
 		if _, err := store.database.Exec(statement); err != nil {
@@ -1991,7 +1998,12 @@ func insertSubscription(
                         name, business_type, price_per_person_cents, next_price_cents, next_price_effective_due_date,
 						cost_cents, is_resale, agency_fee_cents, cron_expr, notify_offsets, channels,
                         remark, trade_url, customer_email, customer_wechat, subscription_type, seat_id, boarded_at, archived_at, deleted_at, created_at, updated_at
-				) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+				) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?
+				WHERE NOT EXISTS (
+					SELECT 1 FROM seats AS seat
+					INNER JOIN accounts AS account ON account.id = seat.account_id
+					WHERE seat.id = ? AND TRIM(COALESCE(account.banned_at, '')) <> ''
+				)`,
 		subscription.Name,
 		businessType,
 		subscription.PricePerPersonCents,
@@ -2012,12 +2024,20 @@ func insertSubscription(
 		boardedAt,
 		now,
 		now,
+		seatID,
 	)
 	if err != nil {
 		if isActiveSeatOccupancyError(err) {
 			return 0, ErrActiveSeatOccupied
 		}
 		return 0, seatReferenceError(err)
+	}
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	if rowsAffected == 0 {
+		return 0, ErrReplacementAccountBanned
 	}
 	return result.LastInsertId()
 }
@@ -2481,9 +2501,10 @@ func updateSubscriptionWithExecutor(
 	var storedCustomerWechat string
 	var storedNextPrice sql.NullInt64
 	var storedNextPriceDueDate string
+	var storedSeatID sql.NullInt64
 	if err := executor.QueryRow(`
 		SELECT price_per_person_cents, COALESCE(customer_email, ''), COALESCE(customer_wechat, ''),
-		       next_price_cents, COALESCE(next_price_effective_due_date, '')
+		       next_price_cents, COALESCE(next_price_effective_due_date, ''), seat_id
 		FROM subscriptions
 		WHERE id = ?`, subscription.ID).Scan(
 		&storedCurrentPrice,
@@ -2491,8 +2512,25 @@ func updateSubscriptionWithExecutor(
 		&storedCustomerWechat,
 		&storedNextPrice,
 		&storedNextPriceDueDate,
+		&storedSeatID,
 	); err != nil {
 		return err
+	}
+	// Existing occupants may still edit other fields after an account ban.
+	// New assignments must recheck the account inside the guarded write transaction.
+	if subscription.SeatID > 0 && subscription.SeatID != storedSeatID.Int64 {
+		var banned bool
+		if err := executor.QueryRow(`
+			SELECT EXISTS (
+				SELECT 1 FROM seats AS seat
+				INNER JOIN accounts AS account ON account.id = seat.account_id
+				WHERE seat.id = ? AND TRIM(COALESCE(account.banned_at, '')) <> ''
+			)`, subscription.SeatID).Scan(&banned); err != nil {
+			return err
+		}
+		if banned {
+			return ErrReplacementAccountBanned
+		}
 	}
 	nextPriceScheduleChanged := strings.TrimSpace(storedNextPriceDueDate) != strings.TrimSpace(subscription.NextPriceEffectiveDueDate) ||
 		storedNextPrice.Valid != (subscription.NextPriceCents != nil) ||
@@ -3155,6 +3193,13 @@ func (store *Store) UpdateBill(billID int64, amountCents int64, note string) err
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
 	}
+	var subscriptionID int64
+	if err := transaction.QueryRow(`SELECT subscription_id FROM bills WHERE id = ?`, billID).Scan(&subscriptionID); err != nil {
+		return err
+	}
+	if err := touchSubscriptionWithTransaction(transaction, subscriptionID); err != nil {
+		return err
+	}
 	return transaction.Commit()
 }
 
@@ -3195,6 +3240,13 @@ func (store *Store) UpdateBillFinancials(
 	}
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
+	}
+	var subscriptionID int64
+	if err := transaction.QueryRow(`SELECT subscription_id FROM bills WHERE id = ?`, billID).Scan(&subscriptionID); err != nil {
+		return err
+	}
+	if err := touchSubscriptionWithTransaction(transaction, subscriptionID); err != nil {
+		return err
 	}
 	return transaction.Commit()
 }
@@ -3434,14 +3486,20 @@ func (store *Store) ListRedemptionCodes() ([]model.RedemptionCode, error) {
 
 // SetRedemptionCodeStatus changes a generated code between unused/disabled.
 func (store *Store) SetRedemptionCodeStatus(codeID int64, status string) error {
+	status = strings.TrimSpace(status)
+	if status != model.RedemptionCodeStatusUnused && status != model.RedemptionCodeStatusDisabled {
+		return fmt.Errorf("invalid redemption code status: %q", status)
+	}
 	now := formatTime(time.Now().UTC())
 	result, err := store.database.Exec(`
 		UPDATE redemption_codes
 		SET status = ?, updated_at = ?
-		WHERE id = ?`,
-		strings.TrimSpace(status),
+		WHERE id = ? AND status IN (?, ?)`,
+		status,
 		now,
 		codeID,
+		model.RedemptionCodeStatusUnused,
+		model.RedemptionCodeStatusDisabled,
 	)
 	if err != nil {
 		return err
@@ -3451,7 +3509,7 @@ func (store *Store) SetRedemptionCodeStatus(codeID int64, status string) error {
 		return err
 	}
 	if rowsAffected == 0 {
-		return sql.ErrNoRows
+		return ErrRedemptionCodeNotUnused
 	}
 	return nil
 }

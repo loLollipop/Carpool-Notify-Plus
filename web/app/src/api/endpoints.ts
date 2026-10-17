@@ -23,8 +23,6 @@ import type {
   OperatingExpenseInput,
   OperatingExpenseView,
   ReminderPreview,
-  RenewalApplicationView,
-  RenewalDecisionInput,
   RedemptionApplicationView,
   RedemptionCodeGenerateInput,
   RedemptionCodeView,
@@ -137,16 +135,6 @@ export function fetchAfterSales() {
     cases: r.cases ?? [],
     summary_cases: r.summary_cases ?? r.cases ?? [],
     summary: r.summary,
-  }))
-}
-
-export function fetchRenewalApplications(status?: "pending" | "approved" | "rejected" | "all") {
-  const query = status && status !== "all" ? `?status=${encodeURIComponent(status)}` : ""
-  return api<{ renewals: RenewalApplicationView[] | null; pending_count: number }>(
-    `/api/renewal-applications${query}`,
-  ).then((result) => ({
-    renewals: result.renewals ?? [],
-    pending_count: result.pending_count,
   }))
 }
 
@@ -343,20 +331,6 @@ export function inviteRedemption(id: number, input: RedemptionInviteInput) {
 
 export function rejectRedemption(id: number, input: RedemptionRejectInput) {
   return api<MessageResult>(`/api/redemptions/${id}/reject`, {
-    method: "POST",
-    body: input,
-  })
-}
-
-export function approveRenewalApplication(id: number, input: RenewalDecisionInput) {
-  return api<MessageResult>(`/api/renewal-applications/${id}/approve`, {
-    method: "POST",
-    body: input,
-  })
-}
-
-export function rejectRenewalApplication(id: number, input: RenewalDecisionInput) {
-  return api<MessageResult>(`/api/renewal-applications/${id}/reject`, {
     method: "POST",
     body: input,
   })

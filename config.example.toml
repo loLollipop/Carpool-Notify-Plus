@@ -19,6 +19,9 @@ password = ""
 session_secret = ""
 # HTTPS 部署必须保持 true；仅在本机通过 HTTP 调试时显式改为 false
 session_cookie_secure = true
+# 仅信任实际反向代理的 IP/CIDR；直连部署设为 []。
+# 代理必须覆盖 X-Forwarded-For；后端端口应只允许代理访问。
+trusted_proxies = ["127.0.0.1", "::1"]
 
 [gotify]
 # Gotify 服务根地址，不要末尾斜杠，不要带 /message

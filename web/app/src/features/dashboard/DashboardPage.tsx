@@ -299,8 +299,6 @@ function taskIcon(task: OperationTask) {
   switch (task.kind) {
     case "redemption":
       return TicketCheck
-    case "renewal_review":
-      return CircleDollarSign
     case "after_sales":
       return HandCoins
     case "notification_failed":
@@ -627,8 +625,8 @@ function DecisionCard({
     {
       icon: TicketCheck,
       label: t("dash.workbench.pendingReviews"),
-      value: (overview.work.pending_redemption_count ?? 0) + (overview.work.pending_renewal_count ?? 0),
-      to: overview.work.pending_redemption_count > 0 ? "/redemptions" : "/redemptions?section=renewals",
+      value: overview.work.pending_redemption_count ?? 0,
+      to: "/redemptions",
       activeClass: "border-destructive/25 bg-destructive/[0.045]",
       iconClass: "bg-destructive/10 text-destructive",
     },

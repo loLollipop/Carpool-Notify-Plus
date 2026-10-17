@@ -3,6 +3,7 @@ package config
 import (
 	"flag"
 	"fmt"
+	"net"
 	"net/mail"
 	"os"
 	"strconv"
@@ -18,6 +19,7 @@ type Config struct {
 	SessionSecret       string
 	SessionCookieSecure bool
 	ListenAddress       string
+	TrustedProxies      []string
 	DatabasePath        string
 	GotifyURL           string
 	GotifyToken         string
@@ -90,11 +92,12 @@ type NotificationConfigInput struct {
 // fileConfig is the on-disk TOML shape.
 type fileConfig struct {
 	Server struct {
-		Listen              string `toml:"listen"`
-		DBPath              string `toml:"db_path"`
-		Password            string `toml:"password"`
-		SessionSecret       string `toml:"session_secret"`
-		SessionCookieSecure *bool  `toml:"session_cookie_secure"`
+		Listen              string    `toml:"listen"`
+		DBPath              string    `toml:"db_path"`
+		Password            string    `toml:"password"`
+		SessionSecret       string    `toml:"session_secret"`
+		SessionCookieSecure *bool     `toml:"session_cookie_secure"`
+		TrustedProxies      *[]string `toml:"trusted_proxies,omitempty"`
 	} `toml:"server"`
 	Gotify struct {
 		URL   string `toml:"url"`
@@ -119,6 +122,9 @@ type fileConfig struct {
 //  1. non-empty environment variable (if set)
 //  2. value from config.toml
 //  3. built-in default (where applicable)
+//
+// CARPOOL_TRUSTED_PROXIES also accepts an explicitly empty value to disable
+// proxy header trust, overriding both the file and the loopback-only default.
 //
 // Config file path resolution:
 //  1. -config flag
@@ -158,6 +164,30 @@ func loadConfig(configPath string) (Config, error) {
 		}
 		sessionCookieSecure = parsed
 	}
+	trustedProxies := []string{"127.0.0.1", "::1"}
+	if fileValues.Server.TrustedProxies != nil {
+		trustedProxies = append([]string{}, (*fileValues.Server.TrustedProxies)...)
+	}
+	if rawProxies, set := os.LookupEnv("CARPOOL_TRUSTED_PROXIES"); set {
+		trustedProxies = []string{}
+		if strings.TrimSpace(rawProxies) != "" {
+			trustedProxies = strings.Split(rawProxies, ",")
+		}
+	}
+	for index, rawProxy := range trustedProxies {
+		proxy := strings.TrimSpace(rawProxy)
+		trustedProxies[index] = proxy
+		if net.ParseIP(proxy) != nil {
+			continue
+		}
+		_, network, err := net.ParseCIDR(proxy)
+		if err != nil {
+			return Config{}, fmt.Errorf("server.trusted_proxies entry %d must be a valid IP address or CIDR", index+1)
+		}
+		if ones, _ := network.Mask.Size(); ones == 0 {
+			return Config{}, fmt.Errorf("server.trusted_proxies entry %d must not trust all addresses (/0)", index+1)
+		}
+	}
 
 	configuration := Config{
 		ConfigPath:          configPath,
@@ -165,6 +195,7 @@ func loadConfig(configPath string) (Config, error) {
 		SessionSecret:       firstNonEmpty(os.Getenv("CARPOOL_SESSION_SECRET"), fileValues.Server.SessionSecret),
 		SessionCookieSecure: sessionCookieSecure,
 		ListenAddress:       firstNonEmpty(os.Getenv("CARPOOL_LISTEN"), fileValues.Server.Listen, ":8080"),
+		TrustedProxies:      trustedProxies,
 		DatabasePath:        firstNonEmpty(os.Getenv("CARPOOL_DB_PATH"), fileValues.Server.DBPath, "./data/carpool.db"),
 		GotifyURL:           strings.TrimRight(firstNonEmpty(os.Getenv("GOTIFY_URL"), fileValues.Gotify.URL), "/"),
 		GotifyToken:         firstNonEmpty(os.Getenv("GOTIFY_TOKEN"), fileValues.Gotify.Token),

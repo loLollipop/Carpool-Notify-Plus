@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,17 +9,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 )
-
-func TestLoginFailureStateHasHardCapacity(t *testing.T) {
-	server := &Server{}
-	now := time.Now().UTC()
-	for index := 0; index < maxLoginStates+100; index++ {
-		server.recordLoginFailure(fmt.Sprintf("203.0.113.%d", index), now.Add(time.Duration(index)*time.Second))
-	}
-	if got := len(server.loginFailures); got != maxLoginStates {
-		t.Fatalf("login failure states = %d, want hard cap %d", got, maxLoginStates)
-	}
-}
 
 func TestSecurityHeadersProtectAPIResponses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -110,10 +98,10 @@ func TestLoginRateLimitBlocksRepeatedFailures(t *testing.T) {
 		context.Request.RemoteAddr = "203.0.113.10:4321"
 		server.postLogin(context)
 
-		if attempt <= loginFailureLimit && recorder.Code != http.StatusUnauthorized {
+		if attempt < loginFailureLimit && recorder.Code != http.StatusUnauthorized {
 			t.Fatalf("attempt %d status = %d, want 401", attempt, recorder.Code)
 		}
-		if attempt == loginFailureLimit+1 {
+		if attempt >= loginFailureLimit {
 			if recorder.Code != http.StatusTooManyRequests {
 				t.Fatalf("blocked attempt status = %d, want 429", recorder.Code)
 			}

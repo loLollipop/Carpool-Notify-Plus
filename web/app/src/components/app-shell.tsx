@@ -7,7 +7,6 @@ import {
   CircleDollarSign,
   Clock3,
   ChevronRight,
-  CreditCard,
   ExternalLink,
   FlaskConical,
   Languages,
@@ -52,7 +51,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAuth } from "@/features/auth/auth-state"
-import { useRedemptions, useRenewalApplications } from "@/api/queries"
+import { useRedemptions } from "@/api/queries"
 import { useSandboxMode } from "@/hooks/use-sandbox-mode"
 import { preloadRoute } from "@/route-pages"
 
@@ -153,13 +152,10 @@ function ApplicationNotifications() {
   const navigate = useNavigate()
   const [open, setOpen] = React.useState(false)
   const redemptionsQuery = useRedemptions("pending")
-  const renewalsQuery = useRenewalApplications("pending")
   const redemptionCount = redemptionsQuery.data?.pending_count ?? 0
-  const renewalCount = renewalsQuery.data?.pending_count ?? 0
-  const pendingCount = redemptionCount + renewalCount
+  const pendingCount = redemptionCount
   const redemptions = redemptionsQuery.data?.redemptions ?? []
-  const renewals = renewalsQuery.data?.renewals ?? []
-  const loading = redemptionsQuery.isPending || renewalsQuery.isPending
+  const loading = redemptionsQuery.isPending
 
   const goTo = (path: string) => {
     setOpen(false)
@@ -188,7 +184,7 @@ function ApplicationNotifications() {
         </TooltipTrigger>
         <TooltipContent>
           {pendingCount > 0
-            ? `兑换 ${redemptionCount} · 续费 ${renewalCount}`
+            ? `待处理兑换申请 ${redemptionCount} 条`
             : "暂无待处理申请"}
         </TooltipContent>
       </Tooltip>
@@ -219,7 +215,7 @@ function ApplicationNotifications() {
                   <Bell className="size-5" />
                 </span>
                 <p className="mt-4 text-sm font-semibold">无待处理申请</p>
-                <p className="mt-1 text-xs text-muted-foreground">新的兑换或续费申请会在这里显示</p>
+                <p className="mt-1 text-xs text-muted-foreground">新的兑换申请会在这里显示</p>
               </div>
             </div>
           ) : (
@@ -256,37 +252,6 @@ function ApplicationNotifications() {
                 </section>
               ) : null}
 
-              {renewals.length > 0 ? (
-                <section aria-labelledby="pending-renewals-title">
-                  <div className="mb-2.5 flex items-center justify-between gap-3">
-                    <h3 id="pending-renewals-title" className="flex items-center gap-2 text-sm font-semibold">
-                      <CreditCard className="size-4 text-success" />
-                      续费申请
-                    </h3>
-                    <span className="rounded-full bg-success/10 px-2 py-0.5 text-xs font-semibold text-success tabular-nums">
-                      {renewalCount}
-                    </span>
-                  </div>
-                  <div className="grid gap-2">
-                    {renewals.map((view) => (
-                      <div key={view.application.id} className="flex items-center gap-3 rounded-xl border bg-muted/20 p-3">
-                        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-success/10 text-success">
-                          <CreditCard className="size-4" />
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold">{view.application.customer_email}</p>
-                          <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                            ¥{view.amount_yuan} · {view.application.due_date} · {view.created_at_label}
-                          </p>
-                        </div>
-                        <Button size="sm" onClick={() => goTo(`/redemptions?section=renewals&renewal=${view.application.id}`)}>
-                          前往处理
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              ) : null}
             </div>
           )}
         </div>

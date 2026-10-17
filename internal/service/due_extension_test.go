@@ -411,7 +411,7 @@ func TestReviseCustomerBenefitExtensionSafetyBlocks(t *testing.T) {
 		}
 	})
 
-	t.Run("pending renewal", func(t *testing.T) {
+	t.Run("historical pending renewal does not block revision", func(t *testing.T) {
 		service, ids := extensionTestService(t, "2026-06-20", 1)
 		if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids, "2026-06-20", 7, "test-renewal-block-source-operation")); err != nil {
 			t.Fatal(err)
@@ -424,10 +424,10 @@ func TestReviseCustomerBenefitExtensionSafetyBlocks(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, err := service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
-			BenefitID: benefit.ID, Reason: "续费审核中撤回", OperationKey: "test-renewal-block-revision-operation",
+			BenefitID: benefit.ID, Reason: "撤回延期", OperationKey: "test-renewal-block-revision-operation",
 		})
-		if err == nil || !strings.Contains(err.Error(), "待审核续费") {
-			t.Fatalf("error = %v", err)
+		if err != nil {
+			t.Fatalf("historical renewal blocked revision: %v", err)
 		}
 	})
 
@@ -839,22 +839,16 @@ func TestExtensionRepairExplicitAndIdempotent(t *testing.T) {
 	}
 }
 
-func TestExtensionRejectsPendingRenewalAndStalePayment(t *testing.T) {
+func TestExtensionIgnoresHistoricalPendingRenewalAndRejectsStalePayment(t *testing.T) {
 	service, ids := extensionTestService(t, "2026-06-20", 1)
 	stale, _ := service.Store.GetSubscription(ids[0])
-	applicationID, err := service.Store.CreateRenewalApplication(model.RenewalApplication{
+	_, err := service.Store.CreateRenewalApplication(model.RenewalApplication{
 		TrackingToken: "pending-extension-test", SubscriptionID: ids[0], DueDate: "2026-07-01", PeriodEndDate: "2026-07-31", AmountCents: 10000,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	input := extensionInput(t, service, ids, "2026-06-20", 9, "test-pending-extension")
-	if _, err := service.RecordCustomerBenefits(input); err == nil {
-		t.Fatal("pending renewal was not rejected")
-	}
-	if err := service.Store.RejectRenewalApplication(applicationID, ""); err != nil {
-		t.Fatal(err)
-	}
 	if _, err := service.RecordCustomerBenefits(input); err != nil {
 		t.Fatal(err)
 	}

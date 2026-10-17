@@ -13,22 +13,12 @@ import (
 )
 
 const (
-	loginFailureLimit   = 5
-	loginBlockDuration  = 15 * time.Minute
-	loginStateTTL       = time.Hour
-	maxLoginStates      = 1024
 	publicSubmitLimit   = 8
 	publicSubmitWindow  = 10 * time.Minute
 	publicStatusLimit   = 180
 	publicStatusWindow  = time.Minute
 	maxPublicRateStates = 4096
 )
-
-type loginFailureState struct {
-	Failures     int
-	LastFailure  time.Time
-	BlockedUntil time.Time
-}
 
 type fixedWindowState struct {
 	StartedAt time.Time
@@ -104,7 +94,7 @@ func (limiter *fixedWindowLimiter) allow(clientKey string, now time.Time) (bool,
 			limiter.prune(now)
 		}
 		if !exists && len(limiter.byClient) >= limiter.maxKeys {
-			limiter.removeOldest()
+			return false, limiter.window
 		}
 		limiter.byClient[clientKey] = fixedWindowState{StartedAt: now, Count: 1}
 		return true, 0
@@ -125,20 +115,6 @@ func (limiter *fixedWindowLimiter) prune(now time.Time) {
 	}
 }
 
-func (limiter *fixedWindowLimiter) removeOldest() {
-	oldestKey := ""
-	var oldestStartedAt time.Time
-	for clientKey, state := range limiter.byClient {
-		if oldestKey == "" || state.StartedAt.Before(oldestStartedAt) {
-			oldestKey = clientKey
-			oldestStartedAt = state.StartedAt
-		}
-	}
-	if oldestKey != "" {
-		delete(limiter.byClient, oldestKey)
-	}
-}
-
 func (server *Server) ensurePublicLimiters() {
 	if server.publicSubmitLimiter == nil {
 		server.publicSubmitLimiter = newFixedWindowLimiter(publicSubmitLimit, publicSubmitWindow)
@@ -150,24 +126,42 @@ func (server *Server) ensurePublicLimiters() {
 
 func (server *Server) limitPublicRequests(limiter *fixedWindowLimiter) gin.HandlerFunc {
 	return func(context *gin.Context) {
-		allowed, retryAfter := limiter.allow(context.ClientIP(), time.Now().UTC())
+		guard, err := server.securityGuard()
+		if err != nil {
+			context.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"ok": false, "error": "安全防护暂不可用，请稍后再试"})
+			return
+		}
+		key := abuseClientKey(context.ClientIP())
+		now := time.Now().UTC()
+		if retry := guard.retryAfter(key, now); retry > 0 {
+			respondIPBlocked(context, retry)
+			return
+		}
+		allowed, retryAfter := limiter.allow(key, now)
 		if allowed {
 			context.Next()
 			return
 		}
-		seconds := int64(retryAfter / time.Second)
-		if retryAfter%time.Second != 0 {
-			seconds++
+		if retry := guard.recordFailure(key, "rate", now); retry > 0 {
+			respondIPBlocked(context, retry)
+			return
 		}
-		if seconds < 1 {
-			seconds = 1
-		}
-		context.Header("Retry-After", strconv.FormatInt(seconds, 10))
+		setRetryAfter(context, retryAfter)
 		context.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-			"ok":    false,
-			"error": "请求过于频繁，请稍后再试",
+			"ok": false, "error": "请求过于频繁，请稍后再试",
 		})
 	}
+}
+
+func setRetryAfter(context *gin.Context, retry time.Duration) {
+	seconds := int64(retry / time.Second)
+	if retry%time.Second != 0 {
+		seconds++
+	}
+	if seconds < 1 {
+		seconds = 1
+	}
+	context.Header("Retry-After", strconv.FormatInt(seconds, 10))
 }
 
 // SecurityHeaders applies browser hardening globally and disables caching for
@@ -260,73 +254,4 @@ func redactedRequestTarget(request *http.Request) string {
 		return path + "?" + encoded
 	}
 	return path
-}
-
-func (server *Server) loginRetryAfter(clientIP string, now time.Time) time.Duration {
-	server.loginMu.Lock()
-	defer server.loginMu.Unlock()
-	state, exists := server.loginFailures[clientIP]
-	if !exists || state.BlockedUntil.IsZero() || !now.Before(state.BlockedUntil) {
-		if exists && (!state.BlockedUntil.IsZero() || now.Sub(state.LastFailure) >= loginStateTTL) {
-			delete(server.loginFailures, clientIP)
-		}
-		return 0
-	}
-	return state.BlockedUntil.Sub(now)
-}
-
-func (server *Server) recordLoginFailure(clientIP string, now time.Time) {
-	server.loginMu.Lock()
-	defer server.loginMu.Unlock()
-	if server.loginFailures == nil {
-		server.loginFailures = make(map[string]loginFailureState)
-	}
-	if _, exists := server.loginFailures[clientIP]; !exists && len(server.loginFailures) >= maxLoginStates {
-		for address, state := range server.loginFailures {
-			if now.Sub(state.LastFailure) >= loginStateTTL && !now.Before(state.BlockedUntil) {
-				delete(server.loginFailures, address)
-			}
-		}
-		if len(server.loginFailures) >= maxLoginStates {
-			oldestAddress := ""
-			var oldestFailure time.Time
-			for address, state := range server.loginFailures {
-				if oldestAddress == "" || state.LastFailure.Before(oldestFailure) {
-					oldestAddress = address
-					oldestFailure = state.LastFailure
-				}
-			}
-			if oldestAddress != "" {
-				delete(server.loginFailures, oldestAddress)
-			}
-		}
-	}
-	state := server.loginFailures[clientIP]
-	if now.Sub(state.LastFailure) >= loginStateTTL {
-		state = loginFailureState{}
-	}
-	state.Failures++
-	state.LastFailure = now
-	if state.Failures >= loginFailureLimit {
-		state.BlockedUntil = now.Add(loginBlockDuration)
-	}
-	server.loginFailures[clientIP] = state
-}
-
-func (server *Server) clearLoginFailures(clientIP string) {
-	server.loginMu.Lock()
-	delete(server.loginFailures, clientIP)
-	server.loginMu.Unlock()
-}
-
-func respondLoginRateLimited(context *gin.Context, retryAfter time.Duration) {
-	seconds := int64(retryAfter / time.Second)
-	if retryAfter%time.Second != 0 {
-		seconds++
-	}
-	if seconds < 1 {
-		seconds = 1
-	}
-	context.Header("Retry-After", strconv.FormatInt(seconds, 10))
-	respondError(context, http.StatusTooManyRequests, "登录失败次数过多，请稍后再试")
 }

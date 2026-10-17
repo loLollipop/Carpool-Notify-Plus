@@ -2,10 +2,10 @@ package handler
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -80,40 +80,55 @@ func seedHistoricalRenewal(t *testing.T, subscriptionService *service.Subscripti
 	return applicationID
 }
 
-func TestRemovedPublicRenewalRoutesReturnJSONNotFound(t *testing.T) {
+func TestRemovedRenewalRoutesReturnJSONNotFound(t *testing.T) {
 	server, router := renewalRoutesTestServer(t)
 	seedHistoricalRenewal(t, server.Service, "legacy-live-token")
 	seedHistoricalRenewal(t, server.SandboxService, "legacy-sandbox-token")
 	client := csrfTestClient{router: router}
-	for _, prefix := range []string{"/api", "/api/sandbox"} {
-		for _, route := range []struct {
-			method string
-			path   string
-		}{
-			{http.MethodPost, "/renewal/lookup"},
-			{http.MethodPost, "/renewal"},
-			{http.MethodGet, "/renewal/legacy-live-token"},
-			{http.MethodGet, "/renewal/legacy-sandbox-token"},
-		} {
-			for _, query := range []string{"", "?sandbox_token=sandbox-token"} {
-				path := prefix + route.path + query
-				t.Run(route.method+" "+path, func(t *testing.T) {
-					response := client.do(t, route.method, path,
-						`{"customer_email":"customer@example.com","subscription_id":1,"period_count":1}`, "")
-					if response.Code != http.StatusNotFound {
-						t.Fatalf("status = %d, want 404: %s", response.Code, response.Body.String())
-					}
-					if !strings.HasPrefix(response.Header().Get("Content-Type"), "application/json") {
-						t.Fatalf("response is not JSON: %s", response.Body.String())
-					}
-					var payload struct {
-						OK    bool   `json:"ok"`
-						Error string `json:"error"`
-					}
-					if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil || payload.OK || payload.Error != "not found" {
-						t.Fatalf("unexpected response: %s, error = %v", response.Body.String(), err)
-					}
-				})
+	clientIndex := 1
+	for _, authenticated := range []bool{false, true} {
+		if authenticated {
+			if response := client.do(t, http.MethodPost, "/api/login", `{"password":"test-password"}`, ""); response.Code != http.StatusOK {
+				t.Fatalf("login failed: %d %s", response.Code, response.Body.String())
+			}
+		}
+		for _, prefix := range []string{"/api", "/api/sandbox"} {
+			for _, route := range []struct {
+				method string
+				path   string
+			}{
+				{http.MethodGet, "/renewal-applications"},
+				{http.MethodPost, "/renewal-applications/1/approve"},
+				{http.MethodPost, "/renewal-applications/1/reject"},
+				{http.MethodPost, "/renewal/lookup"},
+				{http.MethodPost, "/renewal"},
+				{http.MethodGet, "/renewal/legacy-live-token"},
+				{http.MethodGet, "/renewal/legacy-sandbox-token"},
+			} {
+				for _, query := range []string{"", "?sandbox_token=sandbox-token"} {
+					path := prefix + route.path + query
+					t.Run(route.method+" "+path, func(t *testing.T) {
+						// Each case checks one removed route independently; avoid
+						// simulating a single client probing dozens of missing APIs.
+						client.remoteAddr = "198.51.100." + strconv.Itoa(clientIndex) + ":1234"
+						clientIndex++
+						response := client.do(t, route.method, path,
+							`{"customer_email":"customer@example.com","subscription_id":1,"period_count":1}`, "")
+						if response.Code != http.StatusNotFound {
+							t.Fatalf("status = %d, want 404: %s", response.Code, response.Body.String())
+						}
+						if !strings.HasPrefix(response.Header().Get("Content-Type"), "application/json") {
+							t.Fatalf("response is not JSON: %s", response.Body.String())
+						}
+						var payload struct {
+							OK    bool   `json:"ok"`
+							Error string `json:"error"`
+						}
+						if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil || payload.OK || payload.Error != "not found" {
+							t.Fatalf("unexpected response: %s, error = %v", response.Body.String(), err)
+						}
+					})
+				}
 			}
 		}
 	}
@@ -122,6 +137,10 @@ func TestRemovedPublicRenewalRoutesReturnJSONNotFound(t *testing.T) {
 		if err != nil || len(applications) != 1 || applications[0].Status != model.RenewalStatusPending {
 			t.Fatalf("removed routes changed historical applications: %#v, error = %v", applications, err)
 		}
+		bills, err := subscriptionService.Store.ListBills()
+		if err != nil || len(bills) != 1 {
+			t.Fatalf("removed routes changed bills: %#v, error = %v", bills, err)
+		}
 	}
 	if response := client.do(t, http.MethodGet, "/redeem", "", ""); response.Code != http.StatusOK ||
 		!strings.Contains(response.Body.String(), "SPA fallback") {
@@ -129,25 +148,16 @@ func TestRemovedPublicRenewalRoutesReturnJSONNotFound(t *testing.T) {
 	}
 }
 
-func TestAdminRenewalRoutesRetainAuthenticationAndHistoricalReview(t *testing.T) {
+func TestManualRenewalRoutesRemainAvailableAndProtected(t *testing.T) {
 	server, router := renewalRoutesTestServer(t)
-	liveID := seedHistoricalRenewal(t, server.Service, "legacy-live-token")
-	sandboxID := seedHistoricalRenewal(t, server.SandboxService, "legacy-sandbox-token")
+	seedHistoricalRenewal(t, server.Service, "legacy-live-token")
+	seedHistoricalRenewal(t, server.SandboxService, "legacy-sandbox-token")
 	client := csrfTestClient{router: router}
 	for _, prefix := range []string{"/api", "/api/sandbox"} {
-		for _, route := range []struct {
-			method string
-			path   string
-		}{
-			{http.MethodGet, "/renewal-applications"},
-			{http.MethodPost, "/renewal-applications/1/approve"},
-			{http.MethodPost, "/renewal-applications/1/reject"},
-			{http.MethodPost, "/subscriptions/1/due/2026-08-31/paid"},
-			{http.MethodPost, "/accounts/1/renew"},
-		} {
-			response := client.do(t, route.method, prefix+route.path, "{}", "")
+		for _, path := range []string{"/subscriptions/1/due/2026-08-31/paid", "/accounts/1/renew"} {
+			response := client.do(t, http.MethodPost, prefix+path, "{}", "")
 			if response.Code != http.StatusUnauthorized {
-				t.Fatalf("unauthenticated %s %s: %d %s", route.method, prefix+route.path, response.Code, response.Body.String())
+				t.Fatalf("unauthenticated %s: %d %s", prefix+path, response.Code, response.Body.String())
 			}
 		}
 	}
@@ -155,37 +165,19 @@ func TestAdminRenewalRoutesRetainAuthenticationAndHistoricalReview(t *testing.T)
 		t.Fatalf("login failed: %d %s", response.Code, response.Body.String())
 	}
 	csrfToken := decodeCSRFToken(t, client.do(t, http.MethodGet, "/api/csrf-token", "", ""))
-	for _, entry := range []struct {
-		prefix              string
-		subscriptionService *service.SubscriptionService
-		applicationID       int64
-		action              string
-		status              string
-	}{
-		{"/api", server.Service, liveID, "approve", model.RenewalStatusApproved},
-		{"/api/sandbox", server.SandboxService, sandboxID, "reject", model.RenewalStatusRejected},
-	} {
-		response := client.do(t, http.MethodGet, entry.prefix+"/renewal-applications", "", "")
-		var payload struct {
-			Renewals []service.RenewalApplicationView `json:"renewals"`
+	for _, prefix := range []string{"/api", "/api/sandbox"} {
+		path := prefix + "/subscriptions/1/due/2026-08-31/paid"
+		if response := client.do(t, http.MethodPost, path, `{"paid":true}`, ""); response.Code != http.StatusForbidden {
+			t.Fatalf("missing CSRF for %s: %d %s", path, response.Code, response.Body.String())
 		}
-		if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil || response.Code != http.StatusOK ||
-			len(payload.Renewals) != 1 || payload.Renewals[0].Application.ID != entry.applicationID {
-			t.Fatalf("historical list: %d %s, error = %v", response.Code, response.Body.String(), err)
+		if response := client.do(t, http.MethodPost, path, `{"paid":true}`, csrfToken); response.Code != http.StatusOK {
+			t.Fatalf("manual renewal failed for %s: %d %s", path, response.Code, response.Body.String())
 		}
-		for _, action := range []string{"approve", "reject"} {
-			path := fmt.Sprintf("%s/renewal-applications/%d/%s", entry.prefix, entry.applicationID, action)
-			if response := client.do(t, http.MethodPost, path, "{}", ""); response.Code != http.StatusForbidden {
-				t.Fatalf("missing CSRF token for %s: %d %s", path, response.Code, response.Body.String())
-			}
-		}
-		path := fmt.Sprintf("%s/renewal-applications/%d/%s", entry.prefix, entry.applicationID, entry.action)
-		if response := client.do(t, http.MethodPost, path, "{}", csrfToken); response.Code != http.StatusOK {
-			t.Fatalf("historical review failed for %s: %d %s", path, response.Code, response.Body.String())
-		}
-		application, err := entry.subscriptionService.Store.GetRenewalApplication(entry.applicationID)
-		if err != nil || application.Status != entry.status {
-			t.Fatalf("historical review status = %q, want %q, error = %v", application.Status, entry.status, err)
+	}
+	for _, subscriptionService := range []*service.SubscriptionService{server.Service, server.SandboxService} {
+		bills, err := subscriptionService.Store.ListBills()
+		if err != nil || len(bills) != 2 {
+			t.Fatalf("manual renewal bills: %#v, error = %v", bills, err)
 		}
 	}
 }

@@ -134,16 +134,6 @@ func TestAccountIdentityAcrossOperationalViews(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("dashboard", overview.Dashboard.AmountBySubscription[0].AccountSerial, overview.Dashboard.AmountBySubscription[0].AccountDisplayEmail, overview.Dashboard.AmountBySubscription[0].AccountSpaceRole)
-	foundRenewal := false
-	for _, task := range overview.Tasks {
-		if task.Kind == "renewal_review" {
-			foundRenewal = true
-			check("operation", task.AccountSerial, task.AccountDisplayEmail, task.AccountSpaceRole)
-		}
-	}
-	if !foundRenewal {
-		t.Fatal("renewal task missing")
-	}
 	if err := svc.Archive(subscriptionID); err != nil {
 		t.Fatal(err)
 	}

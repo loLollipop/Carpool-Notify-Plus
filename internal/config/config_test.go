@@ -4,10 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"carpool-notify/internal/config"
+
+	"github.com/pelletier/go-toml/v2"
 )
 
 func TestLoadFromTOML(t *testing.T) {
@@ -65,6 +68,115 @@ token = "iyuu-token"
 		t.Fatal("channels should be configured")
 	}
 }
+
+func TestLoadTrustedProxies(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		setting string
+		env     *string
+		want    []string
+		invalid bool
+	}{
+		{name: "loopback default", want: []string{"127.0.0.1", "::1"}},
+		{name: "explicit file disable", setting: "trusted_proxies = []", want: []string{}},
+		{name: "IP and CIDR", setting: `trusted_proxies = ["192.0.2.10", "10.0.0.0/8", "2001:db8::/32", "::1"]`, want: []string{"192.0.2.10", "10.0.0.0/8", "2001:db8::/32", "::1"}},
+		{name: "trim file entries", setting: `trusted_proxies = [" 192.0.2.1 "]`, want: []string{"192.0.2.1"}},
+		{name: "env override", setting: `trusted_proxies = ["192.0.2.1"]`, env: stringPointer(" 10.0.0.0/8, ::1 "), want: []string{"10.0.0.0/8", "::1"}},
+		{name: "empty env disables", setting: `trusted_proxies = ["192.0.2.1"]`, env: stringPointer(""), want: []string{}},
+		{name: "whitespace env disables", env: stringPointer(" \t"), want: []string{}},
+		{name: "invalid hostname", setting: `trusted_proxies = ["localhost"]`, invalid: true},
+		{name: "invalid CIDR", setting: `trusted_proxies = ["10.0.0.0/33"]`, invalid: true},
+		{name: "empty file entry", setting: `trusted_proxies = [""]`, invalid: true},
+		{name: "empty env entry", env: stringPointer("127.0.0.1,"), invalid: true},
+		{name: "IPv4 trust all", setting: `trusted_proxies = ["0.0.0.0/0"]`, invalid: true},
+		{name: "IPv6 trust all", setting: `trusted_proxies = ["::/0"]`, invalid: true},
+		{name: "noncanonical trust all", env: stringPointer("192.0.2.1/0"), invalid: true},
+		{name: "env invalid hostname", env: stringPointer("localhost"), invalid: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := trustedProxyTestConfig(t, test.setting)
+			if test.env != nil {
+				t.Setenv("CARPOOL_TRUSTED_PROXIES", *test.env)
+			}
+			configuration, err := config.Load()
+			if test.invalid {
+				if err == nil || !strings.Contains(err.Error(), "server.trusted_proxies") {
+					t.Fatalf("expected trusted proxy validation error, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("load %s: %v", filepath.Base(path), err)
+			}
+			if !reflect.DeepEqual(configuration.TrustedProxies, test.want) {
+				t.Fatalf("trusted proxies = %v, want %v", configuration.TrustedProxies, test.want)
+			}
+		})
+	}
+}
+
+func TestNotificationRewritePreservesTrustedProxies(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		setting string
+		present bool
+		want    []string
+	}{
+		{name: "absent keeps default", want: []string{"127.0.0.1", "::1"}},
+		{name: "explicit disable", setting: "trusted_proxies = []", present: true, want: []string{}},
+		{name: "configured proxies", setting: `trusted_proxies = ["10.0.0.0/8", "::1"]`, present: true, want: []string{"10.0.0.0/8", "::1"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := trustedProxyTestConfig(t, test.setting)
+			updated, err := config.UpdateNotificationConfig(path, config.NotificationConfigInput{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(updated.TrustedProxies, test.want) {
+				t.Fatalf("rewritten proxies = %v, want %v", updated.TrustedProxies, test.want)
+			}
+			raw, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var persisted struct {
+				Server struct {
+					TrustedProxies *[]string `toml:"trusted_proxies"`
+				} `toml:"server"`
+			}
+			if err := toml.Unmarshal(raw, &persisted); err != nil {
+				t.Fatal(err)
+			}
+			if (persisted.Server.TrustedProxies != nil) != test.present {
+				t.Fatal("rewrite changed whether trusted_proxies was explicitly configured")
+			}
+			if test.present && !reflect.DeepEqual(*persisted.Server.TrustedProxies, test.want) {
+				t.Fatalf("persisted proxies = %v, want %v", *persisted.Server.TrustedProxies, test.want)
+			}
+		})
+	}
+}
+
+func trustedProxyTestConfig(t *testing.T, setting string) string {
+	t.Helper()
+	for _, key := range []string{"CARPOOL_PASSWORD", "CARPOOL_SESSION_SECRET", "CARPOOL_TRUSTED_PROXIES", "CARPOOL_SESSION_COOKIE_SECURE", "SMTP_PORT"} {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "config.toml")
+	content := "[server]\npassword = \"test-password\"\nsession_secret = \"test-only-session-secret-at-least-32-bytes\"\n" + setting + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	previousArgs := os.Args
+	t.Cleanup(func() { os.Args = previousArgs })
+	os.Args = []string{"carpool-notify", "-config", path}
+	return path
+}
+
+func stringPointer(value string) *string { return &value }
 
 func TestEnvOverridesTOML(t *testing.T) {
 	directory := t.TempDir()
