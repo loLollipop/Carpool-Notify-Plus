@@ -11,6 +11,10 @@ type customerEmailSummaryItem struct {
 }
 
 var customerEmailSummaryLabels = map[string]struct{}{
+	"续费金额":            {},
+	"本期开始":            {},
+	"本期结束":            {},
+	"下次到期日期":          {},
 	"客户邮箱":            {},
 	"客户微信":            {},
 	"原每期价格":           {},
@@ -77,6 +81,11 @@ func BuildCustomerBenefitEmailHTML(plainText, title string) string {
 	return buildCustomerEmailHTML(plainText, "福利信息", title)
 }
 
+// BuildCustomerRenewalSuccessEmailHTML presents a recorded payment confirmation.
+func BuildCustomerRenewalSuccessEmailHTML(plainText, title string) string {
+	return buildCustomerEmailHTML(plainText, "续费成功", title)
+}
+
 func buildCustomerEmailHTML(plainText, summaryTitle, preview string) string {
 	normalized := strings.ReplaceAll(plainText, "\r\n", "\n")
 	normalized = strings.ReplaceAll(normalized, "\r", "\n")
@@ -127,7 +136,7 @@ func buildCustomerEmailHTML(plainText, summaryTitle, preview string) string {
 	builder.WriteString(accent)
 	builder.WriteString(`;">CARPOOL NOTIFY · CHATGPT TEAM</div></td></tr>`)
 
-	if len(summary) > 0 {
+	if len(summary) > 0 || summaryTitle != "" {
 		builder.WriteString(`<tr><td style="padding:8px 22px 0;"><table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:`)
 		builder.WriteString(accentSoft)
 		builder.WriteString(`;border:1px solid `)

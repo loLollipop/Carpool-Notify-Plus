@@ -323,7 +323,7 @@ func (service *SubscriptionService) validateAfterSalesRefundAmount(caseID int64,
 	// A review case without a linked bill intentionally permits an operator-entered
 	// amount. Once a paid bill is known, however, refunds must never exceed the
 	// actual receipt, including any other completed refund linked to that bill.
-	if caseItem.BillID <= 0 || caseItem.PaidAmountCents <= 0 {
+	if caseItem.BillID <= 0 {
 		return nil
 	}
 	completedRefundCents := int64(0)

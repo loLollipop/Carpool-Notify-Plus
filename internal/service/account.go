@@ -96,16 +96,6 @@ type UpdateAccountInput struct {
 	SeatCount            int
 }
 
-// CreateSeatInput adds one seat under an account.
-type CreateSeatInput struct {
-	Name string
-}
-
-// UpdateSeatInput renames a seat.
-type UpdateSeatInput struct {
-	Name string
-}
-
 // UpdateSeatFreezeInput changes the deadline of one currently frozen seat.
 type UpdateSeatFreezeInput struct {
 	FrozenUntil string
@@ -388,42 +378,6 @@ func (service *SubscriptionService) DeleteAccount(accountID int64) error {
 	return db.ErrAccountHistoryProtected
 }
 
-// CreateSeat adds a named seat under an account.
-func (service *SubscriptionService) CreateSeat(accountID int64, input CreateSeatInput) (int64, error) {
-	if _, err := service.Store.GetAccount(accountID); err != nil {
-		if err == sql.ErrNoRows {
-			return 0, fmt.Errorf("账号不存在")
-		}
-		return 0, err
-	}
-	seatName := strings.TrimSpace(input.Name)
-	if err := validateSeatName(seatName); err != nil {
-		return 0, err
-	}
-	return service.Store.CreateSeat(model.Seat{
-		AccountID: accountID,
-		Name:      seatName,
-	})
-}
-
-// UpdateSeat renames a seat.
-func (service *SubscriptionService) UpdateSeat(seatID int64, input UpdateSeatInput) error {
-	if _, err := service.Store.GetSeat(seatID); err != nil {
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("车位不存在")
-		}
-		return err
-	}
-	seatName := strings.TrimSpace(input.Name)
-	if err := validateSeatName(seatName); err != nil {
-		return err
-	}
-	return service.Store.UpdateSeat(model.Seat{
-		ID:   seatID,
-		Name: seatName,
-	})
-}
-
 // UpdateSeatFreeze changes a single cancellation cooling deadline without
 // affecting the global default used by future cancellations.
 func (service *SubscriptionService) UpdateSeatFreeze(
@@ -643,22 +597,11 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 	return options, nil
 }
 
-// accountDisplaySerial resolves an isolated account. Grouped display surfaces
-// use accountDisplaySerials to collapse secondary spaces without collapsing
-// database ID gaps.
-// Only a numeric suffix wrapped in parentheses is treated as an override.
-func accountDisplaySerial(account model.Account) int64 {
-	serial, ok := accountRemarkSerial(account.Remark)
-	if !ok {
-		return account.ID
-	}
-	return serial
-}
+// accountDisplaySerial resolves an isolated account in physical import order.
+func accountDisplaySerial(account model.Account) int64 { return account.ID }
 
-// accountDisplaySerials walks physical import order and removes only previously
-// encountered secondary spaces from fallback serials. A later space inherits
-// its first space's serial, while an explicit remark suffix remains authoritative
-// for the row that contains it.
+// accountDisplaySerials folds secondary spaces into the first owner's serial,
+// preserving physical import order and database ID gaps. Remark suffixes are metadata.
 func accountDisplaySerials(accounts []model.Account) map[int64]int64 {
 	ordered := append([]model.Account(nil), accounts...)
 	sort.Slice(ordered, func(left, right int) bool {
@@ -678,21 +621,13 @@ func accountDisplaySerials(accounts []model.Account) map[int64]int64 {
 		}
 
 		groupSerial, seen := groupSerials[groupKey]
-		explicitSerial, hasExplicitSerial := accountRemarkSerial(account.Remark)
 		if seen {
 			secondarySpaceCount++
-			if hasExplicitSerial {
-				serials[account.ID] = explicitSerial
-			} else {
-				serials[account.ID] = groupSerial
-			}
+			serials[account.ID] = groupSerial
 			continue
 		}
 
 		groupSerial = account.ID - secondarySpaceCount
-		if hasExplicitSerial {
-			groupSerial = explicitSerial
-		}
 		groupSerials[groupKey] = groupSerial
 		serials[account.ID] = groupSerial
 	}

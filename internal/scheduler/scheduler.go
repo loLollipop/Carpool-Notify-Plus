@@ -17,6 +17,9 @@ type Runner struct {
 
 // Start runs the loop until the context is cancelled.
 func (runner *Runner) Start(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
 	if runner.Interval <= 0 {
 		runner.Interval = time.Minute
 	}
@@ -26,7 +29,10 @@ func (runner *Runner) Start(ctx context.Context) {
 
 	// Run once on startup for catch-up.
 	runner.tick(ctx)
-	runner.refreshMarket()
+	if ctx.Err() != nil {
+		return
+	}
+	runner.refreshMarket(ctx)
 
 	ticker := time.NewTicker(runner.Interval)
 	defer ticker.Stop()
@@ -34,18 +40,24 @@ func (runner *Runner) Start(ctx context.Context) {
 	defer marketTicker.Stop()
 
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			runner.tick(ctx)
 		case <-marketTicker.C:
-			runner.refreshMarket()
+			runner.refreshMarket(ctx)
 		}
 	}
 }
 
-func (runner *Runner) refreshMarket() {
+func (runner *Runner) refreshMarket(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
 	market, err := runner.Service.RefreshMarketPriceIfStale()
 	if err != nil {
 		log.Printf("scheduler market prices: %v", err)
@@ -57,11 +69,20 @@ func (runner *Runner) refreshMarket() {
 }
 
 func (runner *Runner) tick(ctx context.Context) {
+	if ctx.Err() != nil {
+		return
+	}
 	if err := runner.Service.ProcessBusinessEmails(ctx); err != nil {
 		log.Printf("scheduler benefit emails: %v", err)
 	}
+	if ctx.Err() != nil {
+		return
+	}
 	if err := runner.Service.ProcessAccountCostRenewals(); err != nil {
 		log.Printf("scheduler account costs: %v", err)
+	}
+	if ctx.Err() != nil {
+		return
 	}
 	if err := runner.Service.ProcessDueNotifications(ctx); err != nil {
 		log.Printf("scheduler notifications: %v", err)

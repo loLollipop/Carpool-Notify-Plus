@@ -103,6 +103,11 @@ type dueOccurrenceKey struct {
 // SetDuePaid marks or unmarks one subscription due date as paid (creates/deletes a bill).
 // dueDate is the period start (cron occurrence that anchors this billing cycle).
 func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate string, paid bool) error {
+	if !paid {
+		// A cancellation either precedes delivery or waits for the in-flight send.
+		service.dueNotificationMu.Lock()
+		defer service.dueNotificationMu.Unlock()
+	}
 	subscription, err := service.Store.GetSubscription(subscriptionID)
 	if err != nil {
 		return err
@@ -137,11 +142,19 @@ func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate str
 	if !ok {
 		return fmt.Errorf("%s 不是该订阅的到期日", dueDate)
 	}
-	if err := service.Store.SetDuePaidForSubscription(
+	var emails db.BusinessEmailBatch
+	if paid {
+		emails, err = service.renewalSuccessEmailBatch(subscription, dueDate)
+		if err != nil {
+			return err
+		}
+	}
+	if err := service.Store.SetDuePaidForSubscriptionWithEmails(
 		subscription,
 		dueDate,
 		paid,
 		billAmountCentsForDueDate(subscription, dueDate),
+		emails,
 		billDefaultCostCents(subscription),
 	); err != nil {
 		if errors.Is(err, db.ErrBillHasAfterSalesCase) {

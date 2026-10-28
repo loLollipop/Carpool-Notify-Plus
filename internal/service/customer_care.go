@@ -1470,11 +1470,12 @@ func (service *SubscriptionService) ReviseCustomerBenefitExtension(input ReviseC
 	if !validCustomerBenefitOperationKey(operationKey) {
 		return db.ReviseDueExtensionResult{}, fmt.Errorf("操作标识无效，请刷新后重试")
 	}
+	benefitTemplate, benefitTemplateErr := service.GetCustomerBenefitEmailTemplate()
 	result, err := service.Store.ReviseCustomerBenefitExtension(db.ReviseDueExtensionInput{
 		BenefitID: input.BenefitID, ExtensionDays: input.ExtensionDays,
 		Reason: reason, OperationKey: operationKey,
 		Emails: func(result db.ReviseDueExtensionResult) db.BusinessEmailBatch {
-			return service.extensionRevisionEmailBatch(input, result)
+			return service.extensionRevisionEmailBatch(input, result, benefitTemplate, benefitTemplateErr)
 		},
 	}, service.now())
 	return result, err

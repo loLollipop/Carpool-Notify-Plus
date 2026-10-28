@@ -10,7 +10,7 @@ import (
 	"carpool-notify/internal/model"
 )
 
-func TestSubscriptionEditsRejectSnapshotBeforeRenewalApproval(t *testing.T) {
+func TestSubscriptionEditsRejectSnapshotBeforeManualRenewal(t *testing.T) {
 	for _, path := range []string{"edit", "sync", "move"} {
 		t.Run(path, func(t *testing.T) {
 			store, err := Open(filepath.Join(t.TempDir(), "renewal-conflict.db"))
@@ -28,7 +28,7 @@ func TestSubscriptionEditsRejectSnapshotBeforeRenewalApproval(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			// Force a version beyond the wall clock: renewal must still advance it.
+			// Force a version beyond the wall clock: manual payment must still advance it.
 			if _, err := store.database.Exec(`UPDATE subscriptions SET updated_at = ? WHERE id = ?`, "2099-01-01T00:00:00Z", id); err != nil {
 				t.Fatal(err)
 			}
@@ -36,17 +36,7 @@ func TestSubscriptionEditsRejectSnapshotBeforeRenewalApproval(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			application := model.RenewalApplication{
-				SubscriptionID: id, TrackingToken: "renewal-test", CustomerEmail: stale.CustomerEmail,
-				DueDate: "2026-08-31", PeriodCount: 1, PeriodEndDate: "2026-09-30", AmountCents: 3500,
-			}
-			application.ID, err = store.CreateRenewalApplication(application)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := store.ApproveRenewalApplication(application, stale, []model.Bill{{
-				SubscriptionID: id, DueDate: application.DueDate, AmountCents: 3500,
-			}}, application.PeriodEndDate, ""); err != nil {
+			if err := store.SetDuePaidForSubscription(stale, "2026-08-31", true, 3500); err != nil {
 				t.Fatal(err)
 			}
 			stale.Remark = "stale edit"
@@ -54,10 +44,10 @@ func TestSubscriptionEditsRejectSnapshotBeforeRenewalApproval(t *testing.T) {
 			case "edit":
 				err = store.UpdateSubscription(stale)
 			case "sync":
-				err = store.UpdateSubscriptionAndSyncBill(stale, application.DueDate, 3000, 500)
+				err = store.UpdateSubscriptionAndSyncBill(stale, "2026-08-31", 3000, 500)
 			case "move":
 				stale.BoardedAt = "2026-08-02"
-				err = store.UpdateSubscriptionAndMoveInitialBill(stale, application.DueDate, "2026-09-01", 3000, 500)
+				err = store.UpdateSubscriptionAndMoveInitialBill(stale, "2026-08-31", "2026-09-01", 3000, 500)
 			}
 			if !errors.Is(err, ErrSubscriptionStateChanged) || errors.Is(err, sql.ErrNoRows) {
 				t.Fatalf("stale %s error = %v, want identifiable edit conflict", path, err)
@@ -69,7 +59,7 @@ func TestSubscriptionEditsRejectSnapshotBeforeRenewalApproval(t *testing.T) {
 			if stored.PricePerPersonCents != 3500 || stored.NextPriceCents != nil || stored.NextPriceEffectiveDueDate != "" || stored.BoardedAt != "2026-08-01" || stored.Remark != "" || !stored.UpdatedAt.After(stale.UpdatedAt) {
 				t.Fatalf("renewal state overwritten: %#v", stored)
 			}
-			bill, err := store.GetBillByOccurrence(id, application.DueDate)
+			bill, err := store.GetBillByOccurrence(id, "2026-08-31")
 			if err != nil || bill.AmountCents != 3500 || bill.CostCents != 0 {
 				t.Fatalf("renewal bill changed: %#v, %v", bill, err)
 			}

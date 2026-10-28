@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 	"carpool-notify/internal/notify"
 	"carpool-notify/internal/service"
@@ -704,6 +705,50 @@ func TestOneMonthPlusRentalCompletesWithoutAfterSales(t *testing.T) {
 	}
 	if afterSalesCount != 0 {
 		t.Fatalf("after-sales count = %d, want 0", afterSalesCount)
+	}
+}
+
+func TestOneMonthCompletionRejectsConcurrentScheduleCorrection(t *testing.T) {
+	subscriptionService := openTestService(t)
+	now := time.Date(2026, time.July, 31, 12, 0, 0, 0, cycle.Location)
+	subscriptionService.Clock = func() time.Time { return now }
+	input := service.CreateInput{
+		Name: "One-month corrected term", BusinessType: model.SubscriptionBusinessPlus,
+		PriceYuan: "68.00", CronExpr: cycle.OneMonthRentalExpression,
+		CustomerEmail: "corrected-term@example.com", CustomerWechat: "wx-corrected-term",
+		BoardedAt: "2026-07-01",
+	}
+	id, err := subscriptionService.CreateWithInitialBill(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input = withCurrentSubscriptionVersion(t, subscriptionService, id, input)
+	corrected := false
+	subscriptionService.Clock = func() time.Time {
+		if !corrected {
+			corrected = true
+			// CompleteOneMonthRental has read the old subscription before consulting
+			// the clock. Interleave an actual edit before its archive transaction.
+			input.BoardedAt = "2026-07-10"
+			if err := subscriptionService.Update(id, input); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return now
+	}
+	if err := subscriptionService.CompleteOneMonthRental(id); !errors.Is(err, db.ErrSubscriptionStateChanged) {
+		t.Fatalf("stale completion = %v, want state conflict", err)
+	}
+	active, err := subscriptionService.Store.GetSubscription(id)
+	if err != nil || active.BoardedAt != "2026-07-10" {
+		t.Fatalf("corrected rental no longer active: %#v, %v", active, err)
+	}
+	if err := subscriptionService.CompleteOneMonthRental(id); err == nil || !strings.Contains(err.Error(), "提前结束请走售后") {
+		t.Fatalf("fresh unexpired completion = %v", err)
+	}
+	subscriptionService.Clock = func() time.Time { return now.AddDate(0, 0, 9) }
+	if err := subscriptionService.CompleteOneMonthRental(id); err != nil {
+		t.Fatalf("corrected expiry completion = %v", err)
 	}
 }
 

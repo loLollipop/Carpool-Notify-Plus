@@ -102,7 +102,11 @@ func main() {
 	defer stop()
 
 	schedulerRunner := &scheduler.Runner{Service: subscriptionService, Interval: time.Minute}
-	go schedulerRunner.Start(ctx)
+	schedulerDone := make(chan struct{})
+	go func() {
+		defer close(schedulerDone)
+		schedulerRunner.Start(ctx)
+	}()
 
 	server := &http.Server{
 		Addr:              configuration.ListenAddress,
@@ -122,9 +126,24 @@ func main() {
 
 	<-ctx.Done()
 	log.Printf("shutting down")
-	shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	_ = server.Shutdown(shutdownContext)
+	if err := shutdownServer(shutdownContext, server, schedulerDone); err != nil {
+		// Do not close databases underneath unfinished handlers or background work.
+		log.Fatalf("graceful shutdown: %v", err)
+	}
+}
+
+func shutdownServer(ctx context.Context, server *http.Server, schedulerDone <-chan struct{}) error {
+	if err := server.Shutdown(ctx); err != nil {
+		return err
+	}
+	select {
+	case <-schedulerDone:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func configureTrustedProxies(router *gin.Engine, trustedProxies []string) error {

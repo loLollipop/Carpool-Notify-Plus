@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -52,36 +51,48 @@ type benefitEmail struct {
 	recipient      string
 	title          string
 	body           string
+	data           BusinessEmailTemplateData
 }
 
 // Outbox rows are written in the business transaction; SMTP runs after commit.
 // Each subscription uses its own email, never a grouped customer's contact or
 // the SMTP sender's default operator recipients.
 func (service *SubscriptionService) benefitEmailBatch(build func() []benefitEmail) db.BusinessEmailBatch {
+	// Load settings before opening a transaction; Build must use only snapshots.
+	body, err := service.GetCustomerBenefitEmailTemplate()
+	return service.benefitEmailBatchWithTemplate(build, body, err)
+}
+
+func (service *SubscriptionService) benefitEmailBatchWithTemplate(build func() []benefitEmail, body string, templateErr error) db.BusinessEmailBatch {
 	_, registry := service.runtimeConfigSnapshot()
-	_, ok := registry.Get(model.ChannelSMTP)
-	if !ok {
-		// Sandbox services deliberately have no sender registry.
+	if _, ok := registry.Get(model.ChannelSMTP); !ok {
 		return db.BusinessEmailBatch{}
 	}
 	now := service.now()
-	return db.BusinessEmailBatch{Now: now, Build: func() []db.BusinessEmail {
+	return db.BusinessEmailBatch{Now: now, BuildChecked: func() ([]db.BusinessEmail, error) {
 		messages := build()
 		pending := make([]db.BusinessEmail, 0, len(messages))
 		for _, message := range messages {
 			recipient, err := normalizeCustomerEmail(message.recipient)
 			if err != nil {
-				log.Printf("queue benefit email for subscription %d: %v", message.subscriptionID, err)
-				continue
+				return nil, err
 			}
 			if recipient == "" {
 				continue
 			}
-			pending = append(pending, db.BusinessEmail{SubscriptionID: message.subscriptionID,
-				Recipient: recipient, Title: message.title, Body: message.body + "\n\n操作时间：" + cycle.FormatDateTime(now) +
-					"\n本邮件记录上述时间的福利操作，后续如有变更，请以更新的通知为准。"})
+			if templateErr != nil {
+				return nil, templateErr
+			}
+			data := message.data
+			data.CustomerEmail, data.SubscriptionID = recipient, message.subscriptionID
+			data.OperationTime = cycle.FormatDateTime(now)
+			rendered, err := renderBusinessEmailTemplate(body, data)
+			if err != nil {
+				return nil, err
+			}
+			pending = append(pending, db.BusinessEmail{SubscriptionID: message.subscriptionID, Recipient: recipient, Title: message.title, Body: rendered})
 		}
-		return pending
+		return pending, nil
 	}}
 }
 
@@ -94,24 +105,18 @@ func (service *SubscriptionService) priceBenefitEmailBatch(previous, updated mod
 	})
 }
 
-func (service *SubscriptionService) extensionRevisionEmailBatch(input ReviseCustomerBenefitExtensionInput, result db.ReviseDueExtensionResult) db.BusinessEmailBatch {
-	return service.benefitEmailBatch(func() []benefitEmail {
-		title := "[Carpool Notify Plus] 延期福利修改通知"
-		intro := "您好，您的延期福利已修改，请以本邮件中的到期日期为准。"
+func (service *SubscriptionService) extensionRevisionEmailBatch(input ReviseCustomerBenefitExtensionInput, result db.ReviseDueExtensionResult, body string, templateErr error) db.BusinessEmailBatch {
+	return service.benefitEmailBatchWithTemplate(func() []benefitEmail {
+		kind, benefitType := "customer_benefit_revision", "extension_revision"
 		if input.ExtensionDays == 0 {
-			title = "[Carpool Notify Plus] 延期福利撤回通知"
-			intro = "您好，您的延期福利已撤回，请以本邮件中的到期日期为准。"
+			kind, benefitType = "customer_benefit_revoke", "extension_revoke"
 		}
-		return []benefitEmail{{
-			subscriptionID: result.SubscriptionID, recipient: result.CustomerEmail, title: title,
-			body: strings.Join([]string{intro, "", "客户邮箱：" + result.CustomerEmail,
-				fmt.Sprintf("订阅编号：#%d", result.SubscriptionID),
-				fmt.Sprintf("原延期天数：%d 天", result.PreviousDays),
-				fmt.Sprintf("调整后延期天数：%d 天", input.ExtensionDays),
-				"原到期日期：" + result.PreviousDueDate, "调整后到期日期：" + result.EffectiveDueDate,
-				"", "如有疑问，请联系管理员。"}, "\n"),
-		}}
-	})
+		return []benefitEmail{{subscriptionID: result.SubscriptionID, recipient: result.CustomerEmail,
+			title: BusinessEmailSubject(kind), data: BusinessEmailTemplateData{
+				BenefitType: benefitType, BenefitDate: cycle.FormatDate(service.now()), PreviousExtensionDays: result.PreviousDays,
+				ExtensionDays: input.ExtensionDays, PreviousDueDate: result.PreviousDueDate, NextDueDate: result.EffectiveDueDate,
+			}}}
+	}, body, templateErr)
 }
 
 // ProcessBusinessEmails runs on each scheduler tick. A time budget bounds one
@@ -119,14 +124,20 @@ func (service *SubscriptionService) extensionRevisionEmailBatch(input ReviseCust
 func (service *SubscriptionService) ProcessBusinessEmails(ctx context.Context) error {
 	service.dueNotificationMu.Lock()
 	defer service.dueNotificationMu.Unlock()
+	if ctx.Err() != nil {
+		return nil
+	}
+	var failures []error
+	if err := service.Store.DeleteExpiredBusinessEmailHistory(ctx, service.now()); err != nil {
+		failures = append(failures, fmt.Errorf("clean business email history: %w", err))
+	}
 	_, registry := service.runtimeConfigSnapshot()
 	sender, ok := registry.Get(model.ChannelSMTP)
 	if !ok {
-		return nil
+		return errors.Join(failures...)
 	}
 	batchCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
-	var failures []error
 	for batchCtx.Err() == nil {
 		messages, err := service.Store.PendingBusinessEmails(service.now(), 8)
 		if err != nil {
@@ -171,8 +182,12 @@ func (service *SubscriptionService) deliverBenefitEmail(batchCtx context.Context
 		return err
 	}
 	if addressed, ok := sender.(smtpHTMLAddressedSender); ok {
+		kind := "customer_benefit_extension"
+		if strings.Contains(message.title, "续费成功") {
+			kind = "customer_renewal_success"
+		}
 		return addressed.SendHTMLTo(ctx, []string{message.recipient}, message.title, message.body,
-			notify.BuildCustomerBenefitEmailHTML(message.body, message.title))
+			BusinessEmailHTML(kind, message.body, message.title))
 	}
 	if addressed, ok := sender.(smtpAddressedSender); ok {
 		return addressed.SendTo(ctx, []string{message.recipient}, message.title, message.body)
@@ -196,29 +211,20 @@ func scheduledPriceBenefitEmail(previous, updated model.Subscription, benefitDat
 }
 
 func customerBenefitEmail(record model.CustomerBenefit, subscription model.Subscription, previousDueDate string) benefitEmail {
-	message := benefitEmail{subscriptionID: subscription.ID, recipient: subscription.CustomerEmail}
-	lines := []string{"您好，您的 ChatGPT Team 服务已获赠福利。", "",
-		"客户邮箱：" + subscription.CustomerEmail,
-		fmt.Sprintf("订阅编号：#%d", subscription.ID),
-		"发放日期：" + record.BenefitDate,
-	}
+	message := benefitEmail{subscriptionID: subscription.ID, recipient: subscription.CustomerEmail,
+		data: BusinessEmailTemplateData{BenefitType: record.BenefitType, BenefitDate: record.BenefitDate}}
 	if record.BenefitType == model.CustomerBenefitTypeExtension {
-		message.title = "[Carpool Notify Plus] 赠送延期福利通知"
+		message.title = BusinessEmailSubject("customer_benefit_extension")
 		previous, _ := time.ParseInLocation("2006-01-02", previousDueDate, cycle.Location)
-		lines = append(lines,
-			fmt.Sprintf("赠送天数：%d 天", record.ExtensionDays),
-			"原到期日期："+previousDueDate,
-			"调整后到期日期："+cycle.FormatDate(previous.AddDate(0, 0, record.ExtensionDays)),
-			"", "本次延期已生效，无需额外付款。")
+		message.data.ExtensionDays = record.ExtensionDays
+		message.data.PreviousDueDate = previousDueDate
+		message.data.NextDueDate = cycle.FormatDate(previous.AddDate(0, 0, record.ExtensionDays))
 	} else {
-		message.title = "[Carpool Notify Plus] 降价福利通知"
-		lines = append(lines,
-			"原每期价格：¥"+cycle.FormatCents(record.PriceBeforeCents),
-			"每期优惠：¥"+cycle.FormatCents(record.PriceBeforeCents-record.PriceAfterCents),
-			"调整后每期价格：¥"+cycle.FormatCents(record.PriceAfterCents),
-			"生效日期："+record.PriceEffectiveDueDate,
-			"", "优惠价从上述日期对应的续费账期开始使用，此后每期均按优惠价续费，直至另行调整。")
+		message.title = BusinessEmailSubject("customer_benefit_discount")
+		message.data.PreviousPrice = cycle.FormatCents(record.PriceBeforeCents)
+		message.data.DiscountAmount = cycle.FormatCents(record.PriceBeforeCents - record.PriceAfterCents)
+		message.data.NewPrice = cycle.FormatCents(record.PriceAfterCents)
+		message.data.EffectiveDate = record.PriceEffectiveDueDate
 	}
-	message.body = strings.Join(lines, "\n")
 	return message
 }

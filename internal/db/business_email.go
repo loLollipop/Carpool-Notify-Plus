@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"time"
 )
@@ -16,21 +17,34 @@ type BusinessEmail struct {
 // Build is called after the mutation has computed its final facts, before
 // commit. It must use those in-memory facts and must not query the Store.
 type BusinessEmailBatch struct {
-	Build func() []BusinessEmail
-	Now   time.Time
+	Build        func() []BusinessEmail
+	BuildChecked func() ([]BusinessEmail, error)
+	Now          time.Time
+	// BillID links payment confirmations to the bill created in this transaction.
+	BillID int64
 }
 
 func queueBusinessEmailBatches(executor sqlExecer, batches ...BusinessEmailBatch) error {
 	for _, batch := range batches {
-		if batch.Build == nil {
+		if batch.Build == nil && batch.BuildChecked == nil {
 			continue
 		}
 		stamp := businessEmailTime(batch.Now)
-		for _, message := range batch.Build() {
+		var messages []BusinessEmail
+		if batch.BuildChecked != nil {
+			var err error
+			messages, err = batch.BuildChecked()
+			if err != nil {
+				return err
+			}
+		} else {
+			messages = batch.Build()
+		}
+		for _, message := range messages {
 			if _, err := executor.Exec(`INSERT INTO business_email_outbox
-				(subscription_id, recipient, title, body, next_retry_at, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?)`, message.SubscriptionID, message.Recipient,
-				message.Title, message.Body, stamp, stamp, stamp); err != nil {
+				(subscription_id, recipient, title, body, next_retry_at, created_at, updated_at, bill_id)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, message.SubscriptionID, message.Recipient,
+				message.Title, message.Body, stamp, stamp, stamp, batch.BillID); err != nil {
 				return err
 			}
 		}
@@ -53,6 +67,20 @@ func (store *Store) ensureBusinessEmailOutbox() error {
 		updated_at TEXT NOT NULL
 	); CREATE INDEX IF NOT EXISTS idx_business_email_pending
 		ON business_email_outbox(status, subscription_id, id)`)
+	if err != nil {
+		return err
+	}
+	hasBillID, err := store.tableHasColumn("business_email_outbox", "bill_id")
+	if err != nil {
+		return err
+	}
+	if !hasBillID {
+		if _, err := store.database.Exec(`ALTER TABLE business_email_outbox ADD COLUMN bill_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	_, err = store.database.Exec(`CREATE INDEX IF NOT EXISTS idx_business_email_bill
+		ON business_email_outbox(bill_id) WHERE bill_id > 0`)
 	return err
 }
 
@@ -115,6 +143,15 @@ func (store *Store) FinishBusinessEmail(id int64, attempt int, sendErr error, no
 	if err == nil && n != 1 {
 		return sql.ErrNoRows
 	}
+	return err
+}
+
+// DeleteExpiredBusinessEmailHistory keeps terminal records for 24 hours after
+// successful delivery or cancellation. Pending sends and retries are never removed.
+func (store *Store) DeleteExpiredBusinessEmailHistory(ctx context.Context, now time.Time) error {
+	_, err := store.database.ExecContext(ctx, `DELETE FROM business_email_outbox
+		WHERE status IN ('success', 'cancelled') AND updated_at <= ?`,
+		businessEmailTime(now.Add(-24*time.Hour)))
 	return err
 }
 

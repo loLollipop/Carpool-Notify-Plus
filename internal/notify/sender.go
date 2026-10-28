@@ -112,17 +112,29 @@ func (sender IYUUSender) Send(ctx context.Context, title string, message string)
 		return err
 	}
 	defer response.Body.Close()
-	responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 4097))
+	if err != nil {
+		return fmt.Errorf("read iyuu response: %w", err)
+	}
+	if len(responseBody) > 4096 {
+		return fmt.Errorf("iyuu response exceeds 4096 bytes")
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("iyuu status %d: %s", response.StatusCode, strings.TrimSpace(string(responseBody)))
 	}
 
 	var result struct {
-		ErrCode int    `json:"errcode"`
+		ErrCode *int   `json:"errcode"`
 		ErrMsg  string `json:"errmsg"`
 	}
-	if err := json.Unmarshal(responseBody, &result); err == nil && result.ErrCode != 0 {
-		return fmt.Errorf("iyuu errcode %d: %s", result.ErrCode, result.ErrMsg)
+	if err := json.Unmarshal(responseBody, &result); err != nil {
+		return fmt.Errorf("decode iyuu response: %w", err)
+	}
+	if result.ErrCode == nil {
+		return fmt.Errorf("iyuu response is missing errcode")
+	}
+	if *result.ErrCode != 0 {
+		return fmt.Errorf("iyuu errcode %d: %s", *result.ErrCode, result.ErrMsg)
 	}
 	return nil
 }

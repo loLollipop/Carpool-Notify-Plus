@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"carpool-notify/internal/cycle"
 	"carpool-notify/internal/model"
 )
+
+var ErrAfterSalesHasPrepaidPeriods = errors.New("该订阅有未来已缴账单，请先在账单管理核对并处理预付款，再办理退款或封禁")
 
 const afterSalesSelectColumns = `
 	id,
@@ -140,6 +143,9 @@ func (store *Store) BanAccountAndCreateAfterSalesCases(
 	now := formatTime(time.Now().UTC())
 	insertedCount := 0
 	for _, subscription := range affected {
+		if err := ensureNoFuturePaidBills(transaction, subscription.ID, bannedDate); err != nil {
+			return 0, err
+		}
 		// Account-ban handling supersedes a still-pending customer cancellation.
 		// Keeping both cases lets the cancellation expire or complete first and
 		// strands the account-ban case without an active subscription.
@@ -295,28 +301,6 @@ func (store *Store) listAfterSalesCases(whereClause string, arguments []any) ([]
 		cases = append(cases, caseItem)
 	}
 	return cases, rows.Err()
-}
-
-func (store *Store) CountAfterSalesCasesByAccount(accountID int64) (int, error) {
-	var count int
-	err := store.database.QueryRow(
-		`SELECT COUNT(1) FROM after_sales_cases WHERE account_id = ?`,
-		accountID,
-	).Scan(&count)
-	return count, err
-}
-
-func (store *Store) CountPendingAfterSalesCasesByAccount(accountID int64) (int, error) {
-	var count int
-	err := store.database.QueryRow(`
-		SELECT COUNT(1)
-		FROM after_sales_cases
-		WHERE account_id = ? AND status IN (?, ?)`,
-		accountID,
-		model.AfterSalesStatusPending,
-		model.AfterSalesStatusReview,
-	).Scan(&count)
-	return count, err
 }
 
 func (store *Store) CountAfterSalesCasesBySubscription(subscriptionID int64) (int, error) {
@@ -565,16 +549,23 @@ func ensureAfterSalesRefundWithinPayment(
 	proposedCents int64,
 ) error {
 	var billID int64
+	var subscriptionID int64
+	var eventDate string
 	var paidAmountCents int64
 	var storedRefundCents int64
 	if err := transaction.QueryRow(`
-		SELECT bill_id, paid_amount_cents, refund_amount_cents
+		SELECT bill_id, paid_amount_cents, refund_amount_cents, subscription_id, banned_date
 		FROM after_sales_cases
 		WHERE id = ?`, caseID).Scan(
 		&billID,
 		&paidAmountCents,
 		&storedRefundCents,
+		&subscriptionID,
+		&eventDate,
 	); err != nil {
+		return err
+	}
+	if err := ensureNoFuturePaidBills(transaction, subscriptionID, eventDate); err != nil {
 		return err
 	}
 	if proposedCents < 0 {
@@ -583,7 +574,7 @@ func ensureAfterSalesRefundWithinPayment(
 	if proposedCents < 0 {
 		return ErrAfterSalesRefundExceedsPayment
 	}
-	if billID <= 0 || paidAmountCents <= 0 {
+	if billID <= 0 {
 		return nil
 	}
 
@@ -601,6 +592,27 @@ func ensureAfterSalesRefundWithinPayment(
 	if completedRefundCents > paidAmountCents ||
 		proposedCents > paidAmountCents-completedRefundCents {
 		return ErrAfterSalesRefundExceedsPayment
+	}
+	return nil
+}
+
+// A case currently refunds one bill. Do not end a prepaid subscription while
+// silently leaving later receipts outside that case's refund calculation.
+func ensureNoFuturePaidBills(transaction *sql.Tx, subscriptionID int64, eventDate string) error {
+	var exists bool
+	if err := transaction.QueryRow(`
+		SELECT EXISTS (
+			SELECT 1 FROM bills AS bill
+			WHERE bill.subscription_id = ? AND bill.due_date > ?
+			  AND bill.amount_cents > COALESCE((
+				SELECT SUM(refund_amount_cents) FROM after_sales_cases
+				WHERE bill_id = bill.id AND status = ?
+			  ), 0)
+		)`, subscriptionID, eventDate, model.AfterSalesStatusRefunded).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return ErrAfterSalesHasPrepaidPeriods
 	}
 	return nil
 }

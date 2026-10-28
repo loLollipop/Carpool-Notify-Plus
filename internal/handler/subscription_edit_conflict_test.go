@@ -34,11 +34,6 @@ func subscriptionEditTestServer(t *testing.T) (*Server, *gin.Engine) {
 			return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
 		},
 	}
-	settings := model.DefaultRedeemPageSettings
-	settings.PaymentQRCodeDataURL = "data:image/png;base64,iVBORw0KGgo="
-	if err := subscriptionService.SaveRedeemPageSettings(settings); err != nil {
-		t.Fatal(err)
-	}
 	server := &Server{Service: subscriptionService}
 	router := gin.New()
 	router.GET("/subscriptions", server.getSubscriptions)
@@ -61,7 +56,7 @@ func subscriptionEditRequest(t *testing.T, router *gin.Engine, method, path stri
 	return response
 }
 
-func TestPutSubscriptionRejectsStaleBrowserFormAfterRenewalApproval(t *testing.T) {
+func TestPutSubscriptionRejectsStaleBrowserFormAfterManualRenewal(t *testing.T) {
 	for _, entry := range []string{"team_list", "team_seat", "plus_list"} {
 		for _, nextPrice := range []string{"", "35.00"} {
 			t.Run(entry+"/next_price="+nextPrice, func(t *testing.T) {
@@ -137,17 +132,8 @@ func TestPutSubscriptionRejectsStaleBrowserFormAfterRenewalApproval(t *testing.T
 					payload["price_yuan"] = seat.ActivePriceYuan
 					payload["next_price_yuan"] = seat.ActiveNextPriceYuan
 				}
-				// The form is now open. Approve a real renewal before submitting it.
-				if _, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-					SubscriptionID: subscriptionID, CustomerEmail: "customer@example.com",
-				}); err != nil {
-					t.Fatal(err)
-				}
-				applications, err := subscriptionService.ListRenewalApplicationsView(model.RenewalStatusPending)
-				if err != nil || len(applications) != 1 {
-					t.Fatalf("applications = %#v, %v", applications, err)
-				}
-				if err := subscriptionService.ApproveRenewalApplication(applications[0].Application.ID, service.RenewalDecisionInput{}); err != nil {
+				// The form is now open. Record a manual renewal before submitting it.
+				if err := subscriptionService.SetDuePaid(subscriptionID, "2026-08-31", true); err != nil {
 					t.Fatal(err)
 				}
 				approved, err := subscriptionService.Get(subscriptionID)

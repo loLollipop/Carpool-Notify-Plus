@@ -37,6 +37,7 @@ import { useAppMutation } from "@/api/mutations"
 import { useSettings } from "@/api/queries"
 import type {
   ChannelSetting,
+  CustomerEmailTemplateKind,
   NotificationConfig,
   RedeemPageSettings,
   SandboxStatus,
@@ -77,12 +78,29 @@ import { DEFAULT_REDEEM_PROMOTION, promotionIsVisible, safePromotionURL } from "
 import { enterSandboxMode, exitSandboxMode } from "@/lib/sandbox-mode"
 import { useSandboxMode } from "@/hooks/use-sandbox-mode"
 
-type TemplateKind =
+type ReminderTemplateKind =
   | "notify"
   | "customer"
   | "customer_price_increase"
   | "customer_price_decrease"
-type CustomerTemplateKind = Exclude<TemplateKind, "notify">
+type CustomerTemplateKind = Exclude<ReminderTemplateKind, "notify">
+type BusinessTemplateKind = Exclude<CustomerEmailTemplateKind, CustomerTemplateKind>
+type TemplateKind = ReminderTemplateKind | BusinessTemplateKind
+
+const BENEFIT_TEMPLATE_KINDS = [
+  "customer_benefit_extension",
+  "customer_benefit_discount",
+  "customer_benefit_revision",
+  "customer_benefit_revoke",
+] as const
+
+const BUSINESS_TEMPLATE_LABELS: Record<BusinessTemplateKind, string> = {
+  customer_renewal_success: "settings.renewalSuccessTemplate",
+  customer_benefit_extension: "settings.benefitExtensionPreview",
+  customer_benefit_discount: "settings.benefitDiscountPreview",
+  customer_benefit_revision: "settings.benefitRevisionPreview",
+  customer_benefit_revoke: "settings.benefitRevokePreview",
+}
 type SettingsSection = "templates" | "delivery" | "redemption" | "operations" | "tools"
 const SETTINGS_SECTION_ORDER: SettingsSection[] = [
   "templates",
@@ -161,7 +179,7 @@ const PRICE_CHANGE_FIELDS: TemplateFieldKey[] = [
   "tradeURL",
 ]
 
-function templateFieldsForKind(kind: TemplateKind) {
+function templateFieldsForKind(kind: ReminderTemplateKind) {
   return TEMPLATE_FIELDS.filter(
     (field) =>
       field.key !== "previousPrice" ||
@@ -253,7 +271,7 @@ function isChannelChecked(channel: ChannelSetting, enabledChannels: Set<string>)
   return enabledChannels.has(channel.key)
 }
 
-function defaultTemplateDraft(kind: TemplateKind): VisualTemplateDraft {
+function defaultTemplateDraft(kind: ReminderTemplateKind): VisualTemplateDraft {
   if (kind === "customer_price_increase" || kind === "customer_price_decrease") {
     const decrease = kind === "customer_price_decrease"
     return {
@@ -307,7 +325,7 @@ function inferFooterFromTemplate(templateBody: string) {
     .trim()
 }
 
-function draftFromTemplate(kind: TemplateKind, templateBody: string): VisualTemplateDraft {
+function draftFromTemplate(kind: ReminderTemplateKind, templateBody: string): VisualTemplateDraft {
   const draft = defaultTemplateDraft(kind)
   const fields = templateFieldsForKind(kind).filter((field) =>
     field.signatures.some((signature) => templateBody.includes(signature)),
@@ -323,7 +341,7 @@ function draftFromTemplate(kind: TemplateKind, templateBody: string): VisualTemp
   return draft
 }
 
-function fieldLine(key: TemplateFieldKey, kind: TemplateKind) {
+function fieldLine(key: TemplateFieldKey, kind: ReminderTemplateKind) {
   switch (key) {
     case "customerEmail":
       return "客户邮箱：{{.CustomerEmail}}"
@@ -350,7 +368,7 @@ function fieldLine(key: TemplateFieldKey, kind: TemplateKind) {
   }
 }
 
-function renderVisualTemplate(kind: TemplateKind, draft: VisualTemplateDraft) {
+function renderVisualTemplate(kind: ReminderTemplateKind, draft: VisualTemplateDraft) {
   const lines: string[] = []
   const title = draft.title.trim()
   if (title !== "") {
@@ -394,7 +412,7 @@ function TemplateEditor({
   customerTemplateKind,
   onCustomerTemplateKindChange,
 }: {
-  kind: TemplateKind
+  kind: ReminderTemplateKind
   draft: VisualTemplateDraft
   onDraftChange: (draft: VisualTemplateDraft) => void
   onPreview: () => void
@@ -545,6 +563,78 @@ function TemplateEditor({
           }
         />
       </div>
+    </div>
+  )
+}
+
+function BusinessEmailTemplateEditor({
+  benefit = false,
+  value,
+  onChange,
+  onPreview,
+}: {
+  benefit?: boolean
+  value: string
+  onChange: (value: string) => void
+  onPreview: (kind: BusinessTemplateKind) => void
+}) {
+  const { t } = useTranslation()
+  const [previewKind, setPreviewKind] = React.useState<BusinessTemplateKind>(
+    benefit ? "customer_benefit_extension" : "customer_renewal_success",
+  )
+  const title = t(benefit ? "settings.benefitTemplate" : "settings.renewalSuccessTemplate")
+  const inputId = benefit ? "customer-benefit-template" : "renewal-success-template"
+  const fields = benefit
+    ? ".CustomerEmail · .SubscriptionID · .BenefitType · .BenefitDate · .ExtensionDays · .PreviousExtensionDays · .PreviousDueDate · .NextDueDate · .PreviousPrice · .DiscountAmount · .NewPrice · .EffectiveDate · .OperationTime"
+    : ".CustomerEmail · .SubscriptionID · .AmountPaid · .PeriodStart · .PeriodEnd · .NextDueDate · .CycleDesc · .OperationTime"
+
+  return (
+    <div className="grid min-w-0 content-start gap-4 rounded-lg border bg-card p-4 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_3%,transparent)]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
+            {benefit ? <Sparkles className="size-4" /> : <CircleCheckBig className="size-4" />}
+          </span>
+          <Label htmlFor={inputId}>{title}</Label>
+        </div>
+        <Button type="button" variant="ghost" size="xs" onClick={() => onPreview(previewKind)}>
+          <Eye data-slot="icon" />
+          {t("settings.preview")}
+        </Button>
+      </div>
+      <p className="text-xs leading-5 text-muted-foreground">
+        {t(benefit ? "settings.benefitTemplateHint" : "settings.renewalSuccessTemplateHint")}
+      </p>
+      {benefit ? (
+        <div className="grid gap-1.5">
+          <Label htmlFor="benefit-preview-kind">{t("settings.benefitPreviewKind")}</Label>
+          <Select value={previewKind} onValueChange={(kind) => setPreviewKind(kind as BusinessTemplateKind)}>
+            <SelectTrigger id="benefit-preview-kind" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BENEFIT_TEMPLATE_KINDS.map((kind) => (
+                <SelectItem key={kind} value={kind}>{t(BUSINESS_TEMPLATE_LABELS[kind])}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+      <Textarea
+        id={inputId}
+        rows={14}
+        value={value}
+        spellCheck={false}
+        className="h-80 field-sizing-fixed resize-y font-mono text-xs leading-6"
+        onChange={(event) => onChange(event.target.value)}
+        aria-describedby={`${inputId}-hint`}
+      />
+      <details id={`${inputId}-hint`} className="text-xs leading-5 text-muted-foreground">
+        <summary className="cursor-pointer">{t("settings.businessTemplateFields")}</summary>
+        <p className="mt-2">{t("settings.businessTemplateSyntax")}</p>
+        <p className="mt-1 break-words font-mono">{fields}</p>
+        {benefit ? <p className="mt-1">BenefitType: extension / price_discount / extension_revision / extension_revoke</p> : null}
+      </details>
     </div>
   )
 }
@@ -1398,8 +1488,9 @@ function SandboxToolCard() {
 }
 
 function CustomerEmailTestCard({ settings }: { settings: Settings }) {
+  const { t } = useTranslation()
   const [recipient, setRecipient] = React.useState("")
-  const [templateKind, setTemplateKind] = React.useState<CustomerTemplateKind>("customer")
+  const [templateKind, setTemplateKind] = React.useState<CustomerEmailTemplateKind>("customer")
   const smtp = settings.notification_config.smtp
   const smtpConfigured =
     smtp.host.trim() !== "" &&
@@ -1408,7 +1499,7 @@ function CustomerEmailTestCard({ settings }: { settings: Settings }) {
     smtp.from.trim() !== "" &&
     smtp.password_set
   const testMutation = useAppMutation(
-    (input: { recipient: string; template_kind: CustomerTemplateKind }) =>
+    (input: { recipient: string; template_kind: CustomerEmailTemplateKind }) =>
       testSettingsCustomerEmail(input),
     { scope: "none", successToast: true },
   )
@@ -1461,7 +1552,7 @@ function CustomerEmailTestCard({ settings }: { settings: Settings }) {
           <Label htmlFor="customer-email-test-template">邮件模板</Label>
           <Select
             value={templateKind}
-            onValueChange={(value) => setTemplateKind(value as CustomerTemplateKind)}
+            onValueChange={(value) => setTemplateKind(value as CustomerEmailTemplateKind)}
           >
             <SelectTrigger id="customer-email-test-template" className="w-full">
               <SelectValue />
@@ -1470,6 +1561,10 @@ function CustomerEmailTestCard({ settings }: { settings: Settings }) {
               <SelectItem value="customer">正常续费模板</SelectItem>
               <SelectItem value="customer_price_increase">调价后邮件模板</SelectItem>
               <SelectItem value="customer_price_decrease">降价优惠模板</SelectItem>
+              <SelectItem value="customer_renewal_success">{t("settings.renewalSuccessTemplate")}</SelectItem>
+              {BENEFIT_TEMPLATE_KINDS.map((kind) => (
+                <SelectItem key={kind} value={kind}>{t(BUSINESS_TEMPLATE_LABELS[kind])}</SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -1722,6 +1817,12 @@ function SettingsForm({ settings }: { settings: Settings }) {
   )
   const [customerTemplateKind, setCustomerTemplateKind] =
     React.useState<CustomerTemplateKind>("customer")
+  const [renewalSuccessTemplate, setRenewalSuccessTemplate] = React.useState(
+    settings.renewal_success_customer_email_template,
+  )
+  const [benefitTemplate, setBenefitTemplate] = React.useState(
+    settings.customer_benefit_email_template,
+  )
   const [enabledChannels, setEnabledChannels] = React.useState<Set<string>>(
     () => new Set(settings.enabled_channels ?? []),
   )
@@ -1739,6 +1840,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
   )
   const [previewKind, setPreviewKind] = React.useState<TemplateKind | null>(null)
   const [preview, setPreview] = React.useState<TemplatePreviewState>({ status: "loading" })
+  const previewRequestRef = React.useRef(0)
 
   const notifyTemplate = React.useMemo(
     () => renderVisualTemplate("notify", notifyDraft),
@@ -1769,6 +1871,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
   })
 
   const openPreview = (kind: TemplateKind) => {
+    const request = ++previewRequestRef.current
     setPreviewKind(kind)
     setPreview({ status: "loading" })
     const template =
@@ -1778,18 +1881,27 @@ function SettingsForm({ settings }: { settings: Settings }) {
           ? priceIncreaseCustomerTemplate
           : kind === "customer_price_decrease"
             ? priceDecreaseCustomerTemplate
-            : customerTemplate
+            : kind === "customer_renewal_success"
+              ? renewalSuccessTemplate
+              : kind === "customer"
+                ? customerTemplate
+                : benefitTemplate
     previewSettingsTemplate(kind, template)
-      .then((result) =>
+      .then((result) => {
+        if (request !== previewRequestRef.current) return
         setPreview({
           status: "ok",
           rendered: result.rendered,
           sampleName: result.sample_name,
           subject: result.subject,
           html: result.html,
-        }),
-      )
-      .catch((error: Error) => setPreview({ status: "error", message: error.message }))
+        })
+      })
+      .catch((error: Error) => {
+        if (request === previewRequestRef.current) {
+          setPreview({ status: "error", message: error.message })
+        }
+      })
   }
 
   const toggleChannel = (key: string, checked: boolean) => {
@@ -1810,7 +1922,9 @@ function SettingsForm({ settings }: { settings: Settings }) {
       notifyTemplate.trim() === "" ||
       customerTemplate.trim() === "" ||
       priceIncreaseCustomerTemplate.trim() === "" ||
-      priceDecreaseCustomerTemplate.trim() === ""
+      priceDecreaseCustomerTemplate.trim() === "" ||
+      renewalSuccessTemplate.trim() === "" ||
+      benefitTemplate.trim() === ""
     ) {
       toast.error(t("settings.validation.templateRequired"))
       return
@@ -1871,6 +1985,8 @@ function SettingsForm({ settings }: { settings: Settings }) {
       customer_email_template: customerTemplate,
       price_increase_customer_email_template: priceIncreaseCustomerTemplate,
       price_decrease_customer_email_template: priceDecreaseCustomerTemplate,
+      renewal_success_customer_email_template: renewalSuccessTemplate,
+      customer_benefit_email_template: benefitTemplate,
       channels: Array.from(enabledChannels),
       redeem_page: normalizedRedeemPage,
       seat_freeze_days: parsedSeatFreezeDays,
@@ -1971,6 +2087,17 @@ function SettingsForm({ settings }: { settings: Settings }) {
               customerTemplateKind={customerTemplateKind}
               onCustomerTemplateKindChange={setCustomerTemplateKind}
             />
+            <BusinessEmailTemplateEditor
+              value={renewalSuccessTemplate}
+              onChange={setRenewalSuccessTemplate}
+              onPreview={openPreview}
+            />
+            <BusinessEmailTemplateEditor
+              benefit
+              value={benefitTemplate}
+              onChange={setBenefitTemplate}
+              onPreview={openPreview}
+            />
           </div>
         </TabsContent>
 
@@ -2017,9 +2144,11 @@ function SettingsForm({ settings }: { settings: Settings }) {
           <DialogHeader>
             <DialogTitle>{t("settings.previewTitle")}</DialogTitle>
             <DialogDescription>
-              {preview.status === "ok"
-                ? t("settings.previewSample", { name: preview.sampleName })
-                : t("settings.previewDesc")}
+              {previewKind?.startsWith("customer_benefit_") || previewKind === "customer_renewal_success"
+                ? t("settings.businessPreviewDesc")
+                : preview.status === "ok"
+                  ? t("settings.previewSample", { name: preview.sampleName })
+                  : t("settings.previewDesc")}
             </DialogDescription>
           </DialogHeader>
 

@@ -657,11 +657,23 @@ export interface NotificationConfig {
   }
 }
 
+export type CustomerEmailTemplateKind =
+  | "customer"
+  | "customer_price_increase"
+  | "customer_price_decrease"
+  | "customer_renewal_success"
+  | "customer_benefit_extension"
+  | "customer_benefit_discount"
+  | "customer_benefit_revision"
+  | "customer_benefit_revoke"
+
 export interface Settings {
   notify_template: string
   customer_email_template: string
   price_increase_customer_email_template: string
   price_decrease_customer_email_template: string
+  renewal_success_customer_email_template: string
+  customer_benefit_email_template: string
   enabled_channels: string[] | null
   channels: ChannelSetting[]
   notification_config: NotificationConfig
@@ -1242,6 +1254,8 @@ export interface SettingsInput {
   customer_email_template: string
   price_increase_customer_email_template: string
   price_decrease_customer_email_template: string
+  renewal_success_customer_email_template: string
+  customer_benefit_email_template: string
   channels: string[]
   redeem_page: RedeemPageSettings
   seat_freeze_days: number

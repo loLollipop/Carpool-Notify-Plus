@@ -226,35 +226,6 @@ func (service *SubscriptionService) ListBillsPage() (BillsPage, error) {
 	}, nil
 }
 
-// ListBillsView returns all bills with subscription names (including archived).
-func (service *SubscriptionService) ListBillsView() ([]BillView, error) {
-	page, err := service.ListBillsPage()
-	if err != nil {
-		return nil, err
-	}
-	return page.Bills, nil
-}
-
-func (service *SubscriptionService) buildBillView(bill model.Bill, refundCents int64) (BillView, error) {
-	identities, err := service.accountIdentities()
-	if err != nil {
-		return BillView{}, err
-	}
-	subscription, err := service.Store.GetSubscriptionIncludingArchived(bill.SubscriptionID)
-	if err != nil && err != sql.ErrNoRows {
-		return BillView{}, err
-	}
-	var subscriptionSnapshot *model.Subscription
-	var accountSnapshot *model.Account
-	if err == nil {
-		subscriptionSnapshot = &subscription
-		if account, exists := identities.accounts[subscription.AccountID]; exists {
-			accountSnapshot = &account
-		}
-	}
-	return buildBillViewFromSnapshot(bill, refundCents, subscriptionSnapshot, accountSnapshot, identities), nil
-}
-
 // buildBillViewFromSnapshot is intentionally database-free. ListBillsPage
 // loads subscriptions and accounts once, avoiding two lookups for every bill.
 func buildBillViewFromSnapshot(
@@ -748,6 +719,8 @@ func (service *SubscriptionService) UpdateBill(billID int64, input BillEditInput
 
 // DeleteBill removes a bill permanently. The corresponding due date becomes unpaid again.
 func (service *SubscriptionService) DeleteBill(billID int64) error {
+	service.dueNotificationMu.Lock()
+	defer service.dueNotificationMu.Unlock()
 	if _, err := service.Store.GetBill(billID); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("账单不存在")
@@ -764,20 +737,4 @@ func (service *SubscriptionService) DeleteBill(billID int64) error {
 		return err
 	}
 	return nil
-}
-
-// GetBillView returns one bill for edit forms.
-func (service *SubscriptionService) GetBillView(billID int64) (BillView, error) {
-	bill, err := service.Store.GetBill(billID)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return BillView{}, fmt.Errorf("账单不存在")
-		}
-		return BillView{}, err
-	}
-	afterSalesCases, err := service.Store.ListAfterSalesCases()
-	if err != nil {
-		return BillView{}, err
-	}
-	return service.buildBillView(bill, completedRefundsByBill(afterSalesCases)[bill.ID])
 }

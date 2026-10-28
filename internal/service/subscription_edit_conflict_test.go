@@ -28,7 +28,7 @@ func withCurrentSubscriptionVersion(t *testing.T, subscriptionService *service.S
 	return input
 }
 
-func TestSubscriptionUpdateRejectsBrowserSnapshotBeforeRenewalApproval(t *testing.T) {
+func TestSubscriptionUpdateRejectsBrowserSnapshotBeforeManualRenewal(t *testing.T) {
 	for _, businessType := range []string{model.SubscriptionBusinessTeam, model.SubscriptionBusinessPlus} {
 		for _, nextPrice := range []string{"", "35.00"} {
 			t.Run(businessType+"/next_price="+nextPrice, func(t *testing.T) {
@@ -36,7 +36,7 @@ func TestSubscriptionUpdateRejectsBrowserSnapshotBeforeRenewalApproval(t *testin
 				subscriptionService.Clock = func() time.Time {
 					return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
 				}
-				enableTestRenewalPayment(t, subscriptionService)
+
 				input := service.CreateInput{
 					Name: "customer", BusinessType: businessType, CustomerEmail: "customer@example.com",
 					CustomerWechat: "customer", PriceYuan: "30.00", CostYuan: "5.00",
@@ -57,7 +57,7 @@ func TestSubscriptionUpdateRejectsBrowserSnapshotBeforeRenewalApproval(t *testin
 					}
 				}
 				// Open the form in the renewal period so an accepted edit could rewrite
-				// the bill just approved for this same period.
+				// the bill just paid for this same period.
 				subscriptionService.Clock = func() time.Time {
 					return time.Date(2026, time.August, 31, 10, 0, 0, 0, cycle.Location)
 				}
@@ -65,18 +65,9 @@ func TestSubscriptionUpdateRejectsBrowserSnapshotBeforeRenewalApproval(t *testin
 				if err != nil || len(views) != 1 {
 					t.Fatalf("form views = %#v, %v", views, err)
 				}
-				// Preserve the browser version before approving the renewal.
+				// Preserve the browser version before recording the manual renewal.
 				input.ExpectedUpdatedAt = views[0].Subscription.UpdatedAt.Format(time.RFC3339Nano)
-				if _, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-					SubscriptionID: subscriptionID, CustomerEmail: input.CustomerEmail,
-				}); err != nil {
-					t.Fatal(err)
-				}
-				applications, err := subscriptionService.ListRenewalApplicationsView(model.RenewalStatusPending)
-				if err != nil || len(applications) != 1 {
-					t.Fatalf("applications = %#v, %v", applications, err)
-				}
-				if err := subscriptionService.ApproveRenewalApplication(applications[0].Application.ID, service.RenewalDecisionInput{}); err != nil {
+				if err := subscriptionService.SetDuePaid(subscriptionID, "2026-08-31", true); err != nil {
 					t.Fatal(err)
 				}
 				approved, err := subscriptionService.Get(subscriptionID)

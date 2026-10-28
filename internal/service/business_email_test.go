@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -13,6 +15,59 @@ import (
 	"carpool-notify/internal/model"
 	"carpool-notify/internal/notify"
 )
+
+func TestBusinessEmailHistoryCleanupRunsWithoutSMTPAfterRestart(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "email-history.db")
+	store, err := db.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	sentAt := time.Date(2026, time.October, 27, 4, 0, 0, 0, time.UTC)
+	queuedAt := sentAt.Add(-7 * 24 * time.Hour)
+	if err := store.QueueBusinessEmails([]db.BusinessEmail{
+		{SubscriptionID: 1, Recipient: "sent@example.com", Title: "sent"},
+		{SubscriptionID: 2, Recipient: "retry@example.com", Title: "retry"},
+	}, queuedAt); err != nil {
+		t.Fatal(err)
+	}
+	messages, err := store.PendingBusinessEmails(sentAt, 8)
+	if err != nil || len(messages) != 2 {
+		t.Fatalf("queue = %#v, %v", messages, err)
+	}
+	if err := store.FinishBusinessEmail(messages[0].ID, 1, nil, sentAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishBusinessEmail(messages[1].ID, 1, errors.New("SMTP unavailable"), queuedAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	store, err = db.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reader.Close() })
+	now := sentAt.Add(24*time.Hour - time.Nanosecond)
+	service := &SubscriptionService{Store: store, Clock: func() time.Time { return now }}
+	for _, want := range []int{1, 0} {
+		flushBenefitEmails(t, service)
+		var count int
+		if err := reader.QueryRow(`SELECT COUNT(*) FROM business_email_outbox WHERE status = 'success'`).Scan(&count); err != nil || count != want {
+			t.Fatalf("successful history at %s = %d, %v; want %d", now, count, err, want)
+		}
+		now = now.Add(time.Nanosecond)
+	}
+	messages, err = store.PendingBusinessEmails(now, 8)
+	if err != nil || len(messages) != 1 || messages[0].Title != "retry" || messages[0].AttemptCount != 1 {
+		t.Fatalf("old retry removed by cleanup: %#v, %v", messages, err)
+	}
+}
 
 type businessEmailDelivery struct {
 	recipients        []string

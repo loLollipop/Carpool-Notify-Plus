@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -510,6 +511,16 @@ func (server *Server) getSettings(context *gin.Context) {
 		respondError(context, http.StatusInternalServerError, err.Error())
 		return
 	}
+	renewalSuccessTemplate, err := server.Service.GetRenewalSuccessCustomerEmailTemplate()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
+	benefitTemplate, err := server.Service.GetCustomerBenefitEmailTemplate()
+	if err != nil {
+		respondError(context, http.StatusInternalServerError, err.Error())
+		return
+	}
 	enabledChannels, err := server.Service.GetEnabledChannels()
 	if err != nil {
 		respondError(context, http.StatusInternalServerError, err.Error())
@@ -562,23 +573,26 @@ func (server *Server) getSettings(context *gin.Context) {
 		},
 	}
 	respondOK(context, gin.H{
-		"notify_template":                        notifyTemplate,
-		"customer_email_template":                customerTemplate,
-		"price_increase_customer_email_template": priceIncreaseCustomerTemplate,
-		"price_decrease_customer_email_template": priceDecreaseCustomerTemplate,
-		"enabled_channels":                       enabledChannels,
-		"channels":                               channels,
-		"notification_config":                    configuration.NotificationConfig(),
-		"redeem_page":                            redeemPageSettings,
-		"seat_freeze_days":                       seatFreezeDays,
-		"renewal_application_alert_email":        renewalApplicationAlertEmail,
+		"renewal_success_customer_email_template": renewalSuccessTemplate,
+		"customer_benefit_email_template":         benefitTemplate,
+		"notify_template":                         notifyTemplate,
+		"customer_email_template":                 customerTemplate,
+		"price_increase_customer_email_template":  priceIncreaseCustomerTemplate,
+		"price_decrease_customer_email_template":  priceDecreaseCustomerTemplate,
+		"enabled_channels":                        enabledChannels,
+		"channels":                                channels,
+		"notification_config":                     configuration.NotificationConfig(),
+		"redeem_page":                             redeemPageSettings,
+		"seat_freeze_days":                        seatFreezeDays,
+		"renewal_application_alert_email":         renewalApplicationAlertEmail,
 	})
 }
 
 func (server *Server) getRedeemSettings(context *gin.Context) {
 	redeemPageSettings, err := server.Service.GetRedeemPageSettings()
 	if err != nil {
-		respondError(context, http.StatusInternalServerError, err.Error())
+		log.Printf("public redemption settings: %v", err)
+		respondError(context, http.StatusServiceUnavailable, "服务暂时不可用，请稍后重试")
 		return
 	}
 	respondOK(context, gin.H{"redeem_page": redeemPageSettings})
@@ -703,7 +717,7 @@ func (server *Server) postRedeemApplication(context *gin.Context) {
 		RequestNote:     request.RequestNote,
 	})
 	if err != nil {
-		respondError(context, http.StatusBadRequest, err.Error())
+		respondPublicRedemptionError(context, err)
 		return
 	}
 	respondOK(context, gin.H{
@@ -716,10 +730,23 @@ func (server *Server) postRedeemApplication(context *gin.Context) {
 func (server *Server) getRedeemStatus(context *gin.Context) {
 	view, err := server.Service.GetRedemptionStatus(context.Param("token"))
 	if err != nil {
-		respondError(context, http.StatusNotFound, err.Error())
+		respondPublicRedemptionError(context, err)
 		return
 	}
 	respondOK(context, gin.H{"redemption": view})
+}
+
+func respondPublicRedemptionError(context *gin.Context, err error) {
+	var requestError *service.RedemptionRequestError
+	switch {
+	case errors.As(err, &requestError):
+		respondError(context, http.StatusBadRequest, requestError.Error())
+	case errors.Is(err, service.ErrRedemptionNotFound):
+		respondError(context, http.StatusNotFound, service.ErrRedemptionNotFound.Error())
+	default:
+		log.Printf("public redemption: %v", err)
+		respondError(context, http.StatusServiceUnavailable, "服务暂时不可用，请稍后重试")
+	}
 }
 
 // ---- Subscription mutations ---------------------------------------------------
@@ -1426,15 +1453,17 @@ func (server *Server) putSettings(context *gin.Context) {
 	// enough room for both encoded images plus the remaining settings payload.
 	context.Request.Body = http.MaxBytesReader(context.Writer, context.Request.Body, 4<<20)
 	var request struct {
-		NotifyTemplate                     string                          `json:"notify_template"`
-		CustomerEmailTemplate              string                          `json:"customer_email_template"`
-		PriceIncreaseCustomerEmailTemplate string                          `json:"price_increase_customer_email_template"`
-		PriceDecreaseCustomerEmailTemplate string                          `json:"price_decrease_customer_email_template"`
-		Channels                           []string                        `json:"channels"`
-		NotificationConfig                 *config.NotificationConfigInput `json:"notification_config"`
-		RedeemPage                         *json.RawMessage                `json:"redeem_page"`
-		SeatFreezeDays                     *int                            `json:"seat_freeze_days"`
-		RenewalApplicationAlertEmail       *string                         `json:"renewal_application_alert_email"`
+		NotifyTemplate                      string                          `json:"notify_template"`
+		CustomerEmailTemplate               string                          `json:"customer_email_template"`
+		PriceIncreaseCustomerEmailTemplate  string                          `json:"price_increase_customer_email_template"`
+		PriceDecreaseCustomerEmailTemplate  string                          `json:"price_decrease_customer_email_template"`
+		RenewalSuccessCustomerEmailTemplate *string                         `json:"renewal_success_customer_email_template"`
+		CustomerBenefitEmailTemplate        *string                         `json:"customer_benefit_email_template"`
+		Channels                            []string                        `json:"channels"`
+		NotificationConfig                  *config.NotificationConfigInput `json:"notification_config"`
+		RedeemPage                          *json.RawMessage                `json:"redeem_page"`
+		SeatFreezeDays                      *int                            `json:"seat_freeze_days"`
+		RenewalApplicationAlertEmail        *string                         `json:"renewal_application_alert_email"`
 	}
 	if err := context.ShouldBindJSON(&request); err != nil {
 		respondError(context, http.StatusBadRequest, "无效的请求")
@@ -1464,6 +1493,7 @@ func (server *Server) putSettings(context *gin.Context) {
 		redeemPage,
 		request.SeatFreezeDays,
 		request.RenewalApplicationAlertEmail,
+		service.BusinessEmailTemplateSettings{RenewalSuccess: request.RenewalSuccessCustomerEmailTemplate, CustomerBenefit: request.CustomerBenefitEmailTemplate},
 	); err != nil {
 		respondError(context, http.StatusBadRequest, err.Error())
 		return
@@ -1498,6 +1528,7 @@ func (server *Server) putSettings(context *gin.Context) {
 		redeemPage,
 		request.SeatFreezeDays,
 		request.RenewalApplicationAlertEmail,
+		service.BusinessEmailTemplateSettings{RenewalSuccess: request.RenewalSuccessCustomerEmailTemplate, CustomerBenefit: request.CustomerBenefitEmailTemplate},
 	); err != nil {
 		if rollbackConfig != nil {
 			if rollbackErr := rollbackConfig(); rollbackErr != nil {
@@ -1617,6 +1648,9 @@ func (server *Server) postSettingsTemplatePreview(context *gin.Context) {
 	case "customer_price_decrease":
 		name = "customer_price_decrease"
 		subjectPrefix = "拼车续费优惠通知 · "
+	case "customer_renewal_success", "customer_benefit_extension", "customer_benefit_discount", "customer_benefit_revision", "customer_benefit_revoke":
+		name = request.Kind
+		subjectPrefix = service.BusinessEmailSubject(request.Kind) + " · "
 	default:
 		respondError(context, http.StatusBadRequest, "无效的模板类型")
 		return
@@ -1633,6 +1667,9 @@ func (server *Server) postSettingsTemplatePreview(context *gin.Context) {
 		"html": func() string {
 			if request.Kind == "notify" {
 				return ""
+			}
+			if service.IsBusinessEmailTemplateKind(request.Kind) {
+				return service.BusinessEmailHTML(request.Kind, rendered, subjectPrefix+sampleName)
 			}
 			return notify.BuildCustomerEmailHTML(rendered)
 		}(),

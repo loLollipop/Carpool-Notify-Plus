@@ -32,23 +32,23 @@ const (
 	RedemptionStatusInvited  = "invited"
 	RedemptionStatusRejected = "rejected"
 
-	RenewalStatusPending  = "pending"
 	RenewalStatusApproved = "approved"
-	RenewalStatusRejected = "rejected"
 
 	RedemptionCodeStatusUnused   = "unused"
 	RedemptionCodeStatusUsed     = "used"
 	RedemptionCodeStatusDisabled = "disabled"
 
-	SettingNotifyTemplate                     = "notify_template"
-	SettingCustomerEmailTemplate              = "customer_email_template"
-	SettingPriceIncreaseCustomerEmailTemplate = "price_increase_customer_email_template"
-	SettingPriceDecreaseCustomerEmailTemplate = "price_decrease_customer_email_template"
-	SettingEnabledChannels                    = "enabled_channels"
-	SettingRedeemPageSettings                 = "redeem_page_settings"
-	SettingSeatFreezeDays                     = "seat_freeze_days"
-	SettingRenewalApplicationAlertEmail       = "renewal_application_alert_email"
-	SettingAdminProfile                       = "admin_profile"
+	SettingNotifyTemplate                      = "notify_template"
+	SettingCustomerEmailTemplate               = "customer_email_template"
+	SettingRenewalSuccessCustomerEmailTemplate = "renewal_success_customer_email_template"
+	SettingCustomerBenefitEmailTemplate        = "customer_benefit_email_template"
+	SettingPriceIncreaseCustomerEmailTemplate  = "price_increase_customer_email_template"
+	SettingPriceDecreaseCustomerEmailTemplate  = "price_decrease_customer_email_template"
+	SettingEnabledChannels                     = "enabled_channels"
+	SettingRedeemPageSettings                  = "redeem_page_settings"
+	SettingSeatFreezeDays                      = "seat_freeze_days"
+	SettingRenewalApplicationAlertEmail        = "renewal_application_alert_email"
+	SettingAdminProfile                        = "admin_profile"
 
 	BusinessGoalStatusActive    = "active"
 	BusinessGoalStatusCompleted = "completed"
@@ -86,9 +86,6 @@ const (
 	DefaultSeatFreezeDays     = 7
 	MinSeatFreezeDays         = 1
 	MaxSeatFreezeDays         = 90
-	// MaxRenewalPeriodCount bounds one customer payment while still allowing
-	// up to a year of monthly renewals in a single review request.
-	MaxRenewalPeriodCount = 12
 	// A Team account can immediately reuse a seat after its first four
 	// departures in a rolling 30-day window. Later departures are cooled down
 	// for the configured seat-freeze duration before the seat is reusable.
@@ -164,6 +161,50 @@ const DefaultPriceDecreaseCustomerEmailTemplate = `您好，您的 ChatGPT Team 
 为感谢您的支持并提升续费体验，我们将结合近期运营安排与客户关系维护，对本次续费价格进行优惠调整，自上述生效日期起按调整后的价格续费。
 当前已支付周期与历史账单不受影响；完成本次续费后，后续周期将以调整后的价格为基准。
 如有任何疑问，请联系管理员。`
+
+const DefaultRenewalSuccessCustomerEmailTemplate = `您好，您的 ChatGPT Team 服务续费已确认，感谢您的支持。
+
+客户邮箱：{{.CustomerEmail}}
+订阅编号：#{{.SubscriptionID}}
+续费金额：¥{{.AmountPaid}}
+计费周期：{{.CycleDesc}}
+本期开始：{{.PeriodStart}}
+本期结束：{{.PeriodEnd}}
+下次到期日期：{{.NextDueDate}}
+
+本期款项已登记，无需重复付款。祝您使用愉快！
+如有疑问，请联系管理员。
+操作时间：{{.OperationTime}}`
+
+const DefaultCustomerBenefitEmailTemplate = `{{if eq .BenefitType "extension"}}您好，为感谢您的支持，您的 ChatGPT Team 服务已获赠延期福利。
+{{else if eq .BenefitType "price_discount"}}您好，为感谢您的支持，您的 ChatGPT Team 服务已获赠续费优惠。
+{{else if eq .BenefitType "extension_revision"}}您好，您的延期福利已修改，请以本邮件中的到期日期为准。
+{{else if eq .BenefitType "extension_revoke"}}您好，您的延期福利已撤回，请以本邮件中的到期日期为准。
+{{end}}
+客户邮箱：{{.CustomerEmail}}
+订阅编号：#{{.SubscriptionID}}
+发放日期：{{.BenefitDate}}
+{{if eq .BenefitType "extension"}}赠送天数：{{.ExtensionDays}} 天
+原到期日期：{{.PreviousDueDate}}
+调整后到期日期：{{.NextDueDate}}
+
+本次延期已生效，无需额外付款。
+{{else if eq .BenefitType "price_discount"}}原每期价格：¥{{.PreviousPrice}}
+每期优惠：¥{{.DiscountAmount}}
+调整后每期价格：¥{{.NewPrice}}
+生效日期：{{.EffectiveDate}}
+
+本次优惠福利无需支付额外费用。优惠价从上述日期对应的续费账期开始使用，此后每期均按优惠价续费，直至另行调整。当前已支付账期不受影响。
+{{else}}原延期天数：{{.PreviousExtensionDays}} 天
+调整后延期天数：{{.ExtensionDays}} 天
+原到期日期：{{.PreviousDueDate}}
+调整后到期日期：{{.NextDueDate}}
+{{if eq .BenefitType "extension_revision"}}本次仅调整已赠送的延期天数，无需额外付款。
+{{else}}本次撤回的是已赠送的延期福利，不代表退款或新增收费；如有疑问，请联系管理员确认服务安排。
+{{end}}{{end}}
+如有疑问，请联系管理员。
+操作时间：{{.OperationTime}}
+本邮件记录上述时间的福利操作，后续如有变更，请以更新的通知为准。`
 
 // DefaultPriceIncreaseAdvanceNoticeCustomerEmailTemplate is kept as a source
 // compatibility alias. Both price-increase notification timings now use the
@@ -615,25 +656,6 @@ type RedemptionApplication struct {
 	UpdatedAt              time.Time  `json:"updated_at"`
 }
 
-// RenewalApplication is a customer-submitted payment review request. Amount
-// and due date are server-calculated snapshots and are revalidated when the
-// operator approves the payment.
-type RenewalApplication struct {
-	ID             int64      `json:"id"`
-	TrackingToken  string     `json:"tracking_token"`
-	SubscriptionID int64      `json:"subscription_id"`
-	CustomerEmail  string     `json:"customer_email"`
-	DueDate        string     `json:"due_date"`
-	PeriodCount    int        `json:"period_count"`
-	PeriodEndDate  string     `json:"period_end_date"`
-	AmountCents    int64      `json:"amount_cents"`
-	Status         string     `json:"status"`
-	OperatorNote   string     `json:"operator_note"`
-	ProcessedAt    *time.Time `json:"processed_at"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
-}
-
 // RedemptionCode is an operator-generated one-time code. Customers must submit
 // an unused code before a redemption application can be created.
 type RedemptionCode struct {
@@ -670,21 +692,23 @@ type TemplateData struct {
 
 // ExportPayload is the JSON export shape (no secrets).
 type ExportPayload struct {
-	ExportedAt                         string                             `json:"exported_at"`
-	NotifyTemplate                     string                             `json:"notify_template"`
-	CustomerEmailTemplate              string                             `json:"customer_email_template"`
-	PriceIncreaseCustomerEmailTemplate string                             `json:"price_increase_customer_email_template"`
-	PriceDecreaseCustomerEmailTemplate string                             `json:"price_decrease_customer_email_template"`
-	EnabledChannels                    []string                           `json:"enabled_channels"`
-	RedeemPageSettings                 RedeemPageSettings                 `json:"redeem_page_settings"`
-	SeatFreezeDays                     int                                `json:"seat_freeze_days"`
-	RenewalApplicationAlertEmail       string                             `json:"renewal_application_alert_email"`
-	Accounts                           []ExportAccount                    `json:"accounts"`
-	Subscriptions                      []ExportSubscription               `json:"subscriptions"`
-	CustomerBenefits                   []CustomerBenefit                  `json:"customer_benefits"`
-	SubscriptionDueExtensions          []SubscriptionDueExtension         `json:"subscription_due_extensions"`
-	SubscriptionDueExtensionRevisions  []SubscriptionDueExtensionRevision `json:"subscription_due_extension_revisions"`
-	OperatingExpenses                  []OperatingExpense                 `json:"operating_expenses"`
+	ExportedAt                          string                             `json:"exported_at"`
+	NotifyTemplate                      string                             `json:"notify_template"`
+	CustomerEmailTemplate               string                             `json:"customer_email_template"`
+	PriceIncreaseCustomerEmailTemplate  string                             `json:"price_increase_customer_email_template"`
+	PriceDecreaseCustomerEmailTemplate  string                             `json:"price_decrease_customer_email_template"`
+	RenewalSuccessCustomerEmailTemplate string                             `json:"renewal_success_customer_email_template"`
+	CustomerBenefitEmailTemplate        string                             `json:"customer_benefit_email_template"`
+	EnabledChannels                     []string                           `json:"enabled_channels"`
+	RedeemPageSettings                  RedeemPageSettings                 `json:"redeem_page_settings"`
+	SeatFreezeDays                      int                                `json:"seat_freeze_days"`
+	RenewalApplicationAlertEmail        string                             `json:"renewal_application_alert_email"`
+	Accounts                            []ExportAccount                    `json:"accounts"`
+	Subscriptions                       []ExportSubscription               `json:"subscriptions"`
+	CustomerBenefits                    []CustomerBenefit                  `json:"customer_benefits"`
+	SubscriptionDueExtensions           []SubscriptionDueExtension         `json:"subscription_due_extensions"`
+	SubscriptionDueExtensionRevisions   []SubscriptionDueExtensionRevision `json:"subscription_due_extension_revisions"`
+	OperatingExpenses                   []OperatingExpense                 `json:"operating_expenses"`
 }
 
 // ExportAccount is one account with seats in an export file.

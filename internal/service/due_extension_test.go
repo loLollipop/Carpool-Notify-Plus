@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"reflect"
@@ -16,7 +17,18 @@ import (
 
 func extensionTestService(t *testing.T, now string, count int) (*SubscriptionService, []int64) {
 	t.Helper()
-	service := openGoalTestService(t)
+	return prepareExtensionTestService(t, openGoalTestService(t), now, count)
+}
+
+func extensionTestServiceWithHistory(t *testing.T, now string, count int) (*SubscriptionService, []int64, *sql.DB) {
+	t.Helper()
+	service, history := openExtensionHistoryService(t)
+	service, ids := prepareExtensionTestService(t, service, now, count)
+	return service, ids, history
+}
+
+func prepareExtensionTestService(t *testing.T, service *SubscriptionService, now string, count int) (*SubscriptionService, []int64) {
+	t.Helper()
 	moment, err := time.ParseInLocation("2006-01-02", now, cycle.Location)
 	if err != nil {
 		t.Fatal(err)
@@ -197,7 +209,7 @@ func TestStaleQueuedNotificationCanceledByRevokeIsNotSentOrReopened(t *testing.T
 	}
 }
 
-func TestRenewalApplicationCapturedBeforeLastExtensionRevokeIsRejected(t *testing.T) {
+func TestManualPaymentCapturedBeforeLastExtensionRevokeIsRejected(t *testing.T) {
 	service, ids := extensionTestService(t, "2026-06-20", 1)
 	if _, err := service.RecordCustomerBenefits(extensionInput(
 		t, service, ids, "2026-06-20", 7, "test-stale-renewal-source-operation",
@@ -211,13 +223,8 @@ func TestRenewalApplicationCapturedBeforeLastExtensionRevokeIsRejected(t *testin
 		t.Fatal(err)
 	}
 
-	_, err := service.Store.CreateRenewalApplication(model.RenewalApplication{
-		TrackingToken: "test-stale-renewal-after-revoke", SubscriptionID: ids[0],
-		CustomerEmail: "extension@example.com", DueDate: "2026-07-08",
-		PeriodCount: 1, PeriodEndDate: "2026-08-07", AmountCents: 10000,
-	})
-	if !errors.Is(err, db.ErrRenewalFinancialStateChanged) {
-		t.Fatalf("stale renewal error = %v, want ErrRenewalFinancialStateChanged", err)
+	if err := service.SetDuePaid(ids[0], "2026-07-08", true); err == nil {
+		t.Fatal("stale payment after extension revoke accepted")
 	}
 }
 
@@ -229,6 +236,10 @@ func TestRevokeThirtyDayExtensionRejectsCollidingOldBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	benefit := activeExtensionBenefit(t, service)
+	stale, err := service.Store.GetSubscription(ids[0])
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	logs := make([]model.NotificationLog, 0, 2)
 	for _, test := range []struct {
@@ -281,19 +292,11 @@ func TestRevokeThirtyDayExtensionRejectsCollidingOldBoundary(t *testing.T) {
 		t.Fatalf("stale colliding notifications sent %d times", recorder.calls)
 	}
 
-	if _, err := service.Store.CreateRenewalApplication(model.RenewalApplication{
-		TrackingToken: "test-colliding-boundary-stale-renewal", SubscriptionID: ids[0],
-		CustomerEmail: "extension@example.com", DueDate: "2026-07-31",
-		PeriodCount: 1, PeriodEndDate: "2026-08-30", AmountCents: 10000,
-	}); !errors.Is(err, db.ErrRenewalFinancialStateChanged) {
-		t.Fatalf("stale colliding renewal error = %v, want ErrRenewalFinancialStateChanged", err)
+	if err := service.Store.SetDuePaidForSubscription(stale, "2026-07-31", true, 10000); !errors.Is(err, db.ErrSubscriptionFinancialStateChanged) {
+		t.Fatal("stale colliding payment accepted")
 	}
-	if _, err := service.Store.CreateRenewalApplication(model.RenewalApplication{
-		TrackingToken: "test-colliding-boundary-current-renewal", SubscriptionID: ids[0],
-		CustomerEmail: "extension@example.com", DueDate: "2026-07-01",
-		PeriodCount: 1, PeriodEndDate: "2026-07-31", AmountCents: 10000,
-	}); err != nil {
-		t.Fatalf("current first-unpaid renewal rejected: %v", err)
+	if err := service.SetDuePaid(ids[0], "2026-07-01", true); err != nil {
+		t.Fatalf("current first-unpaid payment rejected: %v", err)
 	}
 }
 
@@ -412,17 +415,12 @@ func TestReviseCustomerBenefitExtensionSafetyBlocks(t *testing.T) {
 	})
 
 	t.Run("historical pending renewal does not block revision", func(t *testing.T) {
-		service, ids := extensionTestService(t, "2026-06-20", 1)
+		service, ids, history := extensionTestServiceWithHistory(t, "2026-06-20", 1)
 		if _, err := service.RecordCustomerBenefits(extensionInput(t, service, ids, "2026-06-20", 7, "test-renewal-block-source-operation")); err != nil {
 			t.Fatal(err)
 		}
 		benefit := activeExtensionBenefit(t, service)
-		if _, err := service.Store.CreateRenewalApplication(model.RenewalApplication{
-			TrackingToken: "test-extension-pending-renewal", SubscriptionID: ids[0], CustomerEmail: "extension@example.com",
-			DueDate: "2026-07-08", PeriodCount: 1, PeriodEndDate: "2026-08-07", AmountCents: 10000,
-		}); err != nil {
-			t.Fatal(err)
-		}
+		seedPendingExtensionRenewal(t, history, ids[0], "2026-07-08")
 		_, err := service.ReviseCustomerBenefitExtension(ReviseCustomerBenefitExtensionInput{
 			BenefitID: benefit.ID, Reason: "撤回延期", OperationKey: "test-renewal-block-revision-operation",
 		})
@@ -664,10 +662,6 @@ func TestExtensionEffectiveDueAcrossBillingConsumers(t *testing.T) {
 			if !found {
 				t.Fatal("calendar omitted effective due")
 			}
-			plan, err := buildRenewalPeriodPlan(view.Subscription, view.NextDueDate, 2)
-			if err != nil || plan.Bills[1].DueDate != "2026-08-09" || plan.PeriodEndDate != "2026-09-08" {
-				t.Fatalf("plan = %#v, %v", plan, err)
-			}
 			if err := service.SetDuePaid(id, "2026-07-10", true); err != nil {
 				t.Fatal(err)
 			}
@@ -840,14 +834,9 @@ func TestExtensionRepairExplicitAndIdempotent(t *testing.T) {
 }
 
 func TestExtensionIgnoresHistoricalPendingRenewalAndRejectsStalePayment(t *testing.T) {
-	service, ids := extensionTestService(t, "2026-06-20", 1)
+	service, ids, history := extensionTestServiceWithHistory(t, "2026-06-20", 1)
 	stale, _ := service.Store.GetSubscription(ids[0])
-	_, err := service.Store.CreateRenewalApplication(model.RenewalApplication{
-		TrackingToken: "pending-extension-test", SubscriptionID: ids[0], DueDate: "2026-07-01", PeriodEndDate: "2026-07-31", AmountCents: 10000,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
+	seedPendingExtensionRenewal(t, history, ids[0], "2026-07-01")
 	input := extensionInput(t, service, ids, "2026-06-20", 9, "test-pending-extension")
 	if _, err := service.RecordCustomerBenefits(input); err != nil {
 		t.Fatal(err)
@@ -855,12 +844,9 @@ func TestExtensionIgnoresHistoricalPendingRenewalAndRejectsStalePayment(t *testi
 	if err := service.Store.SetDuePaidForSubscription(stale, "2026-07-01", true, 10000); err == nil {
 		t.Fatal("stale payment accepted")
 	}
-	if _, err := service.Store.CreateRenewalApplication(model.RenewalApplication{TrackingToken: "stale-extension-renewal", SubscriptionID: ids[0], DueDate: "2026-07-01", AmountCents: 10000}); err == nil {
-		t.Fatal("stale renewal request accepted")
-	}
 }
 
-func TestExtendedTimedCronRenewalPlanAdvancesToNextCalendarPeriod(t *testing.T) {
+func TestExtendedTimedCronScheduleAdvancesToNextCalendarPeriod(t *testing.T) {
 	subscription := model.Subscription{
 		CronExpr:            "30 9 1 * *",
 		BoardedAt:           "2026-09-01",
@@ -870,12 +856,18 @@ func TestExtendedTimedCronRenewalPlanAdvancesToNextCalendarPeriod(t *testing.T) 
 			ExtensionDays: 9,
 		}},
 	}
-	plan, err := buildRenewalPeriodPlan(subscription, "2026-10-10", 2)
+	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := []string{plan.Bills[0].DueDate, plan.Bills[1].DueDate, plan.PeriodEndDate}; !reflect.DeepEqual(got, []string{"2026-10-10", "2026-11-10", "2026-12-10"}) {
-		t.Fatalf("renewal dates = %#v", got)
+	due := time.Date(2026, 10, 10, 0, 0, 0, 0, cycle.Location)
+	dates := []string{cycle.FormatDate(due)}
+	for i := 0; i < 2; i++ {
+		due = schedule.NextDue(cycle.StartOfDay(due).AddDate(0, 0, 1).Add(-time.Nanosecond))
+		dates = append(dates, cycle.FormatDate(due))
+	}
+	if !reflect.DeepEqual(dates, []string{"2026-10-10", "2026-11-10", "2026-12-10"}) {
+		t.Fatalf("billing dates = %#v", dates)
 	}
 }
 
@@ -1026,7 +1018,7 @@ func TestRecordExtensionRequiresExactValidReviewSnapshots(t *testing.T) {
 	}
 }
 
-func TestTimedCronExtensionWorksAcrossListCalendarRenewalAndPayment(t *testing.T) {
+func TestTimedCronExtensionWorksAcrossListCalendarAndPayment(t *testing.T) {
 	service := openGoalTestService(t)
 	service.Clock = func() time.Time {
 		return time.Date(2026, time.September, 20, 12, 0, 0, 0, cycle.Location)
@@ -1080,10 +1072,6 @@ func TestTimedCronExtensionWorksAcrossListCalendarRenewalAndPayment(t *testing.T
 	}
 	if !found {
 		t.Fatal("calendar omitted the shifted cron date")
-	}
-	plan, err := buildRenewalPeriodPlan(views[0].Subscription, views[0].NextDueDate, 2)
-	if err != nil || plan.Bills[1].DueDate != "2026-11-10" || plan.PeriodEndDate != "2026-12-10" {
-		t.Fatalf("renewal plan = %#v, %v", plan, err)
 	}
 	if err := service.SetDuePaid(subscriptionID, "2026-10-10", true); err != nil {
 		t.Fatal(err)
