@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -23,23 +24,37 @@ import (
 
 func renewalRoutesTestServer(t *testing.T) (*Server, *gin.Engine) {
 	t.Helper()
+	server, router, _ := renewalRoutesTestServerWithHistory(t)
+	return server, router
+}
+
+func renewalRoutesTestServerWithHistory(t *testing.T) (*Server, *gin.Engine, map[*service.SubscriptionService]*sql.DB) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	directory := t.TempDir()
 	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("<html>SPA fallback</html>"), 0600); err != nil {
 		t.Fatal(err)
 	}
+	histories := make(map[*service.SubscriptionService]*sql.DB)
 	newService := func(name string) *service.SubscriptionService {
 		store, err := db.Open(filepath.Join(directory, name+".db"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = store.Close() })
-		return &service.SubscriptionService{
+		subscriptionService := &service.SubscriptionService{
 			Store: store,
 			Clock: func() time.Time {
 				return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
 			},
 		}
+		history, err := sql.Open("sqlite", filepath.Join(directory, name+".db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = history.Close() })
+		histories[subscriptionService] = history
+		return subscriptionService
 	}
 	server, err := NewServer(newService("live"), config.Config{
 		Password: "test-password", SessionSecret: "test-session-secret",
@@ -55,10 +70,10 @@ func renewalRoutesTestServer(t *testing.T) (*Server, *gin.Engine) {
 	router := gin.New()
 	router.Use(sessions.Sessions("csrf_test_session", cookie.NewStore([]byte("test-session-secret"))))
 	server.RegisterRoutes(router)
-	return server, router
+	return server, router, histories
 }
 
-func seedHistoricalRenewal(t *testing.T, subscriptionService *service.SubscriptionService, token string) int64 {
+func seedHistoricalRenewal(t *testing.T, subscriptionService *service.SubscriptionService, history *sql.DB, token string) int64 {
 	t.Helper()
 	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
 		Name: "legacy customer", BusinessType: model.SubscriptionBusinessPlus,
@@ -69,11 +84,14 @@ func seedHistoricalRenewal(t *testing.T, subscriptionService *service.Subscripti
 		t.Fatal(err)
 	}
 	// Seed an existing application directly, without the removed public flow.
-	applicationID, err := subscriptionService.Store.CreateRenewalApplication(model.RenewalApplication{
-		TrackingToken: token, SubscriptionID: subscriptionID,
-		CustomerEmail: "customer@example.com", DueDate: "2026-08-31",
-		PeriodCount: 1, PeriodEndDate: "2026-09-30", AmountCents: 9000,
-	})
+	result, err := history.Exec(`INSERT INTO renewal_applications (
+        tracking_token, subscription_id, customer_email, due_date, period_count, period_end_date,
+        amount_cents, status, created_at, updated_at
+    ) VALUES (?, ?, 'customer@example.com', '2026-08-31', 1, '2026-09-30', 9000, 'pending', '2026-08-20T00:00:00Z', '2026-08-20T00:00:00Z')`, token, subscriptionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applicationID, err := result.LastInsertId()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,9 +99,9 @@ func seedHistoricalRenewal(t *testing.T, subscriptionService *service.Subscripti
 }
 
 func TestRemovedRenewalRoutesReturnJSONNotFound(t *testing.T) {
-	server, router := renewalRoutesTestServer(t)
-	seedHistoricalRenewal(t, server.Service, "legacy-live-token")
-	seedHistoricalRenewal(t, server.SandboxService, "legacy-sandbox-token")
+	server, router, histories := renewalRoutesTestServerWithHistory(t)
+	seedHistoricalRenewal(t, server.Service, histories[server.Service], "legacy-live-token")
+	seedHistoricalRenewal(t, server.SandboxService, histories[server.SandboxService], "legacy-sandbox-token")
 	client := csrfTestClient{router: router}
 	clientIndex := 1
 	for _, authenticated := range []bool{false, true} {
@@ -133,9 +151,9 @@ func TestRemovedRenewalRoutesReturnJSONNotFound(t *testing.T) {
 		}
 	}
 	for _, subscriptionService := range []*service.SubscriptionService{server.Service, server.SandboxService} {
-		applications, err := subscriptionService.Store.ListRenewalApplications("")
-		if err != nil || len(applications) != 1 || applications[0].Status != model.RenewalStatusPending {
-			t.Fatalf("removed routes changed historical applications: %#v, error = %v", applications, err)
+		var count int
+		if err := histories[subscriptionService].QueryRow(`SELECT COUNT(1) FROM renewal_applications WHERE status = 'pending' AND period_count = 1 AND period_end_date = '2026-09-30'`).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("removed routes changed historical applications: count = %d, error = %v", count, err)
 		}
 		bills, err := subscriptionService.Store.ListBills()
 		if err != nil || len(bills) != 1 {
@@ -149,9 +167,9 @@ func TestRemovedRenewalRoutesReturnJSONNotFound(t *testing.T) {
 }
 
 func TestManualRenewalRoutesRemainAvailableAndProtected(t *testing.T) {
-	server, router := renewalRoutesTestServer(t)
-	seedHistoricalRenewal(t, server.Service, "legacy-live-token")
-	seedHistoricalRenewal(t, server.SandboxService, "legacy-sandbox-token")
+	server, router, histories := renewalRoutesTestServerWithHistory(t)
+	seedHistoricalRenewal(t, server.Service, histories[server.Service], "legacy-live-token")
+	seedHistoricalRenewal(t, server.SandboxService, histories[server.SandboxService], "legacy-sandbox-token")
 	client := csrfTestClient{router: router}
 	for _, prefix := range []string{"/api", "/api/sandbox"} {
 		for _, path := range []string{"/subscriptions/1/due/2026-08-31/paid", "/accounts/1/renew"} {

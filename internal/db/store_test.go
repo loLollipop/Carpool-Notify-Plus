@@ -119,13 +119,20 @@ func TestOpenAddsRenewalPeriodColumnsToLegacyDatabase(t *testing.T) {
 
 	store := openStore(t, databasePath)
 	defer store.Close()
-	application, err := store.GetRenewalApplicationByToken("legacy-token")
+	database, err = sql.Open("sqlite", databasePath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if application.PeriodCount != 1 || application.PeriodEndDate != "" {
-		t.Fatalf("legacy renewal period snapshot = %#v", application)
+	defer database.Close()
+	var count int
+	var endDate string
+	if err := database.QueryRow(`SELECT period_count, period_end_date FROM renewal_applications WHERE tracking_token = 'legacy-token'`).Scan(&count, &endDate); err != nil {
+		t.Fatal(err)
 	}
+	if count != 1 || endDate != "" {
+		t.Fatalf("legacy renewal period snapshot = %d/%q", count, endDate)
+	}
+
 }
 
 func TestOpenRepairsImportedInitialAccountCostToOpeningPeriod(t *testing.T) {

@@ -152,7 +152,7 @@ func TestSubscriptionEditsAcceptLegacyVersionsAndRejectStale(t *testing.T) {
 	}
 }
 
-func TestRenewalApprovalAcceptsLegacyVersionAndAlwaysAdvances(t *testing.T) {
+func TestManualRenewalAcceptsLegacyVersionAndAlwaysAdvances(t *testing.T) {
 	for _, version := range legacySubscriptionVersions {
 		for _, nextPriceMode := range []string{"none", "same", "future"} {
 			t.Run(version.name+"/"+nextPriceMode, func(t *testing.T) {
@@ -169,22 +169,8 @@ func TestRenewalApprovalAcceptsLegacyVersionAndAlwaysAdvances(t *testing.T) {
 					}
 				}
 				subscription = setLegacySubscriptionVersion(t, store, subscription, version.stored, version.canonical)
-				application := model.RenewalApplication{
-					SubscriptionID: subscription.ID, TrackingToken: "first", CustomerEmail: subscription.CustomerEmail,
-					DueDate: "2026-08-31", PeriodCount: 1, PeriodEndDate: "2026-09-30", AmountCents: 3000,
-				}
-				var err error
-				application.ID, err = store.CreateRenewalApplication(application)
-				if err != nil {
-					t.Fatal(err)
-				}
-				approve := func(application model.RenewalApplication) error {
-					return store.ApproveRenewalApplication(application, subscription, []model.Bill{{
-						SubscriptionID: subscription.ID, DueDate: application.DueDate, AmountCents: 3000, CostCents: 500,
-					}}, application.PeriodEndDate, "")
-				}
-				if err := approve(application); err != nil {
-					t.Fatalf("legacy approval: %v", err)
+				if err := store.SetDuePaidForSubscription(subscription, "2026-08-31", true, 3000, 500); err != nil {
+					t.Fatalf("legacy manual renewal: %v", err)
 				}
 				current, err := store.GetSubscription(subscription.ID)
 				if err != nil || !current.UpdatedAt.After(subscription.UpdatedAt) || current.PricePerPersonCents != 3000 {
@@ -200,16 +186,9 @@ func TestRenewalApprovalAcceptsLegacyVersionAndAlwaysAdvances(t *testing.T) {
 				if err := store.UpdateSubscription(subscription); !errors.Is(err, ErrSubscriptionStateChanged) {
 					t.Fatalf("pre-approval edit = %v", err)
 				}
-				// A different pending period eliminates duplicate-application and
-				// existing-bill guards: the stale subscription alone must reject it.
-				application.TrackingToken = "second"
-				application.DueDate, application.PeriodEndDate = "2026-09-30", "2026-10-30"
-				application.ID, err = store.CreateRenewalApplication(application)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if err := approve(application); !errors.Is(err, ErrRenewalFinancialStateChanged) {
-					t.Fatalf("stale approval = %v", err)
+				// A different unpaid period ensures the stale version alone rejects payment.
+				if err := store.SetDuePaidForSubscription(subscription, "2026-09-30", true, 3000, 500); !errors.Is(err, ErrSubscriptionFinancialStateChanged) {
+					t.Fatalf("stale manual renewal = %v", err)
 				}
 				bills, err := store.ListBills()
 				if err != nil || len(bills) != 1 || bills[0].AmountCents != 3000 || bills[0].CostCents != 500 {
@@ -219,16 +198,12 @@ func TestRenewalApprovalAcceptsLegacyVersionAndAlwaysAdvances(t *testing.T) {
 				if err != nil || !reflect.DeepEqual(current, after) {
 					t.Fatalf("stale approval changed subscription: %#v, %v", after, err)
 				}
-				pending, err := store.GetRenewalApplication(application.ID)
-				if err != nil || pending.Status != model.RenewalStatusPending {
-					t.Fatalf("stale approval changed application: %#v, %v", pending, err)
-				}
 			})
 		}
 	}
 }
 
-func TestRenewalApprovalKeepsEventTimesAtWallClockWhenVersionIsFuture(t *testing.T) {
+func TestManualRenewalKeepsEventTimesAtWallClockWhenVersionIsFuture(t *testing.T) {
 	store, subscription := legacyVersionTestStore(t)
 	price := int64(3500)
 	subscription.NextPriceCents = &price
@@ -237,20 +212,8 @@ func TestRenewalApprovalKeepsEventTimesAtWallClockWhenVersionIsFuture(t *testing
 		t.Fatal(err)
 	}
 	subscription = setLegacySubscriptionVersion(t, store, subscription, "2099-01-01 00:00:00", "2099-01-01T00:00:00Z")
-	application := model.RenewalApplication{
-		SubscriptionID: subscription.ID, TrackingToken: "event-times", CustomerEmail: subscription.CustomerEmail,
-		DueDate: "2026-08-31", PeriodCount: 1, PeriodEndDate: "2026-09-30", AmountCents: price,
-	}
-	var err error
-	application.ID, err = store.CreateRenewalApplication(application)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	before := time.Now().UTC().Add(-time.Second)
-	if err := store.ApproveRenewalApplication(application, subscription, []model.Bill{{
-		SubscriptionID: subscription.ID, DueDate: application.DueDate, AmountCents: price, CostCents: 500,
-	}}, application.PeriodEndDate, ""); err != nil {
+	if err := store.SetDuePaidForSubscription(subscription, "2026-08-31", true, price, 500); err != nil {
 		t.Fatal(err)
 	}
 	after := time.Now().UTC().Add(time.Second)
@@ -259,11 +222,7 @@ func TestRenewalApprovalKeepsEventTimesAtWallClockWhenVersionIsFuture(t *testing
 	if err != nil || !current.UpdatedAt.After(subscription.UpdatedAt) {
 		t.Fatalf("subscription version = %v, err = %v; want after %v", current.UpdatedAt, err, subscription.UpdatedAt)
 	}
-	bill, err := store.GetBillByOccurrence(subscription.ID, application.DueDate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	approved, err := store.GetRenewalApplication(application.ID)
+	bill, err := store.GetBillByOccurrence(subscription.ID, "2026-08-31")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,13 +234,8 @@ func TestRenewalApprovalKeepsEventTimesAtWallClockWhenVersionIsFuture(t *testing
 		"bill paid_at":            bill.PaidAt,
 		"bill created_at":         bill.CreatedAt,
 		"bill updated_at":         bill.UpdatedAt,
-		"application updated_at":  approved.UpdatedAt,
 		"price change created_at": changes[0].CreatedAt,
 	}
-	if approved.ProcessedAt == nil {
-		t.Fatal("approved application has no processed_at")
-	}
-	eventTimes["application processed_at"] = *approved.ProcessedAt
 	for field, timestamp := range eventTimes {
 		if timestamp.Before(before) || timestamp.After(after) {
 			t.Errorf("%s = %v, want wall-clock time in [%v, %v]", field, timestamp, before, after)
@@ -337,26 +291,15 @@ func TestSubscriptionNextPricesRollsBackLegacyBatchOnStaleVersion(t *testing.T) 
 	}
 }
 
-func TestRenewalApprovalRollsBackVersionOnBillFailure(t *testing.T) {
+func TestManualRenewalRollsBackVersionOnBillFailure(t *testing.T) {
 	store, subscription := legacyVersionTestStore(t)
 	subscription = setLegacySubscriptionVersion(t, store, subscription, "2026-08-01 00:00:00", "2026-08-01T00:00:00Z")
-	application := model.RenewalApplication{
-		SubscriptionID: subscription.ID, TrackingToken: "rollback", CustomerEmail: subscription.CustomerEmail,
-		DueDate: "2026-08-31", PeriodCount: 1, PeriodEndDate: "2026-09-30", AmountCents: 3000,
-	}
-	var err error
-	application.ID, err = store.CreateRenewalApplication(application)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if _, err := store.database.Exec(`CREATE TRIGGER reject_renewal_bill BEFORE INSERT ON bills
 		BEGIN SELECT RAISE(ABORT, 'injected bill failure'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ApproveRenewalApplication(application, subscription, []model.Bill{{
-		SubscriptionID: subscription.ID, DueDate: application.DueDate, AmountCents: 3000,
-	}}, application.PeriodEndDate, ""); err == nil {
-		t.Fatal("approval succeeded despite injected bill failure")
+	if err := store.SetDuePaidForSubscription(subscription, "2026-08-31", true, 3000); err == nil {
+		t.Fatal("manual renewal succeeded despite injected bill failure")
 	}
 	current, err := store.GetSubscription(subscription.ID)
 	if err != nil || !reflect.DeepEqual(subscription, current) {
@@ -369,10 +312,6 @@ func TestRenewalApprovalRollsBackVersionOnBillFailure(t *testing.T) {
 	bills, err := store.ListBills()
 	if err != nil || len(bills) != 0 {
 		t.Fatalf("failed approval changed bills: %#v, %v", bills, err)
-	}
-	pending, err := store.GetRenewalApplication(application.ID)
-	if err != nil || pending.Status != model.RenewalStatusPending {
-		t.Fatalf("failed approval changed application: %#v, %v", pending, err)
 	}
 }
 

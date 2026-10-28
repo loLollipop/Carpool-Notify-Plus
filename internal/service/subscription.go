@@ -58,9 +58,8 @@ type SubscriptionService struct {
 
 	runtimeConfigMu sync.RWMutex
 	marketRefreshMu sync.Mutex
-	// dueNotificationMu makes extension revision and external due-notification
-	// delivery one ordered operation within the service. Database CAS guards the
-	// terminal state as a second line of defense for stale workers.
+	// dueNotificationMu orders extension revisions and payment cancellations with
+	// notification delivery. Database CAS guards stale due-notification workers.
 	dueNotificationMu sync.Mutex
 }
 
@@ -603,31 +602,6 @@ func scheduledNotificationLabels(subscription model.Subscription) []string {
 
 func scheduledNotificationLabelText(subscription model.Subscription) string {
 	return strings.Join(scheduledNotificationLabels(subscription), " · ")
-}
-
-// Stats holds dashboard counters.
-type Stats struct {
-	ActiveCount    int
-	DueIn7Days     int
-	FailedNotifies int
-}
-
-// ComputeStats derives list header stats.
-func (service *SubscriptionService) ComputeStats(views []SubscriptionView) (Stats, error) {
-	failedCount, err := service.Store.CountFailedNotifications()
-	if err != nil {
-		return Stats{}, err
-	}
-	stats := Stats{
-		ActiveCount:    len(views),
-		FailedNotifies: failedCount,
-	}
-	for _, view := range views {
-		if view.DaysRemaining >= 0 && view.DaysRemaining <= 7 {
-			stats.DueIn7Days++
-		}
-	}
-	return stats, nil
 }
 
 // ComputeDashboard builds KPI counters and chart series for the home page.
@@ -1279,11 +1253,6 @@ func currentPeriodBillDueDate(subscription model.Subscription, now time.Time) (s
 	return initialBillDueDate(subscription)
 }
 
-// SoftDelete soft-deletes a subscription (legacy unrestricted helper).
-func (service *SubscriptionService) SoftDelete(subscriptionID int64) error {
-	return service.Store.SoftDeleteSubscription(subscriptionID)
-}
-
 // DeleteMistakenTeamRegistration reverses an incorrectly entered active Team
 // customer without creating a cancellation, seat freeze, or after-sales case.
 func (service *SubscriptionService) DeleteMistakenTeamRegistration(subscriptionID int64) error {
@@ -1367,7 +1336,7 @@ func (service *SubscriptionService) archiveNaturalExpiry(
 	archivedAt time.Time,
 ) (bool, error) {
 	if isPlusSubscription(subscription) {
-		return false, service.Archive(subscription.ID)
+		return false, publicSubscriptionMutationError(service.Store.ArchiveExpiredSubscription(subscription, archivedAt, nil))
 	}
 	if err := service.ensureNoPendingAfterSales(subscription.ID, "到期归档"); err != nil {
 		return false, err
@@ -1377,10 +1346,10 @@ func (service *SubscriptionService) archiveNaturalExpiry(
 		return false, err
 	}
 	freezeUntil := archivedAt.AddDate(0, 0, freezeDays)
-	if err := service.Store.ArchiveSubscriptionWithSeatFreeze(
-		subscription.ID,
+	if err := service.Store.ArchiveExpiredSubscription(
+		subscription,
 		archivedAt,
-		freezeUntil,
+		&freezeUntil,
 	); err != nil {
 		return false, publicSubscriptionMutationError(err)
 	}
@@ -1408,10 +1377,11 @@ func (service *SubscriptionService) CompleteOneMonthRental(subscriptionID int64)
 	if err != nil {
 		return err
 	}
-	if cycle.StartOfDay(service.now()).Before(periodEnd) {
+	now := service.now()
+	if cycle.StartOfDay(now).Before(periodEnd) {
 		return fmt.Errorf("该短租将在 %s 到期；提前结束请走售后处理", cycle.FormatDate(periodEnd))
 	}
-	return service.Archive(subscriptionID)
+	return publicSubscriptionMutationError(service.Store.ArchiveExpiredSubscription(subscription, now, nil))
 }
 
 // Copy duplicates an active or archived subscription as a new active subscription.
@@ -2102,7 +2072,11 @@ func (service *SubscriptionService) ValidateSettingsPage(
 	redeemPage *model.RedeemPageSettings,
 	seatFreezeDays *int,
 	renewalApplicationAlertEmail *string,
+	businessTemplates ...BusinessEmailTemplateSettings,
 ) error {
+	if _, err := businessEmailSettingValues(businessTemplates); err != nil {
+		return err
+	}
 	if _, err := validateNotifyTemplate(notifyTemplate); err != nil {
 		return err
 	}
@@ -2145,6 +2119,7 @@ func (service *SubscriptionService) SaveSettingsPage(
 	redeemPage *model.RedeemPageSettings,
 	seatFreezeDays *int,
 	renewalApplicationAlertEmail *string,
+	businessTemplates ...BusinessEmailTemplateSettings,
 ) error {
 	notifyBody, err := validateNotifyTemplate(notifyTemplate)
 	if err != nil {
@@ -2200,6 +2175,13 @@ func (service *SubscriptionService) SaveSettingsPage(
 			return err
 		}
 		values[model.SettingRenewalApplicationAlertEmail] = normalized
+	}
+	additional, err := businessEmailSettingValues(businessTemplates)
+	if err != nil {
+		return err
+	}
+	for key, value := range additional {
+		values[key] = value
 	}
 	return service.Store.SetSettings(values)
 }
@@ -2833,6 +2815,14 @@ func dueInText(days int) string {
 // PreviewTemplate renders an arbitrary (possibly unsaved) template body with live
 // sample data: the first active subscription, or synthetic values when none exist.
 func (service *SubscriptionService) PreviewTemplate(name string, templateBody string) (rendered string, sampleName string, err error) {
+	if IsBusinessEmailTemplateKind(name) {
+		data := sampleBusinessEmailData(name, "customer@example.com", cycle.FormatDateTime(service.now()))
+		rendered, err = renderBusinessEmailTemplate(templateBody, data)
+		if err != nil {
+			return "", "", err
+		}
+		return "【虚拟示例，仅用于模板预览】\n\n" + rendered, "虚拟示例 · customer@example.com", nil
+	}
 	subscription, err := service.sampleSubscription()
 	if err != nil {
 		return "", "", err
@@ -2940,6 +2930,10 @@ func (service *SubscriptionService) SendTestCustomerEmail(
 	recipient, err := normalizeCustomerEmail(recipient)
 	if err != nil || recipient == "" || len(recipient) > 254 {
 		return fmt.Errorf("测试邮箱格式无效")
+	}
+
+	if IsBusinessEmailTemplateKind(templateKind) {
+		return service.sendTestBusinessEmail(ctx, recipient, templateKind)
 	}
 
 	var templateBody string
@@ -3056,6 +3050,14 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 	if err != nil {
 		return model.ExportPayload{}, err
 	}
+	renewalSuccessTemplate, err := service.GetRenewalSuccessCustomerEmailTemplate()
+	if err != nil {
+		return model.ExportPayload{}, err
+	}
+	benefitTemplate, err := service.GetCustomerBenefitEmailTemplate()
+	if err != nil {
+		return model.ExportPayload{}, err
+	}
 	enabledChannels, err := service.GetEnabledChannels()
 	if err != nil {
 		return model.ExportPayload{}, err
@@ -3116,19 +3118,21 @@ func (service *SubscriptionService) Export() (model.ExportPayload, error) {
 	}
 
 	payload := model.ExportPayload{
-		ExportedAt:                         cycle.Now().Format(time.RFC3339),
-		NotifyTemplate:                     templateBody,
-		CustomerEmailTemplate:              customerTemplateBody,
-		PriceIncreaseCustomerEmailTemplate: priceIncreaseCustomerTemplateBody,
-		PriceDecreaseCustomerEmailTemplate: priceDecreaseCustomerTemplateBody,
-		EnabledChannels:                    enabledChannels,
-		RedeemPageSettings:                 redeemPageSettings,
-		SeatFreezeDays:                     seatFreezeDays,
-		RenewalApplicationAlertEmail:       renewalApplicationAlertEmail,
-		Accounts:                           exportAccounts,
-		Subscriptions:                      make([]model.ExportSubscription, 0, len(subscriptions)),
-		CustomerBenefits:                   benefits,
-		OperatingExpenses:                  operatingExpenses,
+		RenewalSuccessCustomerEmailTemplate: renewalSuccessTemplate,
+		CustomerBenefitEmailTemplate:        benefitTemplate,
+		ExportedAt:                          cycle.Now().Format(time.RFC3339),
+		NotifyTemplate:                      templateBody,
+		CustomerEmailTemplate:               customerTemplateBody,
+		PriceIncreaseCustomerEmailTemplate:  priceIncreaseCustomerTemplateBody,
+		PriceDecreaseCustomerEmailTemplate:  priceDecreaseCustomerTemplateBody,
+		EnabledChannels:                     enabledChannels,
+		RedeemPageSettings:                  redeemPageSettings,
+		SeatFreezeDays:                      seatFreezeDays,
+		RenewalApplicationAlertEmail:        renewalApplicationAlertEmail,
+		Accounts:                            exportAccounts,
+		Subscriptions:                       make([]model.ExportSubscription, 0, len(subscriptions)),
+		CustomerBenefits:                    benefits,
+		OperatingExpenses:                   operatingExpenses,
 	}
 	payload.SubscriptionDueExtensions, err = service.Store.ListSubscriptionDueExtensions()
 	if err != nil {

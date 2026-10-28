@@ -82,6 +82,14 @@ export function subscribeSandboxMode(listener: () => void) {
 
 if (typeof window !== "undefined") {
   window.addEventListener("storage", (event) => {
-    if (event.key === STORAGE_KEY) publish(readState())
+    if (event.key !== STORAGE_KEY && event.key !== null) return
+    const next = readState()
+    if (next.enabled !== currentState.enabled || next.accessToken !== currentState.accessToken) {
+      // Discard queries, open forms and selected IDs together, as the settings
+      // page does for a local switch. Never use old data with a new API scope.
+      window.location.reload()
+      return
+    }
+    publish(next)
   })
 }

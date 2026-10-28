@@ -103,29 +103,38 @@ type RedemptionRejectInput struct {
 	Reason string
 }
 
+// RedemptionRequestError contains only validation feedback safe for public clients.
+type RedemptionRequestError struct {
+	Message string
+}
+
+func (err *RedemptionRequestError) Error() string { return err.Message }
+
+var ErrRedemptionNotFound = errors.New("没有找到这条申请")
+
 // SubmitRedemptionApplication stores one public customer redemption request.
 func (service *SubscriptionService) SubmitRedemptionApplication(input RedemptionSubmitInput) (RedemptionSubmitResult, error) {
 	customerEmail, err := normalizeCustomerEmail(input.CustomerEmail)
 	if err != nil {
-		return RedemptionSubmitResult{}, err
+		return RedemptionSubmitResult{}, &RedemptionRequestError{Message: err.Error()}
 	}
 	if customerEmail == "" {
-		return RedemptionSubmitResult{}, fmt.Errorf("请填写客户邮箱")
+		return RedemptionSubmitResult{}, &RedemptionRequestError{Message: "请填写客户邮箱"}
 	}
 	if len([]rune(customerEmail)) > maxRedemptionEmailLength {
-		return RedemptionSubmitResult{}, fmt.Errorf("客户邮箱最多 %d 个字", maxRedemptionEmailLength)
+		return RedemptionSubmitResult{}, &RedemptionRequestError{Message: fmt.Sprintf("客户邮箱最多 %d 个字", maxRedemptionEmailLength)}
 	}
 	customerContact, err := normalizeRedemptionCustomerContact(input.CustomerContact)
 	if err != nil {
-		return RedemptionSubmitResult{}, err
+		return RedemptionSubmitResult{}, &RedemptionRequestError{Message: err.Error()}
 	}
 	redeemCode, err := normalizeRedemptionCode(input.RedeemCode)
 	if err != nil {
-		return RedemptionSubmitResult{}, err
+		return RedemptionSubmitResult{}, &RedemptionRequestError{Message: err.Error()}
 	}
 	requestNote, err := trimLimited("备注", input.RequestNote, maxRedemptionRequestNoteLength)
 	if err != nil {
-		return RedemptionSubmitResult{}, err
+		return RedemptionSubmitResult{}, &RedemptionRequestError{Message: err.Error()}
 	}
 
 	for attempt := 0; attempt < 5; attempt++ {
@@ -151,7 +160,7 @@ func (service *SubscriptionService) SubmitRedemptionApplication(input Redemption
 			}, nil
 		}
 		if redemptionCodeError := publicRedemptionCodeError(err); redemptionCodeError != nil {
-			return RedemptionSubmitResult{}, redemptionCodeError
+			return RedemptionSubmitResult{}, &RedemptionRequestError{Message: redemptionCodeError.Error()}
 		}
 		if !strings.Contains(strings.ToLower(err.Error()), "tracking_token") {
 			return RedemptionSubmitResult{}, err
@@ -281,12 +290,12 @@ func (service *SubscriptionService) DeleteRedemptionCode(codeID int64) error {
 func (service *SubscriptionService) GetRedemptionStatus(token string) (RedemptionStatusView, error) {
 	token = strings.TrimSpace(token)
 	if token == "" || len(token) > 128 {
-		return RedemptionStatusView{}, fmt.Errorf("申请编号无效")
+		return RedemptionStatusView{}, &RedemptionRequestError{Message: "申请编号无效"}
 	}
 	application, err := service.Store.GetRedemptionApplicationByToken(token)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return RedemptionStatusView{}, fmt.Errorf("没有找到这条申请")
+			return RedemptionStatusView{}, ErrRedemptionNotFound
 		}
 		return RedemptionStatusView{}, err
 	}

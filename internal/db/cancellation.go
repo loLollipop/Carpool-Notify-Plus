@@ -102,6 +102,9 @@ func (store *Store) RequestSubscriptionCancellation(
 
 	requestedAt = requestedAt.In(cycle.Location)
 	requestDate := cycle.FormatDate(requestedAt)
+	if err := ensureNoFuturePaidBills(transaction, subscriptionID, requestDate); err != nil {
+		return model.AfterSalesCase{}, err
+	}
 	billID := int64(0)
 	periodStart := ""
 	periodEnd := ""

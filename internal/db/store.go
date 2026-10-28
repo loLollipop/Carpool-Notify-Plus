@@ -28,9 +28,6 @@ var (
 	ErrRedemptionCodeDisabled             = errors.New("redemption code disabled")
 	ErrRedemptionCodeNotUnused            = errors.New("redemption code not unused")
 	ErrRedemptionAlreadyProcessed         = errors.New("redemption application already processed")
-	ErrRenewalAlreadyPending              = errors.New("renewal application already pending")
-	ErrRenewalAlreadyProcessed            = errors.New("renewal application already processed")
-	ErrRenewalFinancialStateChanged       = errors.New("renewal financial state changed")
 	ErrActiveSeatOccupied                 = errors.New("active seat already occupied")
 	ErrBillHasAfterSalesCase              = errors.New("bill is referenced by an after-sales case")
 	ErrBillOccurrenceConflict             = errors.New("bill occurrence already exists")
@@ -1506,6 +1503,8 @@ func (store *Store) tableHasColumn(tableName string, columnName string) (bool, e
 		pragma = `PRAGMA table_info(renewal_applications)`
 	case "customer_benefits":
 		pragma = `PRAGMA table_info(customer_benefits)`
+	case "business_email_outbox":
+		pragma = `PRAGMA table_info(business_email_outbox)`
 	default:
 		return false, fmt.Errorf("unknown table for column check: %s", tableName)
 	}
@@ -2712,28 +2711,6 @@ func subscriptionStateWriteError(err error) error {
 	return err
 }
 
-// SoftDeleteSubscription marks a subscription as deleted (legacy; prefer ArchiveSubscription).
-func (store *Store) SoftDeleteSubscription(subscriptionID int64) error {
-	now := formatTime(time.Now().UTC())
-	result, err := store.database.Exec(`
-                UPDATE subscriptions
-                SET deleted_at = ?, updated_at = ?
-                WHERE id = ? AND deleted_at IS NULL`,
-		now, now, subscriptionID,
-	)
-	if err != nil {
-		return err
-	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rowsAffected == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
-}
-
 // SoftDeleteArchivedSubscription soft-deletes an already-archived subscription
 // whose cancellation seat freeze has expired. Returns sql.ErrNoRows when the id
 // is missing, not archived, already deleted, or still inside the freeze window.
@@ -2778,7 +2755,7 @@ func (store *Store) CountBillsForSubscription(subscriptionID int64) (int, error)
 // redemption application/code records that created this subscription.
 // Works for active non-deleted subscriptions; already-archived is a no-op success.
 func (store *Store) ArchiveSubscription(subscriptionID int64) error {
-	return store.archiveSubscription(subscriptionID, time.Now(), nil)
+	return store.archiveSubscription(subscriptionID, time.Now(), nil, nil)
 }
 
 // ArchiveSubscriptionWithSeatFreeze archives a naturally expired Team
@@ -2788,13 +2765,21 @@ func (store *Store) ArchiveSubscriptionWithSeatFreeze(
 	archivedAt time.Time,
 	freezeUntil time.Time,
 ) error {
-	return store.archiveSubscription(subscriptionID, archivedAt, &freezeUntil)
+	return store.archiveSubscription(subscriptionID, archivedAt, &freezeUntil, nil)
+}
+
+// ArchiveExpiredSubscription rejects an expiry decision made before a renewal
+// or schedule change. The version and unpaid boundary are checked in the same
+// transaction that archives the subscription and releases its seat.
+func (store *Store) ArchiveExpiredSubscription(subscription model.Subscription, archivedAt time.Time, freezeUntil *time.Time) error {
+	return store.archiveSubscription(subscription.ID, archivedAt, freezeUntil, &subscription)
 }
 
 func (store *Store) archiveSubscription(
 	subscriptionID int64,
 	archivedAt time.Time,
 	freezeUntil *time.Time,
+	expected *model.Subscription,
 ) error {
 	now := formatTime(archivedAt.UTC())
 	transaction, err := store.database.Begin()
@@ -2804,6 +2789,25 @@ func (store *Store) archiveSubscription(
 	defer func() {
 		_ = transaction.Rollback()
 	}()
+	if expected != nil {
+		if _, err := subscriptionVersionForUpdate(transaction, subscriptionID, expected.UpdatedAt); err != nil {
+			return err
+		}
+		if err := ensureNoFuturePaidBills(transaction, subscriptionID, cycle.FormatDate(archivedAt)); err != nil {
+			return err
+		}
+		schedule, err := expected.BillingSchedule()
+		if err != nil {
+			return err
+		}
+		dueDate, anchored, err := currentFirstUnpaidDueDate(transaction, subscriptionID, schedule, archivedAt)
+		if err != nil {
+			return err
+		}
+		if anchored && dueDate > cycle.FormatDate(archivedAt) {
+			return ErrSubscriptionStateChanged
+		}
+	}
 	var pendingAfterSalesCount int
 	if err := transaction.QueryRow(`
 		SELECT COUNT(1)
@@ -2906,7 +2910,7 @@ func (store *Store) SetDuePaid(
 	amountCents int64,
 	costSnapshotCents ...int64,
 ) error {
-	return store.setDuePaid(subscriptionID, dueDate, paid, amountCents, nil, costSnapshotCents...)
+	return store.setDuePaid(subscriptionID, dueDate, paid, amountCents, nil, BusinessEmailBatch{}, costSnapshotCents...)
 }
 
 // SetDuePaidForSubscription records a bill only if the active subscription is
@@ -2919,6 +2923,11 @@ func (store *Store) SetDuePaidForSubscription(
 	amountCents int64,
 	costSnapshotCents ...int64,
 ) error {
+	return store.SetDuePaidForSubscriptionWithEmails(subscription, dueDate, paid, amountCents, BusinessEmailBatch{}, costSnapshotCents...)
+}
+
+// SetDuePaidForSubscriptionWithEmails atomically records a new bill and its notification.
+func (store *Store) SetDuePaidForSubscriptionWithEmails(subscription model.Subscription, dueDate string, paid bool, amountCents int64, emails BusinessEmailBatch, costSnapshotCents ...int64) error {
 	expectedUpdatedAt := subscription.UpdatedAt
 	return store.setDuePaid(
 		subscription.ID,
@@ -2926,6 +2935,7 @@ func (store *Store) SetDuePaidForSubscription(
 		paid,
 		amountCents,
 		&expectedUpdatedAt,
+		emails,
 		costSnapshotCents...,
 	)
 }
@@ -2936,6 +2946,7 @@ func (store *Store) setDuePaid(
 	paid bool,
 	amountCents int64,
 	expectedUpdatedAt *time.Time,
+	emails BusinessEmailBatch,
 	costSnapshotCents ...int64,
 ) error {
 	if !paid {
@@ -3010,6 +3021,10 @@ func (store *Store) setDuePaid(
 		return err
 	}
 	if inserted == 1 {
+		emails.BillID, err = result.LastInsertId()
+		if err != nil {
+			return err
+		}
 		if err := touchSubscriptionWithTransaction(transaction, subscriptionID); err != nil {
 			return err
 		}
@@ -3053,6 +3068,9 @@ func (store *Store) setDuePaid(
 			subscriptionID,
 			strings.TrimSpace(dueDate),
 		); err != nil {
+			return err
+		}
+		if err := queueBusinessEmailBatches(transaction, emails); err != nil {
 			return err
 		}
 	}
@@ -3289,6 +3307,11 @@ func (store *Store) deleteBillIfUnreferenced(billID int64, expected ...*time.Tim
 	if rowsAffected == 0 {
 		return sql.ErrNoRows
 	}
+	if _, err := transaction.Exec(`UPDATE business_email_outbox
+		SET status = 'cancelled', updated_at = ? WHERE bill_id = ? AND status = 'pending'`,
+		businessEmailTime(time.Now()), billID); err != nil {
+		return err
+	}
 	return transaction.Commit()
 }
 
@@ -3304,19 +3327,6 @@ func ensureBillUnreferenced(transaction *sql.Tx, billID int64) error {
 		return ErrBillHasAfterSalesCase
 	}
 	return nil
-}
-
-// ClearSeatLinksForSeat nulls seat_id on all subscriptions still pointing at the seat.
-// Used before deleting a free seat so archived/historical rows no longer block removal.
-func (store *Store) ClearSeatLinksForSeat(seatID int64) error {
-	now := formatTime(time.Now().UTC())
-	_, err := store.database.Exec(`
-		UPDATE subscriptions
-		SET seat_id = NULL, updated_at = ?
-		WHERE seat_id = ?`,
-		now, seatID,
-	)
-	return err
 }
 
 // GetSetting returns a settings value by key.
@@ -3861,15 +3871,6 @@ func (store *Store) GetAccount(accountID int64) (model.Account, error) {
 	return scanAccount(row)
 }
 
-// GetAccountByName returns one account by exact name.
-func (store *Store) GetAccountByName(name string) (model.Account, error) {
-	row := store.database.QueryRow(`
-		SELECT `+accountSelectColumns+`
-		FROM accounts
-		WHERE name = ?`, name)
-	return scanAccount(row)
-}
-
 // CreateAccount inserts a new account and its initial cumulative cost entry.
 func (store *Store) CreateAccount(account model.Account, initialCostCents int64, periodDate string) (int64, error) {
 	return store.CreateAccountWithSeats(account, initialCostCents, periodDate, nil)
@@ -4345,30 +4346,6 @@ func (store *Store) CreateSeat(seat model.Seat) (int64, error) {
 	return result.LastInsertId()
 }
 
-// UpdateSeat renames a seat.
-func (store *Store) UpdateSeat(seat model.Seat) error {
-	now := formatTime(time.Now().UTC())
-	result, err := store.database.Exec(`
-		UPDATE seats
-		SET name = ?, updated_at = ?
-		WHERE id = ?`,
-		strings.TrimSpace(seat.Name),
-		now,
-		seat.ID,
-	)
-	if err != nil {
-		return err
-	}
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rowsAffected == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
-}
-
 // DeleteSeat atomically rejects all subscription references, including history.
 func (store *Store) DeleteSeat(seatID int64) error {
 	result, err := store.database.Exec(`DELETE FROM seats WHERE id = ?`, seatID)
@@ -4410,23 +4387,6 @@ func (store *Store) CountActiveSubscriptionsByAccount(accountID int64) (int, err
 		accountID,
 	).Scan(&count)
 	return count, err
-}
-
-// CountSeatsByAccount returns the total number of seats under an account.
-func (store *Store) CountSeatsByAccount(accountID int64) (int, error) {
-	var count int
-	err := store.database.QueryRow(
-		`SELECT COUNT(1) FROM seats WHERE account_id = ?`,
-		accountID,
-	).Scan(&count)
-	return count, err
-}
-
-// GetFirstFreeSeatByAccountImportOrder returns the earliest available seat,
-// prioritizing the account serial (account id) and then the seat id. Banned
-// accounts and seats occupied by active subscriptions are excluded.
-func (store *Store) GetFirstFreeSeatByAccountImportOrder() (model.Seat, error) {
-	return store.GetFirstFreeSeatByAccountImportOrderAt(time.Now())
 }
 
 func (store *Store) GetFirstFreeSeatByAccountImportOrderAt(now time.Time) (model.Seat, error) {
@@ -4547,33 +4507,6 @@ func (store *Store) UpdateFrozenSubscriptionUntil(
 		return sql.ErrNoRows
 	}
 	return nil
-}
-
-// CountUnavailableSeatsByAccount counts active and temporarily frozen seats.
-// EXISTS keeps one seat from being counted twice if historical rows overlap.
-func (store *Store) CountUnavailableSeatsByAccount(accountID int64, now time.Time) (int, error) {
-	var count int
-	err := store.database.QueryRow(`
-		SELECT COUNT(1)
-		FROM seats AS seat
-		WHERE seat.account_id = ?
-		  AND EXISTS (
-			SELECT 1
-			FROM subscriptions AS subscription
-			WHERE subscription.seat_id = seat.id
-			  AND subscription.deleted_at IS NULL
-			  AND (
-				subscription.archived_at IS NULL
-				OR (
-					subscription.seat_frozen_until IS NOT NULL
-					AND julianday(subscription.seat_frozen_until) > julianday(?)
-				)
-			  )
-		  )`,
-		accountID,
-		formatTime(now.UTC()),
-	).Scan(&count)
-	return count, err
 }
 
 // CountSubscriptionsLinkedToSeat includes active, archived and soft-deleted history.
@@ -4752,40 +4685,6 @@ func (store *Store) ListRetryableNotifications(now time.Time) ([]model.Notificat
 		logs = append(logs, entry)
 	}
 	return logs, rows.Err()
-}
-
-// CountFailedNotifications returns recent failed scheduled notifications for active subscriptions.
-func (store *Store) CountFailedNotifications() (int, error) {
-	var count int
-	err := store.database.QueryRow(`
-                SELECT COUNT(1)
-                FROM notification_log AS log
-                INNER JOIN subscriptions AS subscription ON subscription.id = log.subscription_id
-                WHERE subscription.deleted_at IS NULL
-                  AND subscription.archived_at IS NULL
-                  AND log.kind IN (?, ?)
-                  AND log.status = ?`,
-		model.NotificationKindScheduled, model.NotificationKindPriceIncreaseNotice, model.NotificationStatusFailed,
-	).Scan(&count)
-	return count, err
-}
-
-// CountNotificationsByStatusSince counts scheduled notification rows for active
-// subscriptions with the given status whose updated_at is on or after since.
-func (store *Store) CountNotificationsByStatusSince(status string, since time.Time) (int, error) {
-	var count int
-	err := store.database.QueryRow(`
-                SELECT COUNT(1)
-                FROM notification_log AS log
-                INNER JOIN subscriptions AS subscription ON subscription.id = log.subscription_id
-                WHERE subscription.deleted_at IS NULL
-                  AND subscription.archived_at IS NULL
-                  AND log.kind IN (?, ?)
-                  AND log.status = ?
-                  AND log.updated_at >= ?`,
-		model.NotificationKindScheduled, model.NotificationKindPriceIncreaseNotice, status, formatTime(since.UTC()),
-	).Scan(&count)
-	return count, err
 }
 
 // ListNotificationActivitySince returns completed scheduled notification rows

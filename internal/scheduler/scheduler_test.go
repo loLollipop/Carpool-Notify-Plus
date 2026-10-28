@@ -76,6 +76,15 @@ func TestRunnerRefreshesMarketOnStartupAndAfterInterval(t *testing.T) {
 	}
 }
 
+func TestMarketRefreshSkipsWorkWhenTickerRacesWithCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// A ready ticker may win the select even after cancellation. Its handler
+	// must return before touching the service, which is deliberately absent.
+	runner := &Runner{}
+	runner.refreshMarket(ctx)
+}
+
 func waitForMarketSnapshots(t *testing.T, store *db.Store, want int) {
 	t.Helper()
 	deadline := time.After(time.Second)

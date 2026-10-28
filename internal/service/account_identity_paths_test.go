@@ -27,7 +27,7 @@ func TestAccountIdentityAcrossOperationalViews(t *testing.T) {
 	}
 	check := func(path string, serial int64, email string, role AccountSpaceRole) {
 		t.Helper()
-		if serial != 47 || email != "source@example.com" || role != AccountSpaceRoleSecondary {
+		if serial != first || email != "source@example.com" || role != AccountSpaceRoleSecondary {
 			t.Fatalf("%s identity = %d %q %q", path, serial, email, role)
 		}
 	}
@@ -92,20 +92,6 @@ func TestAccountIdentityAcrossOperationalViews(t *testing.T) {
 		t.Fatal(err)
 	}
 	check("redemption", redemptions[0].AccountSerial, redemptions[0].AccountDisplayEmail, redemptions[0].AccountSpaceRole)
-	lookup, err := svc.LookupRenewalSubscriptions(RenewalLookupInput{CustomerEmail: "customer@example.com"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	check("lookup", lookup.Subscriptions[0].AccountSerial, lookup.Subscriptions[0].AccountDisplayEmail, lookup.Subscriptions[0].AccountSpaceRole)
-	_, err = store.CreateRenewalApplication(model.RenewalApplication{TrackingToken: "renewal", SubscriptionID: subscriptionID, CustomerEmail: "customer@example.com", DueDate: lookup.Subscriptions[0].DueDate, AmountCents: 9000})
-	if err != nil {
-		t.Fatal(err)
-	}
-	renewals, err := svc.ListRenewalApplicationsView("")
-	if err != nil {
-		t.Fatal(err)
-	}
-	check("renewal", renewals[0].AccountSerial, renewals[0].AccountDisplayEmail, renewals[0].AccountSpaceRole)
 	active, err := svc.ListView()
 	if err != nil {
 		t.Fatal(err)
@@ -168,8 +154,8 @@ func TestAccountSpaceRolesUseEffectiveEmailAndImportOrder(t *testing.T) {
 			t.Errorf("account %d role = %q, want %q", accountID, got, want)
 		}
 	}
-	if identities.identity(10).Serial != 29 || identities.identity(20).Serial != 88 {
-		t.Fatalf("explicit serials changed: %#v %#v", identities.identity(10), identities.identity(20))
+	if identities.identity(10).Serial != 10 || identities.identity(20).Serial != 10 {
+		t.Fatalf("remark suffixes must not override import serials: %#v %#v", identities.identity(10), identities.identity(20))
 	}
 	if identities.identity(30).Email != "Remark@Example.com" {
 		t.Fatalf("remark display email changed: %q", identities.identity(30).Email)

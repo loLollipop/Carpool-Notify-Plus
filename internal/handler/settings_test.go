@@ -233,3 +233,72 @@ func TestExportResponseDisablesCaching(t *testing.T) {
 		t.Fatalf("X-Content-Type-Options = %q, want nosniff", value)
 	}
 }
+
+func TestBusinessEmailSettingsDefaultsPreservationValidationAndPreview(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store, err := db.Open(filepath.Join(t.TempDir(), "business-email-settings.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	server := &Server{Service: &service.SubscriptionService{Store: store}}
+	request := func(method, url string, input any, handler func(*gin.Context)) *httptest.ResponseRecorder {
+		t.Helper()
+		encoded, err := json.Marshal(input)
+		if err != nil {
+			t.Fatal(err)
+		}
+		recorder := httptest.NewRecorder()
+		context, _ := gin.CreateTestContext(recorder)
+		context.Request = httptest.NewRequest(method, url, bytes.NewReader(encoded))
+		context.Request.Header.Set("Content-Type", "application/json")
+		handler(context)
+		return recorder
+	}
+	defaults := request(http.MethodGet, "/api/settings", nil, server.getSettings)
+	if defaults.Code != http.StatusOK || !strings.Contains(defaults.Body.String(), "renewal_success_customer_email_template") || !strings.Contains(defaults.Body.String(), "customer_benefit_email_template") {
+		t.Fatalf("defaults = %d %s", defaults.Code, defaults.Body.String())
+	}
+	payload := map[string]any{
+		"notify_template": model.DefaultNotifyTemplate, "customer_email_template": model.DefaultCustomerEmailTemplate,
+		"price_increase_customer_email_template":  model.DefaultPriceIncreaseCustomerEmailTemplate,
+		"price_decrease_customer_email_template":  model.DefaultPriceDecreaseCustomerEmailTemplate,
+		"renewal_success_customer_email_template": "custom renewal {{.AmountPaid}}", "customer_benefit_email_template": "custom benefit {{.BenefitType}}",
+	}
+	saved := request(http.MethodPut, "/api/settings", payload, server.putSettings)
+	if saved.Code != http.StatusOK {
+		t.Fatalf("save = %d %s", saved.Code, saved.Body.String())
+	}
+	delete(payload, "renewal_success_customer_email_template")
+	delete(payload, "customer_benefit_email_template")
+	saved = request(http.MethodPut, "/api/settings", payload, server.putSettings)
+	if saved.Code != http.StatusOK {
+		t.Fatalf("legacy save = %d %s", saved.Code, saved.Body.String())
+	}
+	if got, err := server.Service.GetRenewalSuccessCustomerEmailTemplate(); err != nil || got != "custom renewal {{.AmountPaid}}" {
+		t.Fatalf("legacy overwrite = %q %v", got, err)
+	}
+	if got, err := server.Service.GetCustomerBenefitEmailTemplate(); err != nil || got != "custom benefit {{.BenefitType}}" {
+		t.Fatalf("legacy overwrite = %q %v", got, err)
+	}
+	payload["notify_template"] = "must not persist"
+	payload["customer_benefit_email_template"] = `{{if false}}{{.Unknown}}{{end}}`
+	rejected := request(http.MethodPut, "/api/settings", payload, server.putSettings)
+	if rejected.Code != http.StatusBadRequest {
+		t.Fatalf("invalid template = %d %s", rejected.Code, rejected.Body.String())
+	}
+	if got, err := server.Service.GetNotifyTemplate(); err != nil || got != model.DefaultNotifyTemplate {
+		t.Fatalf("partial save = %q %v", got, err)
+	}
+	for _, kind := range []string{"customer_renewal_success", "customer_benefit_extension", "customer_benefit_discount", "customer_benefit_revision", "customer_benefit_revoke"} {
+		body := model.DefaultCustomerBenefitEmailTemplate
+		label := "福利信息"
+		if kind == "customer_renewal_success" {
+			body, label = model.DefaultRenewalSuccessCustomerEmailTemplate, "续费成功"
+		}
+		preview := request(http.MethodPost, "/api/settings/template-preview", map[string]string{"kind": kind, "template": body}, server.postSettingsTemplatePreview)
+		if preview.Code != http.StatusOK || !strings.Contains(preview.Body.String(), "虚拟示例") || !strings.Contains(preview.Body.String(), label) {
+			t.Fatalf("preview %s = %d %s", kind, preview.Code, preview.Body.String())
+		}
+	}
+}

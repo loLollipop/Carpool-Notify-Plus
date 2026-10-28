@@ -1,14 +1,14 @@
 import * as React from "react"
-import { Link, useSearchParams } from "react-router-dom"
+import { useSearchParams } from "react-router-dom"
 import { useTranslation } from "react-i18next"
 import {
-  ArrowRight,
   CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
   Clock3,
+  Eye,
   History,
   ListTodo,
   ReceiptText,
@@ -342,9 +342,6 @@ function TaskRow({
   const plus = occurrence.business_type === "plus"
   const oneMonthRental = plus && isOneMonthRentalCron(occurrence.cron_expr)
   const identifier = occurrence.customer_email || occurrence.customer_wechat || occurrence.name
-  const route = plus
-    ? `/plus-rentals?q=${encodeURIComponent(occurrence.customer_email || occurrence.customer_wechat || occurrence.name)}`
-    : `/users?subscription=${occurrence.subscription_id}`
   return (
     <div className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg border bg-card px-3 py-3 sm:flex-nowrap">
       <span
@@ -397,11 +394,15 @@ function TaskRow({
             {t(plus ? "calendar.work.recordRenewal" : "calendar.work.recordPaid")}
           </Button>
         ) : null}
-        <Button asChild variant="outline" size="sm" className="h-8 lg:col-start-2 lg:w-full">
-          <Link to={route}>
-            {plus ? t("calendar.work.contact") : t("calendar.manageUser")}
-            <ArrowRight />
-          </Link>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 lg:col-start-2 lg:w-full"
+          onClick={() => onView(occurrence)}
+        >
+          <Eye />
+          {t("calendar.viewInfo")}
         </Button>
       </div>
     </div>

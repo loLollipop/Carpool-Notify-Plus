@@ -18,6 +18,15 @@ jobs:
           cache: true
       - name: Test backend
         run: go test ./...
+      - name: Vet backend
+        run: go vet ./...
+      - name: Check unused backend code
+        run: |
+          unused=$(go run golang.org/x/tools/cmd/deadcode@v0.29.0 -test -filter '^carpool-notify/' ./cmd/... ./internal/... ./scripts/...)
+          if [ -n "$unused" ]; then
+            printf '%s\n' "$unused"
+            exit 1
+          fi
 
   frontend:
     runs-on: ubuntu-latest

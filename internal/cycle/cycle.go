@@ -257,11 +257,6 @@ func parseIntervalDays(expression string) (int, bool, error) {
 	return days, true, nil
 }
 
-// NextDue returns the next trigger time after now in Asia/Shanghai.
-func NextDue(schedule cron.Schedule, now time.Time) time.Time {
-	return schedule.Next(now.In(Location))
-}
-
 // NextDueTimes returns the next count trigger times strictly after now in Asia/Shanghai.
 func NextDueTimes(schedule cron.Schedule, now time.Time, count int) []time.Time {
 	if count <= 0 {

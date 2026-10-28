@@ -11,7 +11,7 @@ import (
 	"carpool-notify/internal/model"
 )
 
-func TestAccountDisplaySerialUsesTrailingRemarkOverride(t *testing.T) {
+func TestAccountDisplaySerialIgnoresTrailingRemarkNumbers(t *testing.T) {
 	testCases := []struct {
 		name    string
 		account model.Account
@@ -20,12 +20,12 @@ func TestAccountDisplaySerialUsesTrailingRemarkOverride(t *testing.T) {
 		{
 			name:    "ascii parentheses",
 			account: model.Account{ID: 8, Remark: "ttg@lollipop.elementfx.com(23)"},
-			want:    23,
+			want:    8,
 		},
 		{
 			name:    "full width parentheses",
 			account: model.Account{ID: 9, Remark: "来源账号（31）  "},
-			want:    31,
+			want:    9,
 		},
 		{
 			name:    "ordinary remark digits are ignored",
@@ -42,7 +42,7 @@ func TestAccountDisplaySerialUsesTrailingRemarkOverride(t *testing.T) {
 			account: model.Account{ID: 11, Remark: "provider(bypass)"},
 			want:    11,
 		},
-		{name: "max safe integer", account: model.Account{ID: 14, Remark: "owner@example.com(9007199254740991)"}, want: 9007199254740991},
+		{name: "max safe integer", account: model.Account{ID: 14, Remark: "owner@example.com(9007199254740991)"}, want: 14},
 		{name: "unsafe integer", account: model.Account{ID: 15, Remark: "owner@example.com(9007199254740992)"}, want: 15},
 		{
 			name:    "zero override is ignored",
@@ -83,20 +83,20 @@ func TestAccountDisplaySerialsGroupsByEffectiveEmail(t *testing.T) {
 			want: map[int64]int64{17: 17, 22: 17},
 		},
 		{
-			name: "explicit serial on current row wins over group serial",
+			name: "remark suffix does not override group serial",
 			accounts: []model.Account{
 				{ID: 4, Email: "owner@example.com"},
 				{ID: 9, Email: "owner@example.com", Remark: "manual source (88)"},
 			},
-			want: map[int64]int64{4: 4, 9: 88},
+			want: map[int64]int64{4: 4, 9: 4},
 		},
 		{
-			name: "later space inherits earliest explicit serial",
+			name: "later space inherits original import serial",
 			accounts: []model.Account{
 				{ID: 5, Email: "shared@example.com", Remark: "first space (77)"},
 				{ID: 8, Email: "shared@example.com"},
 			},
-			want: map[int64]int64{5: 77, 8: 77},
+			want: map[int64]int64{5: 5, 8: 5},
 		},
 		{
 			name: "standalone email account name is a fallback group key",
@@ -193,17 +193,17 @@ func TestAccountRemarkEmailOverridesDisplayAndGroupingIdentity(t *testing.T) {
 		t.Fatalf("ambiguous remark accountDisplayEmail() = %q, want original email", got)
 	}
 	serials := accountDisplaySerials(accounts)
-	if serials[12] != 47 {
-		t.Fatalf("remark identity serial = %d, want 47", serials[12])
+	if serials[12] != 12 {
+		t.Fatalf("remark identity serial = %d, want 12", serials[12])
 	}
-	if serials[15] != 47 {
-		t.Fatalf("remark identity group serial = %d, want 47", serials[15])
+	if serials[15] != 12 {
+		t.Fatalf("remark identity group serial = %d, want 12", serials[15])
 	}
 	if serials[16] != 15 {
 		t.Fatalf("original login email should remain an independent logical account: got %d, want 15", serials[16])
 	}
-	if serials[17] != 51 {
-		t.Fatalf("explicit serial remains valid for ambiguous email remark: got %d, want 51", serials[17])
+	if serials[17] != 16 {
+		t.Fatalf("remark suffix must not change ambiguous email account serial: got %d, want 16", serials[17])
 	}
 }
 
@@ -280,8 +280,8 @@ func TestAccountDisplaySerialIsExposedToAssignmentViews(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(options) != 1 || options[0].DisplaySerial != 47 {
-		t.Fatalf("account options = %#v, want display serial 47", options)
+	if len(options) != 1 || options[0].DisplaySerial != accountID {
+		t.Fatalf("account options = %#v, want original import serial", options)
 	}
 
 	redemptionView, err := subscriptionService.buildRedemptionApplicationView(
@@ -290,16 +290,16 @@ func TestAccountDisplaySerialIsExposedToAssignmentViews(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if redemptionView.AccountSerial != 47 {
-		t.Fatalf("redemption account serial = %d, want 47", redemptionView.AccountSerial)
+	if redemptionView.AccountSerial != accountID {
+		t.Fatalf("redemption account serial = %d, want original import serial", redemptionView.AccountSerial)
 	}
 
 	accountViews, err := subscriptionService.ListAccountsView()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(accountViews) != 1 || accountViews[0].DisplaySerial != 47 {
-		t.Fatalf("account views = %#v, want display serial 47", accountViews)
+	if len(accountViews) != 1 || accountViews[0].DisplaySerial != accountID {
+		t.Fatalf("account views = %#v, want original import serial", accountViews)
 	}
 	if accountViews[0].DisplayEmail != "source@example.com" {
 		t.Fatalf("account view display email = %q, want source@example.com", accountViews[0].DisplayEmail)
@@ -322,23 +322,23 @@ func TestAccountDisplaySerialIsExposedToAssignmentViews(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(subscriptionViews) != 1 || subscriptionViews[0].AccountSerial != 47 {
-		t.Fatalf("subscription views = %#v, want account serial 47", subscriptionViews)
+	if len(subscriptionViews) != 1 || subscriptionViews[0].AccountSerial != accountID {
+		t.Fatalf("subscription views = %#v, want original import serial", subscriptionViews)
 	}
 
 	candidates, err := subscriptionService.buildPricingCandidates(nil, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(candidates) != 1 || candidates[0].SubscriptionID != subscriptionID || candidates[0].AccountSerial != 47 {
-		t.Fatalf("pricing candidates = %#v, want subscription %d on account serial 47", candidates, subscriptionID)
+	if len(candidates) != 1 || candidates[0].SubscriptionID != subscriptionID || candidates[0].AccountSerial != accountID {
+		t.Fatalf("pricing candidates = %#v, want subscription %d on original account serial", candidates, subscriptionID)
 	}
 
 	dashboard, err := subscriptionService.ComputeDashboard()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(dashboard.AmountBySubscription) != 1 || dashboard.AmountBySubscription[0].AccountSerial != 47 {
-		t.Fatalf("dashboard amount rows = %#v, want account serial 47", dashboard.AmountBySubscription)
+	if len(dashboard.AmountBySubscription) != 1 || dashboard.AmountBySubscription[0].AccountSerial != accountID {
+		t.Fatalf("dashboard amount rows = %#v, want original import serial", dashboard.AmountBySubscription)
 	}
 }

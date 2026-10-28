@@ -15,6 +15,7 @@ import type {
   BulkPricingExemptionInput,
   CalendarMonth,
   CronPreview,
+  CustomerEmailTemplateKind,
   Dashboard,
   DuePeriodOption,
   GoalCenter,
@@ -449,7 +450,7 @@ export function testSettingsNotify() {
 
 export function testSettingsCustomerEmail(input: {
   recipient: string
-  template_kind: "customer" | "customer_price_increase" | "customer_price_decrease"
+  template_kind: CustomerEmailTemplateKind
 }) {
   return api<MessageResult>("/api/settings/test-customer-email", {
     method: "POST",
@@ -468,7 +469,7 @@ export function resetSandbox() {
 }
 
 export function previewSettingsTemplate(
-  kind: "notify" | "customer" | "customer_price_increase" | "customer_price_decrease",
+  kind: "notify" | CustomerEmailTemplateKind,
   template: string,
 ) {
   return api<{ rendered: string; sample_name: string; subject: string; html: string }>(

@@ -1,220 +1,52 @@
 package service_test
 
 import (
-	"context"
-	"errors"
+	"database/sql"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"carpool-notify/internal/cycle"
+	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
-	"carpool-notify/internal/notify"
 	"carpool-notify/internal/service"
 )
 
-type failingRenewalAlertSender struct{}
-
-func (failingRenewalAlertSender) Send(context.Context, string, string) error {
-	return errors.New("smtp unavailable")
-}
-
-func (failingRenewalAlertSender) SendTo(context.Context, []string, string, string) error {
-	return errors.New("smtp unavailable")
-}
-
-func enableTestRenewalPayment(t *testing.T, subscriptionService *service.SubscriptionService) {
+// Historical fixtures use an independent SQLite connection, never a runtime renewal writer.
+func openHistoricalRenewalTestService(t *testing.T) (*service.SubscriptionService, *sql.DB) {
 	t.Helper()
-	settings := model.DefaultRedeemPageSettings
-	settings.PaymentQRCodeDataURL = "data:image/png;base64,iVBORw0KGgo="
-	if err := subscriptionService.SaveRedeemPageSettings(settings); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func TestSelfServiceRenewalAlertsConfiguredOperatorMailbox(t *testing.T) {
-	subscriptionService := openTestService(t)
-	subscriptionService.Clock = func() time.Time {
-		return time.Date(2026, time.September, 9, 10, 30, 0, 0, cycle.Location)
-	}
-	enableTestRenewalPayment(t, subscriptionService)
-	if err := subscriptionService.Store.SetSetting(
-		model.SettingRenewalApplicationAlertEmail,
-		"operator@example.com",
-	); err != nil {
-		t.Fatal(err)
-	}
-	recorder := &recordingSender{}
-	subscriptionService.Notify = notify.Registry{SMTP: recorder}
-	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "提醒母号", "车位1")
-	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
-		Name:             "提醒客户",
-		PriceYuan:        "95",
-		CronExpr:         "interval:30d",
-		NotifyOffsetsRaw: "3",
-		CustomerEmail:    "customer@example.com",
-		SeatID:           seatIDs[0],
-		BoardedAt:        "2026-09-01",
-	})
+	path := filepath.Join(t.TempDir(), "historical-renewal.db")
+	store, err := db.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if _, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-		CustomerEmail:  "customer@example.com",
-		SubscriptionID: subscriptionID,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if recorder.calls != 1 || len(recorder.lastRecipients) != 1 || recorder.lastRecipients[0] != "operator@example.com" {
-		t.Fatalf("renewal alert delivery = calls %d, recipients %#v", recorder.calls, recorder.lastRecipients)
-	}
-	if !strings.Contains(recorder.lastTitle, "新的自助续费申请") ||
-		!strings.Contains(recorder.lastBody, "customer@example.com") ||
-		!strings.Contains(recorder.lastBody, "¥95.00") {
-		t.Fatalf("renewal alert = %q / %q", recorder.lastTitle, recorder.lastBody)
-	}
-}
-
-func TestSelfServiceRenewalAlertFailureDoesNotRollbackApplication(t *testing.T) {
-	subscriptionService := openTestService(t)
-	subscriptionService.Clock = func() time.Time {
-		return time.Date(2026, time.September, 9, 10, 30, 0, 0, cycle.Location)
-	}
-	enableTestRenewalPayment(t, subscriptionService)
-	if err := subscriptionService.Store.SetSetting(
-		model.SettingRenewalApplicationAlertEmail,
-		"operator@example.com",
-	); err != nil {
-		t.Fatal(err)
-	}
-	subscriptionService.Notify = notify.Registry{SMTP: failingRenewalAlertSender{}}
-	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "失败提醒母号", "车位1")
-	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
-		Name:             "失败提醒客户",
-		PriceYuan:        "90",
-		CronExpr:         "interval:30d",
-		NotifyOffsetsRaw: "3",
-		CustomerEmail:    "alert-failure@example.com",
-		SeatID:           seatIDs[0],
-		BoardedAt:        "2026-08-20",
-	})
+	t.Cleanup(func() { _ = store.Close() })
+	history, err := sql.Open("sqlite", path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = history.Close() })
+	return &service.SubscriptionService{Store: store}, history
+}
 
-	result, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-		CustomerEmail:  "alert-failure@example.com",
-		SubscriptionID: subscriptionID,
-	})
-	if err != nil || result.TrackingToken == "" {
-		t.Fatalf("submit result = %#v, error = %v", result, err)
-	}
-	applications, err := subscriptionService.ListRenewalApplicationsView(model.RenewalStatusPending)
-	if err != nil || len(applications) != 1 {
-		t.Fatalf("pending applications = %#v, error = %v", applications, err)
+func seedHistoricalRenewalApplication(t *testing.T, history *sql.DB, subscriptionID int64, status string, periods int, endDate string) {
+	t.Helper()
+	_, err := history.Exec(`INSERT INTO renewal_applications (
+        tracking_token, subscription_id, customer_email, due_date, period_count, period_end_date,
+        amount_cents, status, created_at, updated_at
+    ) VALUES ('historical', ?, 'customer@example.com', '2026-08-31', ?, ?, ?, ?, '2026-08-20T00:00:00Z', '2026-08-20T00:00:00Z')`,
+		subscriptionID, periods, endDate, int64(periods)*9000, status)
+	if err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestSelfServiceRenewalApprovalIsAtomicAndAdvancesPeriod(t *testing.T) {
-	subscriptionService := openTestService(t)
+func TestHistoricalMultiPeriodRenewalProgressAndAccountingCorrection(t *testing.T) {
+	subscriptionService, history := openHistoricalRenewalTestService(t)
 	subscriptionService.Clock = func() time.Time {
 		return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
 	}
-	enableTestRenewalPayment(t, subscriptionService)
-	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "续费母号", "车位1")
-	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
-		Name:             "续费客户",
-		PriceYuan:        "90",
-		CronExpr:         "interval:30d",
-		NotifyOffsetsRaw: "3",
-		CustomerEmail:    "renewal@example.com",
-		CustomerWechat:   "wx-renewal",
-		SeatID:           seatIDs[0],
-		BoardedAt:        "2026-08-01",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	lookup, err := subscriptionService.LookupRenewalSubscriptions(service.RenewalLookupInput{
-		CustomerEmail: "Renewal <RENEWAL@example.com>",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(lookup.Subscriptions) != 1 {
-		t.Fatalf("subscriptions = %d, want 1", len(lookup.Subscriptions))
-	}
-	period := lookup.Subscriptions[0]
-	if period.SubscriptionID != subscriptionID || period.DueDate != "2026-08-31" || period.AmountYuan != "90.00" || !period.Renewable {
-		t.Fatalf("renewal period = %#v", period)
-	}
-
-	submitted, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-		CustomerEmail:  lookup.CustomerEmail,
-		SubscriptionID: subscriptionID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if submitted.TrackingToken == "" || submitted.Status != model.RenewalStatusPending {
-		t.Fatalf("submit result = %#v", submitted)
-	}
-	if _, duplicateErr := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-		CustomerEmail:  lookup.CustomerEmail,
-		SubscriptionID: subscriptionID,
-	}); duplicateErr == nil || !strings.Contains(duplicateErr.Error(), "已提交续费审核") {
-		t.Fatalf("duplicate submit error = %v", duplicateErr)
-	}
-
-	applications, err := subscriptionService.ListRenewalApplicationsView(model.RenewalStatusPending)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(applications) != 1 || applications[0].AmountYuan != "90.00" {
-		t.Fatalf("applications = %#v", applications)
-	}
-	if err := subscriptionService.ApproveRenewalApplication(applications[0].Application.ID, service.RenewalDecisionInput{}); err != nil {
-		t.Fatal(err)
-	}
-	paid, err := subscriptionService.Store.IsDuePaid(subscriptionID, "2026-08-31")
-	if err != nil || !paid {
-		t.Fatalf("paid = %v, err = %v", paid, err)
-	}
-	views, err := subscriptionService.ListView()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(views) != 1 || views[0].NextDueDate != "2026-09-30" ||
-		views[0].DaysRemaining != 41 || views[0].CycleDays != 30 {
-		t.Fatalf("single-period renewal progress = %#v, want 41 days capped by one 30-day cycle", views)
-	}
-	status, err := subscriptionService.GetRenewalStatus(submitted.TrackingToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if status.Status != model.RenewalStatusApproved || status.ProcessedAtLabel == "" {
-		t.Fatalf("status = %#v", status)
-	}
-	if err := subscriptionService.ApproveRenewalApplication(applications[0].Application.ID, service.RenewalDecisionInput{}); err == nil {
-		t.Fatal("second approval unexpectedly succeeded")
-	}
-	lookup, err = subscriptionService.LookupRenewalSubscriptions(service.RenewalLookupInput{CustomerEmail: lookup.CustomerEmail})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := lookup.Subscriptions[0].DueDate; got != "2026-09-30" {
-		t.Fatalf("next due date = %q, want 2026-09-30", got)
-	}
-}
-
-func TestSelfServiceRenewalCanPurchaseMultipleOriginalPeriods(t *testing.T) {
-	subscriptionService := openTestService(t)
-	subscriptionService.Clock = func() time.Time {
-		return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
-	}
-	enableTestRenewalPayment(t, subscriptionService)
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "多周期续费母号", "车位1")
 	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
 		Name:             "多周期续费客户",
@@ -229,38 +61,11 @@ func TestSelfServiceRenewalCanPurchaseMultipleOriginalPeriods(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lookup, err := subscriptionService.LookupRenewalSubscriptions(service.RenewalLookupInput{
-		CustomerEmail: "multi-period@example.com",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(lookup.Subscriptions) != 1 || len(lookup.Subscriptions[0].PeriodOptions) != model.MaxRenewalPeriodCount {
-		t.Fatalf("renewal options = %#v", lookup.Subscriptions)
-	}
-	secondOption := lookup.Subscriptions[0].PeriodOptions[1]
-	if secondOption.PeriodCount != 2 || secondOption.AmountYuan != "180.00" || secondOption.PeriodEndDate != "2026-10-30" {
-		t.Fatalf("second period option = %#v", secondOption)
-	}
-
-	submitted, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-		CustomerEmail:  lookup.CustomerEmail,
-		SubscriptionID: subscriptionID,
-		PeriodCount:    2,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	applications, err := subscriptionService.ListRenewalApplicationsView(model.RenewalStatusPending)
-	if err != nil || len(applications) != 1 {
-		t.Fatalf("applications = %#v, error = %v", applications, err)
-	}
-	application := applications[0].Application
-	if application.PeriodCount != 2 || application.PeriodEndDate != "2026-10-30" || application.AmountCents != 18000 {
-		t.Fatalf("application snapshot = %#v", application)
-	}
-	if err := subscriptionService.ApproveRenewalApplication(application.ID, service.RenewalDecisionInput{}); err != nil {
-		t.Fatal(err)
+	seedHistoricalRenewalApplication(t, history, subscriptionID, "approved", 2, "2026-10-30")
+	for _, dueDate := range []string{"2026-08-31", "2026-09-30"} {
+		if err := subscriptionService.Store.SetDuePaid(subscriptionID, dueDate, true, 9000); err != nil {
+			t.Fatal(err)
+		}
 	}
 	views, err := subscriptionService.ListView()
 	if err != nil {
@@ -298,17 +103,6 @@ func TestSelfServiceRenewalCanPurchaseMultipleOriginalPeriods(t *testing.T) {
 			t.Fatalf("bill %s = %#v, error = %v", dueDate, bill, billErr)
 		}
 	}
-	status, err := subscriptionService.GetRenewalStatus(submitted.TrackingToken)
-	if err != nil || status.PeriodCount != 2 || status.PeriodEndDate != "2026-10-30" || status.AmountYuan != "180.00" {
-		t.Fatalf("renewal status = %#v, error = %v", status, err)
-	}
-	lookup, err = subscriptionService.LookupRenewalSubscriptions(service.RenewalLookupInput{
-		CustomerEmail: lookup.CustomerEmail,
-	})
-	if err != nil || lookup.Subscriptions[0].DueDate != "2026-10-30" {
-		t.Fatalf("advanced lookup = %#v, error = %v", lookup, err)
-	}
-
 	// If accounting correction removes part of the approved package, the old
 	// application must no longer widen progress for the now-shorter paid window.
 	if err := subscriptionService.SetDuePaid(subscriptionID, "2026-09-30", false); err != nil {
@@ -328,11 +122,10 @@ func TestSelfServiceRenewalCanPurchaseMultipleOriginalPeriods(t *testing.T) {
 }
 
 func TestMultiPeriodRenewalProgressKeepsFullWindowAfterExtension(t *testing.T) {
-	subscriptionService := openTestService(t)
+	subscriptionService, history := openHistoricalRenewalTestService(t)
 	subscriptionService.Clock = func() time.Time {
 		return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
 	}
-	enableTestRenewalPayment(t, subscriptionService)
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "延期多周期母号", "车位1")
 	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
 		Name: "延期多周期客户", PriceYuan: "90", CronExpr: "interval:30d",
@@ -342,24 +135,11 @@ func TestMultiPeriodRenewalProgressKeepsFullWindowAfterExtension(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lookup, err := subscriptionService.LookupRenewalSubscriptions(service.RenewalLookupInput{
-		CustomerEmail: "extended-multi-period@example.com",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-		CustomerEmail: lookup.CustomerEmail, SubscriptionID: subscriptionID, PeriodCount: 2,
-	}); err != nil {
-		t.Fatal(err)
-	}
-	applications, err := subscriptionService.ListRenewalApplicationsView(model.RenewalStatusPending)
-	if err != nil || len(applications) != 1 {
-		t.Fatalf("applications = %#v, %v", applications, err)
-	}
-	application := applications[0].Application
-	if err := subscriptionService.ApproveRenewalApplication(application.ID, service.RenewalDecisionInput{}); err != nil {
-		t.Fatal(err)
+	seedHistoricalRenewalApplication(t, history, subscriptionID, "approved", 2, "2026-10-30")
+	for _, dueDate := range []string{"2026-08-31", "2026-09-30"} {
+		if err := subscriptionService.Store.SetDuePaid(subscriptionID, dueDate, true, 9000); err != nil {
+			t.Fatal(err)
+		}
 	}
 	reviewedViews, err := subscriptionService.ListView()
 	if err != nil || len(reviewedViews) != 1 {
@@ -380,9 +160,9 @@ func TestMultiPeriodRenewalProgressKeepsFullWindowAfterExtension(t *testing.T) {
 		views[0].DaysRemaining != 80 || views[0].CycleDays != 99 {
 		t.Fatalf("extended multi-period progress = %#v, %v; want 80/99 days", views, err)
 	}
-	stored, err := subscriptionService.Store.GetRenewalApplication(application.ID)
-	if err != nil || stored.PeriodEndDate != "2026-10-30" {
-		t.Fatalf("renewal snapshot changed = %#v, %v", stored, err)
+	var endDate string
+	if err := history.QueryRow(`SELECT period_end_date FROM renewal_applications WHERE subscription_id = ?`, subscriptionID).Scan(&endDate); err != nil || endDate != "2026-10-30" {
+		t.Fatalf("historical renewal snapshot changed: %q, %v", endDate, err)
 	}
 	for _, dueDate := range []string{"2026-08-31", "2026-09-30"} {
 		if _, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, dueDate); err != nil {
@@ -391,195 +171,11 @@ func TestMultiPeriodRenewalProgressKeepsFullWindowAfterExtension(t *testing.T) {
 	}
 }
 
-func TestSelfServiceRenewalRejectsTooManyPeriods(t *testing.T) {
-	subscriptionService := openTestService(t)
-	subscriptionService.Clock = func() time.Time {
-		return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
-	}
-	enableTestRenewalPayment(t, subscriptionService)
-	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "周期限制母号", "车位1")
-	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
-		Name:             "周期限制客户",
-		PriceYuan:        "90",
-		CronExpr:         "interval:30d",
-		NotifyOffsetsRaw: "3",
-		CustomerEmail:    "period-limit@example.com",
-		SeatID:           seatIDs[0],
-		BoardedAt:        "2026-08-01",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-		CustomerEmail:  "period-limit@example.com",
-		SubscriptionID: subscriptionID,
-		PeriodCount:    model.MaxRenewalPeriodCount + 1,
-	})
-	if err == nil || !strings.Contains(err.Error(), "1–12") {
-		t.Fatalf("period limit error = %v", err)
-	}
-}
-
-func TestSelfServiceRenewalRejectsStalePriceThenAllowsResubmission(t *testing.T) {
-	subscriptionService := openTestService(t)
-	subscriptionService.Clock = func() time.Time {
-		return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
-	}
-	enableTestRenewalPayment(t, subscriptionService)
-	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "调价续费母号", "车位1")
-	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
-		Name:             "调价续费客户",
-		PriceYuan:        "90",
-		CronExpr:         "interval:30d",
-		NotifyOffsetsRaw: "3",
-		CustomerEmail:    "repriced-renewal@example.com",
-		CustomerWechat:   "wx-repriced-renewal",
-		SeatID:           seatIDs[0],
-		BoardedAt:        "2026-08-01",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	first, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-		CustomerEmail:  "repriced-renewal@example.com",
-		SubscriptionID: subscriptionID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	updated, err := subscriptionService.ScheduleManualNextPrices(service.ManualNextPricesInput{
-		Items: []service.ManualNextPriceItemInput{{
-			SubscriptionID: subscriptionID,
-			NextPriceYuan:  "95",
-		}},
-	})
-	if err != nil || updated != 1 {
-		t.Fatalf("schedule next price = %d, err = %v", updated, err)
-	}
-
-	applications, err := subscriptionService.ListRenewalApplicationsView(model.RenewalStatusPending)
-	if err != nil || len(applications) != 1 {
-		t.Fatalf("pending applications = %#v, err = %v", applications, err)
-	}
-	if err := subscriptionService.ApproveRenewalApplication(applications[0].Application.ID, service.RenewalDecisionInput{}); err == nil ||
-		!strings.Contains(err.Error(), "金额或状态已变化") {
-		t.Fatalf("stale approval error = %v", err)
-	}
-	if _, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-08-31"); err == nil {
-		t.Fatal("stale approval unexpectedly created a bill")
-	}
-	if err := subscriptionService.RejectRenewalApplication(applications[0].Application.ID, service.RenewalDecisionInput{}); err != nil {
-		t.Fatal(err)
-	}
-	firstStatus, err := subscriptionService.GetRenewalStatus(first.TrackingToken)
-	if err != nil || firstStatus.Status != model.RenewalStatusRejected {
-		t.Fatalf("first status = %#v, err = %v", firstStatus, err)
-	}
-
-	lookup, err := subscriptionService.LookupRenewalSubscriptions(service.RenewalLookupInput{
-		CustomerEmail: "repriced-renewal@example.com",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(lookup.Subscriptions) != 1 || lookup.Subscriptions[0].AmountYuan != "95.00" {
-		t.Fatalf("repriced lookup = %#v", lookup)
-	}
-	second, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-		CustomerEmail:  lookup.CustomerEmail,
-		SubscriptionID: subscriptionID,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	applications, err = subscriptionService.ListRenewalApplicationsView(model.RenewalStatusPending)
-	if err != nil || len(applications) != 1 || applications[0].AmountYuan != "95.00" {
-		t.Fatalf("resubmitted applications = %#v, err = %v", applications, err)
-	}
-	if err := subscriptionService.ApproveRenewalApplication(applications[0].Application.ID, service.RenewalDecisionInput{}); err != nil {
-		t.Fatal(err)
-	}
-	secondStatus, err := subscriptionService.GetRenewalStatus(second.TrackingToken)
-	if err != nil || secondStatus.Status != model.RenewalStatusApproved {
-		t.Fatalf("second status = %#v, err = %v", secondStatus, err)
-	}
-	bill, err := subscriptionService.Store.GetBillByOccurrence(subscriptionID, "2026-08-31")
-	if err != nil || bill.AmountCents != 9500 {
-		t.Fatalf("repriced bill = %#v, err = %v", bill, err)
-	}
-	stored, err := subscriptionService.Store.GetSubscription(subscriptionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.PricePerPersonCents != 9500 || stored.NextPriceCents != nil || stored.NextPriceEffectiveDueDate != "" {
-		t.Fatalf("applied subscription price = %#v", stored)
-	}
-	changes, err := subscriptionService.Store.ListSubscriptionPriceChanges()
-	if err != nil || len(changes) != 1 || changes[0].PreviousPriceCents != 9000 || changes[0].NewPriceCents != 9500 {
-		t.Fatalf("price changes = %#v, err = %v", changes, err)
-	}
-}
-
-func TestSelfServiceRenewalSupportsMultipleSubscriptionsAndRejectsForeignSubscription(t *testing.T) {
-	subscriptionService := openTestService(t)
-	subscriptionService.Clock = func() time.Time {
-		return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
-	}
-	enableTestRenewalPayment(t, subscriptionService)
-	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "多订阅母号", "车位1", "车位2")
-	for index, seatID := range seatIDs {
-		_, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
-			Name:             "多订阅客户",
-			PriceYuan:        []string{"88", "96"}[index],
-			CronExpr:         "interval:30d",
-			NotifyOffsetsRaw: "3",
-			CustomerEmail:    "multi-renewal@example.com",
-			CustomerWechat:   "wx-multi-renewal",
-			SeatID:           seatID,
-			BoardedAt:        "2026-08-01",
-		})
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-	foreignID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
-		Name:             "其他客户",
-		BusinessType:     model.SubscriptionBusinessPlus,
-		PriceYuan:        "68",
-		CronExpr:         "interval:30d",
-		NotifyOffsetsRaw: "3",
-		CustomerEmail:    "foreign-renewal@example.com",
-		CustomerWechat:   "wx-foreign-renewal",
-		BoardedAt:        "2026-08-01",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	lookup, err := subscriptionService.LookupRenewalSubscriptions(service.RenewalLookupInput{
-		CustomerEmail: "Multi User <MULTI-RENEWAL@example.com>",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if lookup.CustomerEmail != "MULTI-RENEWAL@example.com" || len(lookup.Subscriptions) != 2 {
-		t.Fatalf("multiple subscription lookup = %#v", lookup)
-	}
-	if _, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-		CustomerEmail:  lookup.CustomerEmail,
-		SubscriptionID: foreignID,
-	}); err == nil || !strings.Contains(err.Error(), "不属于当前邮箱") {
-		t.Fatalf("foreign subscription submit error = %v", err)
-	}
-}
-
 func TestHistoricalPendingRenewalDoesNotAppearInOperationsOverview(t *testing.T) {
-	subscriptionService := openTestService(t)
+	subscriptionService, history := openHistoricalRenewalTestService(t)
 	subscriptionService.Clock = func() time.Time {
 		return time.Date(2026, time.August, 20, 10, 0, 0, 0, cycle.Location)
 	}
-	enableTestRenewalPayment(t, subscriptionService)
 	_, seatIDs := createTestAccountWithSeats(t, subscriptionService, "待办续费母号", "车位1")
 	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
 		Name:             "待办续费客户",
@@ -594,12 +190,7 @@ func TestHistoricalPendingRenewalDoesNotAppearInOperationsOverview(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-		CustomerEmail:  "operations-renewal@example.com",
-		SubscriptionID: subscriptionID,
-	}); err != nil {
-		t.Fatal(err)
-	}
+	seedHistoricalRenewalApplication(t, history, subscriptionID, "pending", 1, "2026-09-30")
 
 	overview, err := subscriptionService.GetOperationsOverview()
 	if err != nil {
@@ -614,40 +205,5 @@ func TestHistoricalPendingRenewalDoesNotAppearInOperationsOverview(t *testing.T)
 	}
 	if overview.Work.UrgentCount != 0 || overview.Unread.RedemptionCount != 0 {
 		t.Fatalf("historical renewal still affects counts: %#v %#v", overview.Work, overview.Unread)
-	}
-
-}
-
-func TestSelfServiceRenewalRejectsOneMonthPlusRental(t *testing.T) {
-	subscriptionService := openTestService(t)
-	subscriptionService.Clock = func() time.Time {
-		return time.Date(2026, time.July, 20, 10, 0, 0, 0, cycle.Location)
-	}
-	enableTestRenewalPayment(t, subscriptionService)
-	subscriptionID, err := subscriptionService.CreateWithInitialBill(service.CreateInput{
-		Name:           "单月短租客户",
-		BusinessType:   model.SubscriptionBusinessPlus,
-		PriceYuan:      "68",
-		CronExpr:       cycle.OneMonthRentalExpression,
-		CustomerEmail:  "short@example.com",
-		CustomerWechat: "wx-short",
-		BoardedAt:      "2026-07-01",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	lookup, err := subscriptionService.LookupRenewalSubscriptions(service.RenewalLookupInput{CustomerEmail: "short@example.com"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(lookup.Subscriptions) != 1 || lookup.Subscriptions[0].Renewable {
-		t.Fatalf("one-month lookup = %#v", lookup)
-	}
-	_, err = subscriptionService.SubmitRenewalApplication(service.RenewalSubmitInput{
-		CustomerEmail:  "short@example.com",
-		SubscriptionID: subscriptionID,
-	})
-	if err == nil || !strings.Contains(err.Error(), "单月短租") {
-		t.Fatalf("submit error = %v", err)
 	}
 }
