@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"carpool-notify/internal/config"
+	"carpool-notify/internal/cycle"
 	"carpool-notify/internal/model"
 	"carpool-notify/internal/notify"
 )
@@ -178,6 +179,62 @@ func TestRenewalSuccessEmailDisabledForSandboxAndPlus(t *testing.T) {
 	}
 }
 
+func TestBillCorrectionsCancelStalePendingRenewalConfirmations(t *testing.T) {
+	for _, scenario := range []string{"before first send", "before retry", "note only", "subscription price"} {
+		t.Run(scenario, func(t *testing.T) {
+			service, ids := extensionTestService(t, "2026-06-20", 1)
+			recorder := &businessEmailRecorder{fail: scenario == "before retry"}
+			service.Notify = notify.Registry{SMTP: recorder}
+			if err := service.SetDuePaid(ids[0], "2026-07-01", true); err != nil {
+				t.Fatal(err)
+			}
+			attempts := 0
+			if recorder.fail {
+				if err := service.ProcessBusinessEmails(context.Background()); err == nil {
+					t.Fatal("expected SMTP failure")
+				}
+				attempts = 1
+			}
+			bill, err := service.Store.GetBillByOccurrence(ids[0], "2026-07-01")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario == "subscription price" {
+				subscription, err := service.Store.GetSubscription(ids[0])
+				if err != nil {
+					t.Fatal(err)
+				}
+				subscription.PricePerPersonCents = 7800
+				if err := service.Store.UpdateSubscriptionAndSyncBill(subscription, bill.DueDate, 7800, bill.CostCents); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				amount := "78.00"
+				if scenario == "note only" {
+					amount = cycle.FormatCents(bill.AmountCents)
+				}
+				if err := service.UpdateBill(bill.ID, BillEditInput{AmountYuan: amount, Note: "correction"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			moment := service.now().Add(time.Hour)
+			service.Clock = func() time.Time { return moment }
+			recorder.fail = false
+			flushBenefitEmails(t, service)
+			want := attempts
+			if scenario == "note only" {
+				want++
+			}
+			if len(recorder.deliveries) != want {
+				t.Fatalf("deliveries after correction = %d, want %d", len(recorder.deliveries), want)
+			}
+			if _, err := service.Store.GetBill(bill.ID); err != nil {
+				t.Fatal("correction removed bill", err)
+			}
+		})
+	}
+}
+
 func TestCancelledPaymentsDoNotSendPendingRenewalConfirmations(t *testing.T) {
 	for _, scenario := range []string{"unmark", "delete bill", "cancel retry"} {
 		t.Run(scenario, func(t *testing.T) {
@@ -280,6 +337,49 @@ func TestPaymentCancellationWaitsForInFlightDeliveryThenCancelsRetry(t *testing.
 	flushBenefitEmails(t, service)
 	if len(recorder.deliveries) != 1 {
 		t.Fatal("cancelled payment was retried")
+	}
+}
+
+func TestBillCorrectionWaitsForInFlightDeliveryThenCancelsRetry(t *testing.T) {
+	service, ids := extensionTestService(t, "2026-06-20", 1)
+	recorder := &businessEmailRecorder{fail: true}
+	sender := &blockedBusinessEmailSender{businessEmailRecorder: recorder, started: make(chan struct{}), release: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(sender.release) })
+	t.Cleanup(release)
+	service.Notify = notify.Registry{SMTP: sender}
+	if err := service.SetDuePaid(ids[0], "2026-07-01", true); err != nil {
+		t.Fatal(err)
+	}
+	bill, err := service.Store.GetBillByOccurrence(ids[0], "2026-07-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workerDone := make(chan error, 1)
+	go func() { workerDone <- service.ProcessBusinessEmails(context.Background()) }()
+	select {
+	case <-sender.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("delivery did not start")
+	}
+	editDone := make(chan error, 1)
+	go func() { editDone <- service.UpdateBill(bill.ID, BillEditInput{AmountYuan: "78.00"}) }()
+	select {
+	case err := <-editDone:
+		t.Fatalf("bill correction overtook in-flight delivery: %v", err)
+	case <-time.After(30 * time.Millisecond):
+	}
+	release()
+	if err := <-workerDone; err == nil {
+		t.Fatal("expected delivery failure")
+	}
+	if err := <-editDone; err != nil {
+		t.Fatal(err)
+	}
+	moment := service.now().Add(time.Hour)
+	service.Clock = func() time.Time { return moment }
+	flushBenefitEmails(t, service)
+	if len(recorder.deliveries) != 1 {
+		t.Fatal("stale confirmation was retried after correction")
 	}
 }
 

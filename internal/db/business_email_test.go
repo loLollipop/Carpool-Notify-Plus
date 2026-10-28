@@ -75,6 +75,78 @@ func TestBusinessEmailHistoryCleanupKeepsActiveMessagesAndRecentCompletions(t *t
 	}
 }
 
+func TestBillCorrectionInvalidatesOnlyStalePendingConfirmationsAtomically(t *testing.T) {
+	store, err := Open(filepath.Join(t.TempDir(), "bill-correction.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	id, err := store.CreateSubscriptionWithInitialBill(model.Subscription{
+		Name: "customer", BusinessType: model.SubscriptionBusinessTeam,
+		PricePerPersonCents: 8800, CronExpr: "interval:30d", BoardedAt: "2026-10-01",
+	}, "2026-10-01", 8800)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bill, err := store.GetBillByOccurrence(id, "2026-10-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scenario := range []string{"amount", "date", "cost and note"} {
+		t.Run(scenario, func(t *testing.T) {
+			if _, err := store.database.Exec(`DELETE FROM business_email_outbox;
+				INSERT INTO business_email_outbox (subscription_id, recipient, title, body, status, next_retry_at, created_at, updated_at, bill_id)
+				VALUES (1, 'customer@example.com', 'pending', 'old amount/date', 'pending', '2026-10-01', '2026-10-01', '2026-10-01', ?),
+				       (1, 'customer@example.com', 'success', 'sent history', 'success', '2026-10-01', '2026-10-01', '2026-10-01', ?),
+				       (1, 'customer@example.com', 'benefit', 'unrelated benefit', 'pending', '2026-10-01', '2026-10-01', '2026-10-01', 0)`, bill.ID, bill.ID); err != nil {
+				t.Fatal(err)
+			}
+			var query string
+			switch scenario {
+			case "amount":
+				query = `UPDATE bills SET amount_cents = amount_cents - 100 WHERE id = ?`
+			case "date":
+				query = `UPDATE bills SET due_date = '2026-10-02' WHERE id = ?`
+			default:
+				query = `UPDATE bills SET cost_cents = 700, note = 'corrected' WHERE id = ?`
+			}
+			if scenario == "amount" {
+				if _, err := store.database.Exec(`CREATE TRIGGER reject_correction_email BEFORE UPDATE ON business_email_outbox
+					WHEN NEW.status = 'cancelled' BEGIN SELECT RAISE(ABORT, 'simulated cancellation failure'); END`); err != nil {
+					t.Fatal(err)
+				}
+				if err := store.UpdateBill(bill.ID, 7800, "correction"); err == nil {
+					t.Fatal("email cancellation failure ignored")
+				}
+				persisted, err := store.GetBill(bill.ID)
+				if err != nil || persisted.AmountCents != 8800 {
+					t.Fatalf("bill escaped rollback: %#v, %v", persisted, err)
+				}
+				if _, err := store.database.Exec(`DROP TRIGGER reject_correction_email`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := store.database.Exec(query, bill.ID); err != nil {
+				t.Fatal(err)
+			}
+			for title, want := range map[string]string{"pending": "cancelled", "success": "success", "benefit": "pending"} {
+				if scenario == "cost and note" && title == "pending" {
+					want = "pending"
+				}
+				var status, updated string
+				if err := store.database.QueryRow(`SELECT status, updated_at FROM business_email_outbox WHERE title = ?`, title).Scan(&status, &updated); err != nil || status != want {
+					t.Fatalf("%s status = %s, %v; want %s", title, status, err, want)
+				}
+				if want == "cancelled" {
+					if stamp, err := time.Parse("2006-01-02T15:04:05.000000000Z", updated); err != nil || time.Since(stamp) > time.Minute {
+						t.Fatalf("invalid cancellation time = %q, %v", updated, err)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestBusinessEmailOutboxSurvivesReopenAndPreservesRetryOrder(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "business-email.db")
 	store, err := Open(path)

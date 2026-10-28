@@ -696,6 +696,8 @@ func formatPaidAtLabel(paidAt time.Time) string {
 // UpdateBill validates and updates a bill's amount and note.
 // Does not change the linked subscription's price.
 func (service *SubscriptionService) UpdateBill(billID int64, input BillEditInput) error {
+	service.dueNotificationMu.Lock()
+	defer service.dueNotificationMu.Unlock()
 	if _, err := service.Store.GetBill(billID); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("账单不存在")

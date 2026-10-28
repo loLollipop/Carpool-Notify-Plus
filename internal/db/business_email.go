@@ -79,8 +79,18 @@ func (store *Store) ensureBusinessEmailOutbox() error {
 			return err
 		}
 	}
+	// Keep every bill correction path atomic with invalidating its old email
+	// snapshot, including subscription price and initial-period date corrections.
 	_, err = store.database.Exec(`CREATE INDEX IF NOT EXISTS idx_business_email_bill
-		ON business_email_outbox(bill_id) WHERE bill_id > 0`)
+		ON business_email_outbox(bill_id) WHERE bill_id > 0;
+		CREATE TRIGGER IF NOT EXISTS cancel_stale_bill_confirmations
+		AFTER UPDATE OF amount_cents, due_date ON bills
+		WHEN OLD.amount_cents != NEW.amount_cents OR OLD.due_date != NEW.due_date
+		BEGIN
+			UPDATE business_email_outbox
+			SET status = 'cancelled', updated_at = strftime('%Y-%m-%dT%H:%M:%f000000Z', 'now')
+			WHERE bill_id = NEW.id AND status = 'pending';
+		END`)
 	return err
 }
 
