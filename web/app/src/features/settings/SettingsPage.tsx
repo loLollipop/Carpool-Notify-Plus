@@ -83,8 +83,9 @@ type ReminderTemplateKind =
   | "customer"
   | "customer_price_increase"
   | "customer_price_decrease"
-type CustomerTemplateKind = Exclude<ReminderTemplateKind, "notify">
-type BusinessTemplateKind = Exclude<CustomerEmailTemplateKind, CustomerTemplateKind>
+type CustomerReminderTemplateKind = Exclude<ReminderTemplateKind, "notify">
+type CustomerTemplateKind = CustomerReminderTemplateKind | "customer_renewal_success" | "customer_benefit"
+type BusinessTemplateKind = Exclude<CustomerEmailTemplateKind, CustomerReminderTemplateKind>
 type TemplateKind = ReminderTemplateKind | BusinessTemplateKind
 
 const BENEFIT_TEMPLATE_KINDS = [
@@ -93,6 +94,7 @@ const BENEFIT_TEMPLATE_KINDS = [
   "customer_benefit_revision",
   "customer_benefit_revoke",
 ] as const
+type BenefitTemplateKind = (typeof BENEFIT_TEMPLATE_KINDS)[number]
 
 const BUSINESS_TEMPLATE_LABELS: Record<BusinessTemplateKind, string> = {
   customer_renewal_success: "settings.renewalSuccessTemplate",
@@ -404,39 +406,27 @@ function updateDraftField<T extends keyof VisualTemplateDraft>(
   return { ...draft, [key]: value }
 }
 
-function TemplateEditor({
+function TemplateEditorCard({
   kind,
-  draft,
-  onDraftChange,
   onPreview,
   customerTemplateKind,
   onCustomerTemplateKindChange,
+  children,
 }: {
-  kind: ReminderTemplateKind
-  draft: VisualTemplateDraft
-  onDraftChange: (draft: VisualTemplateDraft) => void
+  kind: "notify" | "customer"
   onPreview: () => void
   customerTemplateKind?: CustomerTemplateKind
   onCustomerTemplateKindChange?: (kind: CustomerTemplateKind) => void
+  children: React.ReactNode
 }) {
   const { t } = useTranslation()
-  const availableFields = templateFieldsForKind(kind)
   const icon =
     kind === "notify" ? <MessageSquare className="size-4" /> : <Mail className="size-4" />
-
-  const toggleField = (key: TemplateFieldKey, checked: boolean) => {
-    const nextFields = checked
-      ? availableFields.map((field) => field.key).filter(
-          (fieldKey) => draft.fields.includes(fieldKey) || fieldKey === key,
-        )
-      : draft.fields.filter((fieldKey) => fieldKey !== key)
-    onDraftChange(updateDraftField(draft, "fields", nextFields))
-  }
 
   return (
     <div
       className={cn(
-        "relative grid gap-4 overflow-hidden rounded-lg border bg-card p-4 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_3%,transparent)]",
+        "relative grid min-w-0 content-start gap-4 overflow-hidden rounded-lg border bg-card p-4 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_3%,transparent)]",
       )}
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -476,6 +466,12 @@ function TemplateEditor({
                 <SelectItem value="customer_price_decrease">
                   {t("settings.customerTemplatePriceDecrease")}
                 </SelectItem>
+                <SelectItem value="customer_renewal_success">
+                  {t("settings.renewalSuccessTemplate")}
+                </SelectItem>
+                <SelectItem value="customer_benefit">
+                  {t("settings.benefitTemplate")}
+                </SelectItem>
               </SelectContent>
             </Select>
           ) : null}
@@ -492,6 +488,34 @@ function TemplateEditor({
         </div>
       </div>
 
+      {children}
+    </div>
+  )
+}
+
+function TemplateEditor({
+  kind,
+  draft,
+  onDraftChange,
+}: {
+  kind: ReminderTemplateKind
+  draft: VisualTemplateDraft
+  onDraftChange: (draft: VisualTemplateDraft) => void
+}) {
+  const { t } = useTranslation()
+  const availableFields = templateFieldsForKind(kind)
+
+  const toggleField = (key: TemplateFieldKey, checked: boolean) => {
+    const nextFields = checked
+      ? availableFields.map((field) => field.key).filter(
+          (fieldKey) => draft.fields.includes(fieldKey) || fieldKey === key,
+        )
+      : draft.fields.filter((fieldKey) => fieldKey !== key)
+    onDraftChange(updateDraftField(draft, "fields", nextFields))
+  }
+
+  return (
+    <>
       {kind === "notify" ? (
         <div className="grid gap-1.5">
           <Label htmlFor="notify-template-title">{t("settings.templateTitleLine")}</Label>
@@ -563,7 +587,7 @@ function TemplateEditor({
           }
         />
       </div>
-    </div>
+    </>
   )
 }
 
@@ -571,17 +595,16 @@ function BusinessEmailTemplateEditor({
   benefit = false,
   value,
   onChange,
-  onPreview,
+  previewKind,
+  onPreviewKindChange,
 }: {
   benefit?: boolean
   value: string
   onChange: (value: string) => void
-  onPreview: (kind: BusinessTemplateKind) => void
+  previewKind: BenefitTemplateKind
+  onPreviewKindChange: (kind: BenefitTemplateKind) => void
 }) {
   const { t } = useTranslation()
-  const [previewKind, setPreviewKind] = React.useState<BusinessTemplateKind>(
-    benefit ? "customer_benefit_extension" : "customer_renewal_success",
-  )
   const title = t(benefit ? "settings.benefitTemplate" : "settings.renewalSuccessTemplate")
   const inputId = benefit ? "customer-benefit-template" : "renewal-success-template"
   const fields = benefit
@@ -589,26 +612,14 @@ function BusinessEmailTemplateEditor({
     : ".CustomerEmail · .SubscriptionID · .AmountPaid · .PeriodStart · .PeriodEnd · .NextDueDate · .CycleDesc · .OperationTime"
 
   return (
-    <div className="grid min-w-0 content-start gap-4 rounded-lg border bg-card p-4 shadow-[0_1px_2px_color-mix(in_oklab,var(--foreground)_3%,transparent)]">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <span className="grid size-8 place-items-center rounded-md bg-brand/10 text-brand">
-            {benefit ? <Sparkles className="size-4" /> : <CircleCheckBig className="size-4" />}
-          </span>
-          <Label htmlFor={inputId}>{title}</Label>
-        </div>
-        <Button type="button" variant="ghost" size="xs" onClick={() => onPreview(previewKind)}>
-          <Eye data-slot="icon" />
-          {t("settings.preview")}
-        </Button>
-      </div>
+    <>
       <p className="text-xs leading-5 text-muted-foreground">
         {t(benefit ? "settings.benefitTemplateHint" : "settings.renewalSuccessTemplateHint")}
       </p>
       {benefit ? (
         <div className="grid gap-1.5">
           <Label htmlFor="benefit-preview-kind">{t("settings.benefitPreviewKind")}</Label>
-          <Select value={previewKind} onValueChange={(kind) => setPreviewKind(kind as BusinessTemplateKind)}>
+          <Select value={previewKind} onValueChange={(kind) => onPreviewKindChange(kind as BenefitTemplateKind)}>
             <SelectTrigger id="benefit-preview-kind" className="w-full">
               <SelectValue />
             </SelectTrigger>
@@ -627,6 +638,7 @@ function BusinessEmailTemplateEditor({
         spellCheck={false}
         className="h-80 field-sizing-fixed resize-y font-mono text-xs leading-6"
         onChange={(event) => onChange(event.target.value)}
+        aria-label={title}
         aria-describedby={`${inputId}-hint`}
       />
       <details id={`${inputId}-hint`} className="text-xs leading-5 text-muted-foreground">
@@ -635,7 +647,7 @@ function BusinessEmailTemplateEditor({
         <p className="mt-1 break-words font-mono">{fields}</p>
         {benefit ? <p className="mt-1">BenefitType: extension / price_discount / extension_revision / extension_revoke</p> : null}
       </details>
-    </div>
+    </>
   )
 }
 
@@ -1823,6 +1835,8 @@ function SettingsForm({ settings }: { settings: Settings }) {
   const [benefitTemplate, setBenefitTemplate] = React.useState(
     settings.customer_benefit_email_template,
   )
+  const [benefitPreviewKind, setBenefitPreviewKind] =
+    React.useState<BenefitTemplateKind>("customer_benefit_extension")
   const [enabledChannels, setEnabledChannels] = React.useState<Set<string>>(
     () => new Set(settings.enabled_channels ?? []),
   )
@@ -2061,43 +2075,48 @@ function SettingsForm({ settings }: { settings: Settings }) {
             caption={t("settings.sectionCaptions.templates")}
           />
           <div className="grid gap-4 lg:grid-cols-2">
-            <TemplateEditor
+            <TemplateEditorCard
               kind="notify"
-              draft={notifyDraft}
-              onDraftChange={setNotifyDraft}
               onPreview={() => openPreview("notify")}
-            />
-            <TemplateEditor
-              kind={customerTemplateKind}
-              draft={
-                customerTemplateKind === "customer"
-                  ? customerDraft
-                  : customerTemplateKind === "customer_price_increase"
-                    ? priceIncreaseCustomerDraft
-                    : priceDecreaseCustomerDraft
-              }
-              onDraftChange={
-                customerTemplateKind === "customer"
-                  ? setCustomerDraft
-                  : customerTemplateKind === "customer_price_increase"
-                    ? setPriceIncreaseCustomerDraft
-                    : setPriceDecreaseCustomerDraft
-              }
-              onPreview={() => openPreview(customerTemplateKind)}
+            >
+              <TemplateEditor kind="notify" draft={notifyDraft} onDraftChange={setNotifyDraft} />
+            </TemplateEditorCard>
+            <TemplateEditorCard
+              kind="customer"
+              onPreview={() => openPreview(
+                customerTemplateKind === "customer_benefit" ? benefitPreviewKind : customerTemplateKind,
+              )}
               customerTemplateKind={customerTemplateKind}
               onCustomerTemplateKindChange={setCustomerTemplateKind}
-            />
-            <BusinessEmailTemplateEditor
-              value={renewalSuccessTemplate}
-              onChange={setRenewalSuccessTemplate}
-              onPreview={openPreview}
-            />
-            <BusinessEmailTemplateEditor
-              benefit
-              value={benefitTemplate}
-              onChange={setBenefitTemplate}
-              onPreview={openPreview}
-            />
+            >
+              {customerTemplateKind === "customer_renewal_success" || customerTemplateKind === "customer_benefit" ? (
+                <BusinessEmailTemplateEditor
+                  benefit={customerTemplateKind === "customer_benefit"}
+                  value={customerTemplateKind === "customer_benefit" ? benefitTemplate : renewalSuccessTemplate}
+                  onChange={customerTemplateKind === "customer_benefit" ? setBenefitTemplate : setRenewalSuccessTemplate}
+                  previewKind={benefitPreviewKind}
+                  onPreviewKindChange={setBenefitPreviewKind}
+                />
+              ) : (
+                <TemplateEditor
+                  kind={customerTemplateKind}
+                  draft={
+                    customerTemplateKind === "customer"
+                      ? customerDraft
+                      : customerTemplateKind === "customer_price_increase"
+                        ? priceIncreaseCustomerDraft
+                        : priceDecreaseCustomerDraft
+                  }
+                  onDraftChange={
+                    customerTemplateKind === "customer"
+                      ? setCustomerDraft
+                      : customerTemplateKind === "customer_price_increase"
+                        ? setPriceIncreaseCustomerDraft
+                        : setPriceDecreaseCustomerDraft
+                  }
+                />
+              )}
+            </TemplateEditorCard>
           </div>
         </TabsContent>
 
