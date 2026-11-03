@@ -3381,6 +3381,8 @@ func (store *Store) ResetBusinessData() error {
 
 	tables := []string{
 		"business_email_outbox",
+		"business_goals",
+		"operating_expenses",
 		"operation_acknowledgements",
 		"redemption_codes",
 		"redemption_applications",

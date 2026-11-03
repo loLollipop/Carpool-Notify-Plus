@@ -432,6 +432,16 @@ func TestRecordCustomerBenefitsPriceDiscountAppliesWhenDueTodayAndUnpaid(t *test
 	if err != nil || bill.AmountCents != 9000 {
 		t.Fatalf("due-today discounted bill = %#v, %v; want amount 9000", bill, err)
 	}
+	benefits, err := service.Store.ListCustomerBenefits()
+	if err != nil || len(benefits) != 1 {
+		t.Fatalf("benefits = %#v, %v", benefits, err)
+	}
+	if len(benefits[0].ObservationSeats) != 1 || benefits[0].ObservationSeats[0].DueDate != "2026-08-30" || benefits[0].ObservationSeats[0].BaseDueDate != "2026-08-30" {
+		t.Fatalf("observation must follow actual discount date: %#v", benefits[0])
+	}
+	if outcome := customerBenefitOutcome(benefits[0], nil, map[int64][]model.Bill{ids[0]: {bill}}, service.now()); outcome.Status != "renewed" {
+		t.Fatalf("due-today renewal was missed: %#v", outcome)
+	}
 }
 
 func TestRecordCustomerBenefitsPriceDiscountSkipsPrepaidCycles(t *testing.T) {

@@ -34,6 +34,7 @@ const (
 )
 
 type CustomerBenefitCandidate struct {
+	MinimumCurrentPriceCents int64                     `json:"minimum_current_price_cents"`
 	SubscriptionID           int64                     `json:"subscription_id"`
 	SubscriptionIDs          []int64                   `json:"subscription_ids"`
 	CustomerEmail            string                    `json:"customer_email"`
@@ -334,19 +335,20 @@ func buildCustomerBenefitCandidate(
 ) CustomerBenefitCandidate {
 	representative := group.Members[0]
 	candidate := CustomerBenefitCandidate{
-		SubscriptionID:         representative.SubscriptionID,
-		SubscriptionIDs:        make([]int64, 0, len(group.Members)),
-		CustomerEmail:          representative.CustomerEmail,
-		CustomerWechat:         representative.CustomerWechat,
-		DisplayName:            representative.Name,
-		CustomerTier:           representative.CustomerTier,
-		SeatCount:              len(group.Members),
-		CurrentCycleValueCents: representative.CustomerGroupMonthlyRevenueCents,
-		MonthlyValueCents:      representative.CustomerGroupMonthlyRevenueCents,
-		Selectable:             true,
-		Status:                 "hold",
-		ReasonCode:             "manual_review",
-		SuggestedBenefitType:   model.CustomerBenefitTypeExtension,
+		MinimumCurrentPriceCents: maxInt64(representative.CurrentPriceCents, 0),
+		SubscriptionID:           representative.SubscriptionID,
+		SubscriptionIDs:          make([]int64, 0, len(group.Members)),
+		CustomerEmail:            representative.CustomerEmail,
+		CustomerWechat:           representative.CustomerWechat,
+		DisplayName:              representative.Name,
+		CustomerTier:             representative.CustomerTier,
+		SeatCount:                len(group.Members),
+		CurrentCycleValueCents:   representative.CustomerGroupMonthlyRevenueCents,
+		MonthlyValueCents:        representative.CustomerGroupMonthlyRevenueCents,
+		Selectable:               true,
+		Status:                   "hold",
+		ReasonCode:               "manual_review",
+		SuggestedBenefitType:     model.CustomerBenefitTypeExtension,
 	}
 	if candidate.MonthlyValueCents <= 0 {
 		for _, member := range group.Members {
@@ -357,6 +359,7 @@ func buildCustomerBenefitCandidate(
 	// now have one auditable meaning: normalized monthly customer revenue.
 	candidate.CurrentCycleValueCents = candidate.MonthlyValueCents
 	for _, member := range group.Members {
+		candidate.MinimumCurrentPriceCents = minInt64(candidate.MinimumCurrentPriceCents, maxInt64(member.CurrentPriceCents, 0))
 		candidate.SubscriptionIDs = append(candidate.SubscriptionIDs, member.SubscriptionID)
 		if candidate.CustomerEmail == "" && member.CustomerEmail != "" {
 			candidate.CustomerEmail = member.CustomerEmail
@@ -672,21 +675,83 @@ func customerBenefitOutcome(
 		return result
 	}
 	matchingSubscriptionIDs := map[int64]struct{}{benefit.SubscriptionID: {}}
-	email := normalizeCustomerIdentity(benefit.CustomerEmailSnapshot)
-	wechat := normalizeCustomerIdentity(benefit.CustomerWechatSnapshot)
+	subscriptionsByID := make(map[int64]model.Subscription, len(subscriptions))
 	for _, subscription := range subscriptions {
-		if subscription.ID != benefit.SubscriptionID &&
-			subscriptionStartedAfter(subscription, benefit.BenefitDate) {
-			continue
+		subscriptionsByID[subscription.ID] = subscription
+	}
+	dueByID := make(map[int64]string)
+	lastBillByID := make(map[int64]int64)
+	if len(benefit.ObservationSeats) > 0 {
+		matchingSubscriptionIDs = make(map[int64]struct{}, len(benefit.ObservationSeats))
+		expectedSeatCount = len(benefit.ObservationSeats)
+		result.ExpectedSeatCount = expectedSeatCount
+		// Freeze membership and each unpaid period at delivery. Resolve its logical
+		// boundary through today's active extensions, including later corrections.
+		latestDue := ""
+		for _, observation := range benefit.ObservationSeats {
+			date := observation.DueDate
+			if subscription, exists := subscriptionsByID[observation.SubscriptionID]; exists && observation.BaseDueDate != "" {
+				if schedule, scheduleErr := subscription.BillingSchedule(); scheduleErr == nil {
+					if base, parseErr := time.ParseInLocation("2006-01-02", observation.BaseDueDate, cycle.Location); parseErr == nil {
+						date = cycle.FormatDate(schedule.EffectiveDue(base))
+					}
+				}
+			}
+			matchingSubscriptionIDs[observation.SubscriptionID] = struct{}{}
+			dueByID[observation.SubscriptionID] = date
+			lastBillByID[observation.SubscriptionID] = observation.LastBillID
+			latestDue = laterDate(latestDue, date)
 		}
-		if (email != "" && normalizeCustomerIdentity(subscription.CustomerEmail) == email) ||
-			(wechat != "" && normalizeCustomerIdentity(subscription.CustomerWechat) == wechat) {
-			matchingSubscriptionIDs[subscription.ID] = struct{}{}
+		if observedAt, parseErr := time.ParseInLocation("2006-01-02", latestDue, cycle.Location); parseErr == nil {
+			dueAt = observedAt
+		}
+	} else {
+		// Historical records have no immutable seat list. Preserve their original
+		// due-date threshold, but use the same transitive identities as grouping.
+		emails := map[string]bool{normalizeCustomerIdentity(benefit.CustomerEmailSnapshot): true}
+		wechats := map[string]bool{normalizeCustomerIdentity(benefit.CustomerWechatSnapshot): true}
+		for changed := true; changed; {
+			changed = false
+			for _, subscription := range subscriptions {
+				if subscription.ID != benefit.SubscriptionID && subscriptionStartedAfter(subscription, benefit.BenefitDate) {
+					continue
+				}
+				email, wechat := normalizeCustomerIdentity(subscription.CustomerEmail), normalizeCustomerIdentity(subscription.CustomerWechat)
+				_, matched := matchingSubscriptionIDs[subscription.ID]
+				if matched || email != "" && emails[email] || wechat != "" && wechats[wechat] {
+					if !matched {
+						matchingSubscriptionIDs[subscription.ID] = struct{}{}
+						changed = true
+					}
+					emails[email], wechats[wechat] = true, true
+				}
+			}
+		}
+		if subscription, exists := subscriptionsByID[benefit.SubscriptionID]; exists {
+			for _, extension := range subscription.DueExtensions {
+				if extension.CustomerBenefitID == benefit.ID {
+					if schedule, scheduleErr := subscription.BillingSchedule(); scheduleErr == nil {
+						if base, parseErr := time.ParseInLocation("2006-01-02", extension.BaseDueDate, cycle.Location); parseErr == nil {
+							dueAt = schedule.EffectiveDue(base)
+							for id := range matchingSubscriptionIDs {
+								dueByID[id] = cycle.FormatDate(dueAt)
+							}
+						}
+					}
+				}
+			}
 		}
 	}
 	for subscriptionID := range matchingSubscriptionIDs {
+		threshold := dueByID[subscriptionID]
+		if threshold == "" {
+			threshold = benefit.NextDueDateSnapshot
+		}
 		for _, bill := range billsBySubscription[subscriptionID] {
-			if bill.DueDate >= benefit.NextDueDateSnapshot {
+			if len(benefit.ObservationSeats) > 0 && bill.ID <= lastBillByID[subscriptionID] {
+				continue
+			}
+			if bill.DueDate >= threshold {
 				result.RenewedSeatCount++
 				break
 			}
@@ -743,7 +808,7 @@ func buildPredictionReadiness(
 	involuntaryChurn := make(map[int64]struct{})
 	completedCancellation := make(map[int64]struct{})
 	for _, caseItem := range afterSalesCases {
-		if caseItem.Source == model.AfterSalesSourceAccountBan {
+		if caseItem.Source == model.AfterSalesSourceAccountBan && caseItem.Status != model.AfterSalesStatusReassigned {
 			involuntaryChurn[caseItem.SubscriptionID] = struct{}{}
 		}
 		if caseItem.Source == model.AfterSalesSourceCustomerCancellation &&
@@ -1241,6 +1306,14 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	}
 
 	createdAt := service.now().UTC()
+	bills, err := service.Store.ListBills()
+	if err != nil {
+		return 0, err
+	}
+	lastBillBySubscription := make(map[int64]int64)
+	for _, bill := range bills {
+		lastBillBySubscription[bill.SubscriptionID] = maxInt64(lastBillBySubscription[bill.SubscriptionID], bill.ID)
+	}
 	batchID := fmt.Sprintf("care-%d", createdAt.UnixNano())
 	if operationBatchID != "" {
 		batchID = operationBatchID
@@ -1285,6 +1358,26 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 			return 0, fmt.Errorf("福利名称不能超过 %d 个字符", maximumBenefitNameRunes)
 		}
 		outcomeDueDate := candidate.NextDueDate
+		observations := make([]model.CustomerBenefitObservation, 0, len(candidate.SubscriptionIDs))
+		for _, memberID := range candidate.SubscriptionIDs {
+			memberCandidate, exists := pricingCandidateByID[memberID]
+			if !exists {
+				return 0, fmt.Errorf("所选客户席位已变化，请刷新后重试")
+			}
+			member, getErr := service.Store.GetSubscription(memberID)
+			if getErr != nil {
+				return 0, getErr
+			}
+			schedule, scheduleErr := member.BillingSchedule()
+			if scheduleErr != nil {
+				return 0, scheduleErr
+			}
+			baseDate, baseErr := schedule.BaseDueDate(memberCandidate.NextDueDate)
+			if baseErr != nil {
+				return 0, baseErr
+			}
+			observations = append(observations, model.CustomerBenefitObservation{SubscriptionID: memberID, DueDate: memberCandidate.NextDueDate, BaseDueDate: baseDate, LastBillID: lastBillBySubscription[memberID]})
+		}
 		if pricingCandidate, found := pricingCandidateByID[subscriptionID]; found {
 			groupID := pricingCandidate.CustomerGroupID
 			if groupID <= 0 {
@@ -1293,6 +1386,7 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 			outcomeDueDate = laterDate(outcomeDueDate, latestDueByCustomerGroup[groupID])
 		}
 		records = append(records, model.CustomerBenefit{
+			ObservationSeats:          observations,
 			ExtensionDays:             input.ExtensionDays,
 			BatchID:                   batchID,
 			SubscriptionID:            subscriptionID,

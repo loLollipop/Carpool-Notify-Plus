@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	defaultMarketPriceURL    = "https://priceai.cc/api/products/chatgpt-team-business/offers?limit=100&offset=0&tags=team_official"
+	defaultMarketPriceURL    = "https://data.priceai.cc/latest.json"
 	marketSourcePageURL      = "https://priceai.cc/products/chatgpt-team-business?back=platform%3DChatGPT&tags=team_official"
 	marketProvider           = "priceai"
 	marketProduct            = "chatgpt-team-business-renewal"
@@ -31,7 +31,7 @@ const (
 	goalHistoryLimit         = 20
 	marketHistoryLimit       = 24
 	defaultMarketTimeout     = 8 * time.Second
-	maxMarketResponseBytes   = 2 << 20
+	maxMarketResponseBytes   = 8 << 20
 
 	// Repricing safeguards favor retention over extracting the full market gap
 	// immediately. The thresholds are intentionally conservative for monthly,
@@ -49,8 +49,6 @@ const (
 	newSaleFillDiscountPercent         = int64(7)
 	newSaleBalancedDiscountPercent     = int64(5)
 	newSaleScarceDiscountPercent       = int64(3)
-	controlledLowerTestPercent         = int64(3)
-	minimumNewSaleRangeCents           = int64(300)
 	minimumCommercialClusterSize       = 3
 	minimumLowClusterGapPercent        = int64(35)
 	maximumLowClusterSharePercent      = int64(40)
@@ -109,6 +107,10 @@ type ProfitForecast struct {
 }
 
 type MarketPriceView struct {
+	AcquisitionUsable   bool                        `json:"acquisition_usable"`
+	RenewalUsable       bool                        `json:"renewal_usable"`
+	CheckedAt           time.Time                   `json:"checked_at"`
+	WarningCode         string                      `json:"warning_code"`
 	Available           bool                        `json:"available"`
 	Stale               bool                        `json:"stale"`
 	Warning             string                      `json:"warning"`
@@ -127,6 +129,13 @@ type marketPriceSnapshots struct {
 }
 
 type PricingRecommendation struct {
+	SuggestedPriceCents      int64    `json:"suggested_price_cents"`
+	InternalSampleCount      int      `json:"internal_sample_count"`
+	InternalLowPriceCents    int64    `json:"internal_low_price_cents"`
+	InternalHighPriceCents   int64    `json:"internal_high_price_cents"`
+	InternalMeanPriceCents   int64    `json:"internal_mean_price_cents"`
+	MarketWeightPercent      int      `json:"market_weight_percent"`
+	Basis                    string   `json:"basis"`
 	Action                   string   `json:"action"`
 	ReasonCodes              []string `json:"reason_codes"`
 	InternalMedianPriceCents int64    `json:"internal_median_price_cents"`
@@ -403,18 +412,18 @@ func (service *SubscriptionService) GetGoalCenter() (GoalCenter, error) {
 		center.Forecast = &forecast
 	}
 
-	market, marketErr := service.loadMarketPrice(false)
+	market, marketErr := service.cachedMarketPrice()
 	if marketErr != nil {
 		market.Warning = marketErr.Error()
 	}
 	center.Market = market
 	acquisitionSnapshot := market.AcquisitionSnapshot
-	if acquisitionSnapshot == nil {
-		acquisitionSnapshot = market.Snapshot
+	if !market.AcquisitionUsable {
+		acquisitionSnapshot = nil
 	}
 	renewalSnapshot := market.RenewalSnapshot
-	if renewalSnapshot == nil {
-		renewalSnapshot = market.Snapshot
+	if !market.RenewalUsable {
+		renewalSnapshot = nil
 	}
 	center.Pricing, err = service.buildPricingRecommendation(acquisitionSnapshot)
 	if err != nil {
@@ -437,17 +446,17 @@ func (service *SubscriptionService) RefreshMarketPrice() (MarketPriceView, error
 	return service.loadMarketPrice(true)
 }
 
-// MarketRefreshInterval is the maximum intended lifetime of a cached market
-// snapshot before a new network request is allowed.
+// MarketRefreshInterval retains the refresh lifetime of explicitly injected
+// internal API fixtures. Public Radar discovery is limited to once per minute.
 func MarketRefreshInterval() time.Duration {
 	return marketCacheTTL
 }
 
-// MarketRefreshCheckInterval keeps startup timing from extending a nearly
-// expired snapshot by another full cache lifetime. Each check is cheap database
-// work; network I/O still happens only after MarketRefreshInterval has elapsed.
+// MarketRefreshCheckInterval follows the public pointer polling contract.
+// Conditional requests, unchanged snapshot IDs, and failure backoff are shared
+// by scheduler checks and manual refreshes.
 func MarketRefreshCheckInterval() time.Duration {
-	return time.Hour
+	return time.Minute
 }
 
 // RefreshMarketPriceIfStale refreshes the market snapshot only when the shared
@@ -662,11 +671,16 @@ func monthlyCycleFactor(subscription model.Subscription, now time.Time) (int64, 
 	if err != nil {
 		return 0, 0
 	}
-	dueDates := schedule.NextDueTimes(now, 2)
-	if len(dueDates) < 2 {
+	first := schedule.NextDue(now)
+	if first.IsZero() {
 		return 0, 0
 	}
-	days := int64(math.Round(dueDates[1].Sub(dueDates[0]).Hours() / 24))
+	second := schedule.NextDue(cycle.StartOfDay(first).AddDate(0, 0, 1).Add(-time.Nanosecond))
+	if second.IsZero() {
+		return 0, 0
+	}
+	// A paid occurrence is keyed by date, even when cron triggers twice a day.
+	days := int64(math.Round(cycle.StartOfDay(second).Sub(cycle.StartOfDay(first)).Hours() / 24))
 	if days < 1 {
 		return 0, 0
 	}
@@ -779,6 +793,13 @@ func (service *SubscriptionService) buildProfitForecast(
 	today := cycle.StartOfDay(service.now())
 	horizon := today.AddDate(forecastHorizonYears, 0, 0)
 	events := make([]forecastCashEvent, 0)
+	paidDates := make(map[int64]map[string]struct{})
+	for _, bill := range bills {
+		if paidDates[bill.SubscriptionID] == nil {
+			paidDates[bill.SubscriptionID] = make(map[string]struct{})
+		}
+		paidDates[bill.SubscriptionID][bill.DueDate] = struct{}{}
+	}
 	frozenSubscriptions := make(map[int64]struct{})
 	for _, caseItem := range afterSalesCases {
 		if caseItem.Status == model.AfterSalesStatusPending || caseItem.Status == model.AfterSalesStatusReview {
@@ -797,12 +818,19 @@ func (service *SubscriptionService) buildProfitForecast(
 		}
 		activeRecurringCount++
 		cursor := today.Add(-time.Minute)
-		for renewalNumber := 1; renewalNumber <= 10_000; renewalNumber++ {
+		renewalNumber := 0
+		for occurrence := 0; occurrence < 10_000; occurrence++ {
 			dueAt := schedule.NextDue(cursor)
 			if dueAt.IsZero() || !dueAt.After(cursor) || dueAt.After(horizon) {
 				break
 			}
 			dueDate := cycle.FormatDate(dueAt)
+			cursor = cycle.StartOfDay(dueAt).AddDate(0, 0, 1).Add(-time.Nanosecond)
+			if _, paid := paidDates[subscription.ID][dueDate]; paid {
+				// Paid revenue and Plus cost already belong to current profit.
+				continue
+			}
+			renewalNumber++
 			netCents := billAmountCentsForDueDate(subscription, dueDate)
 			if isPlusSubscription(subscription) {
 				netCents -= subscription.CostCents
@@ -812,7 +840,6 @@ func (service *SubscriptionService) buildProfitForecast(
 				RecurringNetCents: netCents,
 				RenewalNumber:     renewalNumber,
 			})
-			cursor = dueAt
 		}
 	}
 
@@ -825,15 +852,25 @@ func (service *SubscriptionService) buildProfitForecast(
 		if renewalErr != nil {
 			return ProfitForecast{}, renewalErr
 		}
+		openedAt, parseErr := time.ParseInLocation("2006-01-02", account.OpenedAt, cycle.Location)
+		if parseErr != nil || renewalAt.IsZero() {
+			// A missing opening date does not make a paid account free. Use the
+			// recorded cost period (or today's date) only as a forecasting anchor.
+			latestPeriod, latestErr := service.Store.LatestAutomaticAccountCostPeriod(account.ID)
+			if latestErr != nil {
+				return ProfitForecast{}, latestErr
+			}
+			openedAt, parseErr = time.ParseInLocation("2006-01-02", latestPeriod, cycle.Location)
+			if parseErr != nil || openedAt.After(today) {
+				openedAt = today
+			}
+			renewalAt = nextMonthlyAnniversary(openedAt, openedAt)
+		}
 		for !renewalAt.IsZero() && !renewalAt.After(horizon) {
 			events = append(events, forecastCashEvent{
 				Date:           cycle.StartOfDay(renewalAt),
 				FixedCostCents: recurringCostCents,
 			})
-			openedAt, parseErr := time.ParseInLocation("2006-01-02", account.OpenedAt, cycle.Location)
-			if parseErr != nil {
-				break
-			}
 			renewalAt = nextMonthlyAnniversary(openedAt, renewalAt)
 		}
 	}
@@ -936,115 +973,6 @@ func buildCashflowForecastScenario(
 	return scenario
 }
 
-func (service *SubscriptionService) loadMarketPrice(force bool) (MarketPriceView, error) {
-	service.marketRefreshMu.Lock()
-	defer service.marketRefreshMu.Unlock()
-
-	acquisition, acquisitionErr := service.Store.LatestMarketPriceSnapshot(
-		marketProvider,
-		marketAcquisitionProduct,
-	)
-	if acquisitionErr != nil && acquisitionErr != sql.ErrNoRows {
-		return MarketPriceView{SourceURL: marketSourcePageURL}, acquisitionErr
-	}
-	renewal, renewalErr := service.Store.LatestMarketPriceSnapshot(marketProvider, marketProduct)
-	if renewalErr != nil && renewalErr != sql.ErrNoRows {
-		return MarketPriceView{SourceURL: marketSourcePageURL}, renewalErr
-	}
-	hasSplitSnapshots := acquisitionErr == nil && renewalErr == nil
-	latest := marketPriceSnapshots{Acquisition: acquisition, Renewal: renewal}
-	if !force && hasSplitSnapshots &&
-		service.now().Sub(acquisition.CreatedAt.In(cycle.Location)) < marketCacheTTL &&
-		service.now().Sub(renewal.CreatedAt.In(cycle.Location)) < marketCacheTTL {
-		return service.marketPriceView(latest, false, ""), nil
-	}
-
-	refreshed, err := service.fetchMarketPriceSnapshots()
-	if err == nil {
-		if insertErr := service.Store.InsertMarketPriceSnapshots([]model.MarketPriceSnapshot{
-			refreshed.Acquisition,
-			refreshed.Renewal,
-		}); insertErr != nil {
-			return MarketPriceView{SourceURL: marketSourcePageURL}, insertErr
-		}
-		return service.marketPriceView(refreshed, false, ""), nil
-	}
-	if hasSplitSnapshots {
-		return service.marketPriceView(latest, true, "行情更新失败，当前显示最近一次缓存"), nil
-	}
-	if acquisitionErr == nil || renewalErr == nil {
-		fallback := acquisition
-		if renewalErr == nil {
-			fallback = renewal
-		}
-		partial := marketPriceSnapshots{Acquisition: fallback, Renewal: fallback}
-		if acquisitionErr == nil {
-			partial.Acquisition = acquisition
-		}
-		if renewalErr == nil {
-			partial.Renewal = renewal
-		}
-		return service.marketPriceView(
-			partial,
-			true,
-			"行情更新失败，暂时使用未完整拆分的新购/续费缓存",
-		), nil
-	}
-	legacy, legacyErr := service.Store.LatestMarketPriceSnapshot(marketProvider, legacyMarketProduct)
-	if legacyErr == nil {
-		legacySnapshots := marketPriceSnapshots{Acquisition: legacy, Renewal: legacy}
-		return service.marketPriceView(
-			legacySnapshots,
-			true,
-			"行情更新失败，暂时使用尚未拆分新购与续费的历史缓存",
-		), nil
-	}
-	if legacyErr != sql.ErrNoRows {
-		return MarketPriceView{SourceURL: marketSourcePageURL}, legacyErr
-	}
-	return MarketPriceView{SourceURL: marketSourcePageURL}, fmt.Errorf("暂时无法获取市场行情：%w", err)
-}
-
-func (service *SubscriptionService) marketPriceView(
-	snapshots marketPriceSnapshots,
-	stale bool,
-	warning string,
-) MarketPriceView {
-	acquisitionHistory := service.marketPriceHistory(
-		marketAcquisitionProduct,
-		snapshots.Acquisition,
-	)
-	renewalHistory := service.marketPriceHistory(marketProduct, snapshots.Renewal)
-	acquisition := snapshots.Acquisition
-	renewal := snapshots.Renewal
-	return MarketPriceView{
-		Available:           true,
-		Stale:               stale,
-		Warning:             warning,
-		SourceURL:           marketSourcePageURL,
-		Snapshot:            &renewal,
-		History:             renewalHistory,
-		AcquisitionSnapshot: &acquisition,
-		RenewalSnapshot:     &renewal,
-		AcquisitionHistory:  acquisitionHistory,
-		RenewalHistory:      renewalHistory,
-	}
-}
-
-func (service *SubscriptionService) marketPriceHistory(
-	product string,
-	fallback model.MarketPriceSnapshot,
-) []model.MarketPriceSnapshot {
-	history, err := service.Store.ListMarketPriceSnapshots(marketProvider, product, marketHistoryLimit)
-	if err != nil || len(history) == 0 {
-		history = []model.MarketPriceSnapshot{fallback}
-	}
-	for left, right := 0, len(history)-1; left < right; left, right = left+1, right-1 {
-		history[left], history[right] = history[right], history[left]
-	}
-	return history
-}
-
 type priceAIOffersResponse struct {
 	Offers      []priceAIOffer `json:"offers"`
 	GeneratedAt time.Time      `json:"generatedAt"`
@@ -1062,7 +990,7 @@ type priceAIOffer struct {
 	SourceUpdatedAt *time.Time `json:"sourceUpdatedAt"`
 }
 
-func (service *SubscriptionService) fetchMarketPriceSnapshots() (marketPriceSnapshots, error) {
+func (service *SubscriptionService) fetchInternalMarketPriceSnapshots() (marketPriceSnapshots, error) {
 	marketURL := strings.TrimSpace(service.MarketPriceURL)
 	if marketURL == "" {
 		marketURL = defaultMarketPriceURL
@@ -1094,47 +1022,21 @@ func (service *SubscriptionService) fetchMarketPriceSnapshots() (marketPriceSnap
 	renewalPrices, renewalUpdatedAt := comparableMarketPrices(payload.Offers, marketOfferRenewal)
 	acquisitionPrices, _ = excludeDetachedLowPriceCluster(acquisitionPrices)
 	renewalPrices, _ = excludeDetachedLowPriceCluster(renewalPrices)
-	if len(acquisitionPrices) < 3 {
-		return marketPriceSnapshots{}, fmt.Errorf("可比的新购 Team 单席位报价不足 3 条")
-	}
-	if len(renewalPrices) < 3 {
-		return marketPriceSnapshots{}, fmt.Errorf("可比的续费 Team 单席位报价不足 3 条")
-	}
 	if acquisitionUpdatedAt.IsZero() {
 		acquisitionUpdatedAt = payload.GeneratedAt
-	}
-	if acquisitionUpdatedAt.IsZero() {
-		acquisitionUpdatedAt = service.now().UTC()
 	}
 	if renewalUpdatedAt.IsZero() {
 		renewalUpdatedAt = payload.GeneratedAt
 	}
-	if renewalUpdatedAt.IsZero() {
-		renewalUpdatedAt = service.now().UTC()
-	}
 	createdAt := service.now().UTC()
-	return marketPriceSnapshots{
-		Acquisition: model.MarketPriceSnapshot{
-			Provider:         marketProvider,
-			Product:          marketAcquisitionProduct,
-			LowPriceCents:    percentileCents(acquisitionPrices, 0.25),
-			MedianPriceCents: percentileCents(acquisitionPrices, 0.50),
-			HighPriceCents:   percentileCents(acquisitionPrices, 0.75),
-			SampleCount:      len(acquisitionPrices),
-			SourceUpdatedAt:  acquisitionUpdatedAt.UTC(),
-			CreatedAt:        createdAt,
-		},
-		Renewal: model.MarketPriceSnapshot{
-			Provider:         marketProvider,
-			Product:          marketProduct,
-			LowPriceCents:    percentileCents(renewalPrices, 0.25),
-			MedianPriceCents: percentileCents(renewalPrices, 0.50),
-			HighPriceCents:   percentileCents(renewalPrices, 0.75),
-			SampleCount:      len(renewalPrices),
-			SourceUpdatedAt:  renewalUpdatedAt.UTC(),
-			CreatedAt:        createdAt,
-		},
-	}, nil
+	result := marketPriceSnapshots{}
+	if len(acquisitionPrices) >= 3 && !acquisitionUpdatedAt.IsZero() {
+		result.Acquisition = normalizedMarketSnapshot(marketProvider, marketAcquisitionProduct, acquisitionPrices, acquisitionUpdatedAt, createdAt)
+	}
+	if len(renewalPrices) >= 3 && !renewalUpdatedAt.IsZero() {
+		result.Renewal = normalizedMarketSnapshot(marketProvider, marketProduct, renewalPrices, renewalUpdatedAt, createdAt)
+	}
+	return result, nil
 }
 
 type marketOfferSegment string
@@ -1147,7 +1049,7 @@ const (
 func comparableMarketPrices(offers []priceAIOffer, segment marketOfferSegment) ([]int64, time.Time) {
 	prices := make([]int64, 0, len(offers))
 	seen := make(map[string]struct{})
-	var newest time.Time
+	var oldest time.Time
 	for _, offer := range offers {
 		if !isComparableMarketOffer(offer) || marketSegmentForOffer(offer) != segment {
 			continue
@@ -1159,12 +1061,12 @@ func comparableMarketPrices(offers []priceAIOffer, segment marketOfferSegment) (
 		}
 		seen[key] = struct{}{}
 		prices = append(prices, priceCents)
-		if offer.SourceUpdatedAt != nil && offer.SourceUpdatedAt.After(newest) {
-			newest = *offer.SourceUpdatedAt
+		if offer.SourceUpdatedAt != nil && (oldest.IsZero() || offer.SourceUpdatedAt.Before(oldest)) {
+			oldest = *offer.SourceUpdatedAt
 		}
 	}
 	sort.Slice(prices, func(left int, right int) bool { return prices[left] < prices[right] })
-	return prices, newest
+	return prices, oldest
 }
 
 func marketSegmentForOffer(offer priceAIOffer) marketOfferSegment {
@@ -1299,23 +1201,22 @@ func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.M
 	}
 	teamPrices := make([]int64, 0)
 	for _, subscription := range subscriptions {
-		if subscription.BusinessType != model.SubscriptionBusinessTeam || subscription.SeatID <= 0 {
+		if subscription.BusinessType != model.SubscriptionBusinessTeam || subscription.SeatID <= 0 || subscription.IsResale ||
+			subscription.ArchivedAt != nil || subscription.CancellationRequestedAt != nil || subscription.PricePerPersonCents <= 0 {
 			continue
 		}
 		if _, active := activeAccountIDs[subscription.AccountID]; !active {
 			continue
 		}
-		if !subscription.IsResale && subscription.PricePerPersonCents > 0 {
-			factorNumerator, factorDenominator := marketMonthlyCycleFactor(subscription, service.now())
-			monthlyPriceCents := scalePriceCents(
-				subscription.PricePerPersonCents,
-				factorNumerator,
-				factorDenominator,
-			)
-			if monthlyPriceCents <= 0 {
-				monthlyPriceCents = subscription.PricePerPersonCents
-			}
-			teamPrices = append(teamPrices, monthlyPriceCents)
+		numerator, denominator := marketMonthlyCycleFactor(subscription, service.now())
+		// Invalid billing periods contribute no sample: a quarterly full price
+		// must never silently become a monthly contract price.
+		if numerator <= 0 || denominator <= 0 {
+			continue
+		}
+		monthly := scalePriceCents(subscription.PricePerPersonCents, numerator, denominator)
+		if monthly > 0 {
+			teamPrices = append(teamPrices, monthly)
 		}
 	}
 	sort.Slice(teamPrices, func(left int, right int) bool { return teamPrices[left] < teamPrices[right] })
@@ -1327,81 +1228,102 @@ func (service *SubscriptionService) buildPricingRecommendation(snapshot *model.M
 	if seatTotal > 0 {
 		seatCostFloorCents = divideRoundUp(monthlyAccountCostCents, int64(seatTotal))
 	}
-	recommendation := PricingRecommendation{
-		Action:                   "insufficient",
-		ReasonCodes:              []string{"insufficient_data"},
-		InternalMedianPriceCents: percentileCents(teamPrices, 0.5),
-		SeatCostFloorCents:       seatCostFloorCents,
-		SeatTotal:                seatTotal,
-		SeatUsed:                 seatUsed,
-		SeatAvailable:            maxInt(seatTotal-seatUsed, 0),
-		UtilizationPercent:       utilizationPercent,
+	var totalPrice int64
+	for _, price := range teamPrices {
+		totalPrice += price
 	}
-	if snapshot == nil || snapshot.SampleCount < 3 || len(teamPrices) == 0 || seatTotal == 0 {
+	recommendation := PricingRecommendation{
+		Action: "insufficient", Basis: "insufficient", ReasonCodes: []string{"insufficient_data"},
+		InternalSampleCount:      len(teamPrices),
+		InternalLowPriceCents:    percentileCents(teamPrices, .25),
+		InternalMedianPriceCents: percentileCents(teamPrices, .5),
+		InternalHighPriceCents:   percentileCents(teamPrices, .75),
+		SeatCostFloorCents:       seatCostFloorCents, SeatTotal: seatTotal, SeatUsed: seatUsed,
+		SeatAvailable: maxInt(seatTotal-seatUsed, 0), UtilizationPercent: utilizationPercent,
+	}
+	if len(teamPrices) > 0 {
+		recommendation.InternalMeanPriceCents = totalPrice / int64(len(teamPrices))
+	}
+	marketUsable := snapshot != nil && snapshot.SampleCount >= 3 && snapshot.LowPriceCents > 0 &&
+		snapshot.LowPriceCents <= snapshot.MedianPriceCents && snapshot.MedianPriceCents <= snapshot.HighPriceCents
+	if marketUsable && (!snapshot.SourceUpdatedAt.IsZero() || !snapshot.CreatedAt.IsZero()) {
+		marketUsable = service.marketSnapshotUsable(*snapshot)
+	}
+	internalMedian := recommendation.InternalMedianPriceCents
+	// Current contract prices, not historical transactions: median 50%, mean
+	// 25%, and each quartile 12.5%. Every valid paying seat has equal weight.
+	customerReference := (internalMedian*4 + recommendation.InternalMeanPriceCents*2 + recommendation.InternalLowPriceCents + recommendation.InternalHighPriceCents) / 8
+	discount := newSaleDiscountPercent(utilizationPercent)
+	marketReference, low, high := int64(0), recommendation.InternalLowPriceCents, recommendation.InternalHighPriceCents
+	if marketUsable {
+		marketReference = (snapshot.LowPriceCents + snapshot.MedianPriceCents*2 + snapshot.HighPriceCents) / 4
+		marketReference = marketReference * (100 - discount) / 100
+	}
+	suggested := customerReference
+	switch {
+	case len(teamPrices) > 0 && marketUsable:
+		recommendation.Basis = "market_and_customers"
+		recommendation.MarketWeightPercent = 40
+		suggested = (customerReference*60 + marketReference*40) / 100
+		low = (low*60 + snapshot.LowPriceCents*(100-discount)/100*40) / 100
+		high = (high*60 + snapshot.HighPriceCents*(100-discount)/100*40) / 100
+	case len(teamPrices) > 0:
+		recommendation.Basis = "customers_only"
+	case marketUsable:
+		// The basis vocabulary intentionally groups market-only evidence with
+		// market pricing; the 100% weight and zero internal count make it explicit.
+		recommendation.Basis = "market_and_customers"
+		recommendation.MarketWeightPercent = 100
+		suggested = marketReference
+		low = snapshot.LowPriceCents * (100 - discount) / 100
+		high = snapshot.HighPriceCents * (100 - discount) / 100
+	case seatCostFloorCents > 0:
+		recommendation.Basis = "cost_only"
+		suggested = seatCostFloorCents * 120 / 100
+		low, high = suggested, suggested
+	default:
 		return recommendation, nil
 	}
-
-	internalMedian := recommendation.InternalMedianPriceCents
-	discountPercent := newSaleDiscountPercent(utilizationPercent)
-	reportedMarketHigh := snapshot.HighPriceCents
-	costProtectedFloor := seatCostFloorCents * 120 / 100
-	minimumHealthyPrice := maxInt64(costProtectedFloor, internalMedian)
-	lowerPriceTest := utilizationPercent < 70 &&
-		reportedMarketHigh > costProtectedFloor &&
-		internalMedian > reportedMarketHigh*120/100
-	marketLow, marketMedian, _, internalAnchorApplied := balancedMarketBenchmarks(
-		snapshot.LowPriceCents,
-		snapshot.MedianPriceCents,
-		snapshot.HighPriceCents,
-		internalMedian,
-		discountPercent,
-	)
-	suggestedLow, suggestedHigh, discountApplied := attractiveNewSaleRange(
-		marketLow,
-		marketMedian,
-		minimumHealthyPrice,
-		discountPercent,
-	)
-	if lowerPriceTest {
-		// A weak occupancy signal may justify a small acquisition experiment,
-		// but never a race to the bottom. Limit the test to 3% below the actual
-		// paid-price median and keep the cost margin floor intact.
-		suggestedLow = maxInt64(
-			roundPriceUpToYuan(costProtectedFloor),
-			roundPriceUpToYuan(internalMedian*(100-controlledLowerTestPercent)/100),
-		)
-		suggestedHigh = maxInt64(suggestedLow, roundPriceDownToYuan(internalMedian))
-		discountApplied = true
-		discountPercent = controlledLowerTestPercent
+	// Utilization changes the weighted reference by at most 3%; the 20%
+	// operating margin floor is a hard bound. A lower-price experiment never
+	// cuts current median contract prices by more than 3% in one step.
+	adjustment := int64(100)
+	if utilizationPercent < 70 {
+		adjustment = 97
+	} else if utilizationPercent >= 85 {
+		adjustment = 103
 	}
-	recommendation.SuggestedLowPriceCents = suggestedLow
-	recommendation.SuggestedHighPriceCents = suggestedHigh
-	if discountApplied {
-		recommendation.NewSaleDiscountPercent = int(discountPercent)
+	floor := roundPriceUpToYuan(seatCostFloorCents * 120 / 100)
+	if internalMedian > 0 {
+		floor = maxInt64(floor, roundPriceUpToYuan(internalMedian*97/100))
+	}
+	applyBounds := func(value int64) int64 {
+		value = roundPriceDownToYuan(value * adjustment / 100)
+		if internalMedian > 0 {
+			value = minInt64(value, roundPriceUpToYuan(internalMedian*135/100))
+		}
+		return maxInt64(value, floor)
+	}
+	recommendation.SuggestedPriceCents = applyBounds(suggested)
+	recommendation.SuggestedLowPriceCents = minInt64(applyBounds(low), recommendation.SuggestedPriceCents)
+	recommendation.SuggestedHighPriceCents = maxInt64(applyBounds(high), recommendation.SuggestedPriceCents)
+	recommendation.Action = "hold"
+	recommendation.ReasonCodes = []string{"current_contract_distribution", "cost_margin_floor", "bounded_utilization_adjustment"}
+	if marketUsable {
+		recommendation.NewSaleDiscountPercent = int(discount)
+		recommendation.ReasonCodes = append(recommendation.ReasonCodes, "weighted_market_quantiles")
+	} else {
+		recommendation.ReasonCodes = append(recommendation.ReasonCodes, "market_unavailable")
 	}
 	switch {
-	case lowerPriceTest:
+	case utilizationPercent < 70 && marketUsable && internalMedian > 0 && snapshot.HighPriceCents*120/100 < internalMedian:
 		recommendation.Action = "lower_test"
-		recommendation.ReasonCodes = []string{"above_market", "available_seats"}
+		recommendation.NewSaleDiscountPercent = 3
+		recommendation.ReasonCodes = append(recommendation.ReasonCodes, "controlled_price_test")
 	case utilizationPercent < 70:
 		recommendation.Action = "fill"
-		recommendation.ReasonCodes = []string{"low_utilization", "protect_occupancy"}
-	case utilizationPercent >= 85 && internalMedian < marketLow*95/100:
+	case marketUsable && utilizationPercent >= 85 && internalMedian > 0 && recommendation.SuggestedPriceCents > internalMedian*103/100:
 		recommendation.Action = "raise"
-		recommendation.ReasonCodes = []string{"high_utilization", "below_market"}
-	default:
-		recommendation.Action = "hold"
-		recommendation.ReasonCodes = []string{"price_in_range", "stable_utilization"}
-	}
-	if lowerPriceTest {
-		recommendation.ReasonCodes = append(recommendation.ReasonCodes, "controlled_price_test")
-	} else if discountApplied {
-		recommendation.ReasonCodes = append(recommendation.ReasonCodes, "new_sale_advantage")
-	} else {
-		recommendation.ReasonCodes = append(recommendation.ReasonCodes, "margin_floor_limits_discount")
-	}
-	if internalAnchorApplied {
-		recommendation.ReasonCodes = append(recommendation.ReasonCodes, "anti_price_war_anchor")
 	}
 	return recommendation, nil
 }
@@ -1410,6 +1332,10 @@ func (service *SubscriptionService) buildPricingCandidates(
 	snapshot *model.MarketPriceSnapshot,
 	minimumHealthyPriceCents int64,
 ) ([]PricingCandidate, error) {
+	if snapshot != nil && (!snapshot.SourceUpdatedAt.IsZero() || !snapshot.CreatedAt.IsZero()) && !service.marketSnapshotUsable(*snapshot) {
+		snapshot = nil
+	}
+
 	accounts, err := service.Store.ListAccounts()
 	if err != nil {
 		return nil, err
@@ -2687,56 +2613,6 @@ func newSaleDiscountPercent(utilizationPercent int) int64 {
 	}
 }
 
-// balancedMarketBenchmarks combines public listings with the portfolio's
-// actual paid-price median. The anchor is high enough that applying the
-// acquisition discount cannot recommend selling below the current healthy
-// book merely because a marketplace is temporarily racing downward.
-func balancedMarketBenchmarks(
-	marketLowCents int64,
-	marketMedianCents int64,
-	marketHighCents int64,
-	internalMedianCents int64,
-	discountPercent int64,
-) (int64, int64, int64, bool) {
-	originalLow := marketLowCents
-	originalMedian := marketMedianCents
-	if internalMedianCents > 0 {
-		lowAnchor := divideRoundUp(internalMedianCents*(100+discountPercent), 100)
-		medianAnchor := divideRoundUp(internalMedianCents*(104+discountPercent), 100)
-		marketLowCents = maxInt64(marketLowCents, lowAnchor)
-		marketMedianCents = maxInt64(marketMedianCents, medianAnchor)
-	}
-	marketMedianCents = maxInt64(marketMedianCents, marketLowCents)
-	marketHighCents = maxInt64(marketHighCents, marketMedianCents)
-	return marketLowCents, marketMedianCents, marketHighCents,
-		marketLowCents != originalLow || marketMedianCents != originalMedian
-}
-
-// attractiveNewSaleRange keeps a deliberate acquisition advantage against
-// both the lower and typical market references. The advantage narrows as
-// utilization rises, while the rounded healthy floor prevents discounts from
-// turning a new order unprofitable.
-func attractiveNewSaleRange(
-	marketLowCents int64,
-	marketMedianCents int64,
-	minimumHealthyPriceCents int64,
-	discountPercent int64,
-) (int64, int64, bool) {
-	healthyFloor := roundPriceUpToYuan(minimumHealthyPriceCents)
-	discountedLow := roundPriceDownToYuan(marketLowCents * (100 - discountPercent) / 100)
-	discountedHigh := roundPriceDownToYuan(marketMedianCents * (100 - discountPercent) / 100)
-	if discountedHigh < discountedLow {
-		discountedHigh = discountedLow
-	}
-
-	suggestedLow := maxInt64(healthyFloor, discountedLow)
-	suggestedHigh := maxInt64(suggestedLow, discountedHigh)
-	if suggestedHigh > healthyFloor && suggestedHigh-suggestedLow < minimumNewSaleRangeCents {
-		suggestedLow = maxInt64(healthyFloor, suggestedHigh-minimumNewSaleRangeCents)
-	}
-	return suggestedLow, suggestedHigh, healthyFloor <= discountedHigh
-}
-
 func roundPriceDownToYuan(cents int64) int64 {
 	if cents <= 0 {
 		return 0
@@ -2967,12 +2843,13 @@ func (service *SubscriptionService) ExemptBulkPricing(input BulkPricingExemption
 		return 0, fmt.Errorf("豁免备注最多 %d 个字", maximumPricingExemptionNoteRunes)
 	}
 
+	market, marketErr := service.cachedMarketPrice()
+	if marketErr != nil {
+		return 0, marketErr
+	}
 	var snapshot *model.MarketPriceSnapshot
-	latestSnapshot, latestErr := service.Store.LatestMarketPriceSnapshot(marketProvider, marketProduct)
-	if latestErr == nil {
-		snapshot = &latestSnapshot
-	} else if latestErr != sql.ErrNoRows {
-		return 0, latestErr
+	if market.RenewalUsable {
+		snapshot = market.RenewalSnapshot
 	}
 	candidates, err := service.buildPricingCandidates(snapshot, 0)
 	if err != nil {

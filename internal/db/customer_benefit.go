@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -18,7 +19,7 @@ const customerBenefitSelectColumns = `
 	customer_group_size_snapshot, current_price_cents_snapshot,
 	renewal_count_snapshot, price_before_cents, price_after_cents,
 	price_effective_due_date, price_adjustment_key,
-	recommendation_code, note, created_at,
+	recommendation_code, note, created_at, observation_seats,
 	COALESCE((SELECT extension_days FROM subscription_due_extensions WHERE customer_benefit_id = customer_benefits.id), 0),
 	(SELECT created_at FROM subscription_due_extensions WHERE customer_benefit_id = customer_benefits.id),
 	COALESCE((SELECT revision.action FROM subscription_due_extensions AS extension
@@ -145,6 +146,18 @@ func (store *Store) CreateCustomerBenefitsAndUpdateSubscriptionNextPricesWithEma
 	if err != nil {
 		return err
 	}
+	observedDueDates := make(map[int64]model.CustomerBenefitObservation, len(scheduledSubscriptions))
+	for _, subscription := range scheduledSubscriptions {
+		schedule, err := subscription.BillingSchedule()
+		if err != nil {
+			return err
+		}
+		base, err := schedule.BaseDueDate(subscription.NextPriceEffectiveDueDate)
+		if err != nil {
+			return err
+		}
+		observedDueDates[subscription.ID] = model.CustomerBenefitObservation{DueDate: subscription.NextPriceEffectiveDueDate, BaseDueDate: base}
+	}
 	for index := range benefits {
 		before := scheduledSubscriptions[index].PricePerPersonCents
 		after := *scheduledSubscriptions[index].NextPriceCents
@@ -159,6 +172,12 @@ func (store *Store) CreateCustomerBenefitsAndUpdateSubscriptionNextPricesWithEma
 			after,
 		)
 		benefits[index].NextDueDateSnapshot = effectiveDueDate
+		for seatIndex := range benefits[index].ObservationSeats {
+			seat := &benefits[index].ObservationSeats[seatIndex]
+			if actual, exists := observedDueDates[seat.SubscriptionID]; exists {
+				seat.DueDate, seat.BaseDueDate = actual.DueDate, actual.BaseDueDate
+			}
+		}
 	}
 	if err := createCustomerBenefitsWithTransaction(transaction, benefits); err != nil {
 		return err
@@ -254,6 +273,10 @@ func createCustomerBenefitsWithTransaction(
 ) error {
 	for index := range benefits {
 		benefit := benefits[index]
+		observations, err := json.Marshal(benefit.ObservationSeats)
+		if err != nil {
+			return err
+		}
 		createdAt := benefit.CreatedAt
 		if createdAt.IsZero() {
 			createdAt = time.Now().UTC()
@@ -299,9 +322,9 @@ func createCustomerBenefitsWithTransaction(
 				customer_group_size_snapshot, current_price_cents_snapshot,
 				renewal_count_snapshot, price_before_cents, price_after_cents,
 				price_effective_due_date, price_adjustment_key,
-				recommendation_code, note, created_at
+				recommendation_code, note, created_at, observation_seats
 			)
-			SELECT ?, subscription.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+			SELECT ?, subscription.id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
 			FROM subscriptions AS subscription
 			JOIN seats AS seat ON seat.id = subscription.seat_id
 			JOIN accounts AS account ON account.id = seat.account_id
@@ -338,6 +361,7 @@ func createCustomerBenefitsWithTransaction(
 			benefit.RecommendationCode,
 			strings.TrimSpace(benefit.Note),
 			formatTime(createdAt.UTC()),
+			string(observations),
 			benefit.SubscriptionID,
 			model.SubscriptionBusinessTeam,
 			benefit.CurrentPriceCentsSnapshot,
@@ -393,6 +417,7 @@ func equivalentCustomerBenefitTypes(value string) []string {
 func scanCustomerBenefit(scanner scannable) (model.CustomerBenefit, error) {
 	var benefit model.CustomerBenefit
 	var createdAt string
+	var observations string
 	var extensionAppliedAt sql.NullString
 	var extensionRevisedAt sql.NullString
 	if err := scanner.Scan(
@@ -418,6 +443,7 @@ func scanCustomerBenefit(scanner scannable) (model.CustomerBenefit, error) {
 		&benefit.RecommendationCode,
 		&benefit.Note,
 		&createdAt,
+		&observations,
 		&benefit.ExtensionDays,
 		&extensionAppliedAt,
 		&benefit.ExtensionStatus,
@@ -432,6 +458,11 @@ func scanCustomerBenefit(scanner scannable) (model.CustomerBenefit, error) {
 		return model.CustomerBenefit{}, fmt.Errorf("parse customer benefit created_at: %w", err)
 	}
 	benefit.CreatedAt = parsed
+	if strings.TrimSpace(observations) != "" {
+		if err := json.Unmarshal([]byte(observations), &benefit.ObservationSeats); err != nil {
+			return model.CustomerBenefit{}, fmt.Errorf("parse customer benefit observation seats: %w", err)
+		}
+	}
 	if extensionAppliedAt.Valid {
 		appliedAt, err := parseTime(extensionAppliedAt.String)
 		if err != nil {
