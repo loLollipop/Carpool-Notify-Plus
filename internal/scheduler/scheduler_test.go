@@ -31,7 +31,8 @@ func (client *schedulerMarketClient) Do(*http.Request) (*http.Response, error) {
 				{"sourceId":"r1","sourceTitle":"ChatGPT Team 续费码","price":135,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
 				{"sourceId":"r2","sourceTitle":"ChatGPT Business renewal","price":145,"currency":"CNY","status":"in_stock","effectiveStatus":"available"},
 				{"sourceId":"r3","sourceTitle":"ChatGPT Team renew slot","price":155,"currency":"CNY","status":"in_stock","effectiveStatus":"available"}
-			]
+			],
+			"generatedAt":"2026-08-15T04:00:00Z"
 		}`)),
 	}, nil
 }
@@ -47,9 +48,10 @@ func TestRunnerRefreshesMarketOnStartupAndAfterInterval(t *testing.T) {
 	now.Store(time.Date(2026, time.August, 15, 12, 0, 0, 0, cycle.Location))
 	client := &schedulerMarketClient{}
 	subscriptionService := &service.SubscriptionService{
-		Store:        store,
-		Clock:        func() time.Time { return now.Load().(time.Time) },
-		MarketClient: client,
+		Store:          store,
+		Clock:          func() time.Time { return now.Load().(time.Time) },
+		MarketClient:   client,
+		MarketPriceURL: "https://fixture.invalid/offers",
 	}
 	runner := &Runner{
 		Service:        subscriptionService,

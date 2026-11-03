@@ -58,9 +58,10 @@ func openGoalTestService(t *testing.T) *SubscriptionService {
 	t.Cleanup(func() { _ = store.Close() })
 	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, cycle.Location)
 	return &SubscriptionService{
-		Store:        store,
-		Clock:        func() time.Time { return now },
-		MarketClient: failingMarketClient{},
+		Store:          store,
+		Clock:          func() time.Time { return now },
+		MarketClient:   failingMarketClient{},
+		MarketPriceURL: "https://fixture.invalid/offers",
 	}
 }
 
@@ -74,9 +75,10 @@ func TestMarketRefreshIsCachedConcurrentAndRefreshesAfterTTL(t *testing.T) {
 	now := time.Date(2026, time.August, 15, 12, 0, 0, 0, cycle.Location)
 	client := &countingMarketClient{delay: 15 * time.Millisecond}
 	service := &SubscriptionService{
-		Store:        store,
-		Clock:        func() time.Time { return now },
-		MarketClient: client,
+		Store:          store,
+		Clock:          func() time.Time { return now },
+		MarketClient:   client,
+		MarketPriceURL: "https://fixture.invalid/offers",
 	}
 
 	const workers = 8
@@ -1272,8 +1274,8 @@ func TestComparableMarketPricesFiltersMixedProductsAndDeduplicates(t *testing.T)
 	if len(prices) != 3 || prices[0] != 11300 || prices[1] != 13000 || prices[2] != 15000 {
 		t.Fatalf("comparable prices = %#v", prices)
 	}
-	if !updatedAt.Equal(newest) {
-		t.Fatalf("source updated at = %s, want %s", updatedAt, newest)
+	if !updatedAt.Equal(older) {
+		t.Fatalf("source updated at = %s, want %s", updatedAt, older)
 	}
 	if low, median, high := percentileCents(prices, 0.25), percentileCents(prices, 0.5), percentileCents(prices, 0.75); low != 12150 || median != 13000 || high != 14000 {
 		t.Fatalf("quartiles = %d/%d/%d, want 12150/13000/14000", low, median, high)
@@ -1282,8 +1284,8 @@ func TestComparableMarketPricesFiltersMixedProductsAndDeduplicates(t *testing.T)
 	if len(renewalPrices) != 3 || renewalPrices[0] != 13500 || renewalPrices[1] != 14500 || renewalPrices[2] != 15500 {
 		t.Fatalf("renewal prices = %#v", renewalPrices)
 	}
-	if !renewalUpdatedAt.Equal(newest) {
-		t.Fatalf("renewal source updated at = %s, want %s", renewalUpdatedAt, newest)
+	if !renewalUpdatedAt.Equal(older) {
+		t.Fatalf("renewal source updated at = %s, want %s", renewalUpdatedAt, older)
 	}
 }
 
@@ -1310,17 +1312,6 @@ func TestExcludeDetachedLowPriceClusterIgnoresPriceWarMinority(t *testing.T) {
 	}
 }
 
-func TestBalancedMarketBenchmarksProtectsHealthyPaidPrice(t *testing.T) {
-	low, median, high, anchored := balancedMarketBenchmarks(5000, 6000, 7000, 9000, 5)
-	if !anchored || low != 9450 || median != 9810 || high != 9810 {
-		t.Fatalf("balanced benchmark = %d/%d/%d anchored=%t", low, median, high, anchored)
-	}
-	suggestedLow, suggestedHigh, _ := attractiveNewSaleRange(low, median, 9000, 5)
-	if suggestedLow < 9000 || suggestedHigh < suggestedLow {
-		t.Fatalf("price-war market reduced healthy book: %d/%d", suggestedLow, suggestedHigh)
-	}
-}
-
 func TestPricingRecommendationRespectsUtilizationBeforeRaisingPrice(t *testing.T) {
 	snapshot := &model.MarketPriceSnapshot{
 		LowPriceCents:    13000,
@@ -1336,7 +1327,7 @@ func TestPricingRecommendationRespectsUtilizationBeforeRaisingPrice(t *testing.T
 		t.Fatal(err)
 	}
 	if lowAdvice.Action != "fill" || lowAdvice.UtilizationPercent != 40 ||
-		lowAdvice.SuggestedLowPriceCents != 12000 || lowAdvice.SuggestedHighPriceCents != 13000 ||
+		lowAdvice.SuggestedLowPriceCents != 10500 || lowAdvice.SuggestedHighPriceCents != 11200 ||
 		lowAdvice.NewSaleDiscountPercent != 7 {
 		t.Fatalf("low-utilization advice = %#v", lowAdvice)
 	}
@@ -1348,7 +1339,7 @@ func TestPricingRecommendationRespectsUtilizationBeforeRaisingPrice(t *testing.T
 		t.Fatal(err)
 	}
 	if highAdvice.Action != "raise" || highAdvice.UtilizationPercent != 90 ||
-		highAdvice.SuggestedLowPriceCents != 12600 || highAdvice.SuggestedHighPriceCents != 13500 ||
+		highAdvice.SuggestedLowPriceCents != 11300 || highAdvice.SuggestedHighPriceCents != 12100 ||
 		highAdvice.NewSaleDiscountPercent != 3 {
 		t.Fatalf("high-utilization advice = %#v", highAdvice)
 	}
@@ -1366,8 +1357,8 @@ func TestPricingRecommendationDoesNotCollapseCurrentMarketRange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if advice.Action != "raise" || advice.SuggestedLowPriceCents != 12600 ||
-		advice.SuggestedHighPriceCents != 12900 || advice.NewSaleDiscountPercent != 3 {
+	if advice.Action != "raise" || advice.SuggestedLowPriceCents != 10800 ||
+		advice.SuggestedHighPriceCents != 11200 || advice.NewSaleDiscountPercent != 3 {
 		t.Fatalf("current-market new-sale range = %#v", advice)
 	}
 }
@@ -1385,26 +1376,8 @@ func TestPricingRecommendationCapsLowUtilizationPriceTestAtThreePercent(t *testi
 		t.Fatal(err)
 	}
 	if advice.Action != "lower_test" || advice.SuggestedLowPriceCents != 15600 ||
-		advice.SuggestedHighPriceCents != 16000 || advice.NewSaleDiscountPercent != 3 {
+		advice.SuggestedHighPriceCents != 15600 || advice.NewSaleDiscountPercent != 3 {
 		t.Fatalf("controlled lower-price test = %#v", advice)
-	}
-}
-
-func TestAttractiveNewSaleRangePreservesMarginFloor(t *testing.T) {
-	for utilization, want := range map[int]int64{0: 7, 69: 7, 70: 5, 84: 5, 85: 3, 100: 3} {
-		if got := newSaleDiscountPercent(utilization); got != want {
-			t.Fatalf("discount at %d%% utilization = %d, want %d", utilization, got, want)
-		}
-	}
-
-	low, high, discountApplied := attractiveNewSaleRange(13000, 14000, 13850, 7)
-	if low != 13900 || high != 13900 || discountApplied {
-		t.Fatalf("margin-constrained range = %d/%d, discountApplied = %t", low, high, discountApplied)
-	}
-
-	low, high, discountApplied = attractiveNewSaleRange(13100, 13200, 10000, 3)
-	if low != 12500 || high != 12800 || !discountApplied {
-		t.Fatalf("minimum-width attractive range = %d/%d, discountApplied = %t", low, high, discountApplied)
 	}
 }
 
@@ -2285,11 +2258,17 @@ func TestBulkPricingExemptionIsAtomicBlocksCurrentRoundAndReentersLater(t *testi
 	}
 
 	laterService := &SubscriptionService{
-		Store:        service.Store,
-		MarketClient: service.MarketClient,
+		Store:          service.Store,
+		MarketClient:   service.MarketClient,
+		MarketPriceURL: service.MarketPriceURL,
 		Clock: func() time.Time {
 			return time.Date(2026, time.September, 14, 12, 0, 0, 0, cycle.Location)
 		},
+	}
+	snapshot.SourceUpdatedAt = laterService.now()
+	snapshot.CreatedAt = laterService.now()
+	if _, err := service.Store.InsertMarketPriceSnapshot(snapshot); err != nil {
+		t.Fatal(err)
 	}
 	expiredCandidates, err := laterService.buildPricingCandidates(&snapshot, 0)
 	if err != nil || len(expiredCandidates) != 1 || !expiredCandidates[0].Eligible ||

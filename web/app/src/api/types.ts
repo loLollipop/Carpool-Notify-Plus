@@ -859,6 +859,10 @@ interface MarketPriceView {
   renewal_snapshot: MarketPriceSnapshot | null
   acquisition_history: MarketPriceSnapshot[] | null
   renewal_history: MarketPriceSnapshot[] | null
+  acquisition_usable: boolean
+  renewal_usable: boolean
+  checked_at: string
+  warning_code: string
 }
 
 interface PricingRecommendation {
@@ -873,6 +877,13 @@ interface PricingRecommendation {
   seat_available: number
   utilization_percent: number
   new_sale_discount_percent: number
+  suggested_price_cents: number
+  internal_sample_count: number
+  internal_low_price_cents: number
+  internal_high_price_cents: number
+  internal_mean_price_cents: number
+  market_weight_percent: number
+  basis: "market_and_customers" | "customers_only" | "cost_only" | "insufficient"
 }
 
 export interface PricingCandidate {
@@ -1028,6 +1039,7 @@ export interface CustomerBenefitCandidate {
   customer_tier: "core" | "mainstay" | "optimize"
   seat_count: number
   current_cycle_value_cents: number
+  minimum_current_price_cents: number
   monthly_value_cents: number
   renewal_count: number
   relationship_days: number

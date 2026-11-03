@@ -17,6 +17,7 @@ func (store *Store) ensureCustomerBenefitPriceAdjustmentColumns() error {
 		name      string
 		statement string
 	}{
+		{"observation_seats", `ALTER TABLE customer_benefits ADD COLUMN observation_seats TEXT NOT NULL DEFAULT ''`},
 		{"price_before_cents", `ALTER TABLE customer_benefits ADD COLUMN price_before_cents INTEGER NOT NULL DEFAULT 0 CHECK(price_before_cents >= 0)`},
 		{"price_after_cents", `ALTER TABLE customer_benefits ADD COLUMN price_after_cents INTEGER NOT NULL DEFAULT 0 CHECK(price_after_cents >= 0)`},
 		{"price_effective_due_date", `ALTER TABLE customer_benefits ADD COLUMN price_effective_due_date TEXT NOT NULL DEFAULT ''`},

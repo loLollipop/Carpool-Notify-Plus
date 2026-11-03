@@ -378,6 +378,14 @@ type SubscriptionPriceChange struct {
 	CreatedAt          time.Time `json:"created_at"`
 }
 
+// CustomerBenefitObservation preserves one seat and its unpaid logical period.
+type CustomerBenefitObservation struct {
+	SubscriptionID int64  `json:"subscription_id"`
+	DueDate        string `json:"due_date"`
+	BaseDueDate    string `json:"base_due_date"`
+	LastBillID     int64  `json:"last_bill_id"`
+}
+
 // CustomerBenefit is one manually delivered customer-care benefit. Financial
 // cost and decision-time snapshots are immutable so later retention analysis
 // does not accidentally use today's price or customer tier for an old action.
@@ -410,6 +418,8 @@ type CustomerBenefit struct {
 	ExtensionRevisedAt        *time.Time `json:"extension_revised_at,omitempty"`
 	ReplacementBenefitID      int64      `json:"replacement_benefit_id,omitempty"`
 	CreatedAt                 time.Time  `json:"created_at"`
+
+	ObservationSeats []CustomerBenefitObservation `json:"observation_seats,omitempty"`
 }
 
 // IsEffectiveForReporting reports whether this immutable benefit row still

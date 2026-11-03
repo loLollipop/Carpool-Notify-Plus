@@ -704,11 +704,11 @@ func (store *Store) ReviseCustomerBenefitExtension(input ReviseDueExtensionInput
 			benefit_date, next_due_date_snapshot, customer_email_snapshot, customer_wechat_snapshot,
 			customer_tier_snapshot, customer_group_size_snapshot, current_price_cents_snapshot,
 			renewal_count_snapshot, price_before_cents, price_after_cents, price_effective_due_date,
-			price_adjustment_key, recommendation_code, note, created_at)
+			price_adjustment_key, recommendation_code, note, created_at, observation_seats)
 		SELECT ?, subscription_id, benefit_type, ?, actual_cost_cents, perceived_value_cents,
 			?, ?, customer_email_snapshot, customer_wechat_snapshot, customer_tier_snapshot,
 			customer_group_size_snapshot, current_price_cents_snapshot, renewal_count_snapshot,
-			price_before_cents, price_after_cents, price_effective_due_date, '', recommendation_code, note, ?
+			price_before_cents, price_after_cents, price_effective_due_date, '', recommendation_code, note, ?, observation_seats
 		FROM customer_benefits WHERE id = ?`, batchID, fmt.Sprintf("赠送延期 %d 天", input.ExtensionDays),
 			cycle.FormatDate(now.In(cycle.Location)), effective, formatTime(now.UTC()), benefit.ID)
 		if insertErr != nil {

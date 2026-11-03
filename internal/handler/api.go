@@ -175,7 +175,11 @@ func (server *Server) postRefreshGoalMarket(context *gin.Context) {
 		respondError(context, http.StatusBadGateway, err.Error())
 		return
 	}
-	respondOK(context, gin.H{"message": "市场行情已更新", "market": market})
+	message := "市场行情检查完成"
+	if market.Warning != "" {
+		message = market.Warning
+	}
+	respondOK(context, gin.H{"message": message, "market": market})
 }
 
 type bulkNextPriceRequest struct {

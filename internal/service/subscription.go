@@ -58,6 +58,7 @@ type SubscriptionService struct {
 
 	runtimeConfigMu sync.RWMutex
 	marketRefreshMu sync.Mutex
+	marketCache     marketCacheState
 	// dueNotificationMu orders extension revisions and payment cancellations with
 	// notification delivery. Database CAS guards stale due-notification workers.
 	dueNotificationMu sync.Mutex

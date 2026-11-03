@@ -1,5 +1,7 @@
 import * as React from "react"
+import { useMutation } from "@tanstack/react-query"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import {
   Bar,
   CartesianGrid,
@@ -571,15 +573,14 @@ function MarketPanel({
   refreshing: boolean
   onRefresh: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const pricing = data.pricing
   const market = data.market
-  const snapshot = market.acquisition_snapshot ?? market.snapshot
-  const renewalSnapshot = market.renewal_snapshot ?? market.snapshot
+  const snapshot = market.acquisition_snapshot
+  const renewalSnapshot = market.renewal_snapshot
   const utilization = Math.min(100, Math.max(0, pricing.utilization_percent || 0))
   const newSaleDiscount = Math.max(0, pricing.new_sale_discount_percent || 0)
-  const benchmarkData = snapshot
-    ? [
+  const benchmarkData = [
         {
           label: t("goals.seatCostFloorShort"),
           shortLabel: t("goals.seatCostFloorAxis"),
@@ -592,6 +593,13 @@ function MarketPanel({
           value: pricing.internal_median_price_cents,
           color: "var(--brand)",
         },
+        {
+          label: t("goals.customerMean"),
+          shortLabel: t("goals.customerMeanShort"),
+          value: pricing.internal_mean_price_cents,
+          color: "var(--chart-2)",
+        },
+        ...(snapshot ? [
         {
           label: t("goals.marketLow"),
           shortLabel: t("goals.marketLowShort"),
@@ -610,6 +618,7 @@ function MarketPanel({
           value: snapshot.high_price_cents,
           color: "color-mix(in oklab, var(--success) 68%, var(--muted))",
         },
+        ] : []),
         ...(renewalSnapshot
           ? [
               {
@@ -621,7 +630,20 @@ function MarketPanel({
             ]
           : []),
       ]
-    : []
+  const displayTime = (value?: string) => {
+    if (!value || value.startsWith("0001")) return null
+    const date = new Date(value)
+    return Number.isFinite(date.getTime())
+      ? new Intl.DateTimeFormat(i18n.language, {
+          timeZone: "Asia/Shanghai", month: "2-digit", day: "2-digit",
+          year: "numeric", hour: "2-digit", minute: "2-digit",
+        }).format(date)
+      : null
+  }
+  const sourceTime = displayTime((snapshot ?? renewalSnapshot ?? market.snapshot)?.source_updated_at)
+  const checkedTime = displayTime(market.checked_at)
+  const recommendationReasons = (pricing.reason_codes ?? [])
+    .filter((code) => i18n.exists(`goals.reason.${code}`))
   const positiveBenchmarkValues = benchmarkData
     .map((item) => item.value)
     .filter((value) => value > 0)
@@ -692,6 +714,11 @@ function MarketPanel({
       </div>
 
       <div className="p-4">
+        {market.warning ? (
+          <p role="status" className="mb-3 rounded-md bg-warning/10 px-3 py-2 text-xs leading-5 text-warning-foreground">
+            {market.warning}
+          </p>
+        ) : null}
         <div className="grid grid-cols-[92px_minmax(0,1fr)] items-center gap-3">
           <div
             className="relative grid size-[88px] place-items-center rounded-full"
@@ -716,24 +743,21 @@ function MarketPanel({
                 available: pricing.seat_available,
               })}
             </p>
-            {pricing.suggested_low_price_cents > 0 ? (
+            {pricing.suggested_price_cents > 0 ? (
               <div className="mt-2 rounded-md bg-brand/[0.06] px-2.5 py-2">
                 <p className="text-[9px] font-medium text-muted-foreground">
-                  {t(
-                    pricing.suggested_low_price_cents === pricing.suggested_high_price_cents
-                      ? "goals.suggestedPrice"
-                      : "goals.suggestedRange",
-                  )}
+                  {t("goals.suggestedPrice")}
                 </p>
                 <p className="display-numeral mt-1 truncate text-base leading-none text-brand">
-                  {visibleYuan(pricing.suggested_low_price_cents, amountsHidden)}
-                  {pricing.suggested_low_price_cents !== pricing.suggested_high_price_cents ? (
-                    <>
-                      <span className="mx-1 text-muted-foreground">–</span>
-                      {visibleYuan(pricing.suggested_high_price_cents, amountsHidden)}
-                    </>
-                  ) : null}
+                  {visibleYuan(pricing.suggested_price_cents, amountsHidden)}
+                  <span className="ml-1 text-[10px] font-normal">{t("goals.perMonth")}</span>
                 </p>
+                <p className="mt-1 text-[9px] leading-4 text-muted-foreground">{t(`goals.pricingBasis.${pricing.basis}`)}</p>
+                <p className="mt-1 text-[9px] leading-4 text-muted-foreground">
+                  {t("goals.suggestedRange")}: {visibleYuan(pricing.suggested_low_price_cents, amountsHidden)}
+                  {" – "}{visibleYuan(pricing.suggested_high_price_cents, amountsHidden)}
+                </p>
+                {pricing.basis === "market_and_customers" ? (
                 <p className="mt-1.5 line-clamp-2 text-[9px] leading-3.5 text-muted-foreground">
                   {pricing.action === "lower_test" && newSaleDiscount > 0
                     ? t("goals.controlledPriceTest", { value: newSaleDiscount })
@@ -741,19 +765,40 @@ function MarketPanel({
                     ? t("goals.newSaleAdvantage", { value: newSaleDiscount })
                     : t("goals.newSaleMarginFloor")}
                 </p>
+                ) : null}
               </div>
             ) : null}
           </div>
         </div>
 
-        {snapshot ? (
+        <div className="mt-3 grid gap-1 text-[10px] leading-5 text-muted-foreground">
+          <p>{t("goals.customerPriceSamples", { count: pricing.internal_sample_count })}</p>
+          {pricing.internal_sample_count > 0 ? <p>{t("goals.customerPriceBand", {
+            low: visibleYuan(pricing.internal_low_price_cents, amountsHidden),
+            high: visibleYuan(pricing.internal_high_price_cents, amountsHidden),
+          })}</p> : null}
+          {pricing.basis === "market_and_customers" ? <p>{t("goals.pricingWeights", {
+            market: pricing.market_weight_percent, customers: 100 - pricing.market_weight_percent,
+          })}</p> : null}
+          {sourceTime ? <p>{t("goals.marketSourceTime", { date: sourceTime })}</p> : null}
+          {checkedTime ? <p>{t("goals.marketCheckedTime", { date: checkedTime })}</p> : null}
+        </div>
+        {recommendationReasons.length > 0 ? (
+          <details className="mt-2 text-[10px] leading-5 text-muted-foreground">
+            <summary className="cursor-pointer font-medium">{t("goals.recommendationReasons")}</summary>
+            <ul className="mt-1 list-disc space-y-1 pl-4">
+              {recommendationReasons.map((code) => <li key={code}>{t(`goals.reason.${code}`)}</li>)}
+            </ul>
+          </details>
+        ) : null}
+        {benchmarkData.some((item) => item.value > 0) ? (
           <div className="mt-3 border-t pt-2.5">
             <div className="flex items-center justify-between gap-3">
               <p className="text-[10px] font-medium text-muted-foreground">
-                {t("goals.acquisitionPriceBenchmark")}
+                {t((snapshot && !market.acquisition_usable) || (renewalSnapshot && !market.renewal_usable) ? "goals.historicalPriceBenchmark" : "goals.priceBenchmark")}
               </p>
               <p className="text-[9px] text-muted-foreground">
-                {t("goals.marketSamples", { count: snapshot.sample_count })}
+                {snapshot ? t("goals.marketSamples", { count: snapshot.sample_count }) : t("goals.customerReference")}
               </p>
             </div>
             <div
@@ -3999,13 +4044,16 @@ function CustomerCarePanel({
       <CustomerBenefitDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
-        subscriptionIds={selectedCandidates.map((candidate) => candidate.subscription_id)}
+        subscriptionIds={[...new Set(selectedCandidates.flatMap((candidate) =>
+          candidate.subscription_ids?.length ? candidate.subscription_ids : [candidate.subscription_id],
+        ))]}
         suggestedType={suggestedBenefitType}
         targetLabel={selectedCandidates.length === 1 ? selectedCandidates[0].display_name : undefined}
+        currentPriceCents={selectedCandidates.length > 0
+          ? Math.min(...selectedCandidates.map((candidate) => candidate.minimum_current_price_cents))
+          : undefined}
         extensionReviewSnapshots={selectedCandidates.flatMap((candidate) =>
-          (candidate.extension_review_snapshots ?? []).filter(
-            (snapshot) => snapshot.subscription_id === candidate.subscription_id,
-          ),
+          candidate.extension_review_snapshots ?? [],
         )}
         onSuccess={() => setSelected(new Set())}
       />
@@ -4083,7 +4131,18 @@ export function GoalsPage() {
     requestId: number
   }>({ filter: "recommended", requestId: 0 })
 
-  const refreshMutation = useAppMutation(refreshGoalMarket, { scope: "goals" })
+  const refreshMutation = useMutation({
+    mutationFn: async () => {
+      const result = await refreshGoalMarket()
+      await query.refetch({ throwOnError: true })
+      return result
+    },
+    onSuccess: (result) => {
+      if (result.market.warning) toast.warning(result.market.warning)
+      else toast.success(result.message)
+    },
+    onError: (error: Error) => toast.error(error.message),
+  })
   const completeMutation = useAppMutation(
     (goalId: number) => completeBusinessGoal(goalId),
     { scope: "goals", onSuccess: () => setCompleteOpen(false) },
@@ -4093,7 +4152,7 @@ export function GoalsPage() {
   const upcomingPricingCount =
     query.data?.repricing_analysis?.windows
       ?.filter((window) => window.key === "next_30" || window.key === "next_60")
-      .reduce((total, window) => total + window.count, recommendedPricingCount) ??
+      .reduce((total, window) => total + window.count, 0) ??
     recommendedPricingCount
   const hasGoalHistory = (query.data?.history?.length ?? 0) > 0
   const recommendedCareCount = query.data?.customer_care?.summary.recommended_count ?? 0
@@ -4152,8 +4211,9 @@ export function GoalsPage() {
           )}
 
           <Tabs value={workspaceTab} onValueChange={changeWorkspaceTab} className="gap-3">
+            <div className="sticky top-[72px] z-20 max-w-full overflow-x-auto rounded-md border bg-card/95 shadow-card backdrop-blur-md">
             <TabsList
-              className="sticky top-[72px] z-20 grid h-11 w-full grid-cols-4 border bg-card/95 p-1 shadow-card backdrop-blur-md sm:w-fit sm:min-w-[700px]"
+              className="h-11 min-w-full justify-start border-0 bg-transparent p-1 sm:w-fit"
               aria-label={t("goals.workspaceNav")}
             >
               <TabsTrigger value="overview" className="h-9 px-3 text-xs sm:px-4 sm:text-sm">
@@ -4188,6 +4248,7 @@ export function GoalsPage() {
                 ) : null}
               </TabsTrigger>
             </TabsList>
+            </div>
 
             <TabsContent
               value="overview"
