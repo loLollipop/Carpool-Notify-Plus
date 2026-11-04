@@ -27,10 +27,9 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { extensionDateRange, extensionDaysUntil } from "./benefit-extension-date"
 
 type SupportedBenefitType = Extract<CustomerBenefitType, "extension" | "price_discount">
-
-const maximumExtensionDays = 365
 
 type CustomerBenefitDialogProps = {
   open: boolean
@@ -94,8 +93,8 @@ function CustomerBenefitForm({
   const [reviewSnapshots] = React.useState(extensionReviewSnapshots)
   const initialBenefitType = supportedBenefitType(suggestedType)
   const [benefitType, setBenefitType] = React.useState<SupportedBenefitType>(initialBenefitType)
-  const [extensionDays, setExtensionDays] = React.useState("")
-  const [extensionDaysTouched, setExtensionDaysTouched] = React.useState(false)
+  const [extensionUntil, setExtensionUntil] = React.useState("")
+  const [extensionDateTouched, setExtensionDateTouched] = React.useState(false)
   const [priceDiscount, setPriceDiscount] = React.useState("")
   const [priceDiscountTouched, setPriceDiscountTouched] = React.useState(false)
   const [actualCost, setActualCost] = React.useState("")
@@ -118,14 +117,13 @@ function CustomerBenefitForm({
     ? `goals.care.dialog.singleSummary.${benefitType}`
     : `goals.care.dialog.summary.${benefitType}`
   const summary = t(summaryKey, { name: targetLabel, count: reviewedSubscriptionIds.length })
-  const parsedExtensionDays = Number(extensionDays)
-  const hasValidExtensionDays = /^\d+$/.test(extensionDays)
-    && Number.isInteger(parsedExtensionDays)
-    && parsedExtensionDays >= 1
-    && parsedExtensionDays <= maximumExtensionDays
-  const extensionBenefitName = hasValidExtensionDays
-    ? t("goals.care.dialog.extensionBenefitName", { days: parsedExtensionDays })
-    : ""
+  const dateRange = extensionDateRange(reviewSnapshots.map((snapshot) => snapshot.expected_due_date))
+  const extensionLengths = reviewSnapshots.map((snapshot) => extensionDaysUntil(snapshot.expected_due_date, extensionUntil))
+  const hasValidExtensionDate = dateRange !== null
+    && dateRange.min <= dateRange.max
+    && extensionLengths.length === reviewedSubscriptionIds.length
+    && extensionLengths.every((days) => days !== null)
+  const days = extensionLengths.filter((value) => value !== null)
   const priceDiscountCents = parsePositiveYuanToCents(priceDiscount)
   const discountExceedsKnownPrice = priceDiscountCents !== null
     && currentPriceCents !== undefined
@@ -146,8 +144,8 @@ function CustomerBenefitForm({
           className="grid gap-4"
           onSubmit={(event) => {
             event.preventDefault()
-            if (benefitType === "extension" && !hasValidExtensionDays) {
-              setExtensionDaysTouched(true)
+            if (benefitType === "extension" && !hasValidExtensionDate) {
+              setExtensionDateTouched(true)
               return
             }
             if (benefitType === "price_discount" && !hasValidPriceDiscount) {
@@ -157,9 +155,10 @@ function CustomerBenefitForm({
             mutation.mutate({
               subscription_ids: reviewedSubscriptionIds,
               benefit_type: benefitType,
-              benefit_name: benefitType === "extension" ? extensionBenefitName : "",
+              benefit_name: "",
               operation_key: operationKey,
-              extension_days: benefitType === "extension" ? parsedExtensionDays : 0,
+              extension_days: 0,
+              extension_until: benefitType === "extension" ? extensionUntil : undefined,
               price_discount_yuan: benefitType === "price_discount" ? priceDiscount : "",
               actual_cost_yuan: actualCost,
               perceived_value_yuan: perceivedValue,
@@ -182,7 +181,7 @@ function CustomerBenefitForm({
                 onValueChange={(value) => {
                   const nextType = value as SupportedBenefitType
                   setBenefitType(nextType)
-                  setExtensionDaysTouched(false)
+                  setExtensionDateTouched(false)
                   setPriceDiscountTouched(false)
                 }}
               >
@@ -212,42 +211,46 @@ function CustomerBenefitForm({
           </div>
           {benefitType === "extension" ? (
             <div className="grid gap-2">
-              <Label htmlFor={`${fieldID}-extension-days`}>
-                {t("goals.care.dialog.extensionDays")}
+              <Label htmlFor={`${fieldID}-extension-until`}>
+                {t("goals.care.dialog.extensionUntil")}
               </Label>
-              <div className="flex">
-                <Input
-                  id={`${fieldID}-extension-days`}
-                  className="rounded-r-none border-r-0 tabular-nums focus-visible:z-10"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={maximumExtensionDays}
-                  step={1}
-                  value={extensionDays}
-                  onChange={(event) => setExtensionDays(event.target.value)}
-                  onBlur={() => setExtensionDaysTouched(true)}
-                  aria-invalid={extensionDaysTouched && !hasValidExtensionDays}
-                  aria-describedby={`${fieldID}-extension-days-help`}
-                  placeholder="7"
-                  required
-                  autoFocus
-                />
-                <span className="inline-flex h-9 shrink-0 items-center rounded-r-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground">
-                  {t("goals.care.dialog.daysUnit")}
-                </span>
-              </div>
+              <Input
+                id={`${fieldID}-extension-until`}
+                className="cursor-pointer tabular-nums"
+                type="date"
+                min={dateRange?.min}
+                max={dateRange?.max}
+                value={extensionUntil}
+                onClick={(event) => event.currentTarget.showPicker?.()}
+                onChange={(event) => setExtensionUntil(event.target.value)}
+                onBlur={() => setExtensionDateTouched(true)}
+                aria-invalid={extensionDateTouched && !hasValidExtensionDate}
+                aria-describedby={`${fieldID}-extension-date-help`}
+                required
+                autoFocus
+              />
+              {dateRange ? (
+                <p className="text-xs text-muted-foreground">
+                  {dateRange.earliestDue === dateRange.latestDue
+                    ? t("goals.care.dialog.currentDueDate", { date: dateRange.earliestDue })
+                    : t("goals.care.dialog.currentDueRange", { from: dateRange.earliestDue, to: dateRange.latestDue })}
+                </p>
+              ) : null}
               <p
-                id={`${fieldID}-extension-days-help`}
-                className={extensionDaysTouched && !hasValidExtensionDays
+                id={`${fieldID}-extension-date-help`}
+                className={extensionDateTouched && !hasValidExtensionDate
                   ? "text-xs text-destructive"
                   : "text-xs text-muted-foreground"}
               >
-                {extensionDaysTouched && !hasValidExtensionDays
-                  ? t("goals.care.dialog.extensionDaysError", { max: maximumExtensionDays })
-                  : hasValidExtensionDays
-                    ? t("goals.care.dialog.extensionDaysPreview", { days: parsedExtensionDays })
-                    : t("goals.care.dialog.extensionDaysHint", { max: maximumExtensionDays })}
+                {!dateRange || dateRange.min > dateRange.max
+                  ? t("goals.care.dialog.extensionDateUnavailable")
+                  : extensionDateTouched && !hasValidExtensionDate
+                    ? t("goals.care.dialog.extensionDateError", { min: dateRange.min, max: dateRange.max })
+                    : hasValidExtensionDate
+                      ? Math.min(...days) === Math.max(...days)
+                        ? t("goals.care.dialog.extensionDatePreview", { date: extensionUntil, days: days[0] })
+                        : t("goals.care.dialog.extensionDateRangePreview", { date: extensionUntil, min: Math.min(...days), max: Math.max(...days) })
+                      : t("goals.care.dialog.extensionDateHint")}
               </p>
             </div>
           ) : (
@@ -355,7 +358,7 @@ function CustomerBenefitForm({
                 || reviewedSubscriptionIds.length === 0
                 || (benefitType === "extension"
                   && reviewSnapshots.length !== reviewedSubscriptionIds.length)
-                || (benefitType === "extension" && !hasValidExtensionDays)
+                || (benefitType === "extension" && !hasValidExtensionDate)
                 || (benefitType === "price_discount" && !hasValidPriceDiscount)}
             >
               <Gift />

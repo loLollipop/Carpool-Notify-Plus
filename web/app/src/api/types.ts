@@ -1210,6 +1210,7 @@ export interface RecordCustomerBenefitsInput {
   benefit_name: string
   operation_key: string
   extension_days: number
+  extension_until?: string
   price_discount_yuan: string
   actual_cost_yuan: string
   perceived_value_yuan: string

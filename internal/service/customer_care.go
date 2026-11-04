@@ -133,6 +133,7 @@ type RecordCustomerBenefitsInput struct {
 	BenefitName              string
 	OperationKey             string
 	ExtensionDays            int
+	ExtensionUntil           string
 	PriceDiscountYuan        string
 	ActualCostYuan           string
 	PerceivedValueYuan       string
@@ -1201,9 +1202,23 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	}
 	var priceDiscountCents int64
 	schedulePriceDiscount := false
-	applyExtension := benefitType == model.CustomerBenefitTypeExtension && input.ExtensionDays > 0
+	extensionUntil := strings.TrimSpace(input.ExtensionUntil)
+	var extensionUntilDate time.Time
+	if extensionUntil != "" {
+		if benefitType != model.CustomerBenefitTypeExtension || input.ExtensionDays != 0 {
+			return 0, fmt.Errorf("延期至日期仅适用于延期福利，且不能与延期天数同时填写")
+		}
+		var parseErr error
+		extensionUntilDate, parseErr = time.ParseInLocation("2006-01-02", extensionUntil, cycle.Location)
+		if parseErr != nil || cycle.FormatDate(extensionUntilDate) != extensionUntil {
+			return 0, fmt.Errorf("延期至日期无效，请选择有效的收租日期")
+		}
+	}
+	applyExtension := benefitType == model.CustomerBenefitTypeExtension && (input.ExtensionDays > 0 || extensionUntil != "")
 	if benefitType == model.CustomerBenefitTypeExtension {
-		if legacyBenefitType && input.ExtensionDays == 0 && benefitName != "" {
+		if extensionUntil != "" {
+			benefitName = fmt.Sprintf("赠送延期至 %s", extensionUntil)
+		} else if legacyBenefitType && input.ExtensionDays == 0 && benefitName != "" {
 			// Historical clients only supplied a free-form name. Keep their legacy
 			// record-only behavior while current extension requests require days.
 		} else if input.ExtensionDays < 1 || input.ExtensionDays > maximumBenefitExtensionDays {
@@ -1321,7 +1336,7 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 	records := make([]model.CustomerBenefit, 0, len(subscriptionIDs))
 	notificationSubscriptions := make([]model.Subscription, 0, len(subscriptionIDs))
 	nextPriceUpdates := make([]model.Subscription, 0, len(subscriptionIDs))
-	for _, subscriptionID := range subscriptionIDs {
+	for index, subscriptionID := range subscriptionIDs {
 		candidate, exists := candidatesByID[subscriptionID]
 		if !exists || !candidate.Selectable {
 			return 0, fmt.Errorf("所选客户状态已变化，请刷新后重试")
@@ -1332,6 +1347,15 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 		}
 		notificationSubscriptions = append(notificationSubscriptions, subscription)
 		recordBenefitName := benefitName
+		recordExtensionDays := input.ExtensionDays
+		if extensionUntil != "" {
+			previous, _ := time.ParseInLocation("2006-01-02", extensionExpectations[index].PreviousEffectiveDueDate, cycle.Location)
+			recordExtensionDays = int(extensionUntilDate.Sub(previous) / (24 * time.Hour))
+			if recordExtensionDays < 1 || recordExtensionDays > maximumBenefitExtensionDays {
+				return 0, fmt.Errorf("延期至日期必须晚于每个所选订阅的当前收租日期，且每个订阅最多延期 %d 天", maximumBenefitExtensionDays)
+			}
+			recordBenefitName = fmt.Sprintf("赠送延期至 %s（%d 天）", extensionUntil, recordExtensionDays)
+		}
 		priceBeforeCents := int64(0)
 		priceAfterCents := int64(0)
 		if schedulePriceDiscount {
@@ -1387,7 +1411,7 @@ func (service *SubscriptionService) RecordCustomerBenefits(
 		}
 		records = append(records, model.CustomerBenefit{
 			ObservationSeats:          observations,
-			ExtensionDays:             input.ExtensionDays,
+			ExtensionDays:             recordExtensionDays,
 			BatchID:                   batchID,
 			SubscriptionID:            subscriptionID,
 			BenefitType:               benefitType,
