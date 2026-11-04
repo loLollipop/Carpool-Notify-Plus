@@ -278,6 +278,7 @@ type recordCustomerBenefitsRequest struct {
 	BenefitName              string                            `json:"benefit_name"`
 	OperationKey             string                            `json:"operation_key"`
 	ExtensionDays            int                               `json:"extension_days"`
+	ExtensionUntil           string                            `json:"extension_until"`
 	PriceDiscountYuan        string                            `json:"price_discount_yuan"`
 	ActualCostYuan           string                            `json:"actual_cost_yuan"`
 	PerceivedValueYuan       string                            `json:"perceived_value_yuan"`
@@ -299,6 +300,7 @@ func (server *Server) postGoalCustomerBenefits(context *gin.Context) {
 		BenefitName:              request.BenefitName,
 		OperationKey:             request.OperationKey,
 		ExtensionDays:            request.ExtensionDays,
+		ExtensionUntil:           request.ExtensionUntil,
 		PriceDiscountYuan:        request.PriceDiscountYuan,
 		ActualCostYuan:           request.ActualCostYuan,
 		PerceivedValueYuan:       request.PerceivedValueYuan,
@@ -315,7 +317,9 @@ func (server *Server) postGoalCustomerBenefits(context *gin.Context) {
 		return
 	}
 	message := fmt.Sprintf("已登记 %d 位客户的福利发放记录", recorded)
-	if request.ExtensionDays > 0 {
+	if strings.TrimSpace(request.ExtensionUntil) != "" {
+		message = fmt.Sprintf("已将 %d 个订阅的下次收租日期延期至 %s，并登记福利记录", recorded, strings.TrimSpace(request.ExtensionUntil))
+	} else if request.ExtensionDays > 0 {
 		message = fmt.Sprintf("已为 %d 个订阅延期 %d 天，并登记福利记录", recorded, request.ExtensionDays)
 	}
 	if strings.TrimSpace(request.PriceDiscountYuan) != "" &&

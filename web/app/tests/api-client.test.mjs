@@ -6,7 +6,7 @@ globalThis.window = {
   addEventListener() {},
 }
 
-const { api } = await import('../src/api/client.ts')
+const { api, setUnauthorizedHandler } = await import('../src/api/client.ts')
 const { clearCSRFToken } = await import('../src/lib/csrf.ts')
 const { enterSandboxMode, exitSandboxMode } = await import('../src/lib/sandbox-mode.ts')
 
@@ -17,10 +17,12 @@ function setup(t, fetch) {
   const originalFetch = globalThis.fetch
   globalThis.fetch = fetch
   clearCSRFToken()
+  setUnauthorizedHandler(null)
   exitSandboxMode()
   t.after(() => {
     globalThis.fetch = originalFetch
     clearCSRFToken()
+    setUnauthorizedHandler(null)
     exitSandboxMode()
   })
 }
@@ -86,3 +88,33 @@ test('public sandbox redemption remains scoped once and does not request CSRF', 
   await api(path, { method: 'POST', body: { code: 'test-code' } })
   assert.deepEqual(requests, [path])
 })
+
+for (const expiredDuringRetry of [false, true]) {
+  for (const silent401 of [false, true]) {
+    test(`expired session during ${expiredDuringRetry ? 'retried' : 'initial'} CSRF fetch respects silent401=${silent401}`, async (t) => {
+      let tokenRequests = 0
+      let writes = 0
+      let unauthorized = 0
+      setup(t, async (path) => {
+        if (path === '/api/csrf-token') {
+          tokenRequests++
+          return expiredDuringRetry && tokenRequests === 1
+            ? json({ csrf_token: 'expired-token' })
+            : json({ ok: false, error: '未登录' }, 401)
+        }
+        writes++
+        return json({ ok: false, error: 'Invalid CSRF token' }, 403)
+      })
+      t.mock.method(console, 'error', () => {})
+      setUnauthorizedHandler(() => unauthorized++)
+
+      await assert.rejects(
+        api('/api/goals/customer-benefits', { method: 'POST', body: {}, silent401 }),
+        { name: 'CSRFTokenError', status: 401 },
+      )
+      assert.equal(tokenRequests, expiredDuringRetry ? 2 : 1)
+      assert.equal(writes, expiredDuringRetry ? 1 : 0)
+      assert.equal(unauthorized, silent401 ? 0 : 1)
+    })
+  }
+}

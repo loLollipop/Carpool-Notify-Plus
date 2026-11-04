@@ -43,8 +43,18 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     }
 
     if (needsCSRF) {
-      const csrfHeaders = await getCSRFHeaders(forceRefresh)
-      Object.assign(headers, csrfHeaders)
+      try {
+        const csrfHeaders = await getCSRFHeaders(forceRefresh)
+        Object.assign(headers, csrfHeaders)
+      } catch (error) {
+        if (error instanceof CSRFTokenError && error.status === 401) {
+          clearCSRFToken()
+          if (!silent401) {
+            unauthorizedHandler?.()
+          }
+        }
+        throw error
+      }
     }
 
     return fetch(requestPath, {
@@ -56,18 +66,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     })
   }
 
-  let response: Response
-  try {
-    response = await send()
-  } catch (error) {
-    if (error instanceof CSRFTokenError && error.status === 401) {
-      clearCSRFToken()
-      if (!silent401) {
-        unauthorizedHandler?.()
-      }
-    }
-    throw error
-  }
+  let response = await send()
 
   let payload = await response.json().then(
     (data) => data as Record<string, unknown>,

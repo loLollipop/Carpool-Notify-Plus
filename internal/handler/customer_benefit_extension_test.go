@@ -177,3 +177,40 @@ func TestPostCustomerBenefitExtensionLegacyAliasesRequireReviewSnapshot(t *testi
 		}
 	}
 }
+
+func TestPostCustomerBenefitExtendsToSelectedDate(t *testing.T) {
+	for _, stale := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stale=%t", stale), func(t *testing.T) {
+			server, router := subscriptionEditTestServer(t)
+			router.POST("/goals/customer-benefits", server.postGoalCustomerBenefits)
+			view := createBenefitExtensionTarget(t, server)
+			payload := benefitExtensionPayload(view, "handler-calendar-benefit")
+			delete(payload, "extension_days")
+			due, err := time.Parse("2006-01-02", view.NextDueDate)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := due.AddDate(0, 0, 5).Format("2006-01-02")
+			payload["extension_until"] = target
+			if stale {
+				if err := server.Service.SetDuePaid(view.Subscription.ID, view.NextDueDate, true); err != nil {
+					t.Fatal(err)
+				}
+			}
+			response := subscriptionEditRequest(t, router, http.MethodPost, "/goals/customer-benefits", payload)
+			if stale {
+				if response.Code != http.StatusConflict {
+					t.Fatalf("stale calendar response: %d %s", response.Code, response.Body.String())
+				}
+				return
+			}
+			if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), target) {
+				t.Fatalf("calendar response: %d %s", response.Code, response.Body.String())
+			}
+			events, err := server.Service.Store.ListSubscriptionDueExtensions()
+			if err != nil || len(events) != 1 || events[0].EffectiveDueDate != target || events[0].ExtensionDays != 5 {
+				t.Fatalf("calendar extensions = %#v, %v", events, err)
+			}
+		})
+	}
+}
