@@ -328,7 +328,7 @@ function AccountMobileCard({
   const accountName = view.account.name.trim()
   const accountEmail = view.account.email.trim()
   const displayEmail = view.display_email.trim()
-  const primaryAccountName = formatAccountName(displayEmail || accountName, view.space_role)
+  const primaryAccountName = formatAccountName(displayEmail || accountName)
   const showAccountEmail = displayEmail === "" && accountEmail !== "" && accountEmail !== accountName
 
   return (
@@ -358,10 +358,17 @@ function AccountMobileCard({
               {showAccountEmail ? (
                 <p className="mt-1 break-all text-xs text-muted-foreground">{accountEmail}</p>
               ) : null}
-              {view.account.space_name ? (
-                <p className="mt-1 truncate text-xs text-muted-foreground">
-                  {view.account.space_name}
-                </p>
+              {view.account.space_name || view.space_role === "secondary" ? (
+                <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                  {view.account.space_name ? (
+                    <span className="min-w-0 truncate" title={view.account.space_name}>{view.account.space_name}</span>
+                  ) : null}
+                  {view.space_role === "secondary" ? (
+                    <Badge variant="outline" className="shrink-0 font-normal">
+                      {t("accounts.secondarySpace")}
+                    </Badge>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           </div>
@@ -905,7 +912,7 @@ export function AccountsPage() {
                 const accountName = view.account.name.trim()
                 const accountEmail = view.account.email.trim()
                 const displayEmail = view.display_email.trim()
-                const primaryAccountName = formatAccountName(displayEmail || accountName, view.space_role)
+                const primaryAccountName = formatAccountName(displayEmail || accountName)
                 const showAccountEmail = displayEmail === "" && accountEmail !== "" && accountEmail !== accountName
                 return (
                   <TableRow
@@ -935,12 +942,16 @@ export function AccountsPage() {
                               {accountEmail}
                             </div>
                           ) : null}
-                          {view.account.space_name ? (
-                            <div
-                              className="mt-0.5 truncate text-xs text-muted-foreground"
-                              title={view.account.space_name}
-                            >
-                              {view.account.space_name}
+                          {view.account.space_name || view.space_role === "secondary" ? (
+                            <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                              {view.account.space_name ? (
+                                <span className="min-w-0 truncate" title={view.account.space_name}>{view.account.space_name}</span>
+                              ) : null}
+                              {view.space_role === "secondary" ? (
+                                <Badge variant="outline" className="shrink-0 font-normal">
+                                  {t("accounts.secondarySpace")}
+                                </Badge>
+                              ) : null}
                             </div>
                           ) : null}
                           <div className="mt-2">

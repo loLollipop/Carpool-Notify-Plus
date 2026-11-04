@@ -648,7 +648,7 @@ func accountRemarkSerial(remark string) (int64, bool) {
 }
 
 func accountDisplayEmail(account model.Account) string {
-	if _, email := accountRemarkIdentity(account.Remark); email != "" {
+	if email := accountGroupingEmail(account); email != "" {
 		return email
 	}
 	if email := strings.TrimSpace(account.Email); email != "" {
@@ -658,13 +658,16 @@ func accountDisplayEmail(account model.Account) string {
 }
 
 func accountGroupingEmail(account model.Account) string {
-	if _, email := accountRemarkIdentity(account.Remark); email != "" {
-		return email
-	}
+	// Remarks describe account provenance, so they must not override an
+	// existing login email. Keep the legacy fallback for accounts without one.
 	if email := parseStandaloneEmail(account.Email); email != "" {
 		return email
 	}
-	return parseStandaloneEmail(account.Name)
+	if email := parseStandaloneEmail(account.Name); email != "" {
+		return email
+	}
+	_, email := accountRemarkIdentity(account.Remark)
+	return email
 }
 
 func accountRemarkIdentity(remark string) (int64, string) {

@@ -178,7 +178,7 @@ func TestAccountDisplaySerialsOnlyFoldPriorSecondarySpaces(t *testing.T) {
 	}
 }
 
-func TestAccountRemarkEmailOverridesDisplayAndGroupingIdentity(t *testing.T) {
+func TestAccountEmailTakesPrecedenceOverRemarkIdentity(t *testing.T) {
 	accounts := []model.Account{
 		{ID: 12, Email: "login@example.com", Remark: " source@example.com（47） "},
 		{ID: 15, Email: "source@example.com"},
@@ -186,8 +186,8 @@ func TestAccountRemarkEmailOverridesDisplayAndGroupingIdentity(t *testing.T) {
 		{ID: 17, Email: "other@example.com", Remark: "first@example.com second@example.com(51)"},
 	}
 
-	if got := accountDisplayEmail(accounts[0]); got != "source@example.com" {
-		t.Fatalf("accountDisplayEmail() = %q, want source@example.com", got)
+	if got := accountDisplayEmail(accounts[0]); got != "login@example.com" {
+		t.Fatalf("accountDisplayEmail() = %q, want login@example.com", got)
 	}
 	if got := accountDisplayEmail(accounts[3]); got != "other@example.com" {
 		t.Fatalf("ambiguous remark accountDisplayEmail() = %q, want original email", got)
@@ -196,11 +196,11 @@ func TestAccountRemarkEmailOverridesDisplayAndGroupingIdentity(t *testing.T) {
 	if serials[12] != 12 {
 		t.Fatalf("remark identity serial = %d, want 12", serials[12])
 	}
-	if serials[15] != 12 {
-		t.Fatalf("remark identity group serial = %d, want 12", serials[15])
+	if serials[15] != 15 {
+		t.Fatalf("remark email must not group a different account: got %d, want 15", serials[15])
 	}
-	if serials[16] != 15 {
-		t.Fatalf("original login email should remain an independent logical account: got %d, want 15", serials[16])
+	if serials[16] != 12 {
+		t.Fatalf("matching account emails must share a serial: got %d, want 12", serials[16])
 	}
 	if serials[17] != 16 {
 		t.Fatalf("remark suffix must not change ambiguous email account serial: got %d, want 16", serials[17])
@@ -301,8 +301,8 @@ func TestAccountDisplaySerialIsExposedToAssignmentViews(t *testing.T) {
 	if len(accountViews) != 1 || accountViews[0].DisplaySerial != accountID {
 		t.Fatalf("account views = %#v, want original import serial", accountViews)
 	}
-	if accountViews[0].DisplayEmail != "source@example.com" {
-		t.Fatalf("account view display email = %q, want source@example.com", accountViews[0].DisplayEmail)
+	if accountViews[0].DisplayEmail != "owner@example.com" {
+		t.Fatalf("account view display email = %q, want owner@example.com", accountViews[0].DisplayEmail)
 	}
 
 	subscriptionID, err := subscriptionService.Create(CreateInput{

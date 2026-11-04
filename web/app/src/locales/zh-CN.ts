@@ -1331,6 +1331,7 @@ export default {
       email: "母号邮箱",
       emailPlaceholder: "owner@example.com",
       spaceName: "空间名称",
+      secondarySpace: "副",
       spaceNamePlaceholder: "例如 Team Workspace",
       openedAt: "开通日期",
       openedAtHint: "填写后会按自然月同日自动计算下次续期日期。",

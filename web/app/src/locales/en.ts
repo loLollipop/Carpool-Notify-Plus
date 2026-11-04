@@ -1334,6 +1334,7 @@ export default {
       email: "Owner email",
       emailPlaceholder: "owner@example.com",
       spaceName: "Workspace",
+      secondarySpace: "Secondary",
       spaceNamePlaceholder: "e.g. Team Workspace",
       openedAt: "Opened date",
       openedAtHint: "Used to calculate the next renewal date by monthly anniversary.",

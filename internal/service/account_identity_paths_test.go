@@ -17,11 +17,11 @@ func TestAccountIdentityAcrossOperationalViews(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	svc := &SubscriptionService{Store: store, Clock: func() time.Time { return time.Date(2026, 9, 24, 12, 0, 0, 0, cycle.Location) }}
-	first, err := svc.CreateAccount(CreateAccountInput{Name: "first", Email: "login@example.com", Remark: "source@example.com（47）", SeatCount: 2})
+	first, err := svc.CreateAccount(CreateAccountInput{Name: "first", Email: "source@example.com", Remark: "login@example.com（47）", SeatCount: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := svc.CreateAccount(CreateAccountInput{Name: "second", Email: "source@example.com", SeatCount: 2})
+	second, err := svc.CreateAccount(CreateAccountInput{Name: "second", Email: "source@example.com", Remark: "other@example.com(88)", SeatCount: 2})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,8 +64,8 @@ func TestAccountIdentityAcrossOperationalViews(t *testing.T) {
 			t.Fatalf("get %d role = %q, want %q", single.Account.ID, single.SpaceRole, expectedRole)
 		}
 	}
-	if raw, err := store.GetAccount(first); err != nil || raw.Email != "login@example.com" {
-		t.Fatalf("login email changed: %#v %v", raw, err)
+	if raw, err := store.GetAccount(first); err != nil || raw.Email != "source@example.com" || raw.Remark != "login@example.com（47）" {
+		t.Fatalf("account email or source remark changed: %#v %v", raw, err)
 	}
 	seats, err := store.ListSeatsByAccount(second)
 	if err != nil {
@@ -134,7 +134,7 @@ func TestAccountSpaceRolesUseEffectiveEmailAndImportOrder(t *testing.T) {
 	accounts := []model.Account{
 		{ID: 10, Name: "first", Email: " Owner@Example.com ", Remark: "(29)"},
 		{ID: 20, Name: "second", Email: "owner@example.com", Remark: "(88)"},
-		{ID: 30, Name: "remark-first", Email: "login@example.com", Remark: "Remark@Example.com（47）"},
+		{ID: 30, Name: "remark-first", Remark: "Remark@Example.com（47）"},
 		{ID: 40, Name: "remark-second", Email: " remark@example.com "},
 		{ID: 50, Name: "single@example.com", Email: ""},
 		{ID: 60, Name: "no-email", Email: ""},
@@ -159,5 +159,31 @@ func TestAccountSpaceRolesUseEffectiveEmailAndImportOrder(t *testing.T) {
 	}
 	if identities.identity(30).Email != "Remark@Example.com" {
 		t.Fatalf("remark display email changed: %q", identities.identity(30).Email)
+	}
+}
+
+func TestAccountSpacesShareLoginIdentityDespiteDifferentRemarkEmails(t *testing.T) {
+	identities := newAccountIdentityIndex([]model.Account{
+		{ID: 39, Name: "help@npoolive.org", Email: "help@npoolive.org", Remark: "k4vhstxb1p@lollipop.elementfx.com(11)"},
+		{ID: 13, Name: "help@npoolive.org", Email: "help@npoolive.org"},
+		{ID: 40, Name: "k4vhstxb1p@lollipop.elementfx.com", Email: "k4vhstxb1p@lollipop.elementfx.com", Remark: "help@npoolive.org（13）"},
+	})
+	wants := map[int64]accountDisplayIdentity{
+		13: {Serial: 13, Email: "help@npoolive.org", Role: AccountSpaceRolePrimary},
+		39: {Serial: 13, Email: "help@npoolive.org", Role: AccountSpaceRoleSecondary},
+		40: {Serial: 39, Email: "k4vhstxb1p@lollipop.elementfx.com", Role: AccountSpaceRoleStandalone},
+	}
+	for id, want := range wants {
+		if got := identities.identity(id); got != want {
+			t.Errorf("account %d identity = %#v, want %#v", id, got, want)
+		}
+	}
+}
+
+func TestAccountNameEmailTakesPrecedenceOverLegacyRemarkIdentity(t *testing.T) {
+	account := model.Account{ID: 13, Name: "help@npoolive.org", Remark: "source@example.com(88)"}
+	identity := newAccountIdentityIndex([]model.Account{account}).identity(account.ID)
+	if identity.Email != account.Name {
+		t.Fatalf("account without an email field must use its email name: %#v", identity)
 	}
 }
