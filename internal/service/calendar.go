@@ -34,7 +34,9 @@ type CalendarMonthView struct {
 	DeferredSubscriptions []SubscriptionView `json:"deferred_subscriptions"`
 	// ArchivedSubscriptions are 已下车 items for the agenda tab (not on the month grid).
 	ArchivedSubscriptions []SubscriptionView `json:"archived_subscriptions"`
-	Days                  []CalendarDayView  `json:"days"`
+	// Activity follows actual creation, payment and archive times, not due dates.
+	Activity []CalendarActivityView `json:"activity"`
+	Days     []CalendarDayView      `json:"days"`
 	// TotalCount / PaidCount summarize all dues in the month; PendingCount only
 	// counts unpaid dues that are due today or overdue.
 	TotalCount   int `json:"total_count"`
@@ -565,6 +567,10 @@ func (service *SubscriptionService) calendarMonth(
 	if err != nil {
 		return CalendarMonthView{}, err
 	}
+	activity, err := service.buildCalendarActivity(monthStart, monthEnd, subscriptionViews, archivedViews, bills, allocatedCosts)
+	if err != nil {
+		return CalendarMonthView{}, err
+	}
 
 	return CalendarMonthView{
 		MonthValue:             monthStart.Format("2006-01"),
@@ -576,6 +582,7 @@ func (service *SubscriptionService) calendarMonth(
 		PaidInMonthOccurrences: paidInMonthOccurrences,
 		ActionableOccurrences:  actionableOccurrences,
 		ArchivedSubscriptions:  archivedViews,
+		Activity:               activity,
 		DeferredSubscriptions:  deferredViews,
 		Days:                   days,
 		TotalCount:             len(monthOccurrences),

@@ -77,6 +77,8 @@ import { RedeemPromotionBanner } from "@/features/redemptions/RedeemPromotionBan
 import { DEFAULT_REDEEM_PROMOTION, promotionIsVisible, safePromotionURL } from "@/features/redemptions/redeem-promotion"
 import { enterSandboxMode, exitSandboxMode } from "@/lib/sandbox-mode"
 import { useSandboxMode } from "@/hooks/use-sandbox-mode"
+import { BusinessEmailTemplateEditor } from "./BusinessEmailTemplateEditor"
+import { BENEFIT_TEMPLATE_KINDS, BUSINESS_TEMPLATE_LABELS, type BenefitTemplateKind } from "./business-email-template"
 
 type ReminderTemplateKind =
   | "notify"
@@ -88,21 +90,6 @@ type CustomerTemplateKind = CustomerReminderTemplateKind | "customer_renewal_suc
 type BusinessTemplateKind = Exclude<CustomerEmailTemplateKind, CustomerReminderTemplateKind>
 type TemplateKind = ReminderTemplateKind | BusinessTemplateKind
 
-const BENEFIT_TEMPLATE_KINDS = [
-  "customer_benefit_extension",
-  "customer_benefit_discount",
-  "customer_benefit_revision",
-  "customer_benefit_revoke",
-] as const
-type BenefitTemplateKind = (typeof BENEFIT_TEMPLATE_KINDS)[number]
-
-const BUSINESS_TEMPLATE_LABELS: Record<BusinessTemplateKind, string> = {
-  customer_renewal_success: "settings.renewalSuccessTemplate",
-  customer_benefit_extension: "settings.benefitExtensionPreview",
-  customer_benefit_discount: "settings.benefitDiscountPreview",
-  customer_benefit_revision: "settings.benefitRevisionPreview",
-  customer_benefit_revoke: "settings.benefitRevokePreview",
-}
 type SettingsSection = "templates" | "delivery" | "redemption" | "operations" | "tools"
 const SETTINGS_SECTION_ORDER: SettingsSection[] = [
   "templates",
@@ -587,66 +574,6 @@ function TemplateEditor({
           }
         />
       </div>
-    </>
-  )
-}
-
-function BusinessEmailTemplateEditor({
-  benefit = false,
-  value,
-  onChange,
-  previewKind,
-  onPreviewKindChange,
-}: {
-  benefit?: boolean
-  value: string
-  onChange: (value: string) => void
-  previewKind: BenefitTemplateKind
-  onPreviewKindChange: (kind: BenefitTemplateKind) => void
-}) {
-  const { t } = useTranslation()
-  const title = t(benefit ? "settings.benefitTemplate" : "settings.renewalSuccessTemplate")
-  const inputId = benefit ? "customer-benefit-template" : "renewal-success-template"
-  const fields = benefit
-    ? ".CustomerEmail · .SubscriptionID · .BenefitType · .BenefitDate · .ExtensionDays · .PreviousExtensionDays · .PreviousDueDate · .NextDueDate · .PreviousPrice · .DiscountAmount · .NewPrice · .EffectiveDate · .OperationTime"
-    : ".CustomerEmail · .SubscriptionID · .AmountPaid · .PeriodStart · .PeriodEnd · .NextDueDate · .CycleDesc · .OperationTime"
-
-  return (
-    <>
-      <p className="text-xs leading-5 text-muted-foreground">
-        {t(benefit ? "settings.benefitTemplateHint" : "settings.renewalSuccessTemplateHint")}
-      </p>
-      {benefit ? (
-        <div className="grid gap-1.5">
-          <Label htmlFor="benefit-preview-kind">{t("settings.benefitPreviewKind")}</Label>
-          <Select value={previewKind} onValueChange={(kind) => onPreviewKindChange(kind as BenefitTemplateKind)}>
-            <SelectTrigger id="benefit-preview-kind" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {BENEFIT_TEMPLATE_KINDS.map((kind) => (
-                <SelectItem key={kind} value={kind}>{t(BUSINESS_TEMPLATE_LABELS[kind])}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      ) : null}
-      <Textarea
-        id={inputId}
-        rows={14}
-        value={value}
-        spellCheck={false}
-        className="h-80 field-sizing-fixed resize-y font-mono text-xs leading-6"
-        onChange={(event) => onChange(event.target.value)}
-        aria-label={title}
-        aria-describedby={`${inputId}-hint`}
-      />
-      <details id={`${inputId}-hint`} className="text-xs leading-5 text-muted-foreground">
-        <summary className="cursor-pointer">{t("settings.businessTemplateFields")}</summary>
-        <p className="mt-2">{t("settings.businessTemplateSyntax")}</p>
-        <p className="mt-1 break-words font-mono">{fields}</p>
-        {benefit ? <p className="mt-1">BenefitType: extension / price_discount / extension_revision / extension_revoke</p> : null}
-      </details>
     </>
   )
 }
@@ -2091,6 +2018,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
             >
               {customerTemplateKind === "customer_renewal_success" || customerTemplateKind === "customer_benefit" ? (
                 <BusinessEmailTemplateEditor
+                  key={customerTemplateKind}
                   benefit={customerTemplateKind === "customer_benefit"}
                   value={customerTemplateKind === "customer_benefit" ? benefitTemplate : renewalSuccessTemplate}
                   onChange={customerTemplateKind === "customer_benefit" ? setBenefitTemplate : setRenewalSuccessTemplate}
