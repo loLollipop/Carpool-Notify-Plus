@@ -10,14 +10,11 @@ import {
   CircleParkingOff,
   KeyRound,
   Pause,
-  Pencil,
-  Play,
   Plus,
   RefreshCw,
   Search,
   ShieldAlert,
   Snowflake,
-  Trash2,
 } from "lucide-react"
 
 import { deleteAccount, markAccountRenewed, setAccountAvailability } from "@/api/endpoints"
@@ -55,6 +52,7 @@ import {
 } from "@/lib/account-renewal"
 import { accountSerialSearchTerms, formatAccountLabel, formatAccountName } from "@/lib/account-display"
 import { AccountDialog, type AccountPrefill } from "./AccountDialog"
+import { AccountActions } from "./AccountActions"
 import { AccountBanDialog, type AccountBanTarget } from "./AccountBanDialog"
 import { SeatFreezeDialog, type SeatFreezeTarget } from "./SeatFreezeDialog"
 
@@ -493,43 +491,15 @@ function AccountMobileCard({
         ) : null}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t bg-muted/35 px-4 py-3">
-        <Button variant="outline" size="sm" onClick={onEdit}>
-          <Pencil data-slot="icon" />
-          {t("common.edit")}
-        </Button>
-        {!view.account.banned_at ? (
-          <Button variant="outline" size="sm" onClick={onToggleAvailability} disabled={availabilityPending}>
-            {view.account.paused ? <Play /> : <Pause />}
-            {t(view.account.paused ? "accounts.resumeUse" : "accounts.pauseUse")}
-          </Button>
-        ) : null}
-        {!view.account.banned_at ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="text-destructive hover:text-destructive"
-            onClick={onBan}
-          >
-            <ShieldAlert data-slot="icon" />
-            {t("accounts.markBanned")}
-          </Button>
-        ) : null}
-        {view.can_delete ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="ml-auto text-destructive hover:text-destructive"
-            onClick={onDelete}
-          >
-            <Trash2 data-slot="icon" />
-            {t("common.delete")}
-          </Button>
-        ) : (
-          <span className="ml-auto text-xs text-muted-foreground">
-            {t("accounts.historyLock")}
-          </span>
-        )}
+      <div className="flex items-center justify-end border-t bg-muted/25 px-4 py-3">
+        <AccountActions
+          view={view}
+          onEdit={onEdit}
+          onToggleAvailability={onToggleAvailability}
+          availabilityPending={availabilityPending}
+          onBan={onBan}
+          onDelete={onDelete}
+        />
       </div>
     </Card>
   )
@@ -925,7 +895,7 @@ export function AccountsPage() {
                 <TableHead className="hidden md:table-cell md:w-36">
                   {t("accounts.colRemark")}
                 </TableHead>
-                <TableHead className="w-64 text-right">{t("accounts.colActions")}</TableHead>
+                <TableHead className="w-36 text-right">{t("accounts.colActions")}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody className="[&_tr:last-child]:border-b [&_tr:last-child]:border-b-border">
@@ -1095,60 +1065,21 @@ export function AccountsPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="inline-flex flex-wrap justify-end gap-1">
-                        <Button variant="outline" size="sm" onClick={() => openEdit(view)}>
-                          <Pencil data-slot="icon" />
-                          {t("common.edit")}
-                        </Button>
-                        {!view.account.banned_at ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={availabilityMutation.isPending}
-                            onClick={() => availabilityMutation.mutate({ id: view.account.id, paused: !view.account.paused })}
-                          >
-                            {view.account.paused ? <Play /> : <Pause />}
-                            {t(view.account.paused ? "accounts.resumeUse" : "accounts.pauseUse")}
-                          </Button>
-                        ) : null}
-                        {!view.account.banned_at ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() =>
-                              setBanTarget({
-                                id: view.account.id,
-                                name: formatAccountName(view.display_email || view.account.email || view.account.name, view.space_role),
-                                activeCount: view.seat_used,
-                              })
-                            }
-                          >
-                            <ShieldAlert data-slot="icon" />
-                            {t("accounts.markBanned")}
-                          </Button>
-                        ) : null}
-                        {view.can_delete ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive hover:text-destructive"
-                            onClick={() =>
-                              setDeleteTarget({ id: view.account.id, name: formatAccountName(view.display_email || view.account.email || view.account.name, view.space_role) })
-                            }
-                          >
-                            <Trash2 data-slot="icon" />
-                            {t("common.delete")}
-                          </Button>
-                        ) : (
-                          <span
-                            className="px-2 text-xs text-muted-foreground"
-                            title={t("accounts.historyLockTitle")}
-                          >
-                            {t("accounts.historyLock")}
-                          </span>
-                        )}
-                      </div>
+                      <AccountActions
+                        view={view}
+                        onEdit={() => openEdit(view)}
+                        onToggleAvailability={() => availabilityMutation.mutate({ id: view.account.id, paused: !view.account.paused })}
+                        availabilityPending={availabilityMutation.isPending}
+                        onBan={() => setBanTarget({
+                          id: view.account.id,
+                          name: formatAccountName(view.display_email || view.account.email || view.account.name, view.space_role),
+                          activeCount: view.seat_used,
+                        })}
+                        onDelete={() => setDeleteTarget({
+                          id: view.account.id,
+                          name: formatAccountName(view.display_email || view.account.email || view.account.name, view.space_role),
+                        })}
+                      />
                     </TableCell>
                   </TableRow>
                 )

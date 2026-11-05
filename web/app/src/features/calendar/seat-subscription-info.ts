@@ -1,4 +1,4 @@
-import type { CalendarOccurrence } from "@/api/types"
+import type { CalendarActivity, CalendarOccurrence } from "@/api/types"
 import { formatAccountLabel } from "@/lib/account-display"
 
 export interface SeatSubscriptionInfo {
@@ -55,5 +55,17 @@ export function seatInfoFromOccurrence(
     remark: occurrence.remark,
     tradeUrl: occurrence.trade_url,
     archived: false,
+  }
+}
+
+export function seatInfoFromActivity(item: CalendarActivity, t: Translate): SeatSubscriptionInfo {
+  const info = seatInfoFromOccurrence(item.occurrence, t)
+  return {
+    ...info,
+    statusLabel: t(item.kind === "created" ? "calendar.activityCreated" : item.kind === "paid" ? "calendar.activityPaid" : "calendar.activityArchived"),
+    statusTone: item.kind === "archived" ? "secondary" : "success",
+    extraDateLabel: item.kind === "paid" ? info.extraDateLabel : t("calendar.activityRecordedAt"),
+    extraDate: item.kind === "paid" ? info.extraDate : item.occurred_at_label,
+    archived: item.archived,
   }
 }

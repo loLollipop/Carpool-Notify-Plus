@@ -13,11 +13,10 @@ import {
   ListTodo,
   Pause,
   ReceiptText,
-  UserRoundX,
 } from "lucide-react"
 
 import { useCalendar } from "@/api/queries"
-import type { CalendarDay, CalendarMonth, CalendarOccurrence, SubscriptionView } from "@/api/types"
+import type { CalendarDay, CalendarMonth, CalendarOccurrence } from "@/api/types"
 import { PageHeader } from "@/components/page-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -31,7 +30,6 @@ import {
 } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useAmountPrivacy } from "@/hooks/use-amount-privacy"
 import { formatAccountLabel, formatAccountName } from "@/lib/account-display"
 import { maskAmount } from "@/lib/amount-privacy"
@@ -40,15 +38,16 @@ import { isOneMonthRentalCron } from "@/features/plus-rentals/rental-mode"
 import { DuePaidDialog, type DuePaidTarget } from "./DuePaidDialog"
 import {
   seatInfoFromOccurrence,
+  seatInfoFromActivity,
   type SeatSubscriptionInfo,
 } from "./seat-subscription-info"
 import { SeatSubscriptionDialog } from "./SeatSubscriptionDialog"
 import { DeferredWorkspace } from "./DeferredWorkspace"
+import { ActivityWorkspace } from "./ActivityWorkspace"
 
 type CalendarView = "tasks" | "calendar" | "activity" | "deferred"
 type TaskFilter = "all" | "overdue" | "soon" | "paid"
 const TASKS_PER_PAGE = 12
-const CALENDAR_EVENTS_PER_DAY = 3
 
 function EventPill({
   occurrence,
@@ -58,6 +57,7 @@ function EventPill({
   onView: (occurrence: CalendarOccurrence) => void
 }) {
   const { t } = useTranslation()
+  const { amountsHidden } = useAmountPrivacy()
   const label =
     occurrence.customer_email ||
     occurrence.customer_wechat ||
@@ -66,37 +66,23 @@ function EventPill({
       occurrence.account_space_role,
     )
   return (
-    <Tooltip delayDuration={150}>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          onClick={(event) => {
-            event.stopPropagation()
-            onView(occurrence)
-          }}
-          onKeyDown={(event) => event.stopPropagation()}
-          className={cn(
-            "block w-full truncate rounded-[4px] border px-1.5 py-0.5 text-left text-[11px] font-medium leading-4 transition-colors",
-            occurrence.paid
-              ? "border-success/35 bg-success/15 text-success line-through decoration-success/55 shadow-[inset_3px_0_0_var(--success)] hover:bg-success/20"
-              : "border-gold/40 bg-gold/15 text-foreground shadow-[inset_3px_0_0_var(--gold)] hover:bg-gold/20",
-          )}
-        >
-          <span className="flex min-w-0 items-center gap-1">
-            <span className="min-w-0 truncate">{label}</span>
-          </span>
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="top" className="grid gap-0.5">
-        <span className="font-semibold">
-          {formatAccountLabel(occurrence.account_serial, occurrence.account_display_email || occurrence.account_name || occurrence.name, "-", occurrence.account_space_role)}
-        </span>
-        {occurrence.customer_email ? <span>{occurrence.customer_email}</span> : null}
-        {!occurrence.customer_email && occurrence.customer_wechat ? <span>{occurrence.customer_wechat}</span> : null}
-        <span className="tabular-nums">{occurrence.due_date} · ¥{occurrence.price_yuan}</span>
-        <span>{occurrence.paid ? t("dueStatus.paid") : t("calendar.legendPending")}</span>
-      </TooltipContent>
-    </Tooltip>
+    <button
+      type="button"
+      aria-label={label}
+      onClick={() => onView(occurrence)}
+      className={cn(
+        "grid w-full gap-1 rounded-lg border px-3 py-2.5 text-left text-sm leading-5 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+        occurrence.paid
+          ? "border-success/25 bg-success/5 hover:bg-success/10"
+          : "border-gold/25 bg-gold/5 hover:bg-gold/10",
+      )}
+    >
+      <span className="min-w-0 break-all font-medium">{label}</span>
+      <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
+        <span className={occurrence.paid ? "text-success" : "text-gold"}>{occurrence.paid ? t("dueStatus.paid") : t("calendar.legendPending")}</span>
+        <span className="tabular-nums text-muted-foreground">{maskAmount(amountsHidden, `¥${occurrence.price_yuan}`)}</span>
+      </span>
+    </button>
   )
 }
 
@@ -115,7 +101,7 @@ function MonthGrid({
 
   return (
     <>
-      <section className="min-w-[720px]" aria-label={calendar.month_label}>
+      <section aria-label={calendar.month_label}>
         <div className="grid grid-cols-7 border-b bg-muted/70" aria-hidden="true">
           {weekdays.map((weekday, index) => (
             <span
@@ -132,8 +118,7 @@ function MonthGrid({
         <div className="grid grid-cols-7 gap-px bg-border/70">
           {calendar.days.map((day) => {
             const occurrences = day.occurrences ?? []
-            const visibleOccurrences = occurrences.slice(0, CALENDAR_EVENTS_PER_DAY)
-            const hiddenCount = occurrences.length - visibleOccurrences.length
+            const allPaid = occurrences.every((occurrence) => occurrence.paid)
             const navigatesMonth = !day.in_month
             return (
               <div
@@ -150,7 +135,7 @@ function MonthGrid({
                   }
                 }}
                 className={cn(
-                  "relative flex h-[7.75rem] flex-col gap-1 overflow-hidden p-1.5 outline-none transition-colors sm:h-[8.25rem]",
+                  "relative flex h-24 min-w-0 flex-col gap-1 p-1 outline-none transition-colors sm:h-28 sm:p-2",
                   day.in_month ? "bg-card" : "cursor-pointer bg-muted/40 text-muted-foreground/70 hover:bg-accent",
                 )}
               >
@@ -168,25 +153,23 @@ function MonthGrid({
                 >
                   {day.day_number}
                 </span>
-                <span className="flex flex-col gap-0.5 overflow-hidden">
-                  {visibleOccurrences.map((occurrence) => (
-                    <EventPill
-                      key={`${occurrence.subscription_id}:${occurrence.due_date}`}
-                      occurrence={occurrence}
-                      onView={onViewOccurrence}
-                    />
-                  ))}
-                </span>
-                {hiddenCount > 0 ? (
+                {occurrences.length > 0 ? (
                   <button
                     type="button"
-                    className="mt-auto w-full rounded-md border border-dashed border-border/80 bg-muted/55 px-1.5 py-1 text-left text-[11px] font-medium tabular-nums text-muted-foreground transition-colors hover:border-brand/35 hover:bg-brand/8 hover:text-brand focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t("calendar.dayEventCount", { date: day.date_label, count: occurrences.length })}
+                    className={cn(
+                      "display-numeral m-auto grid min-h-11 w-full max-w-12 place-items-center rounded-xl px-1 text-xl font-semibold tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring sm:text-2xl",
+                      allPaid
+                        ? "bg-success/10 text-success hover:bg-success/20"
+                        : "bg-gold/10 text-gold hover:bg-gold/20",
+                    )}
                     onClick={(event) => {
                       event.stopPropagation()
                       setExpandedDay(day)
                     }}
+                    onKeyDown={(event) => event.stopPropagation()}
                   >
-                    {t("calendar.moreEvents", { count: hiddenCount })}
+                    {occurrences.length}
                   </button>
                 ) : null}
               </div>
@@ -201,14 +184,14 @@ function MonthGrid({
           if (!open) setExpandedDay(null)
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="max-h-[85dvh] grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:max-w-md">
           <DialogHeader>
             <DialogTitle>{t("calendar.dayEventsTitle", { date: expandedDay?.date_label ?? "" })}</DialogTitle>
             <DialogDescription>
               {t("calendar.dayEventsDesc", { count: expandedDay?.occurrences?.length ?? 0 })}
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-2">
+          <div className="grid min-h-0 gap-2 overflow-y-auto overscroll-contain">
             {(expandedDay?.occurrences ?? []).map((occurrence) => (
               <EventPill
                 key={`${occurrence.subscription_id}:${occurrence.due_date}`}
@@ -229,9 +212,11 @@ function MonthGrid({
 function MonthToolbar({
   calendar,
   onNavigateMonth,
+  activity = false,
 }: {
   calendar: CalendarMonth
   onNavigateMonth: (month: string) => void
+  activity?: boolean
 }) {
   const { t } = useTranslation()
   return (
@@ -247,8 +232,9 @@ function MonthToolbar({
       </div>
       <div className="flex items-center gap-3">
         <div className="hidden items-center gap-3 text-xs text-muted-foreground sm:flex">
-          <span className="flex items-center gap-1.5"><i className="size-2 rounded-full bg-gold" />{t("calendar.legendPending")}</span>
-          <span className="flex items-center gap-1.5"><i className="size-2 rounded-full bg-success" />{t("calendar.legendPaid")}</span>
+          <span className="flex items-center gap-1.5"><i className={cn("size-2 rounded-full", activity ? "bg-brand" : "bg-gold")} />{t(activity ? "calendar.activityCreated" : "calendar.legendPending")}</span>
+          <span className="flex items-center gap-1.5"><i className="size-2 rounded-full bg-success" />{t(activity ? "calendar.activityPaid" : "calendar.legendPaid")}</span>
+          {activity ? <span className="flex items-center gap-1.5"><i className="size-2 rounded-full bg-muted-foreground" />{t("calendar.activityArchived")}</span> : null}
         </div>
         <Button variant="outline" size="sm" onClick={() => onNavigateMonth(calendar.current_month)}>{t("calendar.today")}</Button>
       </div>
@@ -389,9 +375,9 @@ function TaskRow({
               ? t("dueStatus.today")
               : t("dueStatus.days", { count: occurrence.days_remaining })}
       </span>
-      <div className="ml-auto flex items-center gap-1.5 sm:ml-0 lg:grid lg:w-[17.5rem] lg:grid-cols-[7.5rem_9.5rem]">
+      <div className="ml-auto flex shrink-0 items-center gap-2 sm:ml-0">
         {!occurrence.paid && !oneMonthRental ? (
-          <Button size="sm" className="h-8 lg:w-full" onClick={() => onPaid(occurrence)}>
+          <Button size="sm" className="h-8 shadow-none" onClick={() => onPaid(occurrence)}>
             <ReceiptText />
             {t(plus ? "calendar.work.recordRenewal" : "calendar.work.recordPaid")}
           </Button>
@@ -400,7 +386,7 @@ function TaskRow({
           type="button"
           variant="outline"
           size="sm"
-          className="h-8 lg:col-start-2 lg:w-full"
+          className="h-8 text-muted-foreground hover:text-foreground"
           onClick={() => onView(occurrence)}
         >
           <Eye />
@@ -525,82 +511,6 @@ function TaskWorkspace({
   )
 }
 
-type ActivityItem =
-  | { id: string; kind: "paid"; date: string; occurrence: CalendarOccurrence }
-  | { id: string; kind: "archived"; date: string; subscription: SubscriptionView }
-
-function ActivityWorkspace({ calendar, onView }: { calendar: CalendarMonth; onView: (occurrence: CalendarOccurrence) => void }) {
-  const { t } = useTranslation()
-  const { amountsHidden } = useAmountPrivacy()
-  const items: ActivityItem[] = [
-    ...(calendar.paid_in_month_occurrences ?? []).map((occurrence) => ({
-      id: `paid:${occurrence.subscription_id}:${occurrence.due_date}`,
-      kind: "paid" as const,
-      date: occurrence.due_date,
-      occurrence,
-    })),
-    ...(calendar.archived_subscriptions ?? []).map((subscription) => ({
-      id: `archived:${subscription.subscription.id}`,
-      kind: "archived" as const,
-      date: subscription.archived_at_label,
-      subscription,
-    })),
-  ].sort((left, right) => right.date.localeCompare(left.date))
-
-  if (items.length === 0) {
-    return (
-      <div className="grid min-h-72 place-items-center rounded-lg border border-dashed text-center">
-        <div>
-          <History className="mx-auto size-8 text-muted-foreground" />
-          <p className="mt-3 text-sm font-medium">{t("calendar.activityEmpty")}</p>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="relative grid gap-0 pl-4 before:absolute before:bottom-3 before:left-[25px] before:top-3 before:w-px before:bg-border">
-      {items.map((item) => {
-        const paid = item.kind === "paid"
-        const occurrence = paid ? item.occurrence : null
-        const subscription = !paid ? item.subscription : null
-        const identifier = paid
-          ? occurrence?.customer_email || occurrence?.customer_wechat || occurrence?.name
-          : subscription?.subscription.customer_email || subscription?.subscription.name
-        return (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => occurrence && onView(occurrence)}
-            className="group relative flex min-w-0 items-center gap-3 py-3 pl-7 text-left"
-          >
-            <span className={cn("absolute left-0 z-10 grid size-5 place-items-center rounded-full ring-4 ring-background", paid ? "bg-success text-success-foreground" : "bg-muted text-muted-foreground")}>
-              {paid ? <CheckCircle2 className="size-3" /> : <UserRoundX className="size-3" />}
-            </span>
-            <span className="min-w-0 flex-1 rounded-lg border bg-card px-3 py-3 transition-colors group-hover:bg-accent/20">
-              <span className="flex flex-wrap items-center justify-between gap-2">
-                <strong className="truncate text-sm">{identifier}</strong>
-                <span className="text-xs text-muted-foreground">{item.date}</span>
-              </span>
-              <span className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-muted-foreground">
-                <span className={paid ? "text-success" : "text-foreground"}>{paid ? t("calendar.activityPaid") : t("calendar.activityArchived")}</span>
-                {occurrence ? <span>{maskAmount(amountsHidden, `¥${occurrence.price_yuan}`)}</span> : null}
-                <span>
-                  {occurrence
-                    ? formatAccountLabel(occurrence.account_serial, occurrence.account_display_email || occurrence.account_name, "-", occurrence.account_space_role)
-                    : subscription
-                      ? formatAccountLabel(subscription.account_serial, subscription.account_display_email || subscription.account_name, "-", subscription.account_space_role)
-                      : "-"}
-                </span>
-              </span>
-            </span>
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 export function CalendarPage() {
   const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -655,7 +565,7 @@ export function CalendarPage() {
         </Card>
       ) : calendar ? (
         <div className="grid gap-3">
-          {view !== "deferred" ? <MonthToolbar calendar={calendar} onNavigateMonth={(value) => updateParams({ month: value })} /> : null}
+          {view !== "deferred" ? <MonthToolbar calendar={calendar} activity={view === "activity"} onNavigateMonth={(value) => updateParams({ month: value })} /> : null}
           <Tabs value={view} onValueChange={(value) => updateParams({ view: value as CalendarView })}>
             <TabsList className="h-auto min-h-8 max-w-full flex-wrap justify-start" aria-label={t("calendar.workspaceLabel")}>
               <TabsTrigger value="tasks"><ListTodo />{t("calendar.viewTasks")}</TabsTrigger>
@@ -684,8 +594,8 @@ export function CalendarPage() {
             </TabsContent>
             <TabsContent value="activity" className="mt-3">
               <ActivityWorkspace
-                calendar={calendar}
-                onView={(occurrence) => setSeatInfo(seatInfoFromOccurrence(occurrence, t))}
+                items={calendar.activity ?? []}
+                onView={(item) => setSeatInfo(seatInfoFromActivity(item, t))}
               />
             </TabsContent>
             <TabsContent value="deferred" className="mt-3">

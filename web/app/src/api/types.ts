@@ -195,6 +195,7 @@ export interface CalendarMonth {
   paid_in_month_occurrences: CalendarOccurrence[] | null
   actionable_occurrences: CalendarOccurrence[] | null
   archived_subscriptions: SubscriptionView[] | null
+  activity: CalendarActivity[] | null
   deferred_subscriptions: SubscriptionView[] | null
   days: CalendarDay[]
   total_count: number
@@ -203,6 +204,16 @@ export interface CalendarMonth {
   pending_month_count: number
   pending_month_amount_yuan: string
   archived_count: number
+}
+
+export interface CalendarActivity {
+  id: string
+  kind: "created" | "paid" | "archived"
+  occurred_at: string
+  occurred_at_label: string
+  amount_yuan: string
+  archived: boolean
+  occurrence: CalendarOccurrence
 }
 
 interface AmountBar {
