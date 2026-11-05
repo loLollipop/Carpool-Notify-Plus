@@ -102,12 +102,12 @@ function MonthGrid({
   return (
     <>
       <section aria-label={calendar.month_label}>
-        <div className="grid grid-cols-7 border-b bg-muted/70" aria-hidden="true">
+        <div className="grid grid-cols-7 border-b bg-muted/25" aria-hidden="true">
           {weekdays.map((weekday, index) => (
             <span
               key={weekday}
               className={cn(
-                "px-2 py-2 text-center text-xs font-medium text-muted-foreground",
+                "px-2 py-2 text-left text-xs font-medium text-muted-foreground sm:px-3",
                 index >= 5 && "text-muted-foreground/60",
               )}
             >
@@ -120,59 +120,49 @@ function MonthGrid({
             const occurrences = day.occurrences ?? []
             const allPaid = occurrences.every((occurrence) => occurrence.paid)
             const navigatesMonth = !day.in_month
+            const interactive = occurrences.length > 0 || navigatesMonth
+            const Cell = interactive ? "button" : "div"
             return (
-              <div
+              <Cell
                 key={day.date}
-                role={navigatesMonth ? "button" : undefined}
-                tabIndex={navigatesMonth ? 0 : undefined}
-                aria-label={navigatesMonth ? t("calendar.dateOnly", { date: day.date_label }) : undefined}
-                onClick={() => navigatesMonth && onSelectDay(day)}
-                onKeyDown={(event) => {
-                  if (!navigatesMonth) return
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault()
-                    onSelectDay(day)
-                  }
+                type={interactive ? "button" : undefined}
+                aria-label={occurrences.length > 0
+                  ? t("calendar.dayEventCount", { date: day.date_label, count: occurrences.length })
+                  : navigatesMonth ? t("calendar.dateOnly", { date: day.date_label }) : undefined}
+                onClick={() => {
+                  if (occurrences.length > 0) setExpandedDay(day)
+                  else if (navigatesMonth) onSelectDay(day)
                 }}
                 className={cn(
-                  "relative flex h-24 min-w-0 flex-col gap-1 p-1 outline-none transition-colors sm:h-28 sm:p-2",
-                  day.in_month ? "bg-card" : "cursor-pointer bg-muted/40 text-muted-foreground/70 hover:bg-accent",
+                  "relative flex h-16 min-w-0 flex-col items-start justify-between px-2 py-1.5 text-left outline-none transition-colors sm:h-[clamp(3.5rem,calc((100dvh_-_21.25rem)/6),5rem)] sm:px-3 sm:py-2",
+                  day.in_month ? "bg-card" : "bg-muted/15",
+                  interactive && "cursor-pointer hover:bg-brand/[0.045] focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                  day.is_today && "bg-brand/[0.035] ring-1 ring-inset ring-brand/25",
                 )}
               >
                 <span
                   className={cn(
-                    "text-xs tabular-nums",
+                    "grid size-5 place-items-center text-xs font-medium tabular-nums sm:text-[13px]",
                     day.is_today
-                      ? "flex size-5 items-center justify-center rounded-full bg-brand font-semibold text-brand-foreground shadow-[0_0_0_3px_color-mix(in_oklab,var(--brand)_15%,transparent)]"
-                      : day.in_month
-                        ? day.is_weekend
-                          ? "font-medium text-brand"
-                          : "font-medium text-foreground"
-                        : "text-muted-foreground/50",
+                      ? "rounded-full bg-brand font-semibold text-brand-foreground"
+                      : day.in_month ? "text-foreground" : "text-muted-foreground/45",
                   )}
                 >
                   {day.day_number}
                 </span>
                 {occurrences.length > 0 ? (
-                  <button
-                    type="button"
-                    aria-label={t("calendar.dayEventCount", { date: day.date_label, count: occurrences.length })}
+                  <span
                     className={cn(
-                      "display-numeral m-auto grid min-h-11 w-full max-w-12 place-items-center rounded-xl px-1 text-xl font-semibold tabular-nums outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring sm:text-2xl",
-                      allPaid
-                        ? "bg-success/10 text-success hover:bg-success/20"
-                        : "bg-gold/10 text-gold hover:bg-gold/20",
+                      "inline-flex min-w-6 items-center justify-center gap-1.5 self-end rounded-md px-1.5 py-0.5 text-xs font-semibold leading-5 tabular-nums sm:min-w-7 sm:px-2",
+                      !day.in_month ? "text-muted-foreground/45"
+                        : allPaid ? "bg-success/[0.07] text-success" : "bg-gold/[0.07] text-gold",
                     )}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      setExpandedDay(day)
-                    }}
-                    onKeyDown={(event) => event.stopPropagation()}
                   >
+                    {day.in_month ? <span className="hidden size-1 rounded-full bg-current sm:block" aria-hidden="true" /> : null}
                     {occurrences.length}
-                  </button>
+                  </span>
                 ) : null}
-              </div>
+              </Cell>
             )
           })}
         </div>
