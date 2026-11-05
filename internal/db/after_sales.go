@@ -143,6 +143,9 @@ func (store *Store) BanAccountAndCreateAfterSalesCases(
 	now := formatTime(time.Now().UTC())
 	insertedCount := 0
 	for _, subscription := range affected {
+		if err := ensureRenewalNotDeferred(transaction, subscription.ID); err != nil {
+			return 0, err
+		}
 		if err := ensureNoFuturePaidBills(transaction, subscription.ID, bannedDate); err != nil {
 			return 0, err
 		}
@@ -504,6 +507,14 @@ func (store *Store) SetAfterSalesCaseRefunded(
 		if !seatID.Valid || seatID.Int64 <= 0 {
 			return ErrAfterSalesOriginalSeatBusy
 		}
+		var paused bool
+		if err := transaction.QueryRow(`SELECT account.paused FROM accounts AS account
+			JOIN seats AS seat ON seat.account_id = account.id WHERE seat.id = ?`, seatID.Int64).Scan(&paused); err != nil {
+			return err
+		}
+		if paused {
+			return ErrAccountPaused
+		}
 		var occupiedCount int
 		if err := transaction.QueryRow(`
 			SELECT COUNT(1)
@@ -674,16 +685,21 @@ func (store *Store) ReassignAfterSalesCase(
 	var accountEmail string
 	var spaceName string
 	var bannedAt sql.NullString
+	var paused bool
 	if err := transaction.QueryRow(`
-		SELECT name, COALESCE(email, ''), COALESCE(space_name, ''), banned_at
+		SELECT name, COALESCE(email, ''), COALESCE(space_name, ''), banned_at, paused
 		FROM accounts
 		WHERE id = ?`, replacementAccountID).Scan(
 		&accountName,
 		&accountEmail,
 		&spaceName,
 		&bannedAt,
+		&paused,
 	); err != nil {
 		return err
+	}
+	if paused {
+		return ErrAccountPaused
 	}
 	if bannedAt.Valid && strings.TrimSpace(bannedAt.String) != "" {
 		return ErrReplacementAccountBanned

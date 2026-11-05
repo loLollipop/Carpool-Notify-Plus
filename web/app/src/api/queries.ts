@@ -93,6 +93,7 @@ const scopeQueryKeys: Record<Exclude<MutationScope, "all" | "none">, readonly (r
   accounts: [
     queryKeys.accounts,
     ["data", "account-options"],
+    ["data", "calendar"],
     queryKeys.subscriptions,
     queryKeys.bills,
     queryKeys.afterSales,

@@ -481,7 +481,7 @@ function OperationsQueue({
   )
 }
 
-type CapacitySegment = "occupied" | "frozen" | "free"
+type CapacitySegment = "occupied" | "frozen" | "free" | "paused"
 
 function CapacityCard({
   overview,
@@ -498,6 +498,7 @@ function CapacityCard({
   const frozenPercent = (capacity.seat_frozen / total) * 100
   const occupiedAngle = Math.min(360, Math.max(0, occupiedPercent * 3.6))
   const frozenAngle = Math.min(360, occupiedAngle + Math.max(0, frozenPercent * 3.6))
+  const pausedAngle = Math.min(360, frozenAngle + (capacity.seat_paused / total) * 360)
   const segments = [
     {
       key: "occupied" as const,
@@ -516,6 +517,15 @@ function CapacityCard({
       dotClass: "bg-gold",
       barClass: "bg-gold",
       valueClass: "text-gold",
+    },
+    {
+      key: "paused" as const,
+      label: t("dash.workbench.paused"),
+      value: capacity.seat_paused,
+      percent: (capacity.seat_paused / total) * 100,
+      dotClass: "bg-muted-foreground",
+      barClass: "bg-muted-foreground",
+      valueClass: "text-muted-foreground",
     },
     {
       key: "free" as const,
@@ -557,7 +567,7 @@ function CapacityCard({
             })}
             className="relative grid size-40 shrink-0 place-items-center rounded-full p-[13px] shadow-[0_18px_42px_-26px_color-mix(in_oklab,var(--brand)_70%,transparent)]"
             style={{
-              background: `conic-gradient(from -90deg, var(--brand) 0deg ${occupiedAngle}deg, var(--gold) ${occupiedAngle}deg ${frozenAngle}deg, color-mix(in oklab, var(--muted) 78%, var(--card)) ${frozenAngle}deg 360deg)`,
+              background: `conic-gradient(from -90deg, var(--brand) 0deg ${occupiedAngle}deg, var(--gold) ${occupiedAngle}deg ${frozenAngle}deg, var(--muted-foreground) ${frozenAngle}deg ${pausedAngle}deg, color-mix(in oklab, var(--muted) 78%, var(--card)) ${pausedAngle}deg 360deg)`,
             }}
           >
             <div className="grid size-full place-items-center rounded-full border bg-card shadow-[inset_0_1px_0_color-mix(in_oklab,var(--foreground)_6%,transparent)]">
@@ -799,13 +809,15 @@ export function DashboardPage() {
       occupied: t("dash.workbench.occupied"),
       frozen: t("dash.workbench.frozen"),
       free: t("dash.workbench.free"),
+      paused: t("dash.workbench.paused"),
     }
     const matches = (accountsQuery.data ?? []).flatMap((account: AccountView) =>
       (account.seats ?? [])
         .filter((seat) => {
           if (capacitySegment === "frozen") return seat.frozen
           if (capacitySegment === "occupied") return seat.occupied && !seat.frozen
-          return !seat.occupied && !seat.frozen
+          if (capacitySegment === "paused") return account.account.paused && !seat.occupied && !seat.frozen
+          return !account.account.paused && !account.account.banned_at && !seat.occupied && !seat.frozen
         })
         .map((seat) => ({ account, seat })),
     )

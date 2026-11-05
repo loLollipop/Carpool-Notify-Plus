@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useTranslation } from "react-i18next"
-import { useNavigate, useSearchParams } from "react-router-dom"
+import { Link, useNavigate, useSearchParams } from "react-router-dom"
 import {
   ChevronLeft,
   ChevronRight,
@@ -8,6 +8,7 @@ import {
   Ellipsis,
   Gift,
   Mail,
+  Pause,
   Pencil,
   Receipt,
   Search,
@@ -65,6 +66,7 @@ import {
 } from "@/components/ui/select"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DuePaidDialog, type DuePaidTarget } from "@/features/calendar/DuePaidDialog"
+import { DeferRenewalButton } from "@/features/calendar/DeferRenewalButton"
 import { CustomerBenefitDialog } from "@/features/goals/CustomerBenefitDialog"
 import { accountSerialSearchTerms, formatAccountLabel, formatAccountName } from "@/lib/account-display"
 import { cn, compareISODateStrings } from "@/lib/utils"
@@ -326,7 +328,7 @@ function SubscriptionCard({
           />
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          {!archived && !cancellationPending ? (
+          {!archived && !cancellationPending && !view.renewal_deferred ? (
             <Button
               variant="ghost"
               size="icon-sm"
@@ -345,7 +347,9 @@ function SubscriptionCard({
               <Gift aria-hidden="true" />
             </Button>
           ) : null}
-          {cancellationPending ? (
+          {view.renewal_deferred ? (
+            <Badge variant="warning"><Pause />{t("calendar.deferred.status")}</Badge>
+          ) : cancellationPending ? (
             <Badge variant="secondary" className="shrink-0 font-normal">
               <Clock3 />
               {t("cards.cancellationPending")}
@@ -442,13 +446,19 @@ function SubscriptionCard({
             {t("cards.renew")}
           </Button>
         ) : null}
-        {!plusRental && !archived && !cancellationPending && subscription.customer_email ? (
+        {!plusRental && !archived && !cancellationPending && !view.renewal_deferred && subscription.customer_email ? (
           <Button variant="outline" size="sm" onClick={() => onSendReminder(view)}>
             <Mail data-slot="icon" />
             {t("cards.sendReminder")}
           </Button>
         ) : null}
-        {!archived && !cancellationPending ? (
+        {!archived && !cancellationPending ? <DeferRenewalButton subscription={view} /> : null}
+        {view.renewal_deferred ? (
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/calendar?view=deferred"><Pause />{t("calendar.deferred.manage")}</Link>
+          </Button>
+        ) : null}
+        {!archived && !cancellationPending && !view.renewal_deferred ? (
           <Button
             variant="ghost"
             size="sm"
@@ -651,12 +661,13 @@ export function CardsPage() {
       pool = activeViews.filter(
         (view) =>
           !view.cancellation_pending &&
+          !view.renewal_deferred &&
           view.days_remaining >= 0 &&
           view.days_remaining <= 7,
       )
     } else if (filter === "pending") {
       pool = activeViews.filter(
-        (view) => !view.cancellation_pending && view.days_remaining <= 0,
+        (view) => !view.cancellation_pending && !view.renewal_deferred && view.days_remaining <= 0,
       )
     } else if (filter === "paid") {
       pool = activeViews.filter((view) =>

@@ -308,6 +308,29 @@ export function archiveSubscription(id: number) {
   >(`/api/subscriptions/${id}/archive`, { method: "POST" })
 }
 
+export function deferSubscription(view: SubscriptionView) {
+  return api<MessageResult>(`/api/subscriptions/${view.subscription.id}/defer`, {
+    method: "POST",
+    body: { expected_due_date: view.next_due_date, expected_updated_at: view.subscription.updated_at },
+  })
+}
+
+export function resumeDeferredSubscription(id: number) {
+  return api<MessageResult>(`/api/subscriptions/${id}/defer`, { method: "DELETE" })
+}
+
+export function completeDeferredSubscriptions(subscriptions: SubscriptionView[]) {
+  return api<MessageResult & { completed_count: number }>("/api/subscriptions/deferred/complete", {
+    method: "POST",
+    body: {
+      subscriptions: subscriptions.map((view) => ({
+        subscription_id: view.subscription.id,
+        expected_updated_at: view.subscription.updated_at,
+      })),
+    },
+  })
+}
+
 export function completeOneMonthRental(id: number) {
   return api<MessageResult>(`/api/subscriptions/${id}/complete-one-month`, { method: "POST" })
 }
@@ -367,6 +390,13 @@ export function createAccount(input: AccountInput) {
 
 export function updateAccount(id: number, input: AccountInput) {
   return api<MessageResult>(`/api/accounts/${id}`, { method: "PUT", body: input })
+}
+
+export function setAccountAvailability(id: number, paused: boolean) {
+  return api<MessageResult>(`/api/accounts/${id}/availability`, {
+    method: "PUT",
+    body: { paused },
+  })
 }
 
 export function markAccountRenewed(id: number, renewalDate: string) {

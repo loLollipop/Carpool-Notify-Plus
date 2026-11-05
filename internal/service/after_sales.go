@@ -111,6 +111,9 @@ func (service *SubscriptionService) RequestCancellation(subscriptionID int64) (C
 		}
 		return CancellationRequestResult{}, err
 	}
+	if subscription.RenewalDeferredAt != nil {
+		return CancellationRequestResult{}, db.ErrRenewalDeferred
+	}
 	view, err := service.buildView(subscription, requestedAt, "")
 	if err != nil {
 		return CancellationRequestResult{}, err

@@ -23,6 +23,9 @@ func (store *Store) RequestSubscriptionCancellation(
 		return model.AfterSalesCase{}, err
 	}
 	defer func() { _ = transaction.Rollback() }()
+	if err := ensureRenewalNotDeferred(transaction, subscriptionID); err != nil {
+		return model.AfterSalesCase{}, err
+	}
 
 	var accountID int64
 	var accountName string
@@ -403,6 +406,8 @@ func archiveSubscriptionInTransaction(
 				WHEN seat_id IS NOT NULL THEN ?
 				ELSE NULL
 			END,
+		    renewal_deferred_at = NULL,
+		    renewal_deferred_due_date = '',
 		    cancellation_requested_at = NULL,
 		    cancellation_expires_at = NULL,
 		    cancellation_case_id = 0,

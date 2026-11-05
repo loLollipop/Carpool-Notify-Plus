@@ -116,6 +116,9 @@ func (service *SubscriptionService) now() time.Time {
 
 // SubscriptionView is a list/card presentation model.
 type SubscriptionView struct {
+	AccountPaused              bool               `json:"account_paused"`
+	RenewalDeferred            bool               `json:"renewal_deferred"`
+	DeferredAtLabel            string             `json:"deferred_at_label"`
 	Subscription               model.Subscription `json:"subscription"`
 	PriceYuan                  string             `json:"price_yuan"`
 	NextPriceYuan              string             `json:"next_price_yuan"`
@@ -433,6 +436,12 @@ func (service *SubscriptionService) buildViewWithPaidDueDates(
 			displayDue = nextDue
 		}
 	}
+	if subscription.RenewalDeferredAt != nil {
+		displayDue, err = time.ParseInLocation("2006-01-02", subscription.RenewalDeferredDueDate, cycle.Location)
+		if err != nil {
+			return SubscriptionView{}, err
+		}
+	}
 	// Separate one-period payments keep Team progress tied to the single billing
 	// period immediately before displayDue. Consecutive bills alone do not prove
 	// that the customer bought one continuous multi-period package. Only an
@@ -489,6 +498,10 @@ func (service *SubscriptionService) buildViewWithPaidDueDates(
 	if subscription.NextPriceCents != nil {
 		nextPriceYuan = cycle.FormatCents(*subscription.NextPriceCents)
 	}
+	deferredAtLabel := ""
+	if subscription.RenewalDeferredAt != nil {
+		deferredAtLabel = subscription.RenewalDeferredAt.In(cycle.Location).Format("2006-01-02 15:04")
+	}
 	archivedAtLabel := ""
 	if subscription.ArchivedAt != nil {
 		archivedAtLabel = subscription.ArchivedAt.In(cycle.Location).Format("2006-01-02 15:04")
@@ -508,6 +521,9 @@ func (service *SubscriptionService) buildViewWithPaidDueDates(
 	}
 	return SubscriptionView{
 		Subscription:               subscription,
+		AccountPaused:              subscription.AccountPaused,
+		RenewalDeferred:            subscription.RenewalDeferredAt != nil,
+		DeferredAtLabel:            deferredAtLabel,
 		PriceYuan:                  cycle.FormatCents(subscription.PricePerPersonCents),
 		NextPriceYuan:              nextPriceYuan,
 		NextPriceEffectiveDueDate:  subscription.NextPriceEffectiveDueDate,
@@ -1415,8 +1431,8 @@ func (service *SubscriptionService) Copy(subscriptionID int64, targetSeatID int6
 	if err != nil {
 		return 0, err
 	}
-	if account.BannedAt != "" {
-		return 0, fmt.Errorf("该账号已封禁，不能再分配新用户")
+	if account.BannedAt != "" || account.Paused {
+		return 0, fmt.Errorf("该账号已暂停或封禁，不能再分配新用户")
 	}
 
 	copyName := strings.TrimSpace(source.Name)
@@ -1650,7 +1666,7 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 		if accountErr != nil {
 			return model.Subscription{}, accountErr
 		}
-		if account.BannedAt != "" {
+		if account.BannedAt != "" || account.Paused {
 			keepsExistingSeat := false
 			if existingSubscriptionID > 0 {
 				existing, existingErr := service.Store.GetSubscription(existingSubscriptionID)
@@ -1659,7 +1675,7 @@ func (service *SubscriptionService) parseInput(input CreateInput, existingSubscr
 				}
 			}
 			if !keepsExistingSeat {
-				return model.Subscription{}, fmt.Errorf("该账号已封禁，不能再分配新用户")
+				return model.Subscription{}, fmt.Errorf("该账号已暂停或封禁，不能再分配新用户")
 			}
 		}
 		if strings.TrimSpace(input.CostYuan) == "" {
@@ -2880,12 +2896,17 @@ func templateDisplayName(subscription model.Subscription) string {
 
 // SendCustomerEmail sends the customer template to the subscription's customer email.
 func (service *SubscriptionService) SendCustomerEmail(ctx context.Context, subscriptionID int64) error {
+	service.dueNotificationMu.Lock()
+	defer service.dueNotificationMu.Unlock()
 	subscription, err := service.Store.GetSubscriptionIncludingArchived(subscriptionID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("订阅不存在")
 		}
 		return err
+	}
+	if subscription.RenewalDeferredAt != nil {
+		return fmt.Errorf("客户续费已搁置，请先恢复跟进")
 	}
 	if isPlusSubscription(subscription) {
 		return fmt.Errorf("Plus 出租仅使用微信人工续费，不发送客户邮件")
@@ -3287,6 +3308,9 @@ func (service *SubscriptionService) ProcessDueNotifications(ctx context.Context)
 	today := cycle.FormatDate(now)
 
 	for _, subscription := range subscriptions {
+		if subscription.RenewalDeferredAt != nil {
+			continue
+		}
 		pendingCount, err := service.Store.CountPendingAfterSalesCasesBySubscription(subscription.ID)
 		if err != nil {
 			return err
@@ -3775,6 +3799,9 @@ func (service *SubscriptionService) notificationMatchesCurrentBoundary(
 	subscription model.Subscription,
 	logEntry model.NotificationLog,
 ) (bool, error) {
+	if subscription.RenewalDeferredAt != nil {
+		return false, nil
+	}
 	schedule, err := subscription.BillingSchedule()
 	if err != nil {
 		return false, err

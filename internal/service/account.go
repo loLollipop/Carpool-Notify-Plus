@@ -543,7 +543,7 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 				break
 			}
 		}
-		if account.BannedAt != "" && !includesCurrentSeat {
+		if (account.BannedAt != "" || account.Paused) && !includesCurrentSeat {
 			continue
 		}
 		freeSeats, err := service.Store.ListFreeSeatsAt(account.ID, includeSeatID, service.now())
@@ -564,6 +564,9 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 			}
 			// For create/edit, only list free seats (plus includeSeatID which is in freeSet).
 			if !isFree {
+				continue
+			}
+			if (account.Paused || account.BannedAt != "") && seat.ID != includeSeatID {
 				continue
 			}
 			seatOptions = append(seatOptions, SeatOption{
@@ -601,7 +604,9 @@ func (service *SubscriptionService) ListAccountOptionsForForm(includeSeatID int6
 func accountDisplaySerial(account model.Account) int64 { return account.ID }
 
 // accountDisplaySerials folds secondary spaces into the first owner's serial,
-// preserving physical import order and database ID gaps. Remark suffixes are metadata.
+// preserving physical import order and database ID gaps until an explicit anchor.
+// From that point, new logical accounts are numbered consecutively. Remark
+// suffixes remain metadata and never become numbering anchors.
 func accountDisplaySerials(accounts []model.Account) map[int64]int64 {
 	ordered := append([]model.Account(nil), accounts...)
 	sort.Slice(ordered, func(left, right int) bool {
@@ -611,6 +616,8 @@ func accountDisplaySerials(accounts []model.Account) map[int64]int64 {
 	serials := make(map[int64]int64, len(accounts))
 	groupSerials := make(map[string]int64, len(accounts))
 	var secondarySpaceCount int64
+	var anchoredSerial int64
+	anchored := false
 	for _, account := range ordered {
 		groupEmail := accountGroupingEmail(account)
 		groupKey := strings.ToLower(strings.TrimSpace(groupEmail))
@@ -628,6 +635,16 @@ func accountDisplaySerials(accounts []model.Account) map[int64]int64 {
 		}
 
 		groupSerial = account.ID - secondarySpaceCount
+		if anchored {
+			groupSerial = anchoredSerial + 1
+		}
+		if account.DisplaySerialAnchor > 0 {
+			groupSerial = account.DisplaySerialAnchor
+			anchored = true
+		}
+		if anchored {
+			anchoredSerial = groupSerial
+		}
 		groupSerials[groupKey] = groupSerial
 		serials[account.ID] = groupSerial
 	}

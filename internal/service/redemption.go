@@ -419,6 +419,7 @@ func (service *SubscriptionService) InviteRedemptionApplication(applicationID in
 		}
 		if autoAssign && (errors.Is(err, db.ErrActiveSeatOccupied) ||
 			errors.Is(err, db.ErrReplacementAccountBanned) ||
+			errors.Is(err, db.ErrAccountPaused) ||
 			errors.Is(err, db.ErrReplacementSeatUnavailable) ||
 			errors.Is(err, db.ErrSeatStateChanged)) {
 			continue

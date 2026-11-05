@@ -60,6 +60,7 @@ type OperationsCapacitySummary struct {
 	SeatUsed           int `json:"seat_used"`
 	SeatFree           int `json:"seat_free"`
 	SeatFrozen         int `json:"seat_frozen"`
+	SeatPaused         int `json:"seat_paused"`
 	SeatReleasing7Days int `json:"seat_releasing_7d"`
 	UtilizationPercent int `json:"utilization_percent"`
 }
@@ -298,7 +299,11 @@ func buildOperationsCapacity(
 		summary.SeatUsed += account.SeatUsed
 		for _, seat := range account.Seats {
 			if !seat.Occupied && !seat.Frozen {
-				summary.SeatFree++
+				if account.Account.Paused {
+					summary.SeatPaused++
+				} else {
+					summary.SeatFree++
+				}
 			}
 			if !seat.Frozen {
 				continue
@@ -412,7 +417,7 @@ func buildSubscriptionOperationTasks(
 }
 
 func isActionableSubscriptionDue(view SubscriptionView) bool {
-	return !view.CancellationPending && view.DaysRemaining <= 7
+	return !view.CancellationPending && !view.RenewalDeferred && view.DaysRemaining <= 7
 }
 
 func buildRedemptionOperationTasks(views []RedemptionApplicationView, tasks *[]OperationTask) {
