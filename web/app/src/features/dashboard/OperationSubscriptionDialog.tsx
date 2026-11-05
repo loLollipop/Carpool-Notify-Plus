@@ -17,6 +17,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatAccountLabel } from "@/lib/account-display"
 import { maskAmount } from "@/lib/amount-privacy"
+import { DeferRenewalButton } from "@/features/calendar/DeferRenewalButton"
 
 function DetailItem({
   label,
@@ -233,6 +234,9 @@ export function OperationSubscriptionDialog({
         </div>
 
         <DialogFooter className="border-t bg-muted/20 px-5 py-4 sm:px-6">
+          {subscription && !loading && !loadFailed ? (
+            <DeferRenewalButton subscription={subscription} onSuccess={() => onOpenChange(false)} />
+          ) : null}
           <Button variant="outline" asChild>
             <Link to={userPath} onClick={() => onOpenChange(false)}>
               {t("dash.workbench.openUserPage")}

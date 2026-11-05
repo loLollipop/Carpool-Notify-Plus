@@ -11,6 +11,7 @@ import {
   Eye,
   History,
   ListTodo,
+  Pause,
   ReceiptText,
   UserRoundX,
 } from "lucide-react"
@@ -42,8 +43,9 @@ import {
   type SeatSubscriptionInfo,
 } from "./seat-subscription-info"
 import { SeatSubscriptionDialog } from "./SeatSubscriptionDialog"
+import { DeferredWorkspace } from "./DeferredWorkspace"
 
-type CalendarView = "tasks" | "calendar" | "activity"
+type CalendarView = "tasks" | "calendar" | "activity" | "deferred"
 type TaskFilter = "all" | "overdue" | "soon" | "paid"
 const TASKS_PER_PAGE = 12
 const CALENDAR_EVENTS_PER_DAY = 3
@@ -604,7 +606,7 @@ export function CalendarPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const month = searchParams.get("month") ?? ""
   const requestedView = searchParams.get("view")
-  const view: CalendarView = requestedView === "calendar" || requestedView === "activity" ? requestedView : "tasks"
+  const view: CalendarView = requestedView === "calendar" || requestedView === "activity" || requestedView === "deferred" ? requestedView : "tasks"
   const calendarQuery = useCalendar(month || undefined)
   const [seatInfo, setSeatInfo] = React.useState<SeatSubscriptionInfo | null>(null)
   const [duePaidTarget, setDuePaidTarget] = React.useState<DuePaidTarget | null>(null)
@@ -653,12 +655,13 @@ export function CalendarPage() {
         </Card>
       ) : calendar ? (
         <div className="grid gap-3">
-          <MonthToolbar calendar={calendar} onNavigateMonth={(value) => updateParams({ month: value })} />
+          {view !== "deferred" ? <MonthToolbar calendar={calendar} onNavigateMonth={(value) => updateParams({ month: value })} /> : null}
           <Tabs value={view} onValueChange={(value) => updateParams({ view: value as CalendarView })}>
-            <TabsList aria-label={t("calendar.workspaceLabel")}>
+            <TabsList className="h-auto min-h-8 max-w-full flex-wrap justify-start" aria-label={t("calendar.workspaceLabel")}>
               <TabsTrigger value="tasks"><ListTodo />{t("calendar.viewTasks")}</TabsTrigger>
               <TabsTrigger value="calendar"><CalendarDays />{t("calendar.viewCalendar")}</TabsTrigger>
               <TabsTrigger value="activity"><History />{t("calendar.viewActivity")}</TabsTrigger>
+              <TabsTrigger value="deferred"><Pause />{t("calendar.deferred.tab")}<span className="tabular-nums">{calendar.deferred_subscriptions?.length ?? 0}</span></TabsTrigger>
             </TabsList>
             <TabsContent value="tasks" className="mt-3">
               <TaskWorkspace
@@ -683,6 +686,43 @@ export function CalendarPage() {
               <ActivityWorkspace
                 calendar={calendar}
                 onView={(occurrence) => setSeatInfo(seatInfoFromOccurrence(occurrence, t))}
+              />
+            </TabsContent>
+            <TabsContent value="deferred" className="mt-3">
+              <DeferredWorkspace
+                subscriptions={calendar.deferred_subscriptions ?? []}
+                onView={(selected) => setSeatInfo({
+                  subscriptionId: selected.subscription.id,
+                  businessType: "team",
+                  name: selected.subscription.name,
+                  accountName: formatAccountLabel(selected.account_serial, selected.account_display_email || selected.account_name, "—", selected.account_space_role),
+                  seatName: selected.seat_name,
+                  statusLabel: t("calendar.deferred.status"),
+                  statusTone: "warning",
+                  priceYuan: selected.price_yuan,
+                  costYuan: selected.allocated_cost_yuan || selected.cost_yuan,
+                  profitYuan: selected.allocated_profit_yuan || selected.profit_yuan,
+                  cycleDesc: selected.cycle_desc,
+                  cronExpr: selected.subscription.cron_expr,
+                  offsetsText: selected.offsets_text,
+                  channelLabels: selected.channel_labels?.join(" / ") || "—",
+                  boardedAt: selected.boarded_at,
+                  extraDateLabel: t("calendar.dueDate"),
+                  extraDate: selected.subscription.renewal_deferred_due_date,
+                  customerEmail: selected.subscription.customer_email,
+                  customerWechat: selected.subscription.customer_wechat,
+                  remark: selected.subscription.remark,
+                  tradeUrl: selected.subscription.trade_url,
+                  archived: false,
+                })}
+                onPaid={(selected) => setDuePaidTarget({
+                  subscriptionId: selected.subscription.id,
+                  name: selected.subscription.customer_email || selected.subscription.name,
+                  priceYuan: selected.price_yuan,
+                  cycleDesc: selected.cycle_desc,
+                  dueDate: selected.subscription.renewal_deferred_due_date,
+                  kind: "team",
+                })}
               />
             </TabsContent>
           </Tabs>

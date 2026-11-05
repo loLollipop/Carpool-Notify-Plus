@@ -30,6 +30,8 @@ type CalendarMonthView struct {
 	// dashboard queue. It includes overdue items and the next seven days even
 	// when that window crosses a calendar-month boundary.
 	ActionableOccurrences []CalendarOccurrenceView `json:"actionable_occurrences"`
+	// DeferredSubscriptions is the global follow-up holding list, independent of month.
+	DeferredSubscriptions []SubscriptionView `json:"deferred_subscriptions"`
 	// ArchivedSubscriptions are 已下车 items for the agenda tab (not on the month grid).
 	ArchivedSubscriptions []SubscriptionView `json:"archived_subscriptions"`
 	Days                  []CalendarDayView  `json:"days"`
@@ -103,11 +105,8 @@ type dueOccurrenceKey struct {
 // SetDuePaid marks or unmarks one subscription due date as paid (creates/deletes a bill).
 // dueDate is the period start (cron occurrence that anchors this billing cycle).
 func (service *SubscriptionService) SetDuePaid(subscriptionID int64, dueDate string, paid bool) error {
-	if !paid {
-		// A cancellation either precedes delivery or waits for the in-flight send.
-		service.dueNotificationMu.Lock()
-		defer service.dueNotificationMu.Unlock()
-	}
+	service.dueNotificationMu.Lock()
+	defer service.dueNotificationMu.Unlock()
 	subscription, err := service.Store.GetSubscription(subscriptionID)
 	if err != nil {
 		return err
@@ -403,6 +402,12 @@ func (service *SubscriptionService) calendarMonth(
 	daysUntilSunday := (7 - int(lastDay.Weekday())) % 7
 	gridEnd := lastDay.AddDate(0, 0, daysUntilSunday+1)
 
+	deferredViews := make([]SubscriptionView, 0)
+	for _, view := range subscriptionViews {
+		if view.RenewalDeferred {
+			deferredViews = append(deferredViews, view)
+		}
+	}
 	subscriptions := make([]model.Subscription, 0, len(subscriptionViews))
 	accountSerialBySubscription := make(map[int64]int64, len(subscriptionViews))
 	accountEmailBySubscription := make(map[int64]string, len(subscriptionViews))
@@ -484,6 +489,10 @@ func (service *SubscriptionService) calendarMonth(
 				subscriptionID: subscription.ID,
 				dueDate:        dueDate,
 			}]
+			if subscription.RenewalDeferredAt != nil && !paid {
+				cursor = cycle.StartOfDay(dueAt).AddDate(0, 0, 1).Add(-time.Nanosecond)
+				continue
+			}
 			gridOccurrences = append(gridOccurrences, service.buildOccurrenceView(
 				subscription,
 				accountSerialBySubscription[subscription.ID],
@@ -567,6 +576,7 @@ func (service *SubscriptionService) calendarMonth(
 		PaidInMonthOccurrences: paidInMonthOccurrences,
 		ActionableOccurrences:  actionableOccurrences,
 		ArchivedSubscriptions:  archivedViews,
+		DeferredSubscriptions:  deferredViews,
 		Days:                   days,
 		TotalCount:             len(monthOccurrences),
 		PaidCount:              paidCount,

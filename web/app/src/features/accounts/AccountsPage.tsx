@@ -9,7 +9,9 @@ import {
   CircleParking,
   CircleParkingOff,
   KeyRound,
+  Pause,
   Pencil,
+  Play,
   Plus,
   RefreshCw,
   Search,
@@ -18,7 +20,7 @@ import {
   Trash2,
 } from "lucide-react"
 
-import { deleteAccount, markAccountRenewed } from "@/api/endpoints"
+import { deleteAccount, markAccountRenewed, setAccountAvailability } from "@/api/endpoints"
 import { useAppMutation } from "@/api/mutations"
 import { useAccounts } from "@/api/queries"
 import type { AccountView } from "@/api/types"
@@ -106,6 +108,9 @@ function AccountStatus({ view }: { view: AccountView }) {
         {t("accounts.statusBanned")}
       </Badge>
     )
+  }
+  if (view.account.paused) {
+    return <Badge variant="warning" className="font-normal"><Pause />{t("accounts.statusPaused")}</Badge>
   }
   if (view.is_full) {
     return (
@@ -226,7 +231,7 @@ function AccountStatsSection({
       key: "available" as const,
       label: t("accounts.statusFree"),
       value: accounts.filter(
-        (view) => !view.account.banned_at && view.seat_used < view.seat_total,
+        (view) => !view.account.banned_at && !view.account.paused && view.seat_used < view.seat_total,
       ).length,
       hint: t("accounts.statsAvailableHint"),
       icon: CircleParking,
@@ -310,6 +315,8 @@ function AccountMobileCard({
   onEditFreeze,
   onRenew,
   onEdit,
+  onToggleAvailability,
+  availabilityPending,
   onBan,
   onDelete,
 }: {
@@ -320,6 +327,8 @@ function AccountMobileCard({
   onEditFreeze: (seat: NonNullable<AccountView["seats"]>[number]) => void
   onRenew: () => void
   onEdit: () => void
+  onToggleAvailability: () => void
+  availabilityPending: boolean
   onBan: () => void
   onDelete: () => void
 }) {
@@ -338,6 +347,8 @@ function AccountMobileCard({
           "absolute inset-y-0 left-0 w-1",
           view.account.banned_at
             ? "bg-destructive"
+            : view.account.paused
+              ? "bg-gold"
             : view.is_full
               ? "bg-destructive"
               : view.seat_used === 0
@@ -488,6 +499,12 @@ function AccountMobileCard({
           {t("common.edit")}
         </Button>
         {!view.account.banned_at ? (
+          <Button variant="outline" size="sm" onClick={onToggleAvailability} disabled={availabilityPending}>
+            {view.account.paused ? <Play /> : <Pause />}
+            {t(view.account.paused ? "accounts.resumeUse" : "accounts.pauseUse")}
+          </Button>
+        ) : null}
+        {!view.account.banned_at ? (
           <Button
             variant="ghost"
             size="sm"
@@ -544,6 +561,10 @@ export function AccountsPage() {
   const renewalMutation = useAppMutation(
     (target: AccountRenewalTarget) => markAccountRenewed(target.id, target.renewalDate),
     { scope: "accounts", onSuccess: () => setRenewalTarget(null) },
+  )
+  const availabilityMutation = useAppMutation(
+    ({ id, paused }: { id: number; paused: boolean }) => setAccountAvailability(id, paused),
+    { scope: "accounts" },
   )
 
   const toggleExpanded = (accountId: number) => {
@@ -660,7 +681,7 @@ export function AccountsPage() {
       if (nextFilter === "renewal") return renewalDates.has(view.account.id)
       if (nextFilter === "banned") return Boolean(view.account.banned_at)
       if (nextFilter === "full") return !view.account.banned_at && view.is_full
-      return !view.account.banned_at && view.seat_used < view.seat_total
+      return !view.account.banned_at && !view.account.paused && view.seat_used < view.seat_total
     })
     const title = nextFilter === "all"
       ? t("accounts.statsTotal")
@@ -697,7 +718,7 @@ export function AccountsPage() {
         meta: [
           view.account.space_name,
           renewalDates.get(view.account.id),
-          view.account.banned_at ? t("accounts.statusBanned") : view.is_full
+          view.account.banned_at ? t("accounts.statusBanned") : view.account.paused ? t("accounts.statusPaused") : view.is_full
             ? t("accounts.statusFull")
             : t("accounts.statusOpen"),
         ],
@@ -709,7 +730,7 @@ export function AccountsPage() {
         ) : `${view.seat_used}/${view.seat_total}`,
         valueTone: nextFilter === "renewal"
           ? undefined
-          : view.account.banned_at || view.is_full ? "danger" : "success",
+          : view.account.banned_at || view.is_full ? "danger" : view.account.paused ? "warning" : "success",
         searchText: [view.display_email, view.account.remark].filter(Boolean).join(" "),
       })),
     })
@@ -721,7 +742,7 @@ export function AccountsPage() {
       if (statsFilter === "renewal") return renewalDates.has(view.account.id)
       if (statsFilter === "banned") return Boolean(view.account.banned_at)
       if (statsFilter === "full") return !view.account.banned_at && view.is_full
-      return !view.account.banned_at && view.seat_used < view.seat_total
+      return !view.account.banned_at && !view.account.paused && view.seat_used < view.seat_total
     }
 
     const query = search.trim().toLowerCase()
@@ -875,6 +896,8 @@ export function AccountsPage() {
                 onEditFreeze={openFreezeEditor}
                 onRenew={() => openRenewal(view)}
                 onEdit={() => openEdit(view)}
+                onToggleAvailability={() => availabilityMutation.mutate({ id: view.account.id, paused: !view.account.paused })}
+                availabilityPending={availabilityMutation.isPending}
                 onBan={() =>
                   setBanTarget({
                     id: view.account.id,
@@ -890,16 +913,16 @@ export function AccountsPage() {
           </div>
 
           <Card className="hidden gap-0 overflow-hidden p-0 animate-fade-up sm:flex">
-          <Table className="table-fixed">
+          <Table className="min-w-[960px] table-fixed">
             <TableHeader>
               <TableRow>
                 <TableHead>{t("accounts.colAccount")}</TableHead>
-                <TableHead className="w-44">{t("accounts.colOccupancy")}</TableHead>
+                <TableHead className="w-32">{t("accounts.colOccupancy")}</TableHead>
                 <TableHead className="w-24">{t("accounts.colStatus")}</TableHead>
-                <TableHead className="hidden lg:table-cell lg:w-40">
+                <TableHead className="hidden lg:table-cell lg:w-36">
                   {t("accounts.colPaymentMethod")}
                 </TableHead>
-                <TableHead className="hidden md:table-cell md:w-52">
+                <TableHead className="hidden md:table-cell md:w-36">
                   {t("accounts.colRemark")}
                 </TableHead>
                 <TableHead className="w-64 text-right">{t("accounts.colActions")}</TableHead>
@@ -921,6 +944,8 @@ export function AccountsPage() {
                       "border-l-2",
                       view.account.banned_at
                         ? "border-l-destructive"
+                        : view.account.paused
+                          ? "border-l-gold"
                         : view.is_full
                           ? "border-l-destructive"
                           : view.seat_used === 0
@@ -1070,11 +1095,22 @@ export function AccountsPage() {
                       )}
                     </TableCell>
                     <TableCell className="text-right">
-                      <div className="inline-flex items-center gap-1">
+                      <div className="inline-flex flex-wrap justify-end gap-1">
                         <Button variant="outline" size="sm" onClick={() => openEdit(view)}>
                           <Pencil data-slot="icon" />
                           {t("common.edit")}
                         </Button>
+                        {!view.account.banned_at ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={availabilityMutation.isPending}
+                            onClick={() => availabilityMutation.mutate({ id: view.account.id, paused: !view.account.paused })}
+                          >
+                            {view.account.paused ? <Play /> : <Pause />}
+                            {t(view.account.paused ? "accounts.resumeUse" : "accounts.pauseUse")}
+                          </Button>
+                        ) : null}
                         {!view.account.banned_at ? (
                           <Button
                             variant="ghost"

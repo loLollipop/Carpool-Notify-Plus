@@ -46,6 +46,7 @@ var (
 	ErrExtensionRevisionOperationConflict = errors.New("延期修订操作标识已用于不同请求")
 	ErrAfterSalesOriginalSeatBusy         = errors.New("original after-sales seat is occupied")
 	ErrReplacementAccountBanned           = errors.New("replacement account is banned")
+	ErrAccountPaused                      = errors.New("账号已暂停使用，不能分配新客户")
 	ErrReplacementSeatUnavailable         = errors.New("replacement seat unavailable")
 	ErrReplacementSeatOccupied            = errors.New("replacement seat is occupied")
 	ErrReplacementSeatUnchanged           = errors.New("replacement seat is unchanged")
@@ -459,6 +460,12 @@ func (store *Store) migrate() error {
 		return err
 	}
 	if err := store.detachPlusRentalSeats(); err != nil {
+		return err
+	}
+	if _, err := store.ensureAccountColumn("display_serial_anchor", `ALTER TABLE accounts ADD COLUMN display_serial_anchor INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return err
+	}
+	if err := store.ensureAvailabilityColumns(); err != nil {
 		return err
 	}
 	if err := store.ensureAccountBanColumns(); err != nil {
@@ -1824,10 +1831,13 @@ const subscriptionSelectColumns = `
 	COALESCE(subscription.seat_id, 0),
 	COALESCE(seat.account_id, 0),
 	COALESCE(account.name, ''),
+	COALESCE(account.paused, 0),
 	COALESCE(seat.name, ''),
 	subscription.subscription_type,
 	subscription.boarded_at,
 	subscription.archived_at,
+	subscription.renewal_deferred_at,
+	COALESCE(subscription.renewal_deferred_due_date, ''),
 	subscription.seat_frozen_until,
 	subscription.cancellation_requested_at,
 	subscription.cancellation_expires_at,
@@ -1960,6 +1970,7 @@ func (store *Store) CreateSubscriptionWithInitialBill(
 
 type sqlExecer interface {
 	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
 }
 
 func insertSubscription(
@@ -2001,7 +2012,7 @@ func insertSubscription(
 				WHERE NOT EXISTS (
 					SELECT 1 FROM seats AS seat
 					INNER JOIN accounts AS account ON account.id = seat.account_id
-					WHERE seat.id = ? AND TRIM(COALESCE(account.banned_at, '')) <> ''
+					WHERE seat.id = ? AND (TRIM(COALESCE(account.banned_at, '')) <> '' OR account.paused = 1)
 				)`,
 		subscription.Name,
 		businessType,
@@ -2036,6 +2047,9 @@ func insertSubscription(
 		return 0, err
 	}
 	if rowsAffected == 0 {
+		if err := ensureSeatAccountAvailable(executor, subscription.SeatID); err != nil {
+			return 0, err
+		}
 		return 0, ErrReplacementAccountBanned
 	}
 	return result.LastInsertId()
@@ -2501,9 +2515,11 @@ func updateSubscriptionWithExecutor(
 	var storedNextPrice sql.NullInt64
 	var storedNextPriceDueDate string
 	var storedSeatID sql.NullInt64
+	var storedDeferredAt sql.NullString
+	var storedCron, storedBoardedAt, storedBusinessType string
 	if err := executor.QueryRow(`
 		SELECT price_per_person_cents, COALESCE(customer_email, ''), COALESCE(customer_wechat, ''),
-		       next_price_cents, COALESCE(next_price_effective_due_date, ''), seat_id
+		       next_price_cents, COALESCE(next_price_effective_due_date, ''), seat_id, renewal_deferred_at, cron_expr, boarded_at, business_type
 		FROM subscriptions
 		WHERE id = ?`, subscription.ID).Scan(
 		&storedCurrentPrice,
@@ -2512,8 +2528,15 @@ func updateSubscriptionWithExecutor(
 		&storedNextPrice,
 		&storedNextPriceDueDate,
 		&storedSeatID,
+		&storedDeferredAt, &storedCron, &storedBoardedAt, &storedBusinessType,
 	); err != nil {
 		return err
+	}
+	if storedDeferredAt.Valid && (subscription.SeatID != storedSeatID.Int64 ||
+		strings.TrimSpace(subscription.CronExpr) != strings.TrimSpace(storedCron) ||
+		strings.TrimSpace(subscription.BoardedAt) != strings.TrimSpace(storedBoardedAt) ||
+		normalizeStoredBusinessType(subscription.BusinessType) != storedBusinessType) {
+		return ErrRenewalDeferred
 	}
 	// Existing occupants may still edit other fields after an account ban.
 	// New assignments must recheck the account inside the guarded write transaction.
@@ -2523,12 +2546,12 @@ func updateSubscriptionWithExecutor(
 			SELECT EXISTS (
 				SELECT 1 FROM seats AS seat
 				INNER JOIN accounts AS account ON account.id = seat.account_id
-				WHERE seat.id = ? AND TRIM(COALESCE(account.banned_at, '')) <> ''
+				WHERE seat.id = ? AND (TRIM(COALESCE(account.banned_at, '')) <> '' OR account.paused = 1)
 			)`, subscription.SeatID).Scan(&banned); err != nil {
 			return err
 		}
 		if banned {
-			return ErrReplacementAccountBanned
+			return ensureSeatAccountAvailable(executor, subscription.SeatID)
 		}
 	}
 	nextPriceScheduleChanged := strings.TrimSpace(storedNextPriceDueDate) != strings.TrimSpace(subscription.NextPriceEffectiveDueDate) ||
@@ -2634,6 +2657,13 @@ func updateSubscriptionWithExecutor(
 			return ErrSubscriptionHasPendingAfterSales
 		}
 		return ErrSubscriptionStateChanged
+	}
+	if strings.TrimSpace(subscription.CronExpr) != strings.TrimSpace(storedCron) ||
+		strings.TrimSpace(subscription.BoardedAt) != strings.TrimSpace(storedBoardedAt) ||
+		normalizeStoredBusinessType(subscription.BusinessType) != storedBusinessType {
+		if err := clearRenewalDeferralWithTransaction(executor, subscription.ID); err != nil {
+			return err
+		}
 	}
 	revisedPriceDiscountBenefit := false
 	if nextPriceScheduleChanged && storedNextPrice.Valid && storedNextPrice.Int64 < storedCurrentPrice {
@@ -2789,6 +2819,9 @@ func (store *Store) archiveSubscription(
 	defer func() {
 		_ = transaction.Rollback()
 	}()
+	if err := ensureRenewalNotDeferred(transaction, subscriptionID); err != nil {
+		return err
+	}
 	if expected != nil {
 		if _, err := subscriptionVersionForUpdate(transaction, subscriptionID, expected.UpdatedAt); err != nil {
 			return err
@@ -3023,6 +3056,9 @@ func (store *Store) setDuePaid(
 	if inserted == 1 {
 		emails.BillID, err = result.LastInsertId()
 		if err != nil {
+			return err
+		}
+		if err := clearRenewalDeferralWithTransaction(transaction, subscriptionID); err != nil {
 			return err
 		}
 		if err := touchSubscriptionWithTransaction(transaction, subscriptionID); err != nil {
@@ -3294,6 +3330,9 @@ func (store *Store) deleteBillIfUnreferenced(billID int64, expected ...*time.Tim
 	}
 
 	if err := ensureBillUnreferenced(transaction, billID); err != nil {
+		return err
+	}
+	if err := clearRenewalDeferralWithTransaction(transaction, subscriptionID); err != nil {
 		return err
 	}
 	result, err := transaction.Exec(`DELETE FROM bills WHERE id = ?`, billID)
@@ -3753,6 +3792,9 @@ func (store *Store) CreateSubscriptionAndInviteRedemption(
 	}
 
 	var actualAccountID int64
+	if err := ensureSeatAccountAvailable(transaction, seatID); err != nil {
+		return 0, err
+	}
 	var bannedAt string
 	if err := transaction.QueryRow(`
 		SELECT seat.account_id, COALESCE(account.banned_at, '')
@@ -3836,6 +3878,8 @@ const accountSelectColumns = `
 	COALESCE(zero_renewal_next_month, 0),
 	COALESCE(banned_at, ''),
 	COALESCE(ban_note, ''),
+	paused,
+	display_serial_anchor,
 	created_at,
 	updated_at`
 
@@ -4396,7 +4440,7 @@ func (store *Store) GetFirstFreeSeatByAccountImportOrderAt(now time.Time) (model
 		SELECT seat.id, seat.account_id, seat.name, seat.created_at, seat.updated_at
 		FROM seats AS seat
 		INNER JOIN accounts AS account ON account.id = seat.account_id
-		WHERE COALESCE(account.banned_at, '') = ''
+		WHERE COALESCE(account.banned_at, '') = '' AND account.paused = 0
 		  AND NOT EXISTS (
 			SELECT 1
 			FROM subscriptions AS subscription
@@ -5003,6 +5047,8 @@ func scanAccount(scanner scannable) (model.Account, error) {
 		&zeroRenewalNextMonth,
 		&account.BannedAt,
 		&account.BanNote,
+		&account.Paused,
+		&account.DisplaySerialAnchor,
 		&createdAt,
 		&updatedAt,
 	)
@@ -5064,6 +5110,7 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 	var seatName string
 	var boardedAt string
 	var archivedAt sql.NullString
+	var renewalDeferredAt sql.NullString
 	var seatFrozenUntil sql.NullString
 	var cancellationRequestedAt sql.NullString
 	var cancellationExpiresAt sql.NullString
@@ -5093,10 +5140,13 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 		&seatID,
 		&accountID,
 		&accountName,
+		&subscription.AccountPaused,
 		&seatName,
 		&subscription.SubscriptionType,
 		&boardedAt,
 		&archivedAt,
+		&renewalDeferredAt,
+		&subscription.RenewalDeferredDueDate,
 		&seatFrozenUntil,
 		&cancellationRequestedAt,
 		&cancellationExpiresAt,
@@ -5140,6 +5190,13 @@ func scanSubscription(scanner scannable) (model.Subscription, error) {
 	}
 	if err := json.Unmarshal([]byte(channelsJSON), &subscription.Channels); err != nil {
 		return model.Subscription{}, fmt.Errorf("decode channels: %w", err)
+	}
+	if renewalDeferredAt.Valid && renewalDeferredAt.String != "" {
+		parsed, err := parseTime(renewalDeferredAt.String)
+		if err != nil {
+			return model.Subscription{}, err
+		}
+		subscription.RenewalDeferredAt = &parsed
 	}
 	if archivedAt.Valid && archivedAt.String != "" {
 		parsed, err := parseTime(archivedAt.String)

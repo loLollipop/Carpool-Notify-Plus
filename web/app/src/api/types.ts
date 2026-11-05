@@ -33,6 +33,8 @@ interface Subscription {
   cancellation_requested_at: string | null
   cancellation_expires_at: string | null
   cancellation_case_id: number
+  renewal_deferred_at: string | null
+  renewal_deferred_due_date: string
   deleted_at: string | null
   created_at: string
   updated_at: string
@@ -70,6 +72,9 @@ export interface SubscriptionView {
   cancellation_pending: boolean
   cancellation_case_id: number
   cancellation_expires_at_label: string
+  account_paused: boolean
+  renewal_deferred: boolean
+  deferred_at_label: string
   bill_count: number
   can_soft_delete: boolean
 }
@@ -190,6 +195,7 @@ export interface CalendarMonth {
   paid_in_month_occurrences: CalendarOccurrence[] | null
   actionable_occurrences: CalendarOccurrence[] | null
   archived_subscriptions: SubscriptionView[] | null
+  deferred_subscriptions: SubscriptionView[] | null
   days: CalendarDay[]
   total_count: number
   paid_count: number
@@ -299,6 +305,7 @@ interface OperationsCapacitySummary {
   seat_used: number
   seat_free: number
   seat_frozen: number
+  seat_paused: number
   seat_releasing_7d: number
   utilization_percent: number
 }
@@ -354,6 +361,8 @@ interface Account {
   cost_cents: number
   total_cost_cents: number
   zero_renewal_next_month: boolean
+  paused: boolean
+  display_serial_anchor: number
   banned_at: string
   ban_note: string
   created_at: string

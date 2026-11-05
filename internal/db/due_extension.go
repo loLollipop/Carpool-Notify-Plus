@@ -101,13 +101,30 @@ func currentFirstUnpaidDueDate(
 	}
 	// Pre-ledger subscriptions have no durable fact from which to recover an
 	// old unpaid gap. Preserve their legacy schedule-membership behavior until
-	// either a payment or an extension establishes that anchor.
-	if len(paidDates) == 0 && len(history) == 0 {
-		return "", false, nil
-	}
+	// a payment, extension, or explicit renewal deferral establishes that anchor.
 	historicalBaseDate := ""
 	if len(history) > 0 {
 		historicalBaseDate = history[0].BaseDueDate
+	}
+	if len(paidDates) == 0 && len(history) == 0 {
+		rows, err := queryer.Query(`SELECT COALESCE(renewal_deferred_due_date, '') FROM subscriptions WHERE id = ?`, subscriptionID)
+		if err != nil {
+			return "", false, err
+		}
+		if rows.Next() {
+			err = rows.Scan(&historicalBaseDate)
+		}
+		readErr := rows.Err()
+		_ = rows.Close()
+		if err != nil {
+			return "", false, err
+		}
+		if readErr != nil {
+			return "", false, readErr
+		}
+		if historicalBaseDate == "" {
+			return "", false, nil
+		}
 	}
 	dueAt, err := schedule.FirstUnpaid(now, paidDates, historicalBaseDate)
 	if err != nil {
@@ -193,6 +210,11 @@ func (store *Store) loadSubscriptionExtensions(subscriptions []model.Subscriptio
 			subscriptions[i].DueExtensionUnpaidBaseDate = event.BaseDueDate
 		}
 	}
+	for i := range subscriptions {
+		if subscriptions[i].DueExtensionUnpaidBaseDate == "" {
+			subscriptions[i].DueExtensionUnpaidBaseDate = subscriptions[i].RenewalDeferredDueDate
+		}
+	}
 	return subscriptions, nil
 }
 
@@ -208,6 +230,8 @@ func (store *Store) subscriptionWithExtensions(scanner scannable) (model.Subscri
 	history, err := readDueExtensionsFiltered(store.database, []int64{subscription.ID}, true)
 	if err == nil && len(history) > 0 {
 		subscription.DueExtensionUnpaidBaseDate = history[0].BaseDueDate
+	} else if err == nil {
+		subscription.DueExtensionUnpaidBaseDate = subscription.RenewalDeferredDueDate
 	}
 	return subscription, err
 }
@@ -309,6 +333,9 @@ func applyDueExtension(
 	expectation *DueExtensionExpectation,
 ) (model.SubscriptionDueExtension, error) {
 	var event model.SubscriptionDueExtension
+	if err := ensureRenewalNotDeferred(transaction, benefit.SubscriptionID); err != nil {
+		return event, err
+	}
 	subscription, err := scanSubscription(transaction.QueryRow(`SELECT `+subscriptionSelectColumns+`
 		`+subscriptionFromJoin+` WHERE subscription.id = ? AND subscription.deleted_at IS NULL
 		AND subscription.archived_at IS NULL AND subscription.business_type = 'team'
@@ -335,6 +362,8 @@ func applyDueExtension(
 	}
 	if len(history) > 0 {
 		subscription.DueExtensionUnpaidBaseDate = history[0].BaseDueDate
+	} else {
+		subscription.DueExtensionUnpaidBaseDate = subscription.RenewalDeferredDueDate
 	}
 	schedule, err := subscription.BillingSchedule()
 	if err != nil {
@@ -606,6 +635,9 @@ func (store *Store) ReviseCustomerBenefitExtension(input ReviseDueExtensionInput
 		return ReviseDueExtensionResult{}, err
 	}
 
+	if err := ensureRenewalNotDeferred(transaction, target.SubscriptionID); err != nil {
+		return ReviseDueExtensionResult{}, err
+	}
 	activeEvents, err := readDueExtensions(transaction, []int64{target.SubscriptionID})
 	if err != nil {
 		return ReviseDueExtensionResult{}, err

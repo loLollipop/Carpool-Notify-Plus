@@ -286,6 +286,7 @@ var DefaultRedeemPageSettings = RedeemPageSettings{
 
 // Account is a carpool identity (e.g. a ChatGPT Team owner account) that owns seats.
 type Account struct {
+	DisplaySerialAnchor  int64     `json:"display_serial_anchor"`
 	ID                   int64     `json:"id"`
 	Name                 string    `json:"name"`
 	Remark               string    `json:"remark"`
@@ -296,6 +297,7 @@ type Account struct {
 	CostCents            int64     `json:"cost_cents"`
 	TotalCostCents       int64     `json:"total_cost_cents"`
 	ZeroRenewalNextMonth bool      `json:"zero_renewal_next_month"`
+	Paused               bool      `json:"paused"`
 	BannedAt             string    `json:"banned_at"`
 	BanNote              string    `json:"ban_note"`
 	CreatedAt            time.Time `json:"created_at"`
@@ -488,9 +490,10 @@ type Subscription struct {
 	// Plus rentals deliberately keep this at zero and do not occupy a seat.
 	SeatID int64 `json:"seat_id"`
 	// AccountID / AccountName / SeatName are joined presentation fields (not always stored).
-	AccountID   int64  `json:"account_id"`
-	AccountName string `json:"account_name"`
-	SeatName    string `json:"seat_name"`
+	AccountPaused bool   `json:"-"`
+	AccountID     int64  `json:"account_id"`
+	AccountName   string `json:"account_name"`
+	SeatName      string `json:"seat_name"`
 	// SubscriptionType is a legacy classification label kept for migration/export.
 	// Display and stats use AccountName instead.
 	SubscriptionType string `json:"subscription_type"`
@@ -499,7 +502,10 @@ type Subscription struct {
 	BoardedAt string `json:"boarded_at"`
 	// ArchivedAt is set when the user gets off (下车); archived subscriptions
 	// leave the active list and scheduler but keep bills linked.
-	ArchivedAt *time.Time `json:"archived_at"`
+	ArchivedAt        *time.Time `json:"archived_at"`
+	RenewalDeferredAt *time.Time `json:"renewal_deferred_at"`
+	// The saved unpaid boundary survives resuming follow-up until the ledger changes.
+	RenewalDeferredDueDate string `json:"renewal_deferred_due_date"`
 	// SeatFrozenUntil keeps a canceled Team seat unavailable after the refund
 	// is completed. Plus rentals have no seat and leave this field empty.
 	SeatFrozenUntil         *time.Time                 `json:"seat_frozen_until"`
@@ -512,6 +518,7 @@ type Subscription struct {
 	// by an extension. It is internal ledger context: revised events no longer
 	// shift the schedule, but their boundary must still prevent a no-bill
 	// subscription from skipping an overdue unpaid period.
+	// A saved renewal-deferral boundary also anchors a pre-ledger subscription.
 	DueExtensionUnpaidBaseDate string    `json:"-"`
 	CreatedAt                  time.Time `json:"created_at"`
 	UpdatedAt                  time.Time `json:"updated_at"`
