@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -15,8 +13,6 @@ import (
 	"carpool-notify/internal/db"
 	"carpool-notify/internal/model"
 )
-
-var accountRemarkSerialPattern = regexp.MustCompile(`(?:\(([0-9]+)\)|（([0-9]+)）)\s*$`)
 
 // AccountView is one account with seat occupancy for the accounts page and forms.
 type AccountView struct {
@@ -651,19 +647,6 @@ func accountDisplaySerials(accounts []model.Account) map[int64]int64 {
 	return serials
 }
 
-func accountRemarkSerial(remark string) (int64, bool) {
-	matches := accountRemarkSerialPattern.FindStringSubmatch(strings.TrimSpace(remark))
-	if len(matches) == 0 {
-		return 0, false
-	}
-	raw := matches[1]
-	if raw == "" {
-		raw = matches[2]
-	}
-	serial, err := strconv.ParseInt(raw, 10, 64)
-	return serial, err == nil && serial > 0 && serial <= 9007199254740991
-}
-
 func accountDisplayEmail(account model.Account) string {
 	if email := accountGroupingEmail(account); email != "" {
 		return email
@@ -675,45 +658,7 @@ func accountDisplayEmail(account model.Account) string {
 }
 
 func accountGroupingEmail(account model.Account) string {
-	// Remarks describe account provenance, so they must not override an
-	// existing login email. Keep the legacy fallback for accounts without one.
-	if email := parseStandaloneEmail(account.Email); email != "" {
-		return email
-	}
-	if email := parseStandaloneEmail(account.Name); email != "" {
-		return email
-	}
-	_, email := accountRemarkIdentity(account.Remark)
-	return email
-}
-
-func accountRemarkIdentity(remark string) (int64, string) {
-	trimmed := strings.TrimSpace(remark)
-	indices := accountRemarkSerialPattern.FindStringSubmatchIndex(trimmed)
-	if len(indices) == 0 {
-		return 0, ""
-	}
-	serial, ok := accountRemarkSerial(trimmed)
-	if !ok {
-		return 0, ""
-	}
-	email := parseStandaloneEmail(strings.TrimSpace(trimmed[:indices[0]]))
-	if email == "" {
-		return 0, ""
-	}
-	return serial, email
-}
-
-func parseStandaloneEmail(raw string) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" || !strings.Contains(raw, "@") {
-		return ""
-	}
-	address, err := mail.ParseAddress(raw)
-	if err != nil || address.Name != "" || strings.TrimSpace(address.Address) != raw {
-		return ""
-	}
-	return raw
+	return model.AccountGroupingEmail(account)
 }
 
 func accountDisplaySerialForID(serials map[int64]int64, accountID int64) int64 {

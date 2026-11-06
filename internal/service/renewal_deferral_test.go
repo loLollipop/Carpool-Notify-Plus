@@ -299,7 +299,8 @@ func TestDeferredNotificationsCancelQueuedAndRevalidateBeforeSend(t *testing.T) 
 func TestPausedAccountRedemptionAndAfterSalesReplacement(t *testing.T) {
 	svc := openTestService(t)
 	svc.Clock = func() time.Time { return time.Date(2026, 8, 1, 12, 0, 0, 0, cycle.Location) }
-	pausedID, pausedSeats := createTestAccountWithSeats(t, svc, "paused", "free")
+	pausedID, _ := createTestAccountWithSeats(t, svc, "paused@example.com", "free")
+	_, pausedSeats := createTestAccountWithSeats(t, svc, "paused@example.com", "free")
 	_, availableSeats := createTestAccountWithSeats(t, svc, "available", "free", "replacement")
 	if err := svc.SetAccountPaused(pausedID, true); err != nil {
 		t.Fatal(err)
