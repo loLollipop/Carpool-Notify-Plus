@@ -24,7 +24,8 @@ func TestSubscriptionAssignmentRechecksPauseAfterAccountRead(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = pauser.Close() })
-			accountID, err := writer.CreateAccountWithSeats(model.Account{Name: "target"}, 0, "2026-09-01", []string{"new seat"})
+			ownerID := pauseTestAccount(t, writer, model.Account{Name: "primary", Email: "owner@example.com"})
+			accountID, err := writer.CreateAccountWithSeats(model.Account{Name: "target", Email: "OWNER@example.com"}, 0, "2026-09-01", []string{"new seat"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -38,7 +39,7 @@ func TestSubscriptionAssignmentRechecksPauseAfterAccountRead(t *testing.T) {
 			if account.Paused {
 				t.Fatal("initially paused")
 			}
-			if err := pauser.SetAccountPaused(accountID, true); err != nil {
+			if err := pauser.SetAccountPaused(ownerID, true); err != nil {
 				t.Fatal(err)
 			}
 			subscription.SeatID = seats[0].ID

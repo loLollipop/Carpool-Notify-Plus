@@ -45,18 +45,6 @@ func (store *Store) ensureAvailabilityColumns() error {
 	return nil
 }
 
-func (store *Store) SetAccountPaused(accountID int64, paused bool) error {
-	result, err := store.database.Exec(`UPDATE accounts SET paused = ?, updated_at = ? WHERE id = ?`, paused, formatTime(time.Now().UTC()), accountID)
-	if err != nil {
-		return err
-	}
-	count, err := result.RowsAffected()
-	if err == nil && count == 0 {
-		return sql.ErrNoRows
-	}
-	return err
-}
-
 func ensureSeatAccountAvailable(queryer interface{ QueryRow(string, ...any) *sql.Row }, seatID int64) error {
 	var paused bool
 	var banned string

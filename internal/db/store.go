@@ -468,6 +468,9 @@ func (store *Store) migrate() error {
 	if err := store.ensureAvailabilityColumns(); err != nil {
 		return err
 	}
+	if err := store.alignAccountPauseGroups(); err != nil {
+		return fmt.Errorf("align account email-group pauses: %w", err)
+	}
 	if err := store.ensureAccountBanColumns(); err != nil {
 		return err
 	}
@@ -3988,6 +3991,9 @@ func (store *Store) CreateAccountWithSeats(account model.Account, initialCostCen
 			return 0, err
 		}
 	}
+	if err := syncAccountPauseGroups(transaction, now); err != nil {
+		return 0, err
+	}
 	if err := transaction.Commit(); err != nil {
 		return 0, err
 	}
@@ -4171,6 +4177,9 @@ func (store *Store) updateAccountAndSeatCount(account model.Account, targetSeatC
 				return ErrSeatReferenced
 			}
 		}
+	}
+	if err := syncAccountPauseGroups(transaction, now); err != nil {
+		return err
 	}
 	return seatStateWriteError(transaction.Commit())
 }
